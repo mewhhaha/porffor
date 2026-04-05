@@ -1,0 +1,11 @@
+[package]
+name = "porffor-backend-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+porffor-ir = { path = "../porffor-ir" }
+
+[lib]
+path = "src/lib.rs"

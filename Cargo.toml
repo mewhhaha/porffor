@@ -1,0 +1,28 @@
+[workspace]
+members = [
+  "crates/porffor-front",
+  "crates/porffor-ir",
+  "crates/porffor-runtime",
+  "crates/porffor-spec-exec",
+  "crates/porffor-aot-wasm",
+  "crates/porffor-backend-c",
+  "crates/porffor-backend-native",
+  "crates/porffor-engine",
+  "crates/porffor-cli",
+  "crates/porffor-test262",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+authors = ["Porffor contributors"]
+repository = "https://github.com/CanadaHonk/porffor"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[patch.crates-io]
+boa_engine = { path = "vendor/boa_engine-0.21.1" }
+icu_calendar = { path = "vendor/icu_calendar-2.0.6" }

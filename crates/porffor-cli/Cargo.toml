@@ -1,0 +1,13 @@
+[package]
+name = "porffor-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+porffor-engine = { path = "../porffor-engine" }
+porffor-test262 = { path = "../porffor-test262" }
+
+[[bin]]
+name = "porf"
+path = "src/main.rs"

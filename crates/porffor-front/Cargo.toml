@@ -1,0 +1,13 @@
+[package]
+name = "porffor-front"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oxc_allocator = "0.123.0"
+oxc_parser = "0.123.0"
+oxc_span = "0.123.0"
+
+[lib]
+path = "src/lib.rs"

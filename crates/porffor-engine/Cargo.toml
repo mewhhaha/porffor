@@ -1,0 +1,17 @@
+[package]
+name = "porffor-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+porffor-aot-wasm = { path = "../porffor-aot-wasm" }
+porffor-backend-c = { path = "../porffor-backend-c" }
+porffor-backend-native = { path = "../porffor-backend-native" }
+porffor-front = { path = "../porffor-front" }
+porffor-ir = { path = "../porffor-ir" }
+porffor-runtime = { path = "../porffor-runtime" }
+porffor-spec-exec = { path = "../porffor-spec-exec" }
+
+[lib]
+path = "src/lib.rs"
