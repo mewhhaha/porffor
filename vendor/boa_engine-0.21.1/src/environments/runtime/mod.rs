@@ -11,7 +11,8 @@ use boa_gc::{Finalize, Gc, Trace};
 mod declarative;
 mod private;
 
-use self::declarative::{DisposableResource, ModuleEnvironment};
+pub(crate) use self::declarative::DisposableResource;
+use self::declarative::ModuleEnvironment;
 pub(crate) use self::{
     declarative::{
         DeclarativeEnvironment, DeclarativeEnvironmentKind, FunctionEnvironment, FunctionSlots,
@@ -385,17 +386,77 @@ impl EnvironmentStack {
 }
 
 impl Context {
-    fn explicit_resource_symbol(&mut self, name: &str) -> JsResult<JsSymbol> {
-        let symbol_ctor = self.intrinsics().constructors().symbol().constructor();
-        let value = symbol_ctor.get(JsString::from(name), self)?;
-        value.as_symbol().ok_or_else(|| {
-            JsNativeError::typ()
-                .with_message(format!(
-                    "Symbol.{} must be installed before using declarations run",
-                    name
-                ))
-                .into()
-        })
+    fn explicit_resource_symbol(&self, r#async: bool) -> JsSymbol {
+        if r#async {
+            JsSymbol::async_dispose()
+        } else {
+            JsSymbol::dispose()
+        }
+    }
+
+    pub(crate) fn get_dispose_method(
+        &mut self,
+        value: &JsValue,
+        r#async: bool,
+        nullish_message: &'static str,
+        missing_message: &'static str,
+    ) -> JsResult<Option<JsObject>> {
+        if value.is_null() || value.is_undefined() {
+            return Ok(None);
+        }
+
+        let Some(object) = value.as_object() else {
+            return Err(JsNativeError::typ().with_message(nullish_message).into());
+        };
+
+        let method = if r#async {
+            let async_method = object.get(self.explicit_resource_symbol(true), self)?;
+            if async_method.is_null() || async_method.is_undefined() {
+                object.get(self.explicit_resource_symbol(false), self)?
+            } else {
+                async_method
+            }
+        } else {
+            object.get(self.explicit_resource_symbol(false), self)?
+        };
+
+        if method.is_null() || method.is_undefined() {
+            return Err(JsNativeError::typ().with_message(missing_message).into());
+        }
+
+        method
+            .as_callable()
+            .ok_or_else(|| JsNativeError::typ().with_message(missing_message).into())
+            .map(Some)
+    }
+
+    pub(crate) fn append_disposal_error_value(
+        &mut self,
+        current: Option<JsValue>,
+        error: JsValue,
+    ) -> JsValue {
+        if let Some(suppressed) = current {
+            self.construct_suppressed_error_value(error, suppressed)
+        } else {
+            error
+        }
+    }
+
+    pub(crate) fn invoke_disposable_resource(
+        &mut self,
+        resource: &DisposableResource,
+    ) -> JsResult<JsValue> {
+        match resource.method() {
+            Some(method) => match resource.argument() {
+                Some(argument) => method.call(
+                    resource.this_value(),
+                    std::slice::from_ref(argument),
+                    self,
+                ),
+                None => method.call(resource.this_value(), &[], self),
+            },
+            None => Ok(JsValue::undefined()),
+        }
     }
 
     fn construct_suppressed_error_value(
@@ -419,17 +480,13 @@ impl Context {
         }
     }
 
-    fn append_disposal_error(
+    pub(crate) fn append_disposal_error(
         &mut self,
         current: Option<JsValue>,
         error: JsError,
     ) -> JsValue {
         let error = error.to_opaque(self);
-        if let Some(suppressed) = current {
-            self.construct_suppressed_error_value(error, suppressed)
-        } else {
-            error
-        }
+        self.append_disposal_error_value(current, error)
     }
 
     fn await_disposal_result_blocking(&mut self, value: JsValue) -> JsResult<()> {
@@ -456,40 +513,24 @@ impl Context {
         value: JsValue,
         r#async: bool,
     ) -> JsResult<()> {
+        let method = self.get_dispose_method(
+            &value,
+            r#async,
+            "using declarations require an object, null, or undefined",
+            "using declaration resource is missing a callable dispose method",
+        )?;
+
         if value.is_null() || value.is_undefined() {
-            return Ok(());
-        }
-        let Some(object) = value.as_object() else {
-            return Err(JsNativeError::typ()
-                .with_message("using declarations require an object, null, or undefined")
-                .into());
-        };
-
-        let method = if r#async {
-            let async_dispose = self.explicit_resource_symbol("asyncDispose")?;
-            let async_method = object.get(async_dispose, self)?;
-            if async_method.is_null() || async_method.is_undefined() {
-                let dispose = self.explicit_resource_symbol("dispose")?;
-                object.get(dispose, self)?
-            } else {
-                async_method
+            if !r#async {
+                return Ok(());
             }
-        } else {
-            let dispose = self.explicit_resource_symbol("dispose")?;
-            object.get(dispose, self)?
-        };
-
-        let Some(method) = method.as_callable() else {
-            return Err(JsNativeError::typ()
-                .with_message("using declaration resource is missing a callable dispose method")
-                .into());
-        };
+        }
 
         self.vm
             .environments
             .current_declarative_ref()
             .expect("using declarations require a declarative environment")
-            .push_disposable_resource(DisposableResource::new(value, method, r#async));
+            .push_disposable_resource(DisposableResource::from_value(value, method, r#async));
         Ok(())
     }
 
@@ -501,7 +542,7 @@ impl Context {
         let mut current = current;
         let resources = env.take_disposable_resources();
         for resource in resources.into_iter().rev() {
-            let outcome = resource.method().call(resource.value(), &[], self).and_then(|value| {
+            let outcome = self.invoke_disposable_resource(&resource).and_then(|value| {
                 if resource.r#async() {
                     self.await_disposal_result_blocking(value)
                 } else {

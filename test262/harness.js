@@ -33,6 +33,9 @@ var $262 = {
     return globalThis[name];
   },
   evalScript(code) {
+    if (typeof __porfEvalScript === 'function') {
+      return __porfEvalScript(code);
+    }
     return (0, eval)(String(code));
   },
   createRealm() {

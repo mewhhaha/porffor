@@ -2,6 +2,7 @@
 
 pub mod array;
 pub mod array_buffer;
+pub mod async_disposable_stack;
 pub mod async_function;
 pub mod async_generator;
 pub mod async_generator_function;
@@ -56,6 +57,7 @@ pub mod temporal;
 pub(crate) use self::{
     array::Array,
     async_function::AsyncFunction,
+    async_disposable_stack::{AsyncDisposableStack, DisposableStack},
     bigint::BigInt,
     boolean::Boolean,
     dataview::DataView,
@@ -246,6 +248,8 @@ impl Realm {
         Math::init(self);
         Json::init(self);
         Array::init(self);
+        AsyncDisposableStack::init(self);
+        DisposableStack::init(self);
         ArrayIterator::init(self);
         Proxy::init(self);
         ArrayBuffer::init(self);
@@ -384,6 +388,8 @@ pub(crate) fn set_default_global_bindings(context: &mut Context) -> JsResult<()>
     global_binding::<Math>(context)?;
     global_binding::<Json>(context)?;
     global_binding::<Array>(context)?;
+    global_binding::<AsyncDisposableStack>(context)?;
+    global_binding::<DisposableStack>(context)?;
     global_binding::<Proxy>(context)?;
     global_binding::<ArrayBuffer>(context)?;
     global_binding::<SharedArrayBuffer>(context)?;

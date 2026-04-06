@@ -208,14 +208,18 @@ impl Realm {
 
     /// Resizes the number of bindings on the global environment.
     pub(crate) fn resize_global_env(&self) {
-        let binding_number = self.scope().num_bindings();
+        let binding_number = self.scope().num_bindings() as usize;
         let env = self
             .environment()
             .kind()
             .as_global()
             .expect("Realm should only store global environments")
             .poisonable_environment();
-        env.extend_bindings_from_compile(binding_number as usize);
+        let previous_bindings = env.len();
+        env.extend_bindings_from_compile(binding_number);
+        if binding_number > previous_bindings {
+            self.environment().poison();
+        }
     }
 
     pub(crate) fn push_template(&self, site: u64, template: JsObject) {

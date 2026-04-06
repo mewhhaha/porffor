@@ -132,10 +132,12 @@ pub struct StandardConstructors {
     generator_function: StandardConstructor,
     async_generator_function: StandardConstructor,
     array: StandardConstructor,
+    async_disposable_stack: StandardConstructor,
     bigint: StandardConstructor,
     number: StandardConstructor,
     boolean: StandardConstructor,
     string: StandardConstructor,
+    disposable_stack: StandardConstructor,
     regexp: StandardConstructor,
     symbol: StandardConstructor,
     error: StandardConstructor,
@@ -221,6 +223,7 @@ impl Default for StandardConstructors {
             async_function: StandardConstructor::default(),
             generator_function: StandardConstructor::default(),
             array: StandardConstructor::with_prototype(JsObject::from_proto_and_data(None, Array)),
+            async_disposable_stack: StandardConstructor::default(),
             bigint: StandardConstructor::default(),
             number: StandardConstructor::with_prototype(JsObject::from_proto_and_data(None, 0.0)),
             boolean: StandardConstructor::with_prototype(JsObject::from_proto_and_data(
@@ -230,6 +233,7 @@ impl Default for StandardConstructors {
                 None,
                 js_string!(),
             )),
+            disposable_stack: StandardConstructor::default(),
             regexp: StandardConstructor::default(),
             symbol: StandardConstructor::default(),
             error: StandardConstructor::default(),
@@ -395,6 +399,20 @@ impl StandardConstructors {
     #[must_use]
     pub const fn array(&self) -> &StandardConstructor {
         &self.array
+    }
+
+    /// Returns the `AsyncDisposableStack` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn async_disposable_stack(&self) -> &StandardConstructor {
+        &self.async_disposable_stack
+    }
+
+    /// Returns the `DisposableStack` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn disposable_stack(&self) -> &StandardConstructor {
+        &self.disposable_stack
     }
 
     /// Returns the `BigInt` constructor.

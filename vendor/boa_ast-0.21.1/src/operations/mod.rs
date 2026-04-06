@@ -2327,6 +2327,10 @@ struct AnnexBFunctionDeclarationNamesVisitor<'a>(&'a mut Vec<Sym>);
 impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
     type BreakTy = Infallible;
 
+    fn visit_statement_list(&mut self, node: &'ast StatementList) -> ControlFlow<Self::BreakTy> {
+        self.visit_annex_b_statement_list(node)
+    }
+
     fn visit_statement_list_item(
         &mut self,
         node: &'ast StatementListItem,
@@ -2355,52 +2359,16 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
     }
 
     fn visit_block(&mut self, node: &'ast crate::statement::Block) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.statement_list())?;
-        for statement in node.statement_list().statements() {
-            if let StatementListItem::Declaration(declaration) = statement
-                && let Declaration::FunctionDeclaration(function) = &**declaration
-            {
-                let name = function.name();
-                self.0.push(name.sym());
-            }
-        }
-
-        let lexically_declared_names = lexically_declared_names_legacy(node.statement_list());
-
-        self.0
-            .retain(|name| !lexically_declared_names.contains(&(*name, false)));
-
-        ControlFlow::Continue(())
+        self.visit_annex_b_statement_list(node.statement_list())
     }
 
     fn visit_switch(&mut self, node: &'ast crate::statement::Switch) -> ControlFlow<Self::BreakTy> {
         for case in node.cases() {
-            self.visit(case)?;
-            for statement in case.body().statements() {
-                if let StatementListItem::Declaration(declaration) = statement
-                    && let Declaration::FunctionDeclaration(function) = &**declaration
-                {
-                    let name = function.name();
-                    self.0.push(name.sym());
-                }
-            }
+            self.visit_annex_b_statement_list(case.body())?;
         }
         if let Some(default) = node.default() {
-            self.visit(default)?;
-            for statement in default.statements() {
-                if let StatementListItem::Declaration(declaration) = statement
-                    && let Declaration::FunctionDeclaration(function) = declaration.as_ref()
-                {
-                    let name = function.name();
-                    self.0.push(name.sym());
-                }
-            }
+            self.visit_annex_b_statement_list(default)?;
         }
-
-        let lexically_declared_names = lexically_declared_names_legacy(node);
-
-        self.0
-            .retain(|name| !lexically_declared_names.contains(&(*name, false)));
 
         ControlFlow::Continue(())
     }
@@ -2511,6 +2479,41 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
 
     fn visit_with(&mut self, node: &'ast With) -> ControlFlow<Self::BreakTy> {
         self.visit(node.statement())
+    }
+}
+
+impl AnnexBFunctionDeclarationNamesVisitor<'_> {
+    fn visit_annex_b_statement_list(&mut self, list: &StatementList) -> ControlFlow<Infallible> {
+        for item in list.statements() {
+            if let StatementListItem::Statement(statement) = item {
+                self.visit(statement.as_ref())?;
+            }
+        }
+
+        let mut direct_function_names = Vec::new();
+        for item in list.statements() {
+            if let StatementListItem::Declaration(declaration) = item
+                && let Declaration::FunctionDeclaration(function) = declaration.as_ref()
+            {
+                direct_function_names.push(function.name().sym());
+            }
+        }
+
+        let blocked_names = lexically_declared_names_legacy(list)
+            .into_iter()
+            .filter_map(|(name, is_function)| (!is_function).then_some(name))
+            .collect::<FxHashSet<_>>();
+
+        self.0.retain(|name| {
+            !blocked_names.contains(name) && !direct_function_names.iter().any(|direct| direct == name)
+        });
+        self.0.extend(
+            direct_function_names
+                .into_iter()
+                .filter(|name| !blocked_names.contains(name)),
+        );
+
+        ControlFlow::Continue(())
     }
 }
 

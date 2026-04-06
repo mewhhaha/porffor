@@ -147,7 +147,7 @@ pub(crate) fn global_declaration_instantiation_context(
                 // a. If env.HasLexicalDeclaration(F) is false, then
                 if !env.has_lex_binding(&f_string) {
                     // i. Let fnDefinable be ? env.CanDeclareGlobalVar(F).
-                    let fn_definable = context.can_declare_global_function(&f_string)?;
+                    let fn_definable = context.can_declare_global_var(&f_string)?;
 
                     // ii. If fnDefinable is true, then
                     if fn_definable {
@@ -290,12 +290,17 @@ pub(crate) fn eval_declaration_instantiation_context(
 
                 // 3. Assert: The following loop will terminate.
                 // 4. Repeat, while thisEnv is not varEnv,
-                while this_env.scope_index() != lex_env.scope_index() {
+                let mut skipped_innermost_catch_env = false;
+                while this_env.scope_index() != var_env.scope_index() {
                     let f = f.to_js_string(context.interner());
 
                     // a. If thisEnv is not an Object Environment Record, then
                     // i. If ! thisEnv.HasBinding(F) is true, then
-                    if this_env.has_binding(&f) {
+                    if !skipped_innermost_catch_env
+                        && this_env.is_catch_parameter_environment()
+                    {
+                        skipped_innermost_catch_env = true;
+                    } else if this_env.has_binding(&f) {
                         // i. Let bindingExists be true.
                         binding_exists = true;
                         break;

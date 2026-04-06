@@ -2643,6 +2643,13 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
             NativeFunction::from_fn_ptr(host_create_realm),
         )
         .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfEvalScript"),
+            1,
+            NativeFunction::from_fn_ptr(host_eval_script),
+        )
+        .map_err(|err| format_js_error(err, context))?;
 
     let argv_literal = json_string_array(argv);
     let bootstrap = format!(
@@ -2655,6 +2662,9 @@ globalThis.$262 = {{
     return globalThis[name];
   }},
   evalScript(code) {{
+    if (typeof __porfEvalScript === "function") {{
+      return __porfEvalScript(code);
+    }}
     return (0, eval)(String(code));
   }},
   createRealm() {{
@@ -2793,6 +2803,18 @@ fn host_create_realm(
         .function(destroy, js_string!("destroy"), 0);
 
     Ok(realm.build().into())
+}
+
+fn host_eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let source = args
+        .first()
+        .cloned()
+        .unwrap_or_else(JsValue::undefined)
+        .to_string(context)?
+        .to_std_string_escaped();
+    let result = context.eval(Source::from_bytes(source.as_bytes()))?;
+    context.run_jobs()?;
+    Ok(result)
 }
 
 fn create_host_realm() -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {

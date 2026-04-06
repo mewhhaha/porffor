@@ -63,7 +63,9 @@ fn get_id() -> Option<u64> {
 #[derive(Debug, Clone, Copy, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 enum WellKnown {
+    AsyncDispose,
     AsyncIterator,
+    Dispose,
     HasInstance,
     IsConcatSpreadable,
     Iterator,
@@ -81,7 +83,9 @@ enum WellKnown {
 impl WellKnown {
     const fn description(self) -> JsString {
         match self {
+            Self::AsyncDispose => js_string!("Symbol.asyncDispose"),
             Self::AsyncIterator => StaticJsStrings::SYMBOL_ASYNC_ITERATOR,
+            Self::Dispose => js_string!("Symbol.dispose"),
             Self::HasInstance => StaticJsStrings::SYMBOL_HAS_INSTANCE,
             Self::IsConcatSpreadable => StaticJsStrings::SYMBOL_IS_CONCAT_SPREADABLE,
             Self::Iterator => StaticJsStrings::SYMBOL_ITERATOR,
@@ -99,7 +103,9 @@ impl WellKnown {
 
     const fn fn_name(self) -> JsString {
         match self {
+            Self::AsyncDispose => js_string!("[Symbol.asyncDispose]"),
             Self::AsyncIterator => StaticJsStrings::FN_SYMBOL_ASYNC_ITERATOR,
+            Self::Dispose => js_string!("[Symbol.dispose]"),
             Self::HasInstance => StaticJsStrings::FN_SYMBOL_HAS_INSTANCE,
             Self::IsConcatSpreadable => StaticJsStrings::FN_SYMBOL_IS_CONCAT_SPREADABLE,
             Self::Iterator => StaticJsStrings::FN_SYMBOL_ITERATOR,
@@ -280,8 +286,12 @@ impl JsSymbol {
     }
 
     well_known_symbols! {
+        /// Gets the static `JsSymbol` for `"Symbol.asyncDispose"`.
+        (async_dispose, WellKnown::AsyncDispose),
         /// Gets the static `JsSymbol` for `"Symbol.asyncIterator"`.
         (async_iterator, WellKnown::AsyncIterator),
+        /// Gets the static `JsSymbol` for `"Symbol.dispose"`.
+        (dispose, WellKnown::Dispose),
         /// Gets the static `JsSymbol` for `"Symbol.hasInstance"`.
         (has_instance, WellKnown::HasInstance),
         /// Gets the static `JsSymbol` for `"Symbol.isConcatSpreadable"`.

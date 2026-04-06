@@ -21,26 +21,49 @@ enum BindingSlot {
 
 #[derive(Debug, Trace, Finalize, Clone)]
 pub(crate) struct DisposableResource {
-    value: JsValue,
-    method: JsObject,
+    this_value: JsValue,
+    argument: Option<JsValue>,
+    method: Option<JsObject>,
     r#async: bool,
 }
 
 impl DisposableResource {
-    pub(crate) fn new(value: JsValue, method: JsObject, r#async: bool) -> Self {
+    pub(crate) fn new(
+        this_value: JsValue,
+        argument: Option<JsValue>,
+        method: Option<JsObject>,
+        r#async: bool,
+    ) -> Self {
         Self {
-            value,
+            this_value,
+            argument,
             method,
             r#async,
         }
     }
 
-    pub(crate) fn value(&self) -> &JsValue {
-        &self.value
+    pub(crate) fn from_value(value: JsValue, method: Option<JsObject>, r#async: bool) -> Self {
+        Self::new(value, None, method, r#async)
     }
 
-    pub(crate) fn method(&self) -> &JsObject {
-        &self.method
+    pub(crate) fn from_callback(
+        argument: Option<JsValue>,
+        method: JsObject,
+        r#async: bool,
+    ) -> Self {
+        Self::new(JsValue::undefined(), argument, Some(method), r#async)
+    }
+
+    pub(crate) fn this_value(&self) -> &JsValue {
+        &self.this_value
+    }
+
+    pub(crate) fn argument(&self) -> Option<&JsValue> {
+        self.argument.as_ref()
+    }
+
+    pub(crate) fn method(&self) -> Option<&JsObject> {
+        self.method.as_ref()
     }
 
     pub(crate) const fn r#async(&self) -> bool {
@@ -474,6 +497,11 @@ impl PoisonableEnvironment {
         if bindings_count > deletable_bindings.len() {
             deletable_bindings.resize(bindings_count, false);
         }
+    }
+
+    /// Returns the current binding count.
+    pub(crate) fn len(&self) -> usize {
+        self.bindings.borrow().len()
     }
 
     /// Returns `true` if this environment is poisoned.

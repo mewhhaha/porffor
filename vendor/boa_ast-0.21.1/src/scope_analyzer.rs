@@ -960,6 +960,7 @@ impl<'ast> VisitorMut<'ast> for BindingCollectorVisitor<'_> {
     fn visit_catch_mut(&mut self, node: &'ast mut Catch) -> ControlFlow<Self::BreakTy> {
         let mut scope = Scope::new(self.scope.clone(), false);
         if let Some(binding) = node.parameter() {
+            scope.set_is_catch_parameter_environment();
             match binding {
                 Binding::Identifier(ident) => {
                     let ident = ident.to_js_string(self.interner);
@@ -2372,25 +2373,30 @@ pub(crate) fn eval_declaration_instantiation_scope(
 
         // c. Assert: The following loop will terminate.
         // d. Repeat, while thisEnv is not varEnv,
+        let mut skipped_innermost_catch_env = strict;
         while this_env.scope_index() != var_env.scope_index() {
             // i. If thisEnv is not an Object Environment Record, then
             // 1. NOTE: The environment of with statements cannot contain any lexical
             //    declaration so it doesn't need to be checked for var/let hoisting conflicts.
             // 2. For each element name of varNames, do
-            for name in &var_names {
-                let name = interner.resolve_expect(*name).utf16().into();
+            if !skipped_innermost_catch_env && this_env.is_catch_parameter_environment() {
+                skipped_innermost_catch_env = true;
+            } else {
+                for name in &var_names {
+                    let name = interner.resolve_expect(*name).utf16().into();
 
-                // a. If ! thisEnv.HasBinding(name) is true, then
-                if this_env.has_binding(&name) {
-                    // i. Throw a SyntaxError exception.
-                    // ii. NOTE: Annex B.3.4 defines alternate semantics for the above step.
-                    return Err(format!(
-                        "variable declaration {} in eval function already exists as a lexical variable",
-                        name.to_std_string_escaped()
-                    ));
+                    // a. If ! thisEnv.HasBinding(name) is true, then
+                    if this_env.has_binding(&name) {
+                        // i. Throw a SyntaxError exception.
+                        // ii. NOTE: Annex B.3.4 defines alternate semantics for the above step.
+                        return Err(format!(
+                            "variable declaration {} in eval function already exists as a lexical variable",
+                            name.to_std_string_escaped()
+                        ));
+                    }
                 }
-                // b. NOTE: A direct eval will not hoist var declaration over a like-named lexical declaration.
             }
+            // b. NOTE: A direct eval will not hoist var declaration over a like-named lexical declaration.
 
             // ii. Set thisEnv to thisEnv.[[OuterEnv]].
             if let Some(outer) = this_env.outer() {

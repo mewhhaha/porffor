@@ -1838,7 +1838,23 @@ impl<'ctx> ByteCompiler<'ctx> {
                 let name = function.name();
                 if self.annex_b_function_names.contains(&name.sym()) {
                     let name = name.to_js_string(self.interner());
-                    let binding = self.get_identifier_reference(name.clone());
+                    let mut outer_scope = self.lexical_scope.outer();
+                    let mut shadowed_by_outer_lexical = false;
+                    while let Some(scope) = outer_scope {
+                        if scope.is_function() {
+                            break;
+                        }
+                        if !scope.is_catch_parameter_environment() && scope.has_lex_binding(&name) {
+                            shadowed_by_outer_lexical = true;
+                            break;
+                        }
+                        outer_scope = scope.outer();
+                    }
+                    if shadowed_by_outer_lexical {
+                        return;
+                    }
+
+                    let binding = self.lexical_scope.get_identifier_reference(name.clone());
                     let index = self.get_binding(&binding);
 
                     let value = self.register_allocator.alloc();
@@ -1882,8 +1898,14 @@ impl<'ctx> ByteCompiler<'ctx> {
             ..
         } = function;
 
+        let mut runtime_deletable_binding_overrides =
+            self.runtime_deletable_binding_overrides.clone();
         let name = if let Some(name) = name {
-            Some(name.sym().to_js_string(self.interner()))
+            let name = name.sym().to_js_string(self.interner());
+            if name_scope.is_none() && self.lexical_scope.has_lex_binding(&name) {
+                runtime_deletable_binding_overrides.remove(&name);
+            }
+            Some(name)
         } else {
             Some(js_string!())
         };
@@ -1900,7 +1922,7 @@ impl<'ctx> ByteCompiler<'ctx> {
             .name_scope(name_scope.cloned())
             .runtime_deletable_bindings(
                 self.runtime_deletable_binding_names.clone(),
-                self.runtime_deletable_binding_overrides.clone(),
+                runtime_deletable_binding_overrides,
             )
             .source_path(self.source_path.clone())
             .compile(

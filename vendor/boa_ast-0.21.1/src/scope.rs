@@ -103,6 +103,7 @@ pub(crate) struct Inner {
     index: Cell<u32>,
     bindings: RefCell<Vec<Binding>>,
     function: bool,
+    catch_parameter_environment: Cell<bool>,
     needs_environment: Cell<bool>,
     // Has the `this` been accessed/escaped outside the function environment boundry.
     this_escaped: Cell<bool>,
@@ -119,6 +120,7 @@ impl Scope {
                 index: Cell::default(),
                 bindings: RefCell::default(),
                 function: true,
+                catch_parameter_environment: Cell::new(false),
                 needs_environment: Cell::new(false),
                 this_escaped: Cell::new(false),
             }),
@@ -136,6 +138,7 @@ impl Scope {
                 index: Cell::new(index),
                 bindings: RefCell::default(),
                 function,
+                catch_parameter_environment: Cell::new(false),
                 needs_environment: Cell::new(false),
                 this_escaped: Cell::new(false),
             }),
@@ -270,6 +273,17 @@ impl Scope {
     #[must_use]
     pub fn is_function(&self) -> bool {
         self.inner.function
+    }
+
+    /// Mark this scope as the catch-parameter environment.
+    pub fn set_is_catch_parameter_environment(&self) {
+        self.inner.catch_parameter_environment.set(true);
+    }
+
+    /// Returns whether this scope is the catch-parameter environment.
+    #[must_use]
+    pub fn is_catch_parameter_environment(&self) -> bool {
+        self.inner.catch_parameter_environment.get()
     }
 
     /// Check if the scope is a global scope.

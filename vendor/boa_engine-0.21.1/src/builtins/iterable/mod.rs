@@ -2,11 +2,15 @@
 
 use crate::{
     Context, JsResult, JsValue,
-    builtins::{BuiltInBuilder, IntrinsicObject},
+    builtins::{
+        BuiltInBuilder, IntrinsicObject, Promise,
+        promise::{PromiseCapability, if_abrupt_reject_promise},
+    },
     context::intrinsics::Intrinsics,
     error::JsNativeError,
     js_string,
-    object::JsObject,
+    native_function::NativeFunction,
+    object::{FunctionObjectBuilder, JsObject},
     realm::Realm,
     symbol::JsSymbol,
 };
@@ -198,11 +202,59 @@ impl IntrinsicObject for AsyncIterator {
     fn init(realm: &Realm) {
         BuiltInBuilder::with_intrinsic::<Self>(realm)
             .static_method(|v, _, _| Ok(v.clone()), JsSymbol::async_iterator(), 0)
+            .static_method(Self::async_dispose, JsSymbol::async_dispose(), 0)
             .build();
     }
 
     fn get(intrinsics: &Intrinsics) -> JsObject {
         intrinsics.objects().iterator_prototypes().async_iterator()
+    }
+}
+
+impl AsyncIterator {
+    fn async_dispose(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+        let promise_capability = PromiseCapability::new(
+            &context.intrinsics().constructors().promise().constructor(),
+            context,
+        )
+        .expect("intrinsic Promise constructor must create promise capabilities");
+
+        let r#return = this.get_method(js_string!("return"), context);
+        let r#return = if_abrupt_reject_promise!(r#return, promise_capability, context);
+
+        if let Some(r#return) = r#return {
+            let result = r#return.call(this, &[JsValue::undefined()], context);
+            let result = if_abrupt_reject_promise!(result, promise_capability, context);
+            let result_wrapper = Promise::promise_resolve(
+                &context.intrinsics().constructors().promise().constructor(),
+                result,
+                context,
+            );
+            let result_wrapper =
+                if_abrupt_reject_promise!(result_wrapper, promise_capability, context);
+
+            let on_fulfilled = FunctionObjectBuilder::new(
+                context.realm(),
+                NativeFunction::from_fn_ptr(|_, _, _| Ok(JsValue::undefined())),
+            )
+            .name("")
+            .length(1)
+            .build();
+            Promise::perform_promise_then(
+                &result_wrapper,
+                Some(on_fulfilled),
+                None,
+                Some(promise_capability.clone()),
+                context,
+            );
+        } else {
+            promise_capability
+                .resolve()
+                .call(&JsValue::undefined(), &[JsValue::undefined()], context)
+                .expect("resolving a promise capability cannot fail");
+        }
+
+        Ok(promise_capability.promise().clone().into())
     }
 }
 

@@ -94,7 +94,9 @@ pub struct Symbol;
 
 impl IntrinsicObject for Symbol {
     fn init(realm: &Realm) {
+        let symbol_async_dispose = JsSymbol::async_dispose();
         let symbol_async_iterator = JsSymbol::async_iterator();
+        let symbol_dispose = JsSymbol::dispose();
         let symbol_has_instance = JsSymbol::has_instance();
         let symbol_is_concat_spreadable = JsSymbol::is_concat_spreadable();
         let symbol_iterator = JsSymbol::iterator();
@@ -122,11 +124,13 @@ impl IntrinsicObject for Symbol {
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .static_method(Self::for_, js_string!("for"), 1)
             .static_method(Self::key_for, js_string!("keyFor"), 1)
+            .static_property(js_string!("asyncDispose"), symbol_async_dispose, attribute)
             .static_property(
                 js_string!("asyncIterator"),
                 symbol_async_iterator,
                 attribute,
             )
+            .static_property(js_string!("dispose"), symbol_dispose, attribute)
             .static_property(js_string!("hasInstance"), symbol_has_instance, attribute)
             .static_property(
                 js_string!("isConcatSpreadable"),
@@ -184,7 +188,7 @@ impl BuiltInObject for Symbol {
 impl BuiltInConstructor for Symbol {
     const CONSTRUCTOR_ARGUMENTS: usize = 0;
     const PROTOTYPE_STORAGE_SLOTS: usize = 6;
-    const CONSTRUCTOR_STORAGE_SLOTS: usize = 15;
+    const CONSTRUCTOR_STORAGE_SLOTS: usize = 17;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
         StandardConstructors::symbol;
