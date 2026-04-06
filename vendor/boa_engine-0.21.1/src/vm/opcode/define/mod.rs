@@ -64,6 +64,31 @@ impl Operation for DefInitVar {
     const COST: u8 = 3;
 }
 
+/// `SetMutableBindingDeletable` implements the Opcode Operation for
+/// `Opcode::SetMutableBindingDeletable`
+///
+/// Operation:
+///  - Marks a runtime mutable binding as deletable.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SetMutableBindingDeletable;
+
+impl SetMutableBindingDeletable {
+    #[inline(always)]
+    pub(super) fn operation(index: VaryingOperand, context: &mut Context) -> JsResult<()> {
+        let mut binding_locator =
+            context.vm.frame().code_block.bindings[usize::from(index)].clone();
+        context.find_runtime_binding(&mut binding_locator)?;
+        context.set_mutable_binding_deletable(&binding_locator);
+        Ok(())
+    }
+}
+
+impl Operation for SetMutableBindingDeletable {
+    const NAME: &'static str = "SetMutableBindingDeletable";
+    const INSTRUCTION: &'static str = "INST - SetMutableBindingDeletable";
+    const COST: u8 = 3;
+}
+
 /// `PutLexicalValue` implements the Opcode Operation for `Opcode::PutLexicalValue`
 ///
 /// Operation:

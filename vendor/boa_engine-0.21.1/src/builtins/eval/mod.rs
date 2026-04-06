@@ -335,6 +335,8 @@ impl Eval {
         context.realm().resize_global_env();
 
         let record = context.run();
+        let env_fp = context.vm.frame.env_fp as usize;
+        context.unwind_environments_to(env_fp);
         context.vm.pop_frame();
 
         record.consume()

@@ -27,7 +27,8 @@ impl Throw {
 
         // Note: -1 because we increment after fetching the opcode.
         let pc = context.vm.frame().pc - 1;
-        if context.vm.handle_exception_at(pc) {
+        if let Some(environment_sp) = context.vm.handle_exception_at(pc) {
+            context.unwind_environments_to(environment_sp);
             return ControlFlow::Continue(());
         }
 
@@ -53,7 +54,8 @@ impl ReThrow {
     pub(crate) fn operation((): (), context: &mut Context) -> ControlFlow<CompletionRecord> {
         // Note: -1 because we increment after fetching the opcode.
         let pc = context.vm.frame().pc.saturating_sub(1);
-        if context.vm.handle_exception_at(pc) {
+        if let Some(environment_sp) = context.vm.handle_exception_at(pc) {
+            context.unwind_environments_to(environment_sp);
             return ControlFlow::Continue(());
         }
 

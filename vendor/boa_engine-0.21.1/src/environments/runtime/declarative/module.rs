@@ -110,6 +110,12 @@ impl ModuleEnvironment {
         }
     }
 
+    /// Returns whether the given binding index exists.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        (index as usize) < self.bindings.borrow().len()
+    }
+
     /// Creates an indirect binding reference to another environment binding.
     ///
     /// # Panics

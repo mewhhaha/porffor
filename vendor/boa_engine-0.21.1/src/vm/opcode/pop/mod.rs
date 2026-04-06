@@ -29,8 +29,8 @@ pub(crate) struct PopEnvironment;
 
 impl PopEnvironment {
     #[inline(always)]
-    pub(super) fn operation((): (), context: &mut Context) {
-        context.vm.environments.pop();
+    pub(super) fn operation((): (), context: &mut Context) -> crate::JsResult<()> {
+        context.pop_environment_with_dispose()
     }
 }
 

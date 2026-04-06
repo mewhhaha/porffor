@@ -1,5 +1,8 @@
 use super::jump_control::{JumpRecord, JumpRecordAction, JumpRecordKind};
-use crate::bytecompiler::ByteCompiler;
+use crate::{
+    bytecompiler::ByteCompiler,
+    vm::CodeBlockFlags,
+};
 use boa_ast::Statement;
 
 mod block;
@@ -69,26 +72,50 @@ impl ByteCompiler<'_> {
                 self.compile_switch(switch, use_expr);
             }
             Statement::Return(ret) => {
-                let value = self.register_allocator.alloc();
                 if let Some(expr) = ret.target() {
-                    self.compile_expr(expr, &value);
+                    let return_actions = self.return_jump_record_actions();
+                    if self.strict()
+                        && !self.is_async()
+                        && !self.is_generator()
+                        && !self.code_block_flags.contains(CodeBlockFlags::IS_CLASS_CONSTRUCTOR)
+                        && self.can_tail_call_return_actions(&return_actions)
+                    {
+                        self.compile_expr_as_return(expr, &return_actions);
+                    } else {
+                        let value = self.register_allocator.alloc();
+                        self.compile_expr(expr, &value);
 
-                    if self.is_async_generator() {
-                        self.bytecode.emit_await(value.variable());
-                        let resume_kind = self.register_allocator.alloc();
-                        self.pop_into_register(&resume_kind);
-                        self.pop_into_register(&value);
-                        self.bytecode
-                            .emit_generator_next(resume_kind.variable(), value.variable());
-                        self.register_allocator.dealloc(resume_kind);
+                        if self.is_async_generator() {
+                            self.bytecode.emit_await(value.variable());
+                            let resume_kind = self.register_allocator.alloc();
+                            self.pop_into_register(&resume_kind);
+                            self.pop_into_register(&value);
+                            self.bytecode
+                                .emit_generator_next(resume_kind.variable(), value.variable());
+                            self.register_allocator.dealloc(resume_kind);
+                        }
+
+                        self.push_from_register(&value);
+                        self.register_allocator.dealloc(value);
+                        if return_actions.is_empty() {
+                            self.r#return(true);
+                        } else {
+                            JumpRecord::new(
+                                JumpRecordKind::Return {
+                                    return_value_on_stack: true,
+                                },
+                                return_actions,
+                            )
+                            .perform_actions(Self::DUMMY_ADDRESS, self);
+                        }
                     }
                 } else {
+                    let value = self.register_allocator.alloc();
                     self.bytecode.emit_push_undefined(value.variable());
+                    self.push_from_register(&value);
+                    self.register_allocator.dealloc(value);
+                    self.r#return(true);
                 }
-
-                self.push_from_register(&value);
-                self.register_allocator.dealloc(value);
-                self.r#return(true);
             }
             Statement::Try(t) => self.compile_try(t, use_expr),
             Statement::Expression(expr) => {

@@ -72,3 +72,25 @@ fn class_can_access_super_from_static_initializer() {
         TestAction::assert_eq("c.field", js_str!("super field")),
     ]);
 }
+
+#[test]
+fn derived_constructor_returning_symbol_throws() {
+    run_test_actions([TestAction::assert_native_error(
+        indoc! {r#"
+            class Base {
+                constructor() {}
+            }
+
+            class Derived extends Base {
+                constructor() {
+                    super();
+                    return Symbol();
+                }
+            }
+
+            new Derived();
+        "#},
+        crate::JsNativeErrorKind::Type,
+        "derived constructor can only return an Object or undefined",
+    )]);
+}

@@ -1,6 +1,9 @@
 use crate::{
-    Context, JsResult, JsString, JsSymbol, JsValue,
+    Context, JsError, JsNativeError, JsResult, JsString, JsSymbol, JsValue,
+    builtins::{Promise, promise::PromiseState},
     object::{JsObject, PrivateName},
+    object::builtins::JsPromise,
+    js_string,
 };
 use boa_ast::scope::{BindingLocator, BindingLocatorScope, Scope};
 use boa_gc::{Finalize, Gc, Trace};
@@ -8,7 +11,7 @@ use boa_gc::{Finalize, Gc, Trace};
 mod declarative;
 mod private;
 
-use self::declarative::ModuleEnvironment;
+use self::declarative::{DisposableResource, ModuleEnvironment};
 pub(crate) use self::{
     declarative::{
         DeclarativeEnvironment, DeclarativeEnvironmentKind, FunctionEnvironment, FunctionSlots,
@@ -98,6 +101,11 @@ impl EnvironmentStack {
     /// Get the number of current environments.
     pub(crate) fn len(&self) -> usize {
         self.stack.len()
+    }
+
+    /// Get the top-most runtime environment.
+    pub(crate) fn top(&self) -> Option<&Environment> {
+        self.stack.last()
     }
 
     /// Truncate current environments to the given number.
@@ -277,6 +285,22 @@ impl EnvironmentStack {
                 .and_then(Environment::as_declarative)
                 .expect("must be declarative environment"),
         };
+        if env.has_binding_index(binding_index) {
+            env.set(binding_index, value);
+            return;
+        }
+
+        if let Some(fallback) = self
+            .stack
+            .iter()
+            .rev()
+            .find_map(Environment::as_declarative)
+            .filter(|env| env.has_binding_index(binding_index))
+        {
+            fallback.set(binding_index, value);
+            return;
+        }
+
         env.set(binding_index, value);
     }
 
@@ -302,7 +326,7 @@ impl EnvironmentStack {
                 .and_then(Environment::as_declarative)
                 .expect("must be declarative environment"),
         };
-        if env.get(binding_index).is_none() {
+        if env.is_uninitialized(binding_index) {
             env.set(binding_index, value);
         }
     }
@@ -361,6 +385,173 @@ impl EnvironmentStack {
 }
 
 impl Context {
+    fn explicit_resource_symbol(&mut self, name: &str) -> JsResult<JsSymbol> {
+        let symbol_ctor = self.intrinsics().constructors().symbol().constructor();
+        let value = symbol_ctor.get(JsString::from(name), self)?;
+        value.as_symbol().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message(format!(
+                    "Symbol.{} must be installed before using declarations run",
+                    name
+                ))
+                .into()
+        })
+    }
+
+    fn construct_suppressed_error_value(
+        &mut self,
+        error: JsValue,
+        suppressed: JsValue,
+    ) -> JsValue {
+        let ctor = match self.global_object().get(js_string!("SuppressedError"), self) {
+            Ok(value) => value,
+            Err(err) => return err.to_opaque(self),
+        };
+        let Some(ctor) = ctor.as_constructor() else {
+            return JsNativeError::typ()
+                .with_message("SuppressedError is not a constructor")
+                .to_opaque(self)
+                .into();
+        };
+        match ctor.construct(&[error, suppressed, JsValue::undefined()], None, self) {
+            Ok(object) => object.into(),
+            Err(err) => err.to_opaque(self),
+        }
+    }
+
+    fn append_disposal_error(
+        &mut self,
+        current: Option<JsValue>,
+        error: JsError,
+    ) -> JsValue {
+        let error = error.to_opaque(self);
+        if let Some(suppressed) = current {
+            self.construct_suppressed_error_value(error, suppressed)
+        } else {
+            error
+        }
+    }
+
+    fn await_disposal_result_blocking(&mut self, value: JsValue) -> JsResult<()> {
+        let promise = Promise::promise_resolve(
+            &self.intrinsics().constructors().promise().constructor(),
+            value,
+            self,
+        )?;
+        let promise = JsPromise::from_object(promise)?;
+        if matches!(promise.state(), PromiseState::Pending) {
+            self.run_jobs()?;
+        }
+        match promise.state() {
+            PromiseState::Fulfilled(_) => Ok(()),
+            PromiseState::Rejected(reason) => Err(JsError::from_opaque(reason)),
+            PromiseState::Pending => Err(JsNativeError::error()
+                .with_message("async disposal promise remained pending after draining jobs")
+                .into()),
+        }
+    }
+
+    pub(crate) fn add_disposable_resource_to_current_environment(
+        &mut self,
+        value: JsValue,
+        r#async: bool,
+    ) -> JsResult<()> {
+        if value.is_null() || value.is_undefined() {
+            return Ok(());
+        }
+        let Some(object) = value.as_object() else {
+            return Err(JsNativeError::typ()
+                .with_message("using declarations require an object, null, or undefined")
+                .into());
+        };
+
+        let method = if r#async {
+            let async_dispose = self.explicit_resource_symbol("asyncDispose")?;
+            let async_method = object.get(async_dispose, self)?;
+            if async_method.is_null() || async_method.is_undefined() {
+                let dispose = self.explicit_resource_symbol("dispose")?;
+                object.get(dispose, self)?
+            } else {
+                async_method
+            }
+        } else {
+            let dispose = self.explicit_resource_symbol("dispose")?;
+            object.get(dispose, self)?
+        };
+
+        let Some(method) = method.as_callable() else {
+            return Err(JsNativeError::typ()
+                .with_message("using declaration resource is missing a callable dispose method")
+                .into());
+        };
+
+        self.vm
+            .environments
+            .current_declarative_ref()
+            .expect("using declarations require a declarative environment")
+            .push_disposable_resource(DisposableResource::new(value, method, r#async));
+        Ok(())
+    }
+
+    fn dispose_environment_resources(
+        &mut self,
+        env: &Gc<DeclarativeEnvironment>,
+        current: Option<JsValue>,
+    ) -> Option<JsValue> {
+        let mut current = current;
+        let resources = env.take_disposable_resources();
+        for resource in resources.into_iter().rev() {
+            let outcome = resource.method().call(resource.value(), &[], self).and_then(|value| {
+                if resource.r#async() {
+                    self.await_disposal_result_blocking(value)
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(err) = outcome {
+                current = Some(self.append_disposal_error(current, err));
+            }
+        }
+        current
+    }
+
+    pub(crate) fn pop_environment_with_dispose(&mut self) -> JsResult<()> {
+        let mut current = None;
+        if let Some(env) = self
+            .vm
+            .environments
+            .top()
+            .and_then(Environment::as_declarative)
+            .cloned()
+        {
+            current = self.dispose_environment_resources(&env, current);
+        }
+        self.vm.environments.pop();
+        if let Some(error) = current {
+            return Err(JsError::from_opaque(error));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn unwind_environments_to(&mut self, len: usize) {
+        let mut current = self.vm.pending_exception.take().map(|error| error.to_opaque(self));
+
+        while self.vm.environments.len() > len {
+            if let Some(env) = self
+                .vm
+                .environments
+                .top()
+                .and_then(Environment::as_declarative)
+                .cloned()
+            {
+                current = self.dispose_environment_resources(&env, current);
+            }
+            self.vm.environments.pop();
+        }
+
+        self.vm.pending_exception = current.map(JsError::from_opaque);
+    }
+
     /// Gets the corresponding runtime binding of the provided `BindingLocator`, modifying
     /// its indexes in place.
     ///
@@ -565,6 +756,22 @@ impl Context {
         Ok(())
     }
 
+    /// Marks a mutable binding as deletable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the environment or binding index are out of range.
+    pub(crate) fn set_mutable_binding_deletable(&mut self, locator: &BindingLocator) {
+        match locator.scope() {
+            BindingLocatorScope::GlobalObject | BindingLocatorScope::GlobalDeclarative => {}
+            BindingLocatorScope::Stack(index) => {
+                if let Environment::Declarative(env) = self.environment_expect(index) {
+                    env.set_mutable_binding_deletable(locator.binding_index());
+                }
+            }
+        }
+    }
+
     /// Deletes a binding if it exists.
     ///
     /// Returns `true` if the binding was deleted.
@@ -581,7 +788,7 @@ impl Context {
             }
             BindingLocatorScope::GlobalDeclarative => Ok(false),
             BindingLocatorScope::Stack(index) => match self.environment_expect(index) {
-                Environment::Declarative(_) => Ok(false),
+                Environment::Declarative(env) => Ok(env.delete(locator.binding_index())),
                 Environment::Object(obj) => {
                     let key = locator.name().clone();
                     let obj = obj.clone();

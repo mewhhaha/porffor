@@ -74,6 +74,7 @@ impl<'context> From<&'context mut Context> for InternalMethodPropertyContext<'co
 pub(crate) struct InternalMethodCallContext<'ctx> {
     context: &'ctx mut Context,
     native_source_info: NativeSourceInfo,
+    tail_call: bool,
 }
 
 impl<'ctx> InternalMethodCallContext<'ctx> {
@@ -84,18 +85,21 @@ impl<'ctx> InternalMethodCallContext<'ctx> {
         Self {
             context,
             native_source_info: NativeSourceInfo::caller(),
+            tail_call: false,
         }
     }
 
     /// Create a new [`InternalMethodCallContext`].
     #[inline]
-    pub(crate) fn with_native_source_info(
+    pub(crate) fn with_native_source_info_and_tail_call(
         context: &'ctx mut Context,
         native_source_info: NativeSourceInfo,
+        tail_call: bool,
     ) -> Self {
         Self {
             context,
             native_source_info,
+            tail_call,
         }
     }
 
@@ -107,6 +111,11 @@ impl<'ctx> InternalMethodCallContext<'ctx> {
     #[inline]
     pub(crate) fn native_source_info(&self) -> NativeSourceInfo {
         self.native_source_info
+    }
+
+    #[inline]
+    pub(crate) const fn is_tail_call(&self) -> bool {
+        self.tail_call
     }
 }
 
@@ -334,11 +343,18 @@ impl JsObject {
     /// [spec]: https://tc39.es/ecma262/#sec-ecmascript-function-objects-call-thisargument-argumentslist
     #[track_caller]
     pub(crate) fn __call__(&self, argument_count: usize) -> CallValue {
+        self.__call_with_context(argument_count, false)
+    }
+
+    /// Internal method `[[Call]]` with an explicit tail-call hint.
+    #[track_caller]
+    pub(crate) fn __call_with_context(&self, argument_count: usize, tail_call: bool) -> CallValue {
         CallValue::Pending {
             func: self.vtable().__call__,
             object: self.clone(),
             argument_count,
             native_source_info: NativeSourceInfo::caller(),
+            tail_call,
         }
     }
 
@@ -359,6 +375,7 @@ impl JsObject {
             object: self.clone(),
             argument_count,
             native_source_info: NativeSourceInfo::caller(),
+            tail_call: false,
         }
     }
 }
@@ -464,15 +481,16 @@ pub(crate) enum CallValue {
     Ready,
 
     /// Further processing is needed.
-    Pending {
-        func: fn(
-            &JsObject,
-            argument_count: usize,
-            context: &mut InternalMethodCallContext<'_>,
+        Pending {
+            func: fn(
+                &JsObject,
+                argument_count: usize,
+                context: &mut InternalMethodCallContext<'_>,
         ) -> JsResult<CallValue>,
         object: JsObject,
         argument_count: usize,
         native_source_info: NativeSourceInfo,
+        tail_call: bool,
     },
 
     /// The value has been computed and is the first element on the stack.
@@ -488,14 +506,16 @@ impl CallValue {
             object,
             argument_count,
             native_source_info,
+            tail_call,
         } = self
         {
             self = func(
                 &object,
                 argument_count,
-                &mut InternalMethodCallContext::with_native_source_info(
+                &mut InternalMethodCallContext::with_native_source_info_and_tail_call(
                     context,
                     native_source_info,
+                    tail_call,
                 ),
             )?;
         }

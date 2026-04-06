@@ -1830,6 +1830,8 @@ impl SourceTextModule {
         //    b. Perform AsyncBlockStart(capability, module.[[ECMAScriptCode]], moduleContext).
         let result = context.run();
 
+        let env_fp = context.vm.frame.env_fp as usize;
+        context.unwind_environments_to(env_fp);
         context.vm.pop_frame();
 
         //     f. If result is an abrupt completion, then

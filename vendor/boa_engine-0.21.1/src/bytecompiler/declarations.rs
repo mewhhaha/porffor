@@ -537,6 +537,10 @@ impl ByteCompiler<'_> {
                 .r#async(r#async)
                 .strict(self.strict())
                 .in_with(self.in_with)
+                .runtime_deletable_bindings(
+                    self.runtime_deletable_binding_names.clone(),
+                    self.runtime_deletable_binding_overrides.clone(),
+                )
                 .source_path(self.source_path.clone())
                 .compile(
                     parameters,
@@ -714,10 +718,16 @@ impl ByteCompiler<'_> {
                     // ii. If bindingExists is false, then
                     // i. Perform ! varEnv.CreateMutableBinding(F, true).
                     // ii. Perform ! varEnv.InitializeBinding(F, undefined).
+                    self.track_runtime_deletable_binding(&binding);
                     let index = self.insert_binding(binding);
                     let value = self.register_allocator.alloc();
                     self.bytecode.emit_push_undefined(value.variable());
                     self.emit_binding_access(BindingAccessOpcode::DefInitVar, &index, &value);
+                    self.emit_binding_access(
+                        BindingAccessOpcode::SetMutableBindingDeletable,
+                        &index,
+                        &value,
+                    );
                     self.register_allocator.dealloc(value);
                 }
             }
@@ -823,6 +833,10 @@ impl ByteCompiler<'_> {
                 .strict(self.strict())
                 .in_with(self.in_with)
                 .name_scope(None)
+                .runtime_deletable_bindings(
+                    self.runtime_deletable_binding_names.clone(),
+                    self.runtime_deletable_binding_overrides.clone(),
+                )
                 .compile(
                     parameters,
                     body,
@@ -874,8 +888,14 @@ impl ByteCompiler<'_> {
                     // 1. NOTE: The following invocation cannot return an abrupt completion because of the validation preceding step 14.
                     // 2. Perform ! varEnv.CreateMutableBinding(fn, true).
                     // 3. Perform ! varEnv.InitializeBinding(fn, fo).
+                    self.track_runtime_deletable_binding(binding);
                     let index = self.insert_binding(binding.clone());
                     self.emit_binding_access(BindingAccessOpcode::DefInitVar, &index, &dst);
+                    self.emit_binding_access(
+                        BindingAccessOpcode::SetMutableBindingDeletable,
+                        &index,
+                        &dst,
+                    );
                 }
                 self.register_allocator.dealloc(dst);
             }
@@ -899,10 +919,16 @@ impl ByteCompiler<'_> {
             // 1. NOTE: The following invocation cannot return an abrupt completion because of the validation preceding step 14.
             // 2. Perform ! varEnv.CreateMutableBinding(vn, true).
             // 3. Perform ! varEnv.InitializeBinding(vn, undefined).
+            self.track_runtime_deletable_binding(&binding);
             let index = self.insert_binding(binding);
             let value = self.register_allocator.alloc();
             self.bytecode.emit_push_undefined(value.variable());
             self.emit_binding_access(BindingAccessOpcode::DefInitVar, &index, &value);
+            self.emit_binding_access(
+                BindingAccessOpcode::SetMutableBindingDeletable,
+                &index,
+                &value,
+            );
             self.register_allocator.dealloc(value);
         }
 

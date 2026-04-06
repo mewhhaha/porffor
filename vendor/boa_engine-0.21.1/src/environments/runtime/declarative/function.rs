@@ -66,6 +66,12 @@ impl FunctionEnvironment {
         self.inner.set(index, value);
     }
 
+    /// Returns whether the given binding index exists.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        self.inner.has_binding_index(index)
+    }
+
     /// `BindThisValue`
     ///
     /// Sets the given value as the `this` binding of the environment.

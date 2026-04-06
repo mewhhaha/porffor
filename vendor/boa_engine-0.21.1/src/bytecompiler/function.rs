@@ -7,10 +7,11 @@ use crate::{
 };
 use boa_ast::{
     function::{FormalParameterList, FunctionBody},
-    scope::{FunctionScopes, Scope},
+    scope::{FunctionScopes, IdentifierReference, Scope},
 };
 use boa_gc::Gc;
 use boa_interner::Interner;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// `FunctionCompiler` is used to compile AST functions to bytecode.
 #[derive(Debug, Clone)]
@@ -25,6 +26,8 @@ pub(crate) struct FunctionCompiler {
     in_with: bool,
     force_function_scope: bool,
     name_scope: Option<Scope>,
+    runtime_deletable_binding_names: FxHashSet<JsString>,
+    runtime_deletable_binding_overrides: FxHashMap<JsString, IdentifierReference>,
     spanned_source_text: SpannedSourceText,
     source_path: SourcePath,
 }
@@ -42,6 +45,8 @@ impl FunctionCompiler {
             in_with: false,
             force_function_scope: false,
             name_scope: None,
+            runtime_deletable_binding_names: FxHashSet::default(),
+            runtime_deletable_binding_overrides: FxHashMap::default(),
             spanned_source_text,
             source_path: SourcePath::None,
         }
@@ -93,6 +98,17 @@ impl FunctionCompiler {
         self
     }
 
+    /// Propagate runtime deletable binding overrides into nested functions.
+    pub(crate) fn runtime_deletable_bindings(
+        mut self,
+        names: FxHashSet<JsString>,
+        overrides: FxHashMap<JsString, IdentifierReference>,
+    ) -> Self {
+        self.runtime_deletable_binding_names = names;
+        self.runtime_deletable_binding_overrides = overrides;
+        self
+    }
+
     /// Indicate if the function is in a `with` statement.
     pub(crate) const fn in_with(mut self, in_with: bool) -> Self {
         self.in_with = in_with;
@@ -140,6 +156,8 @@ impl FunctionCompiler {
             self.spanned_source_text,
             self.source_path,
         );
+        compiler.runtime_deletable_binding_names = self.runtime_deletable_binding_names;
+        compiler.runtime_deletable_binding_overrides = self.runtime_deletable_binding_overrides;
 
         compiler.length = length;
         compiler.code_block_flags.set(

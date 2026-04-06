@@ -8,6 +8,8 @@ use boa_engine::job::SimpleJobExecutor;
 use boa_engine::module::{Module, ModuleLoader, Referrer};
 use boa_engine::native_function::NativeFunction;
 use boa_engine::object::builtins::JsArrayBuffer;
+use boa_engine::object::ObjectInitializer;
+use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsString, JsValue, Source};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -46,11 +48,45 @@ impl core::fmt::Display for ExecutionError {
 
 impl std::error::Error for ExecutionError {}
 
+thread_local! {
+    static HOST_REALMS: RefCell<HostRealmStore> = RefCell::new(HostRealmStore::default());
+}
+
+#[derive(Default)]
+struct HostRealmStore {
+    next_id: u64,
+    realms: BTreeMap<u64, Context>,
+}
+
+struct HostRealmScope;
+
+impl HostRealmScope {
+    fn new() -> Self {
+        reset_host_realms();
+        Self
+    }
+}
+
+impl Drop for HostRealmScope {
+    fn drop(&mut self) {
+        reset_host_realms();
+    }
+}
+
+fn reset_host_realms() {
+    HOST_REALMS.with(|store| {
+        let mut store = store.borrow_mut();
+        store.next_id = 0;
+        store.realms.clear();
+    });
+}
+
 pub fn execute_script(
     source: &str,
     filename: Option<&str>,
     argv: &[String],
 ) -> Result<ExecutionOutcome, ExecutionError> {
+    let _host_realms = HostRealmScope::new();
     let mut context = Context::builder()
         .job_executor(Rc::new(SimpleJobExecutor::new()))
         .build()
@@ -73,6 +109,7 @@ pub fn execute_module(
     host: ModuleHostConfig,
     argv: &[String],
 ) -> Result<ExecutionOutcome, ExecutionError> {
+    let _host_realms = HostRealmScope::new();
     let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
     let loader = Rc::new(Test262ModuleLoader::new(
         host.module_root.as_deref(),
@@ -1529,6 +1566,61 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     });
   }
 
+  if (typeof Symbol.asyncDispose !== "symbol") {
+    Object.defineProperty(Symbol, "asyncDispose", {
+      value: Symbol("Symbol.asyncDispose"),
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+  }
+
+  if (typeof globalThis.SuppressedError !== "function") {
+    function SuppressedError(error, suppressed, message) {
+      if (!new.target) {
+        throw new TypeError("SuppressedError must be called with new");
+      }
+      const self = new Error(message === undefined ? "" : String(message));
+      Object.setPrototypeOf(self, new.target.prototype);
+      Object.defineProperty(self, "error", {
+        value: error,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+      Object.defineProperty(self, "suppressed", {
+        value: suppressed,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+      return self;
+    }
+
+    SuppressedError.prototype = Object.create(Error.prototype, {
+      constructor: {
+        value: SuppressedError,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      },
+      name: {
+        value: "SuppressedError",
+        writable: true,
+        enumerable: false,
+        configurable: true
+      }
+    });
+    Object.setPrototypeOf(SuppressedError, Error);
+
+    Object.defineProperty(globalThis, "SuppressedError", {
+      value: SuppressedError,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+  }
+
   function isObjectLike(value) {
     return (typeof value === "object" && value !== null) || typeof value === "function";
   }
@@ -2544,6 +2636,13 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
             NativeFunction::from_fn_ptr(host_detach_array_buffer),
         )
         .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfCreateRealm"),
+            0,
+            NativeFunction::from_fn_ptr(host_create_realm),
+        )
+        .map_err(|err| format_js_error(err, context))?;
 
     let argv_literal = json_string_array(argv);
     let bootstrap = format!(
@@ -2559,6 +2658,9 @@ globalThis.$262 = {{
     return (0, eval)(String(code));
   }},
   createRealm() {{
+    if (typeof __porfCreateRealm === "function") {{
+      return __porfCreateRealm();
+    }}
     return {{
       global: globalThis,
       evalScript(code) {{
@@ -2623,6 +2725,9 @@ fn host_print(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRes
         })
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
+    if rendered.starts_with("Test262:AsyncTestFailure:") {
+        return Err(JsNativeError::error().with_message(rendered).into());
+    }
     if !rendered.is_empty() {
         println!("{rendered}");
     }
@@ -2647,6 +2752,107 @@ fn host_detach_array_buffer(
     let buffer = JsArrayBuffer::from_object(buffer.clone())?;
     buffer.detach(&JsValue::undefined())?;
     Ok(JsValue::undefined())
+}
+
+fn host_create_realm(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let (realm_id, global) = create_host_realm()?;
+
+    let eval_script = NativeFunction::from_copy_closure(move |_this, args, context| {
+        let source = args
+            .first()
+            .cloned()
+            .unwrap_or_else(JsValue::undefined)
+            .to_string(context)?
+            .to_std_string_escaped();
+        with_host_realm(realm_id, |realm| {
+            let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
+            realm.run_jobs()?;
+            Ok(result)
+        })
+    });
+    let get_global = NativeFunction::from_copy_closure(move |_this, args, context| {
+        let name = args
+            .first()
+            .cloned()
+            .unwrap_or_else(JsValue::undefined)
+            .to_string(context)?;
+        with_host_realm(realm_id, |realm| realm.global_object().get(name, realm))
+    });
+    let destroy =
+        NativeFunction::from_copy_closure(move |_this, _args, _context| Ok(JsValue::undefined()));
+
+    let mut realm = ObjectInitializer::new(context);
+    realm
+        .property(js_string!("global"), global, Attribute::all())
+        .function(eval_script, js_string!("evalScript"), 1)
+        .function(get_global, js_string!("getGlobal"), 1)
+        .function(destroy, js_string!("destroy"), 0);
+
+    Ok(realm.build().into())
+}
+
+fn create_host_realm() -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
+    let mut context = Context::builder()
+        .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .build()?;
+    install_host_globals(&mut context, &[])
+        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
+    let global = context.global_object();
+
+    let (id, global) = HOST_REALMS.with(
+        |store| -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
+            let mut store = store.borrow_mut();
+            let id = store.next_id;
+            store.next_id += 1;
+            store.realms.insert(id, context);
+            Ok((id, global))
+        },
+    )?;
+
+    install_host_realm_eval(id)?;
+    Ok((id, global))
+}
+
+fn with_host_realm(
+    realm_id: u64,
+    action: impl FnOnce(&mut Context) -> JsResult<JsValue>,
+) -> JsResult<JsValue> {
+    HOST_REALMS.with(|store| {
+        let mut store = store.borrow_mut();
+        let realm = store.realms.get_mut(&realm_id).ok_or_else(|| {
+            JsNativeError::reference().with_message(format!("unknown host realm id {realm_id}"))
+        })?;
+        action(realm)
+    })
+}
+
+fn install_host_realm_eval(realm_id: u64) -> JsResult<()> {
+    let eval_impl = NativeFunction::from_copy_closure(move |_this, args, context| {
+        let source = args
+            .first()
+            .cloned()
+            .unwrap_or_else(JsValue::undefined)
+            .to_string(context)?
+            .to_std_string_escaped();
+        with_host_realm(realm_id, |realm| {
+            let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
+            realm.run_jobs()?;
+            Ok(result)
+        })
+    });
+
+    with_host_realm(realm_id, |realm| {
+        realm.register_global_builtin_callable(js_string!("__porfHostRealmEval"), 1, eval_impl)?;
+        realm.eval(Source::from_bytes(
+            b"globalThis.eval = function eval(code) { return __porfHostRealmEval(code); };",
+        ))?;
+        Ok(JsValue::undefined())
+    })
+    .map(|_| ())
 }
 
 fn format_js_error(err: impl core::fmt::Display, _context: &mut Context) -> ExecutionError {
@@ -2693,6 +2899,7 @@ fn json_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boa_engine::Script;
 
     #[test]
     fn executes_simple_script() {
@@ -2731,6 +2938,44 @@ mod tests {
     }
 
     #[test]
+    fn create_realm_evaluates_in_a_distinct_global_object() {
+        execute_script(
+            r#"
+            const other = $262.createRealm().global;
+            const otherEval = other.eval;
+            otherEval("var x = 23;");
+            if (typeof x !== "undefined") {
+              throw new Error("indirect eval should not leak into the current realm");
+            }
+            if (other.x !== 23) {
+              throw new Error("indirect eval should bind on the created realm");
+            }
+            "#,
+            Some("realm.js"),
+            &[],
+        )
+        .expect("createRealm should produce a distinct global object");
+    }
+
+    #[test]
+    fn create_realm_exposes_realm_specific_intrinsics() {
+        execute_script(
+            r#"
+            const other = $262.createRealm().global;
+            if (other.Array === Array) {
+              throw new Error("created realms should expose distinct intrinsics");
+            }
+            if (Object.getPrototypeOf(new other.Object()) !== other.Object.prototype) {
+              throw new Error("constructed objects should use the created realm prototype");
+            }
+            "#,
+            Some("realm-intrinsics.js"),
+            &[],
+        )
+        .expect("createRealm should expose realm-specific intrinsics");
+    }
+
+    #[test]
     fn installs_date_time_format_shim() {
         execute_script(
             r#"
@@ -2754,6 +2999,63 @@ mod tests {
             &[],
         )
         .expect("DateTimeFormat shim should be installed");
+    }
+
+    #[test]
+    fn parses_and_executes_block_using_declaration() {
+        execute_script(
+            r#"
+            {
+              using x = null;
+            }
+            "#,
+            Some("using-block.js"),
+            &[],
+        )
+        .expect("block-scoped using declarations should parse and execute");
+    }
+
+    #[test]
+    fn boa_script_parser_accepts_block_using_declaration() {
+        let mut context = Context::default();
+        Script::parse(
+            Source::from_bytes(
+                r#"
+                {
+                  using x = null;
+                }
+                "#,
+            ),
+            None,
+            &mut context,
+        )
+        .expect("boa script parser should accept block-scoped using declarations");
+    }
+
+    #[test]
+    fn await_using_function_initializer_preserves_binding_and_name() {
+        execute_script(
+            r#"
+            let observed = "";
+            let promiseState = "";
+            Function.prototype[Symbol.dispose] = function () {};
+            const promise = (async function () {
+              await using arrow = () => {};
+              const desc = Object.getOwnPropertyDescriptor(arrow, "name");
+              observed = `${typeof arrow}:${String(arrow && arrow.name)}:${Object.hasOwn(arrow, "name")}:${!!desc}:${desc && desc.enumerable}:${desc && desc.writable}:${desc && desc.configurable}`;
+            })();
+            promiseState = `${typeof promise}:${typeof promise.then}`;
+            if (observed !== "function:arrow:true:true:false:false:true") {
+              throw new Error(observed);
+            }
+            if (promiseState !== "object:function") {
+              throw new Error(promiseState);
+            }
+            "#,
+            Some("await-using-fn-name.js"),
+            &[],
+        )
+        .expect("await using should keep the initializer bound with its inferred function name");
     }
 
     #[test]

@@ -42,14 +42,13 @@ impl CheckReturn {
         if !frame.construct() {
             return ControlFlow::Continue(());
         }
+        let is_derived_constructor = frame.code_block().is_derived_constructor();
         let this = &context.vm.stack.get_this(frame);
         let result = context.vm.take_return_value();
 
         let result = if result.is_object() {
             result
-        } else if !this.is_undefined() {
-            this.clone()
-        } else if !result.is_undefined() {
+        } else if is_derived_constructor && !result.is_undefined() {
             let realm = context.vm.frame().realm.clone();
             context.vm.pending_exception = Some(
                 JsNativeError::typ()
@@ -58,6 +57,8 @@ impl CheckReturn {
                     .into(),
             );
             return context.handle_throw();
+        } else if !this.is_undefined() {
+            this.clone()
         } else {
             let frame = context.vm.frame();
             if frame.has_this_value_cached() {

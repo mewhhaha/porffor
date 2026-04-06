@@ -55,9 +55,9 @@ impl DefinePrivateField {
     pub(crate) fn operation(
         (object, value, index): (VaryingOperand, VaryingOperand, VaryingOperand),
         context: &mut Context,
-    ) {
-        let object = context.vm.get_register(object.into());
-        let value = context.vm.get_register(value.into());
+    ) -> JsResult<()> {
+        let object = context.vm.get_register(object.into()).clone();
+        let value = context.vm.get_register(value.into()).clone();
         let name = context
             .vm
             .frame()
@@ -68,10 +68,18 @@ impl DefinePrivateField {
             .as_object()
             .expect("class prototype must be an object");
 
+        if !object.is_extensible(context)? {
+            return Err(crate::JsNativeError::typ()
+                .with_message("cannot add private field to non-extensible object")
+                .into());
+        }
+
         object.borrow_mut().append_private_element(
             object.private_name(name),
-            PrivateElement::Field(value.clone()),
+            PrivateElement::Field(value),
         );
+
+        Ok(())
     }
 }
 
@@ -93,7 +101,7 @@ impl SetPrivateMethod {
     pub(crate) fn operation(
         (object, value, index): (VaryingOperand, VaryingOperand, VaryingOperand),
         context: &mut Context,
-    ) {
+    ) -> JsResult<()> {
         let object = context.vm.get_register(object.into()).clone();
         let value = context.vm.get_register(value.into()).clone();
         let name = context
@@ -106,6 +114,12 @@ impl SetPrivateMethod {
         let object = object
             .as_object()
             .expect("class prototype must be an object");
+
+        if !object.is_extensible(context)? {
+            return Err(crate::JsNativeError::typ()
+                .with_message("cannot add private method to non-extensible object")
+                .into());
+        }
 
         let name_string = js_string!(js_str!("#"), &name);
         let desc = PropertyDescriptor::builder()
@@ -122,6 +136,8 @@ impl SetPrivateMethod {
             object.private_name(name),
             PrivateElement::Method(value.clone()),
         );
+
+        Ok(())
     }
 }
 
@@ -143,9 +159,9 @@ impl SetPrivateSetter {
     pub(crate) fn operation(
         (object, value, index): (VaryingOperand, VaryingOperand, VaryingOperand),
         context: &mut Context,
-    ) {
-        let object = context.vm.get_register(object.into());
-        let value = context.vm.get_register(value.into());
+    ) -> JsResult<()> {
+        let object = context.vm.get_register(object.into()).clone();
+        let value = context.vm.get_register(value.into()).clone();
         let name = context
             .vm
             .frame()
@@ -157,6 +173,12 @@ impl SetPrivateSetter {
             .as_object()
             .expect("class prototype must be an object");
 
+        if !object.is_extensible(context)? {
+            return Err(crate::JsNativeError::typ()
+                .with_message("cannot add private accessor to non-extensible object")
+                .into());
+        }
+
         object.borrow_mut().append_private_element(
             object.private_name(name),
             PrivateElement::Accessor {
@@ -164,6 +186,8 @@ impl SetPrivateSetter {
                 setter: Some(value.clone()),
             },
         );
+
+        Ok(())
     }
 }
 
@@ -185,9 +209,9 @@ impl SetPrivateGetter {
     pub(crate) fn operation(
         (object, value, index): (VaryingOperand, VaryingOperand, VaryingOperand),
         context: &mut Context,
-    ) {
-        let object = context.vm.get_register(object.into());
-        let value = context.vm.get_register(value.into());
+    ) -> JsResult<()> {
+        let object = context.vm.get_register(object.into()).clone();
+        let value = context.vm.get_register(value.into()).clone();
         let name = context
             .vm
             .frame()
@@ -199,6 +223,12 @@ impl SetPrivateGetter {
             .as_object()
             .expect("class prototype must be an object");
 
+        if !object.is_extensible(context)? {
+            return Err(crate::JsNativeError::typ()
+                .with_message("cannot add private accessor to non-extensible object")
+                .into());
+        }
+
         object.borrow_mut().append_private_element(
             object.private_name(name),
             PrivateElement::Accessor {
@@ -206,6 +236,8 @@ impl SetPrivateGetter {
                 setter: None,
             },
         );
+
+        Ok(())
     }
 }
 

@@ -52,14 +52,14 @@ use boa_ast::{
 use boa_gc::Gc;
 use boa_interner::{Interner, Sym};
 use boa_macros::js_str;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use thin_vec::ThinVec;
 
 pub(crate) use declarations::{
     eval_declaration_instantiation_context, global_declaration_instantiation_context,
 };
 pub(crate) use function::FunctionCompiler;
-pub(crate) use jump_control::JumpControlInfo;
+pub(crate) use jump_control::{JumpControlInfo, JumpRecordAction};
 pub(crate) use register::*;
 
 pub(crate) trait ToJsString {
@@ -402,6 +402,7 @@ impl Access<'_> {
 pub(crate) enum BindingAccessOpcode {
     PutLexicalValue,
     DefInitVar,
+    SetMutableBindingDeletable,
     SetName,
     SetNameByLocator,
     GetName,
@@ -410,6 +411,11 @@ pub(crate) enum BindingAccessOpcode {
     DeleteName,
     GetLocator,
     DefVar,
+}
+
+enum PreparedDeclarationBinding {
+    Late { opcode: BindingOpcode, name: JsString },
+    SetByLocator(BindingKind),
 }
 
 /// Manages the source position scope, push on creation, pop on drop.
@@ -496,6 +502,9 @@ pub struct ByteCompiler<'ctx> {
     literals_map: FxHashMap<Literal, u32>,
     names_map: FxHashMap<Sym, u32>,
     bindings_map: FxHashMap<BindingLocator, u32>,
+    runtime_deletable_bindings: FxHashSet<BindingLocator>,
+    runtime_deletable_binding_names: FxHashSet<JsString>,
+    runtime_deletable_binding_overrides: FxHashMap<JsString, IdentifierReference>,
     jump_info: Vec<JumpControlInfo>,
 
     /// Used to handle exception throws that escape the async function types.
@@ -600,6 +609,9 @@ impl<'ctx> ByteCompiler<'ctx> {
             literals_map: FxHashMap::default(),
             names_map: FxHashMap::default(),
             bindings_map: FxHashMap::default(),
+            runtime_deletable_bindings: FxHashSet::default(),
+            runtime_deletable_binding_names: FxHashSet::default(),
+            runtime_deletable_binding_overrides: FxHashMap::default(),
             jump_info: Vec::new(),
             async_handler: None,
             json_parse,
@@ -692,7 +704,7 @@ impl<'ctx> ByteCompiler<'ctx> {
             return BindingKind::Global(index);
         }
 
-        if binding.local() {
+        if binding.local() && !self.is_runtime_deletable_binding(binding) {
             return BindingKind::Local(self.local_binding_registers.get(binding).copied());
         }
 
@@ -719,7 +731,7 @@ impl<'ctx> ByteCompiler<'ctx> {
             return BindingKind::Global(index);
         }
 
-        if binding.local() {
+        if binding.local() && !self.is_runtime_deletable_binding(&binding) {
             return BindingKind::Local(Some(
                 *self
                     .local_binding_registers
@@ -736,6 +748,32 @@ impl<'ctx> ByteCompiler<'ctx> {
         self.bindings.push(binding.locator().clone());
         self.bindings_map.insert(binding.locator(), index);
         BindingKind::Stack(index)
+    }
+
+    #[inline]
+    pub(crate) fn track_runtime_deletable_binding(&mut self, binding: &IdentifierReference) {
+        self.runtime_deletable_bindings
+            .insert(binding.locator().clone());
+        self.runtime_deletable_binding_names
+            .insert(binding.locator().name().clone());
+        self.runtime_deletable_binding_overrides
+            .insert(binding.locator().name().clone(), binding.clone());
+    }
+
+    #[inline]
+    fn is_runtime_deletable_binding(&self, binding: &IdentifierReference) -> bool {
+        self.runtime_deletable_bindings.contains(&binding.locator())
+            || self
+                .runtime_deletable_binding_names
+                .contains(binding.locator().name())
+    }
+
+    #[inline]
+    fn get_identifier_reference(&self, name: JsString) -> IdentifierReference {
+        self.runtime_deletable_binding_overrides
+            .get(&name)
+            .cloned()
+            .unwrap_or_else(|| self.lexical_scope.get_identifier_reference(name))
     }
 
     #[inline]
@@ -767,7 +805,7 @@ impl<'ctx> ByteCompiler<'ctx> {
                 Err(BindingLocatorError::Silent) => {}
             },
             BindingOpcode::InitLexical => {
-                let binding = self.lexical_scope.get_identifier_reference(name);
+                let binding = self.get_identifier_reference(name);
                 let index = self.insert_binding(binding);
                 self.emit_binding_access(BindingAccessOpcode::PutLexicalValue, &index, value);
             }
@@ -782,6 +820,45 @@ impl<'ctx> ByteCompiler<'ctx> {
                 }
                 Err(BindingLocatorError::Silent) => {}
             },
+        }
+    }
+
+    fn prepare_declaration_binding(
+        &mut self,
+        opcode: BindingOpcode,
+        name: JsString,
+    ) -> PreparedDeclarationBinding {
+        match opcode {
+            BindingOpcode::InitVar | BindingOpcode::SetName => {
+                let binding = self.get_identifier_reference(name.clone());
+                let is_lexical = binding.is_lexical();
+                let index = self.get_binding(&binding);
+
+                if !is_lexical {
+                    let value = self.register_allocator.alloc();
+                    self.emit_binding_access(BindingAccessOpcode::GetLocator, &index, &value);
+                    self.register_allocator.dealloc(value);
+                    return PreparedDeclarationBinding::SetByLocator(index);
+                }
+            }
+            BindingOpcode::Var | BindingOpcode::InitLexical => {}
+        }
+
+        PreparedDeclarationBinding::Late { opcode, name }
+    }
+
+    fn emit_prepared_declaration_binding(
+        &mut self,
+        binding: PreparedDeclarationBinding,
+        value: &Register,
+    ) {
+        match binding {
+            PreparedDeclarationBinding::Late { opcode, name } => {
+                self.emit_binding(opcode, name, value);
+            }
+            PreparedDeclarationBinding::SetByLocator(index) => {
+                self.emit_binding_access(BindingAccessOpcode::SetNameByLocator, &index, value);
+            }
         }
     }
 
@@ -852,6 +929,9 @@ impl<'ctx> ByteCompiler<'ctx> {
                 BindingAccessOpcode::DefInitVar => self
                     .bytecode
                     .emit_def_init_var(value.variable(), (*index).into()),
+                BindingAccessOpcode::SetMutableBindingDeletable => self
+                    .bytecode
+                    .emit_set_mutable_binding_deletable((*index).into()),
                 BindingAccessOpcode::SetName => self
                     .bytecode
                     .emit_set_name(value.variable(), (*index).into()),
@@ -877,6 +957,9 @@ impl<'ctx> ByteCompiler<'ctx> {
                 BindingAccessOpcode::DefInitVar => self
                     .bytecode
                     .emit_def_init_var(value.variable(), (*index).into()),
+                BindingAccessOpcode::SetMutableBindingDeletable => self
+                    .bytecode
+                    .emit_set_mutable_binding_deletable((*index).into()),
                 BindingAccessOpcode::SetName => self
                     .bytecode
                     .emit_set_name(value.variable(), (*index).into()),
@@ -906,7 +989,9 @@ impl<'ctx> ByteCompiler<'ctx> {
                 | BindingAccessOpcode::GetNameAndLocator => {
                     self.bytecode.emit_move(value.variable(), (*index).into());
                 }
-                BindingAccessOpcode::GetLocator | BindingAccessOpcode::DefVar => {}
+                BindingAccessOpcode::GetLocator
+                | BindingAccessOpcode::DefVar
+                | BindingAccessOpcode::SetMutableBindingDeletable => {}
                 BindingAccessOpcode::SetName
                 | BindingAccessOpcode::DefInitVar
                 | BindingAccessOpcode::PutLexicalValue
@@ -1106,7 +1191,7 @@ impl<'ctx> ByteCompiler<'ctx> {
         match access {
             Access::Variable { name } => {
                 let name = self.resolve_identifier_expect(name);
-                let binding = self.lexical_scope.get_identifier_reference(name);
+                let binding = self.get_identifier_reference(name);
                 let index = self.get_binding(&binding);
                 self.emit_binding_access(BindingAccessOpcode::GetName, &index, dst);
             }
@@ -1331,7 +1416,7 @@ impl<'ctx> ByteCompiler<'ctx> {
             },
             Access::Variable { name } => {
                 let name = name.to_js_string(self.interner());
-                let binding = self.lexical_scope.get_identifier_reference(name);
+                let binding = self.get_identifier_reference(name);
                 let index = self.get_binding(&binding);
                 self.emit_binding_access(BindingAccessOpcode::DeleteName, &index, dst);
             }
@@ -1602,7 +1687,7 @@ impl<'ctx> ByteCompiler<'ctx> {
                 Binding::Identifier(ident) => {
                     let ident = ident.to_js_string(self.interner());
                     if let Some(expr) = variable.init() {
-                        let binding = self.lexical_scope.get_identifier_reference(ident.clone());
+                        let binding = self.get_identifier_reference(ident.clone());
                         let index = self.insert_binding(binding);
                         let value = self.register_allocator.alloc();
                         self.emit_binding_access(BindingAccessOpcode::GetLocator, &index, &value);
@@ -1697,6 +1782,40 @@ impl<'ctx> ByteCompiler<'ctx> {
                     }
                 }
             }
+            LexicalDeclaration::Using(decls) | LexicalDeclaration::AwaitUsing(decls) => {
+                let r#async = decl.is_await_using();
+                for variable in decls.as_ref() {
+                    match variable.binding() {
+                        Binding::Identifier(ident) => {
+                            let ident = ident.to_js_string(self.interner());
+                            let init = variable
+                                .init()
+                                .expect("using declaration must have initializer");
+                            let value = self.register_allocator.alloc();
+                            self.compile_expr(init, &value);
+                            self.bytecode
+                                .emit_add_disposable_resource(value.variable(), r#async.into());
+                            self.emit_binding(BindingOpcode::InitLexical, ident, &value);
+                            self.register_allocator.dealloc(value);
+                        }
+                        Binding::Pattern(pattern) => {
+                            let init = variable
+                                .init()
+                                .expect("using declaration must have initializer");
+                            let value = self.register_allocator.alloc();
+                            self.compile_expr(init, &value);
+                            self.bytecode
+                                .emit_add_disposable_resource(value.variable(), r#async.into());
+                            self.compile_declaration_pattern(
+                                pattern,
+                                BindingOpcode::InitLexical,
+                                &value,
+                            );
+                            self.register_allocator.dealloc(value);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1719,7 +1838,7 @@ impl<'ctx> ByteCompiler<'ctx> {
                 let name = function.name();
                 if self.annex_b_function_names.contains(&name.sym()) {
                     let name = name.to_js_string(self.interner());
-                    let binding = self.lexical_scope.get_identifier_reference(name.clone());
+                    let binding = self.get_identifier_reference(name.clone());
                     let index = self.get_binding(&binding);
 
                     let value = self.register_allocator.alloc();
@@ -1779,6 +1898,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .arrow(arrow)
             .in_with(self.in_with)
             .name_scope(name_scope.cloned())
+            .runtime_deletable_bindings(
+                self.runtime_deletable_binding_names.clone(),
+                self.runtime_deletable_binding_overrides.clone(),
+            )
             .source_path(self.source_path.clone())
             .compile(
                 parameters,
@@ -1860,6 +1983,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .method(true)
             .in_with(self.in_with)
             .name_scope(name_scope.cloned())
+            .runtime_deletable_bindings(
+                self.runtime_deletable_binding_names.clone(),
+                self.runtime_deletable_binding_overrides.clone(),
+            )
             .source_path(self.source_path.clone())
             .compile(
                 parameters,
@@ -1910,6 +2037,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .method(true)
             .in_with(self.in_with)
             .name_scope(function.name_scope.cloned())
+            .runtime_deletable_bindings(
+                self.runtime_deletable_binding_names.clone(),
+                self.runtime_deletable_binding_overrides.clone(),
+            )
             .source_path(self.source_path.clone())
             .compile(
                 parameters,
@@ -1927,7 +2058,13 @@ impl<'ctx> ByteCompiler<'ctx> {
         dst
     }
 
-    fn call(&mut self, callable: Callable<'_>, dst: &Register) {
+    fn call(
+        &mut self,
+        callable: Callable<'_>,
+        dst: Option<&Register>,
+        tail: bool,
+        tail_actions: &[JumpRecordAction],
+    ) {
         #[derive(PartialEq)]
         enum CallKind {
             CallEval,
@@ -1967,7 +2104,7 @@ impl<'ctx> ByteCompiler<'ctx> {
 
                     if self.in_with {
                         let name = self.resolve_identifier_expect(*ident);
-                        let binding = self.lexical_scope.get_identifier_reference(name);
+                        let binding = self.get_identifier_reference(name);
                         let index = self.get_binding(&binding);
                         let index = match index {
                             BindingKind::Global(index) | BindingKind::Stack(index) => index,
@@ -2055,7 +2192,16 @@ impl<'ctx> ByteCompiler<'ctx> {
                 let scope_index = compiler.constants.len() as u32;
                 let lexical_scope = compiler.lexical_scope.clone();
                 compiler.constants.push(Constant::Scope(lexical_scope));
-                if contains_spread {
+                if tail && contains_spread {
+                    compiler.emit_tail_call_actions(tail_actions);
+                    compiler.bytecode.emit_tail_call_eval_spread(scope_index.into());
+                } else if tail {
+                    compiler.emit_tail_call_actions(tail_actions);
+                    compiler.bytecode.emit_tail_call_eval(
+                        (call.args().len() as u32).into(),
+                        scope_index.into(),
+                    );
+                } else if contains_spread {
                     compiler.bytecode.emit_call_eval_spread(scope_index.into());
                 } else {
                     compiler
@@ -2063,7 +2209,17 @@ impl<'ctx> ByteCompiler<'ctx> {
                         .emit_call_eval((call.args().len() as u32).into(), scope_index.into());
                 }
             }
+            CallKind::Call if contains_spread && tail => {
+                compiler.emit_tail_call_actions(tail_actions);
+                compiler.bytecode.emit_tail_call_spread()
+            }
             CallKind::Call if contains_spread => compiler.bytecode.emit_call_spread(),
+            CallKind::Call if tail => {
+                compiler.emit_tail_call_actions(tail_actions);
+                compiler
+                    .bytecode
+                    .emit_tail_call((call.args().len() as u32).into());
+            }
             CallKind::Call => {
                 compiler
                     .bytecode
@@ -2074,7 +2230,9 @@ impl<'ctx> ByteCompiler<'ctx> {
                 .bytecode
                 .emit_new((call.args().len() as u32).into()),
         }
-        compiler.pop_into_register(dst);
+        if let Some(dst) = dst {
+            compiler.pop_into_register(dst);
+        }
     }
 
     /// Finish compiling code with the [`ByteCompiler`] and return the generated [`CodeBlock`].

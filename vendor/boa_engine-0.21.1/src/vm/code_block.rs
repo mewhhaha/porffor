@@ -463,20 +463,32 @@ impl CodeBlock {
             Instruction::CallEval {
                 argument_count,
                 scope_index,
+            }
+            | Instruction::TailCallEval {
+                argument_count,
+                scope_index,
             } => {
                 format!("argument_count:{argument_count}, scope_index:{scope_index}")
             }
             Instruction::CallEvalSpread { scope_index }
+            | Instruction::TailCallEvalSpread { scope_index }
             | Instruction::PushScope { scope_index } => {
                 format!("scope_index:{scope_index}")
             }
             Instruction::Call { argument_count }
+            | Instruction::TailCall { argument_count }
             | Instruction::New { argument_count }
             | Instruction::SuperCall { argument_count } => {
                 format!("argument_count:{argument_count}")
             }
-            Instruction::DefVar { binding_index } | Instruction::GetLocator { binding_index } => {
+            Instruction::DefVar { binding_index }
+            | Instruction::GetLocator { binding_index }
+            | Instruction::SetMutableBindingDeletable { binding_index } => {
                 format!("binding_index:{binding_index}")
+            }
+            Instruction::AddDisposableResource { value, r#async } => {
+                let async_flag = r#async;
+                format!("value:{value}, async:{async_flag}")
             }
             Instruction::DefInitVar { src, binding_index }
             | Instruction::PutLexicalValue { src, binding_index }
@@ -839,6 +851,7 @@ impl CodeBlock {
             | Instruction::IteratorNext
             | Instruction::SuperCallDerived
             | Instruction::CallSpread
+            | Instruction::TailCallSpread
             | Instruction::NewSpread
             | Instruction::SuperCallSpread
             | Instruction::PopPrivateEnvironment => String::new(),
@@ -899,12 +912,7 @@ impl CodeBlock {
             | Instruction::Reserved55
             | Instruction::Reserved56
             | Instruction::Reserved57
-            | Instruction::Reserved58
-            | Instruction::Reserved59
-            | Instruction::Reserved60
-            | Instruction::Reserved61
-            | Instruction::Reserved62
-            | Instruction::Reserved63 => unreachable!("Reserved opcodes are unreachable"),
+            => unreachable!("Reserved opcodes are unreachable"),
         }
     }
 }

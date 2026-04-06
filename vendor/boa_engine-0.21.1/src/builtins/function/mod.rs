@@ -702,9 +702,11 @@ impl BuiltInFunctionObject {
         // 3. If argArray is undefined or null, then
         if arg_array.is_null_or_undefined() {
             // a. Perform PrepareForTailCall().
-            // TODO?: 3.a. PrepareForTailCall
-
             // b. Return ? Call(func, thisArg).
+            //
+            // Native function dispatch preserves the caller's tail-call intent,
+            // so the forwarded call below still performs frame replacement when
+            // `Function.prototype.apply` is itself in tail position.
             return func.call(this_arg, &[], context);
         }
 
@@ -712,9 +714,11 @@ impl BuiltInFunctionObject {
         let arg_list = arg_array.create_list_from_array_like(&[], context)?;
 
         // 5. Perform PrepareForTailCall().
-        // TODO?: 5. PrepareForTailCall
-
         // 6. Return ? Call(func, thisArg, argList).
+        //
+        // Native function dispatch preserves the caller's tail-call intent, so
+        // the forwarded call below still performs frame replacement when
+        // `Function.prototype.apply` is itself in tail position.
         func.call(this_arg, &arg_list, context)
     }
 
@@ -819,9 +823,11 @@ impl BuiltInFunctionObject {
         let this_arg = args.get_or_undefined(0);
 
         // 3. Perform PrepareForTailCall().
-        // TODO?: 3. Perform PrepareForTailCall
-
         // 4. Return ? Call(func, thisArg, args).
+        //
+        // Native function dispatch preserves the caller's tail-call intent, so
+        // the forwarded call below still performs frame replacement when
+        // `Function.prototype.call` is itself in tail position.
         func.call(this_arg, args.get(1..).unwrap_or(&[]), context)
     }
 
@@ -982,8 +988,6 @@ pub(crate) fn function_call(
     )]
     context: &mut InternalMethodCallContext<'_>,
 ) -> JsResult<CallValue> {
-    context.check_runtime_limits()?;
-
     let function = function_object
         .downcast_ref::<OrdinaryFunction>()
         .expect("not a function");
@@ -1007,6 +1011,16 @@ pub(crate) fn function_call(
     drop(function);
 
     let env_fp = environments.len() as u32;
+    let exit_early = if context.is_tail_call() {
+        context
+            .context()
+            .vm
+            .prepare_current_frame_for_tail_call(argument_count)
+    } else {
+        false
+    };
+
+    context.context().check_runtime_limits()?;
 
     let frame = CallFrame::new(code.clone(), script_or_module, environments, realm)
         .with_argument_count(argument_count as u32)
@@ -1022,6 +1036,9 @@ pub(crate) fn function_call(
     }
 
     context.vm.push_frame(frame);
+    if exit_early {
+        context.vm.frame_mut().set_exit_early(true);
+    }
     let this = context.vm.stack.get_this(context.vm.frame());
 
     let context = context.context();

@@ -327,6 +327,15 @@ pub(crate) fn native_function_call(
     argument_count: usize,
     context: &mut InternalMethodCallContext<'_>,
 ) -> JsResult<CallValue> {
+    let exit_early = if context.is_tail_call() {
+        context
+            .context()
+            .vm
+            .prepare_current_frame_for_tail_call(argument_count)
+    } else {
+        false
+    };
+
     let args = context
         .vm
         .stack
@@ -374,6 +383,7 @@ pub(crate) fn native_function_call(
     context.vm.shadow_stack.pop();
 
     context.vm.stack.push(result?);
+    context.vm.tail_call_complete_exit_early = exit_early;
 
     Ok(CallValue::Complete)
 }

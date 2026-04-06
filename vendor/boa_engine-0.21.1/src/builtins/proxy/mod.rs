@@ -1160,7 +1160,7 @@ fn proxy_exotic_call(
     let Some(trap) = handler.get_method(js_string!("apply"), context)? else {
         // 6. If trap is undefined, then
         // a. Return ? Call(target, thisArgument, argumentsList).
-        return Ok(target.__call__(argument_count));
+        return Ok(target.__call_with_context(argument_count, context.is_tail_call()));
     };
 
     let args = context
@@ -1181,7 +1181,7 @@ fn proxy_exotic_call(
     context.vm.stack.push(target);
     context.vm.stack.push(this);
     context.vm.stack.push(arg_array);
-    Ok(trap.__call__(3))
+    Ok(trap.__call_with_context(3, context.is_tail_call()))
 }
 
 /// `[[Construct]] ( argumentsList, newTarget )`

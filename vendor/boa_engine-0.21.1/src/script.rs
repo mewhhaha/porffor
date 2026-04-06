@@ -171,6 +171,8 @@ impl Script {
         self.prepare_run(context)?;
         let record = context.run();
 
+        let env_fp = context.vm.frame.env_fp as usize;
+        context.unwind_environments_to(env_fp);
         context.vm.pop_frame();
         record.consume()
     }
@@ -203,6 +205,8 @@ impl Script {
 
         let record = context.run_async_with_budget(budget).await;
 
+        let env_fp = context.vm.frame.env_fp as usize;
+        context.unwind_environments_to(env_fp);
         context.vm.pop_frame();
         record.consume()
     }

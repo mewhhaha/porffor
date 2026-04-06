@@ -269,6 +269,7 @@ impl CodeBlock {
                 }
                 Instruction::DefVar { .. }
                 | Instruction::DefInitVar { .. }
+                | Instruction::SetMutableBindingDeletable { .. }
                 | Instruction::PutLexicalValue { .. }
                 | Instruction::GetName { .. }
                 | Instruction::GetNameGlobal { .. }
@@ -515,7 +516,7 @@ impl CodeBlock {
                 | Instruction::Reserved60
                 | Instruction::Reserved61
                 | Instruction::Reserved62
-                | Instruction::Reserved63 => unreachable!("Reserved opcodes are unreachable"),
+                => unreachable!("Reserved opcodes are unreachable"),
             }
         }
 

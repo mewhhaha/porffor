@@ -1,4 +1,4 @@
-use std::{cell::RefCell, mem::MaybeUninit};
+use std::{cell::RefCell, mem::MaybeUninit, ops::ControlFlow};
 
 use boa_string::JsString;
 use dynify::Dynify;
@@ -11,8 +11,17 @@ use crate::{
     job::NativeAsyncJob,
     module::{ModuleKind, Referrer},
     object::FunctionObjectBuilder,
-    vm::opcode::Operation,
+    vm::{CompletionRecord, opcode::Operation},
 };
+
+fn tail_call_complete(context: &mut Context) -> ControlFlow<CompletionRecord> {
+    if context.vm.take_tail_call_complete_exit_early() {
+        let result = context.vm.stack.pop();
+        return ControlFlow::Break(CompletionRecord::Normal(result));
+    }
+
+    ControlFlow::Continue(())
+}
 
 /// `CallEval` implements the Opcode Operation for `Opcode::CallEval`
 ///
@@ -174,6 +183,149 @@ impl Operation for CallEvalSpread {
     const COST: u8 = 5;
 }
 
+/// `TailCallEvalSpread` implements the Opcode Operation for `Opcode::TailCallEvalSpread`
+///
+/// Operation:
+///  - Tail-call a function named "eval" where the arguments contain spreads.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TailCallEvalSpread;
+
+impl TailCallEvalSpread {
+    #[inline(always)]
+    pub(super) fn operation(
+        scope_index: VaryingOperand,
+        context: &mut Context,
+    ) -> ControlFlow<CompletionRecord> {
+        let arguments_array = context.vm.stack.pop();
+        let arguments_array_object = arguments_array
+            .as_object()
+            .expect("arguments array in call spread function must be an object");
+        let arguments = arguments_array_object
+            .borrow()
+            .properties()
+            .to_dense_indexed_properties()
+            .expect("arguments array in call spread function must be dense");
+
+        let func = context.vm.stack.calling_convention_get_function(0);
+
+        let Some(object) = func.as_object() else {
+            return context.handle_error(
+                JsNativeError::typ()
+                    .with_message("not a callable function")
+                    .into(),
+            );
+        };
+
+        let eval = context.intrinsics().objects().eval();
+        if JsObject::equals(&object, &eval) {
+            let _func = context.vm.stack.pop();
+            let _this = context.vm.stack.pop();
+            let strict = context.vm.frame().code_block.strict();
+            let scope = context.vm.frame().code_block().constant_scope(scope_index.into());
+            let result = if let Some(x) = arguments.first() {
+                crate::builtins::eval::Eval::perform_eval(x, true, Some(scope), strict, context)
+            } else {
+                Ok(JsValue::undefined())
+            };
+
+            match result {
+                Ok(result) => {
+                    context.vm.set_return_value(result);
+                    context.handle_return()
+                }
+                Err(err) => context.handle_error(err),
+            }
+        } else {
+            let argument_count = arguments.len();
+            context
+                .vm
+                .stack
+                .calling_convention_push_arguments(&arguments);
+
+            match object
+                .__call_with_context(argument_count, true)
+                .resolve(context)
+            {
+                Ok(_) => tail_call_complete(context),
+                Err(err) => context.handle_error(err),
+            }
+        }
+    }
+}
+
+impl Operation for TailCallEvalSpread {
+    const NAME: &'static str = "TailCallEvalSpread";
+    const INSTRUCTION: &'static str = "INST - TailCallEvalSpread";
+    const COST: u8 = 5;
+}
+
+/// `TailCallEval` implements the Opcode Operation for `Opcode::TailCallEval`
+///
+/// Operation:
+///  - Tail-call a function named "eval".
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TailCallEval;
+
+impl TailCallEval {
+    #[inline(always)]
+    pub(super) fn operation(
+        (argument_count, scope_index): (VaryingOperand, VaryingOperand),
+        context: &mut Context,
+    ) -> ControlFlow<CompletionRecord> {
+        let func = context
+            .vm
+            .stack
+            .calling_convention_get_function(argument_count.into());
+
+        let Some(object) = func.as_object() else {
+            return context.handle_error(
+                JsNativeError::typ()
+                    .with_message("not a callable function")
+                    .into(),
+            );
+        };
+
+        let eval = context.intrinsics().objects().eval();
+        if JsObject::equals(&object, &eval) {
+            let arguments = context
+                .vm
+                .stack
+                .calling_convention_pop_arguments(argument_count.into());
+            let _func = context.vm.stack.pop();
+            let _this = context.vm.stack.pop();
+            let strict = context.vm.frame().code_block.strict();
+            let scope = context.vm.frame().code_block().constant_scope(scope_index.into());
+            let result = if let Some(x) = arguments.first() {
+                crate::builtins::eval::Eval::perform_eval(x, true, Some(scope), strict, context)
+            } else {
+                Ok(JsValue::undefined())
+            };
+
+            match result {
+                Ok(result) => {
+                    context.vm.set_return_value(result);
+                    context.handle_return()
+                }
+                Err(err) => context.handle_error(err),
+            }
+        } else {
+            match object
+                .__call_with_context(argument_count.into(), true)
+                .resolve(context)
+            {
+                Ok(_) => tail_call_complete(context),
+                Err(err) => context.handle_error(err),
+            }
+        }
+    }
+}
+
+impl Operation for TailCallEval {
+    const NAME: &'static str = "TailCallEval";
+    const INSTRUCTION: &'static str = "INST - TailCallEval";
+    const COST: u8 = 5;
+}
+
 /// `Call` implements the Opcode Operation for `Opcode::Call`
 ///
 /// Operation:
@@ -210,6 +362,44 @@ impl Call {
 impl Operation for Call {
     const NAME: &'static str = "Call";
     const INSTRUCTION: &'static str = "INST - Call";
+    const COST: u8 = 3;
+}
+
+/// `TailCall` implements the Opcode Operation for `Opcode::TailCall`
+///
+/// Operation:
+///  - Tail-call a function.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TailCall;
+
+impl TailCall {
+    #[inline(always)]
+    pub(super) fn operation(
+        argument_count: VaryingOperand,
+        context: &mut Context,
+    ) -> ControlFlow<CompletionRecord> {
+        let func = context
+            .vm
+            .stack
+            .calling_convention_get_function(argument_count.into());
+
+        let Some(object) = func.as_object() else {
+            return context.handle_error(Call::handle_not_callable());
+        };
+
+        match object
+            .__call_with_context(argument_count.into(), true)
+            .resolve(context)
+        {
+            Ok(_) => tail_call_complete(context),
+            Err(err) => context.handle_error(err),
+        }
+    }
+}
+
+impl Operation for TailCall {
+    const NAME: &'static str = "TailCall";
+    const INSTRUCTION: &'static str = "INST - TailCall";
     const COST: u8 = 3;
 }
 
@@ -255,6 +445,57 @@ impl CallSpread {
 impl Operation for CallSpread {
     const NAME: &'static str = "CallSpread";
     const INSTRUCTION: &'static str = "INST - CallSpread";
+    const COST: u8 = 3;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TailCallSpread;
+
+impl TailCallSpread {
+    #[inline(always)]
+    pub(super) fn operation((): (), context: &mut Context) -> ControlFlow<CompletionRecord> {
+        let arguments_array = context.vm.stack.pop();
+        let arguments_array_object = arguments_array
+            .as_object()
+            .expect("arguments array in call spread function must be an object");
+        let arguments = arguments_array_object
+            .borrow()
+            .properties()
+            .to_dense_indexed_properties()
+            .expect("arguments array in call spread function must be dense");
+
+        let argument_count = arguments.len();
+        context
+            .vm
+            .stack
+            .calling_convention_push_arguments(&arguments);
+
+        let func = context
+            .vm
+            .stack
+            .calling_convention_get_function(argument_count);
+
+        let Some(object) = func.as_object() else {
+            return context.handle_error(
+                JsNativeError::typ()
+                    .with_message("not a callable function")
+                    .into(),
+            );
+        };
+
+        match object
+            .__call_with_context(argument_count, true)
+            .resolve(context)
+        {
+            Ok(_) => tail_call_complete(context),
+            Err(err) => context.handle_error(err),
+        }
+    }
+}
+
+impl Operation for TailCallSpread {
+    const NAME: &'static str = "TailCallSpread";
+    const INSTRUCTION: &'static str = "INST - TailCallSpread";
     const COST: u8 = 3;
 }
 

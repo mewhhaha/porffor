@@ -48,7 +48,7 @@ impl ByteCompiler<'_> {
                     };
 
                     let names = bound_names(decl.declaration());
-                    if decl.declaration().is_const() {
+                    if decl.declaration().is_const() || decl.declaration().is_using() {
                     } else {
                         let mut indices = Vec::new();
                         for name in &names {
@@ -208,12 +208,40 @@ impl ByteCompiler<'_> {
                 }
             },
             IterableLoopInitializer::Let(declaration)
-            | IterableLoopInitializer::Const(declaration) => match declaration {
+            | IterableLoopInitializer::Const(declaration)
+            | IterableLoopInitializer::Using(declaration)
+            | IterableLoopInitializer::AwaitUsing(declaration) => match declaration {
                 Binding::Identifier(ident) => {
                     let ident = ident.to_js_string(self.interner());
+                    if matches!(
+                        for_in_loop.initializer(),
+                        IterableLoopInitializer::Using(_) | IterableLoopInitializer::AwaitUsing(_)
+                    ) {
+                        self.bytecode.emit_add_disposable_resource(
+                            value.variable(),
+                            matches!(
+                                for_in_loop.initializer(),
+                                IterableLoopInitializer::AwaitUsing(_)
+                            )
+                            .into(),
+                        );
+                    }
                     self.emit_binding(BindingOpcode::InitLexical, ident, &value);
                 }
                 Binding::Pattern(pattern) => {
+                    if matches!(
+                        for_in_loop.initializer(),
+                        IterableLoopInitializer::Using(_) | IterableLoopInitializer::AwaitUsing(_)
+                    ) {
+                        self.bytecode.emit_add_disposable_resource(
+                            value.variable(),
+                            matches!(
+                                for_in_loop.initializer(),
+                                IterableLoopInitializer::AwaitUsing(_)
+                            )
+                            .into(),
+                        );
+                    }
                     self.compile_declaration_pattern(pattern, BindingOpcode::InitLexical, &value);
                 }
             },
@@ -326,12 +354,40 @@ impl ByteCompiler<'_> {
                 }
             }
             IterableLoopInitializer::Let(declaration)
-            | IterableLoopInitializer::Const(declaration) => match declaration {
+            | IterableLoopInitializer::Const(declaration)
+            | IterableLoopInitializer::Using(declaration)
+            | IterableLoopInitializer::AwaitUsing(declaration) => match declaration {
                 Binding::Identifier(ident) => {
                     let ident = ident.to_js_string(self.interner());
+                    if matches!(
+                        for_of_loop.initializer(),
+                        IterableLoopInitializer::Using(_) | IterableLoopInitializer::AwaitUsing(_)
+                    ) {
+                        self.bytecode.emit_add_disposable_resource(
+                            value.variable(),
+                            matches!(
+                                for_of_loop.initializer(),
+                                IterableLoopInitializer::AwaitUsing(_)
+                            )
+                            .into(),
+                        );
+                    }
                     self.emit_binding(BindingOpcode::InitLexical, ident, &value);
                 }
                 Binding::Pattern(pattern) => {
+                    if matches!(
+                        for_of_loop.initializer(),
+                        IterableLoopInitializer::Using(_) | IterableLoopInitializer::AwaitUsing(_)
+                    ) {
+                        self.bytecode.emit_add_disposable_resource(
+                            value.variable(),
+                            matches!(
+                                for_of_loop.initializer(),
+                                IterableLoopInitializer::AwaitUsing(_)
+                            )
+                            .into(),
+                        );
+                    }
                     self.compile_declaration_pattern(pattern, BindingOpcode::InitLexical, &value);
                 }
             },

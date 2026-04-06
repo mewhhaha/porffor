@@ -45,6 +45,8 @@ pub struct RegExp {
     flags: RegExpFlags,
     original_source: JsString,
     original_flags: JsString,
+    owner_realm: Realm,
+    intrinsic_instance: bool,
 }
 
 impl IntrinsicObject for RegExp {
@@ -158,7 +160,107 @@ impl IntrinsicObject for RegExp {
             );
 
         #[cfg(feature = "annex-b")]
-        let regexp = regexp.method(Self::compile, js_string!("compile"), 2);
+        let regexp = {
+            let get_input = BuiltInBuilder::callable(realm, Self::get_legacy_input)
+                .name(js_string!("get input"))
+                .build();
+            let set_input = BuiltInBuilder::callable(realm, Self::set_legacy_input)
+                .name(js_string!("set input"))
+                .build();
+            let get_last_match = BuiltInBuilder::callable(realm, Self::get_legacy_last_match)
+                .name(js_string!("get lastMatch"))
+                .build();
+            let get_last_paren = BuiltInBuilder::callable(realm, Self::get_legacy_last_paren)
+                .name(js_string!("get lastParen"))
+                .build();
+            let get_left_context =
+                BuiltInBuilder::callable(realm, Self::get_legacy_left_context)
+                    .name(js_string!("get leftContext"))
+                    .build();
+            let get_right_context =
+                BuiltInBuilder::callable(realm, Self::get_legacy_right_context)
+                    .name(js_string!("get rightContext"))
+                    .build();
+            let get_capture_1 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_1)
+                .name(js_string!("get $1"))
+                .build();
+            let get_capture_2 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_2)
+                .name(js_string!("get $2"))
+                .build();
+            let get_capture_3 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_3)
+                .name(js_string!("get $3"))
+                .build();
+            let get_capture_4 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_4)
+                .name(js_string!("get $4"))
+                .build();
+            let get_capture_5 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_5)
+                .name(js_string!("get $5"))
+                .build();
+            let get_capture_6 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_6)
+                .name(js_string!("get $6"))
+                .build();
+            let get_capture_7 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_7)
+                .name(js_string!("get $7"))
+                .build();
+            let get_capture_8 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_8)
+                .name(js_string!("get $8"))
+                .build();
+            let get_capture_9 = BuiltInBuilder::callable(realm, Self::get_legacy_capture_9)
+                .name(js_string!("get $9"))
+                .build();
+
+            regexp
+                .static_accessor(
+                    js_string!("input"),
+                    Some(get_input.clone()),
+                    Some(set_input.clone()),
+                    flag_attributes,
+                )
+                .static_accessor(
+                    js_string!("$_"),
+                    Some(get_input),
+                    Some(set_input),
+                    flag_attributes,
+                )
+                .static_accessor(
+                    js_string!("lastMatch"),
+                    Some(get_last_match.clone()),
+                    None,
+                    flag_attributes,
+                )
+                .static_accessor(
+                    js_string!("lastParen"),
+                    Some(get_last_paren.clone()),
+                    None,
+                    flag_attributes,
+                )
+                .static_accessor(
+                    js_string!("leftContext"),
+                    Some(get_left_context.clone()),
+                    None,
+                    flag_attributes,
+                )
+                .static_accessor(
+                    js_string!("rightContext"),
+                    Some(get_right_context.clone()),
+                    None,
+                    flag_attributes,
+                )
+                .static_accessor(js_string!("$&"), Some(get_last_match), None, flag_attributes)
+                .static_accessor(js_string!("$+"), Some(get_last_paren), None, flag_attributes)
+                .static_accessor(js_string!("$`"), Some(get_left_context), None, flag_attributes)
+                .static_accessor(js_string!("$'"), Some(get_right_context), None, flag_attributes)
+                .static_accessor(js_string!("$1"), Some(get_capture_1), None, flag_attributes)
+                .static_accessor(js_string!("$2"), Some(get_capture_2), None, flag_attributes)
+                .static_accessor(js_string!("$3"), Some(get_capture_3), None, flag_attributes)
+                .static_accessor(js_string!("$4"), Some(get_capture_4), None, flag_attributes)
+                .static_accessor(js_string!("$5"), Some(get_capture_5), None, flag_attributes)
+                .static_accessor(js_string!("$6"), Some(get_capture_6), None, flag_attributes)
+                .static_accessor(js_string!("$7"), Some(get_capture_7), None, flag_attributes)
+                .static_accessor(js_string!("$8"), Some(get_capture_8), None, flag_attributes)
+                .static_accessor(js_string!("$9"), Some(get_capture_9), None, flag_attributes)
+                .method(Self::compile, js_string!("compile"), 2)
+        };
 
         regexp.build();
     }
@@ -175,7 +277,7 @@ impl BuiltInObject for RegExp {
 impl BuiltInConstructor for RegExp {
     const CONSTRUCTOR_ARGUMENTS: usize = 2;
     const PROTOTYPE_STORAGE_SLOTS: usize = 30;
-    const CONSTRUCTOR_STORAGE_SLOTS: usize = 2;
+    const CONSTRUCTOR_STORAGE_SLOTS: usize = 40;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
         StandardConstructors::regexp;
@@ -356,6 +458,8 @@ impl RegExp {
             flags,
             original_source: p,
             original_flags: f,
+            owner_realm: context.realm().clone(),
+            intrinsic_instance: true,
         })
     }
 
@@ -374,7 +478,13 @@ impl RegExp {
         context: &mut Context,
     ) -> JsResult<JsValue> {
         // Has the steps  of `RegExpInitialize`.
-        let regexp = Self::compile_native_regexp(pattern, flags, context)?;
+        let intrinsic_prototype = context.intrinsics().constructors().regexp().prototype();
+        let intrinsic_instance = prototype
+            .as_ref()
+            .is_none_or(|prototype| JsObject::equals(prototype, &intrinsic_prototype));
+        let mut regexp = Self::compile_native_regexp(pattern, flags, context)?;
+        regexp.owner_realm = context.realm().clone();
+        regexp.intrinsic_instance = intrinsic_instance;
 
         // 22. Perform ? Set(obj, "lastIndex", +0𝔽, true).
         let obj = if let Some(prototype) = prototype {
@@ -423,6 +533,226 @@ impl RegExp {
     fn get_species(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Return the this value.
         Ok(this.clone())
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn legacy_static_constructor(
+        this: &JsValue,
+        property: &str,
+        context: &mut Context,
+    ) -> JsResult<JsObject> {
+        let receiver = this.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message(format!(
+                "RegExp.{property} getter called on non-RegExp constructor",
+            ))
+        })?;
+        let constructor = Self::STANDARD_CONSTRUCTOR(context.intrinsics().constructors()).constructor();
+
+        if !JsObject::equals(&receiver, &constructor) {
+            return Err(JsNativeError::typ()
+                .with_message(format!(
+                    "RegExp.{property} getter called on non-RegExp constructor",
+                ))
+                .into());
+        }
+
+        Ok(receiver)
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_static_property(
+        this: &JsValue,
+        property: &str,
+        context: &mut Context,
+        map: impl FnOnce(&crate::realm::LegacyRegExpStatics) -> JsValue,
+    ) -> JsResult<JsValue> {
+        drop(Self::legacy_static_constructor(this, property, context)?);
+        let statics = context.realm().legacy_regexp_statics();
+        Ok(map(&statics))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn capture_value(
+        statics: &crate::realm::LegacyRegExpStatics,
+        index: usize,
+    ) -> JsValue {
+        statics
+            .captures
+            .get(index)
+            .and_then(|capture| capture.as_ref())
+            .map_or_else(
+                || js_string!().into(),
+                |range| js_string!(statics.input.get_expect(range.clone())).into(),
+            )
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_input(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "input", context, |statics| {
+            statics.input.clone().into()
+        })
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn set_legacy_input(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        drop(Self::legacy_static_constructor(this, "input", context)?);
+        let value = args.get_or_undefined(0).to_string(context)?;
+        context.realm().set_legacy_regexp_input(value);
+        Ok(JsValue::undefined())
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_last_match(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "lastMatch", context, |statics| {
+            statics.last_match.as_ref().map_or_else(
+                || js_string!().into(),
+                |range| js_string!(statics.input.get_expect(range.clone())).into(),
+            )
+        })
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_last_paren(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "lastParen", context, |statics| {
+            statics
+                .captures
+                .iter()
+                .rev()
+                .flatten()
+                .next()
+                .map_or_else(
+                    || js_string!().into(),
+                    |range| js_string!(statics.input.get_expect(range.clone())).into(),
+                )
+        })
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_left_context(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "leftContext", context, |statics| {
+            statics.last_match.as_ref().map_or_else(
+                || js_string!().into(),
+                |range| js_string!(statics.input.get_expect(..range.start)).into(),
+            )
+        })
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_right_context(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "rightContext", context, |statics| {
+            statics.last_match.as_ref().map_or_else(
+                || js_string!().into(),
+                |range| js_string!(statics.input.get_expect(range.end..)).into(),
+            )
+        })
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_1(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$1", context, |statics| Self::capture_value(statics, 0))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_2(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$2", context, |statics| Self::capture_value(statics, 1))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_3(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$3", context, |statics| Self::capture_value(statics, 2))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_4(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$4", context, |statics| Self::capture_value(statics, 3))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_5(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$5", context, |statics| Self::capture_value(statics, 4))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_6(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$6", context, |statics| Self::capture_value(statics, 5))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_7(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$7", context, |statics| Self::capture_value(statics, 6))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_8(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$8", context, |statics| Self::capture_value(statics, 7))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn get_legacy_capture_9(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::get_legacy_static_property(this, "$9", context, |statics| Self::capture_value(statics, 8))
+    }
+
+    #[cfg(feature = "annex-b")]
+    fn is_legacy_compile_receiver(object: &JsObject, context: &Context) -> bool {
+        object.downcast_ref::<RegExp>().is_some_and(|regexp| {
+            regexp.intrinsic_instance && regexp.owner_realm == *context.realm()
+        })
     }
 
     fn regexp_has_flag(this: &JsValue, flag: u8, context: &mut Context) -> JsResult<JsValue> {
@@ -1174,6 +1504,19 @@ impl RegExp {
             }
         }
 
+        #[cfg(feature = "annex-b")]
+        context.realm().set_legacy_regexp_statics(
+            input.clone(),
+            match_value.start()..match_value.end(),
+            (1..=n as usize)
+                .map(|index| {
+                    match_value
+                        .group(index)
+                        .map(|range| range.start..range.end)
+                })
+                .collect(),
+        );
+
         // 34. If hasIndices is true, then
         // a. Let indicesArray be MakeMatchIndicesIndexPairArray(S, indices, groupNames, hasGroups).
         // b. Perform ! CreateDataPropertyOrThrow(A, "indices", indicesArray).
@@ -1877,13 +2220,13 @@ impl RegExp {
     fn compile(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         // 1. Let O be the this value.
         // 2. Perform ? RequireInternalSlot(O, [[RegExpMatcher]]).
-
         let this = this
             .as_object()
-            .filter(|o| o.is::<RegExp>())
+            .filter(|o| Self::is_legacy_compile_receiver(o, context))
             .ok_or_else(|| {
-                JsNativeError::typ()
-                    .with_message("`RegExp.prototype.compile` cannot be called for a non-object")
+                JsNativeError::typ().with_message(
+                    "`RegExp.prototype.compile` cannot be called for an incompatible receiver",
+                )
             })?;
         let pattern = args.get_or_undefined(0);
         let flags = args.get_or_undefined(1);

@@ -24,5 +24,7 @@ repository = "https://github.com/CanadaHonk/porffor"
 unsafe_code = "forbid"
 
 [patch.crates-io]
+boa_ast = { path = "vendor/boa_ast-0.21.1" }
 boa_engine = { path = "vendor/boa_engine-0.21.1" }
+boa_parser = { path = "vendor/boa_parser-0.21.1" }
 icu_calendar = { path = "vendor/icu_calendar-2.0.6" }

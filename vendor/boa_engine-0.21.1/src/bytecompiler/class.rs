@@ -207,8 +207,8 @@ impl ByteCompiler<'_> {
 
         let mut static_elements = Vec::new();
 
-        if let Some(scope) = class.name_scope {
-            let binding = scope.get_identifier_reference(class_name.clone());
+        if class.name_scope.is_some() {
+            let binding = self.lexical_scope.get_identifier_reference(class_name.clone());
             let index = self.insert_binding(binding);
             self.emit_binding_access(
                 BindingAccessOpcode::PutLexicalValue,
@@ -388,7 +388,8 @@ impl ByteCompiler<'_> {
                         self.register_allocator.dealloc(method);
                     }
                 },
-                ClassElement::FieldDefinition(field) => {
+                ClassElement::FieldDefinition(field)
+                | ClassElement::AccessorFieldDefinition(field) => {
                     let name = self.register_allocator.alloc();
                     match field.name() {
                         PropertyName::Literal(ident) => {
@@ -497,7 +498,8 @@ impl ByteCompiler<'_> {
                     );
                     self.register_allocator.dealloc(dst);
                 }
-                ClassElement::StaticFieldDefinition(field) => {
+                ClassElement::StaticFieldDefinition(field)
+                | ClassElement::StaticAccessorFieldDefinition(field) => {
                     let name_index = match field.name() {
                         PropertyName::Literal(name) => {
                             StaticFieldName::Index(self.get_or_insert_name(name.sym()))

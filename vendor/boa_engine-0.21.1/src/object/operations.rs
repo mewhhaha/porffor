@@ -893,6 +893,13 @@ impl JsObject {
             .host_hooks()
             .ensure_can_add_private_element(self, context)?;
 
+        // Private elements still respect object extensibility.
+        if !self.is_extensible(context)? {
+            return Err(JsNativeError::typ()
+                .with_message("cannot add private field to non-extensible object")
+                .into());
+        }
+
         // 2. Let entry be PrivateElementFind(O, P).
         let entry = self.private_element_find(name, false, false);
 
@@ -942,6 +949,12 @@ impl JsObject {
         context
             .host_hooks()
             .ensure_can_add_private_element(self, context)?;
+
+        if !self.is_extensible(context)? {
+            return Err(JsNativeError::typ()
+                .with_message("cannot add private element to non-extensible object")
+                .into());
+        }
 
         // 3. Let entry be PrivateElementFind(O, method.[[Key]]).
         let entry = self.private_element_find(name, getter, setter);

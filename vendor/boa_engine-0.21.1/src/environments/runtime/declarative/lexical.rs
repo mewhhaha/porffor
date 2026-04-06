@@ -41,4 +41,10 @@ impl LexicalEnvironment {
     pub(crate) fn set(&self, index: u32, value: JsValue) {
         self.inner.set(index, value);
     }
+
+    /// Returns whether the given binding index exists.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        self.inner.has_binding_index(index)
+    }
 }

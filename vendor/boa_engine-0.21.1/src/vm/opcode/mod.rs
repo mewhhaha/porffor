@@ -2206,16 +2206,41 @@ generate_opcodes! {
     Reserved56 => Reserved,
     /// Reserved [`Opcode`].
     Reserved57 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved58 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved59 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved60 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved61 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved62 => Reserved,
-    /// Reserved [`Opcode`].
-    Reserved63 => Reserved,
+    /// Adds a `using` / `await using` resource to the current declarative environment.
+    ///
+    /// - Operands:
+    ///   - async: `VaryingOperand`
+    /// - Registers:
+    ///   - Input: value
+    AddDisposableResource { value: VaryingOperand, r#async: VaryingOperand },
+    /// Tail-call a function named "eval" where the arguments contain spreads.
+    ///
+    /// - Operands:
+    ///   - scope_index: `VaryingOperand`
+    /// - Stack: this, func, arguments_array **=>** result
+    TailCallEvalSpread { scope_index: VaryingOperand },
+    /// Tail-call a function named "eval".
+    ///
+    /// - Operands:
+    ///   - argument_count: `VaryingOperand`
+    ///   - scope_index: `VaryingOperand`
+    /// - Stack: this, func, argument_1, ... argument_n **=>** result
+    TailCallEval { argument_count: VaryingOperand, scope_index: VaryingOperand },
+    /// Tail-call a function.
+    ///
+    /// - Operands:
+    ///   - argument_count: `VaryingOperand`
+    /// - Stack: this, func, argument_1, ... argument_n **=>** result
+    TailCall { argument_count: VaryingOperand },
+    /// Tail-call a function where the arguments contain spreads.
+    ///
+    /// Operands:
+    ///
+    /// Stack: this, func, arguments_array **=>** result
+    TailCallSpread,
+    /// Mark a mutable binding as deletable.
+    ///
+    /// - Operands:
+    ///   - binding_index: `VaryingOperand`
+    SetMutableBindingDeletable { binding_index: VaryingOperand },
 }

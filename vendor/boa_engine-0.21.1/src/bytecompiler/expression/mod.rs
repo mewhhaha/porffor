@@ -6,7 +6,10 @@ mod update;
 
 use std::ops::Deref;
 
-use super::{Access, Callable, NodeKind, Register, ToJsString};
+use super::{
+    Access, Callable, NodeKind, Register, ToJsString,
+    jump_control::{JumpRecord, JumpRecordAction, JumpRecordKind},
+};
 use crate::{
     bytecompiler::{ByteCompiler, Literal},
     vm::GeneratorResumeKind,
@@ -14,11 +17,15 @@ use crate::{
 use boa_ast::{
     Expression,
     expression::{
+        TaggedTemplate,
         access::{PropertyAccess, PropertyAccessField},
         literal::{
             Literal as AstLiteral, LiteralKind as AstLiteralKind, TemplateElement, TemplateLiteral,
         },
-        operator::Conditional,
+        operator::{
+            Conditional,
+            binary::{BinaryOp, LogicalOp},
+        },
     },
 };
 use thin_vec::ThinVec;
@@ -76,6 +83,236 @@ impl ByteCompiler<'_> {
         self.bytecode.emit_concat_to_string(dst.variable(), values);
         for reg in registers {
             self.register_allocator.dealloc(reg);
+        }
+    }
+
+    fn compile_tagged_template_call(
+        &mut self,
+        template: &TaggedTemplate,
+        dst: Option<&Register>,
+        tail: bool,
+        tail_actions: &[JumpRecordAction],
+    ) {
+        let mut site_register = None;
+        let dst = if let Some(dst) = dst {
+            dst
+        } else {
+            site_register = Some(self.register_allocator.alloc());
+            site_register
+                .as_ref()
+                .expect("tail-call tagged templates must allocate a site register")
+        };
+
+        let this = self.register_allocator.alloc();
+        let function = self.register_allocator.alloc();
+
+        match template.tag() {
+            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
+                self.compile_expr(access.target(), &this);
+                match access.field() {
+                    PropertyAccessField::Const(ident) => {
+                        self.emit_get_property_by_name(&function, &this, &this, ident.sym());
+                    }
+                    PropertyAccessField::Expr(field) => {
+                        let key = self.register_allocator.alloc();
+                        self.compile_expr(field, &key);
+                        self.bytecode.emit_get_property_by_value(
+                            function.variable(),
+                            key.variable(),
+                            this.variable(),
+                            this.variable(),
+                        );
+                        self.register_allocator.dealloc(key);
+                    }
+                }
+            }
+            Expression::PropertyAccess(PropertyAccess::Private(access)) => {
+                let index = self.get_or_insert_private_name(access.field());
+                self.compile_expr(access.target(), &this);
+                self.bytecode.emit_get_private_field(
+                    function.variable(),
+                    this.variable(),
+                    index.into(),
+                );
+            }
+            expr => {
+                self.bytecode.emit_push_undefined(this.variable());
+                self.compile_expr(expr, &function);
+            }
+        }
+
+        self.push_from_register(&this);
+        self.push_from_register(&function);
+
+        self.register_allocator.dealloc(this);
+        self.register_allocator.dealloc(function);
+
+        let site = template.identifier();
+        let count = template.cookeds().len() as u32;
+        let jump_label = self.template_lookup(dst, site);
+
+        let mut part_registers = Vec::with_capacity(count as usize * 2);
+
+        for (cooked, raw) in template.cookeds().iter().zip(template.raws()) {
+            let value = self.register_allocator.alloc();
+            if let Some(cooked) = cooked {
+                self.emit_push_literal(Literal::String(cooked.to_js_string(self.interner())), &value);
+            } else {
+                self.bytecode.emit_push_undefined(value.variable());
+            }
+            part_registers.push(value);
+            let value = self.register_allocator.alloc();
+            self.emit_push_literal(Literal::String(raw.to_js_string(self.interner())), &value);
+            part_registers.push(value);
+        }
+
+        let mut values = ThinVec::with_capacity(count as usize * 2);
+        for r in &part_registers {
+            values.push(r.index());
+        }
+        self.bytecode.emit_template_create(site, dst.variable(), values);
+        for r in part_registers {
+            self.register_allocator.dealloc(r);
+        }
+
+        self.patch_jump(jump_label);
+        self.push_from_register(dst);
+
+        for expr in template.exprs() {
+            let value = self.register_allocator.alloc();
+            self.compile_expr(expr, &value);
+            self.push_from_register(&value);
+            self.register_allocator.dealloc(value);
+        }
+
+        if tail {
+            self.emit_tail_call_actions(tail_actions);
+            self.bytecode
+                .emit_tail_call((template.exprs().len() as u32 + 1).into());
+        } else {
+            self.bytecode
+                .emit_call((template.exprs().len() as u32 + 1).into());
+            self.pop_into_register(dst);
+        }
+
+        if let Some(site_register) = site_register {
+            self.register_allocator.dealloc(site_register);
+        }
+    }
+
+    pub(crate) fn emit_tail_call_actions(&mut self, actions: &[JumpRecordAction]) {
+        let mut actions = actions.to_vec();
+        while let Some(action) = actions.pop() {
+            match action {
+                JumpRecordAction::PopEnvironments { count } => {
+                    for _ in 0..count {
+                        self.bytecode.emit_pop_environment();
+                    }
+                }
+                JumpRecordAction::CloseIterator { r#async } => self.iterator_close(r#async),
+                JumpRecordAction::Transfer { .. } | JumpRecordAction::HandleFinally { .. } => {
+                    unreachable!("complex return actions must use the non-tail return path")
+                }
+            }
+        }
+    }
+
+    pub(crate) fn can_tail_call_return_actions(&self, actions: &[JumpRecordAction]) -> bool {
+        actions.iter().all(|action| {
+            matches!(
+                action,
+                JumpRecordAction::PopEnvironments { .. } | JumpRecordAction::CloseIterator { .. }
+            )
+        })
+    }
+
+    fn emit_return_with_actions(
+        &mut self,
+        return_value_on_stack: bool,
+        actions: &[JumpRecordAction],
+    ) {
+        if actions.is_empty() {
+            self.r#return(return_value_on_stack);
+            return;
+        }
+
+        JumpRecord::new(
+            JumpRecordKind::Return {
+                return_value_on_stack,
+            },
+            actions.to_vec(),
+        )
+        .perform_actions(Self::DUMMY_ADDRESS, self);
+    }
+
+    fn compile_expr_and_return(&mut self, expr: &Expression, actions: &[JumpRecordAction]) {
+        let value = self.register_allocator.alloc();
+        self.compile_expr(expr, &value);
+        self.push_from_register(&value);
+        self.register_allocator.dealloc(value);
+        self.emit_return_with_actions(true, actions);
+    }
+
+    pub(crate) fn compile_expr_as_return(&mut self, expr: &Expression, actions: &[JumpRecordAction]) {
+        match expr {
+            Expression::Parenthesized(parenthesized) => {
+                self.compile_expr_as_return(parenthesized.expression(), actions);
+            }
+            Expression::Conditional(op) => {
+                let condition = self.register_allocator.alloc();
+                self.compile_expr(op.condition(), &condition);
+                let jelse = self.jump_if_false(&condition);
+                self.register_allocator.dealloc(condition);
+                self.compile_expr_as_return(op.if_true(), actions);
+                self.patch_jump(jelse);
+                self.compile_expr_as_return(op.if_false(), actions);
+            }
+            Expression::Binary(binary) => match binary.op() {
+                BinaryOp::Comma => {
+                    let value = self.register_allocator.alloc();
+                    self.compile_expr(binary.lhs(), &value);
+                    self.register_allocator.dealloc(value);
+                    self.compile_expr_as_return(binary.rhs(), actions);
+                }
+                BinaryOp::Logical(LogicalOp::And) => {
+                    let value = self.register_allocator.alloc();
+                    self.compile_expr(binary.lhs(), &value);
+                    let short = self.jump_if_false(&value);
+                    self.compile_expr_as_return(binary.rhs(), actions);
+                    self.patch_jump(short);
+                    self.push_from_register(&value);
+                    self.register_allocator.dealloc(value);
+                    self.emit_return_with_actions(true, actions);
+                }
+                BinaryOp::Logical(LogicalOp::Or) => {
+                    let value = self.register_allocator.alloc();
+                    self.compile_expr(binary.lhs(), &value);
+                    let short = self.jump_if_true(&value);
+                    self.compile_expr_as_return(binary.rhs(), actions);
+                    self.patch_jump(short);
+                    self.push_from_register(&value);
+                    self.register_allocator.dealloc(value);
+                    self.emit_return_with_actions(true, actions);
+                }
+                BinaryOp::Logical(LogicalOp::Coalesce) => {
+                    let value = self.register_allocator.alloc();
+                    self.compile_expr(binary.lhs(), &value);
+                    let rhs = self.jump_if_null_or_undefined(&value);
+                    self.push_from_register(&value);
+                    self.register_allocator.dealloc(value);
+                    self.emit_return_with_actions(true, actions);
+                    self.patch_jump(rhs);
+                    self.compile_expr_as_return(binary.rhs(), actions);
+                }
+                _ => self.compile_expr_and_return(expr, actions),
+            },
+            Expression::Call(call) => {
+                self.call(Callable::Call(call), None, true, actions);
+            }
+            Expression::TaggedTemplate(template) => {
+                self.compile_tagged_template_call(template, None, true, actions);
+            }
+            _ => self.compile_expr_and_return(expr, actions),
         }
     }
 
@@ -141,8 +378,8 @@ impl ByteCompiler<'_> {
             Expression::AsyncGeneratorExpression(function) => {
                 self.function_with_binding(function.into(), NodeKind::Expression, dst);
             }
-            Expression::Call(call) => self.call(Callable::Call(call), dst),
-            Expression::New(new) => self.call(Callable::New(new), dst),
+            Expression::Call(call) => self.call(Callable::Call(call), Some(dst), false, &[]),
+            Expression::New(new) => self.call(Callable::New(new), Some(dst), false, &[]),
             Expression::TemplateLiteral(template_literal) => {
                 self.compile_template_literal(template_literal, dst);
             }
@@ -255,103 +492,7 @@ impl ByteCompiler<'_> {
                 }
             }
             Expression::TaggedTemplate(template) => {
-                let this = self.register_allocator.alloc();
-                let function = self.register_allocator.alloc();
-
-                match template.tag() {
-                    Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                        self.compile_expr(access.target(), &this);
-                        match access.field() {
-                            PropertyAccessField::Const(ident) => {
-                                self.emit_get_property_by_name(
-                                    &function,
-                                    &this,
-                                    &this,
-                                    ident.sym(),
-                                );
-                            }
-                            PropertyAccessField::Expr(field) => {
-                                let key = self.register_allocator.alloc();
-                                self.compile_expr(field, &key);
-                                self.bytecode.emit_get_property_by_value(
-                                    function.variable(),
-                                    key.variable(),
-                                    this.variable(),
-                                    this.variable(),
-                                );
-                                self.register_allocator.dealloc(key);
-                            }
-                        }
-                    }
-                    Expression::PropertyAccess(PropertyAccess::Private(access)) => {
-                        let index = self.get_or_insert_private_name(access.field());
-                        self.compile_expr(access.target(), &this);
-                        self.bytecode.emit_get_private_field(
-                            function.variable(),
-                            this.variable(),
-                            index.into(),
-                        );
-                    }
-                    expr => {
-                        self.bytecode.emit_push_undefined(this.variable());
-                        self.compile_expr(expr, &function);
-                    }
-                }
-
-                self.push_from_register(&this);
-                self.push_from_register(&function);
-
-                self.register_allocator.dealloc(this);
-                self.register_allocator.dealloc(function);
-
-                let site = template.identifier();
-                let count = template.cookeds().len() as u32;
-                let jump_label = self.template_lookup(dst, site);
-
-                let mut part_registers = Vec::with_capacity(count as usize * 2);
-
-                for (cooked, raw) in template.cookeds().iter().zip(template.raws()) {
-                    let value = self.register_allocator.alloc();
-                    if let Some(cooked) = cooked {
-                        self.emit_push_literal(
-                            Literal::String(cooked.to_js_string(self.interner())),
-                            &value,
-                        );
-                    } else {
-                        self.bytecode.emit_push_undefined(value.variable());
-                    }
-                    part_registers.push(value);
-                    let value = self.register_allocator.alloc();
-                    self.emit_push_literal(
-                        Literal::String(raw.to_js_string(self.interner())),
-                        &value,
-                    );
-                    part_registers.push(value);
-                }
-
-                let mut values = ThinVec::with_capacity(count as usize * 2);
-                for r in &part_registers {
-                    values.push(r.index());
-                }
-                self.bytecode
-                    .emit_template_create(site, dst.variable(), values);
-                for r in part_registers {
-                    self.register_allocator.dealloc(r);
-                }
-
-                self.patch_jump(jump_label);
-                self.push_from_register(dst);
-
-                for expr in template.exprs() {
-                    let value = self.register_allocator.alloc();
-                    self.compile_expr(expr, &value);
-                    self.push_from_register(&value);
-                    self.register_allocator.dealloc(value);
-                }
-
-                self.bytecode
-                    .emit_call((template.exprs().len() as u32 + 1).into());
-                self.pop_into_register(dst);
+                self.compile_tagged_template_call(template, Some(dst), false, &[]);
             }
             Expression::ClassExpression(class) => {
                 self.compile_class(class.deref().into(), Some(dst));

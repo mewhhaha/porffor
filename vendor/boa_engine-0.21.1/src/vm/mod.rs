@@ -95,6 +95,7 @@ pub struct Vm {
     pub(crate) realm: Realm,
 
     pub(crate) shadow_stack: ShadowStack,
+    pub(crate) tail_call_complete_exit_early: bool,
 
     #[cfg(feature = "trace")]
     pub(crate) trace: bool,
@@ -177,6 +178,14 @@ impl Stack {
         Self {
             stack: self.stack.split_off(frame_pointer),
         }
+    }
+
+    /// Preserve the active call setup while discarding the current frame for a tail call.
+    pub(crate) fn prepare_for_tail_call(&mut self, frame: &CallFrame, argument_count: usize) {
+        let call_start = self.stack.len() - (argument_count + CallFrame::FUNCTION_PROLOGUE as usize);
+        let call_setup = self.stack.split_off(call_start);
+        self.truncate_to_frame(frame);
+        self.stack.extend(call_setup);
     }
 
     /// Get the `this` value of the given frame.
@@ -428,6 +437,7 @@ impl Vm {
             native_active_function: None,
             realm,
             shadow_stack: ShadowStack::default(),
+            tail_call_complete_exit_early: false,
             #[cfg(feature = "trace")]
             trace: false,
         }
@@ -456,6 +466,19 @@ impl Vm {
     #[track_caller]
     pub(crate) fn frame_mut(&mut self) -> &mut CallFrame {
         &mut self.frame
+    }
+
+    pub(crate) fn prepare_current_frame_for_tail_call(&mut self, argument_count: usize) -> bool {
+        let frame = self.frame.clone();
+        let exit_early = frame.exit_early();
+        self.stack.prepare_for_tail_call(&frame, argument_count);
+        self.pop_frame()
+            .expect("tail calls require a caller frame to replace");
+        exit_early
+    }
+
+    pub(crate) fn take_tail_call_complete_exit_early(&mut self) -> bool {
+        std::mem::take(&mut self.tail_call_complete_exit_early)
     }
 
     pub(crate) fn push_frame(&mut self, mut frame: CallFrame) {
@@ -516,12 +539,12 @@ impl Vm {
 
     /// Handles an exception thrown at position `pc`.
     ///
-    /// Returns `true` if the exception was handled, `false` otherwise.
+    /// Returns the number of environments that must remain active for the matched handler.
     #[inline]
-    pub(crate) fn handle_exception_at(&mut self, pc: u32) -> bool {
+    pub(crate) fn handle_exception_at(&mut self, pc: u32) -> Option<usize> {
         let frame = self.frame_mut();
         let Some((_, handler)) = frame.code_block().find_handler(pc) else {
-            return false;
+            return None;
         };
 
         let catch_address = handler.handler();
@@ -530,9 +553,7 @@ impl Vm {
         // Go to handler location.
         frame.pc = catch_address;
 
-        self.environments.truncate(environment_sp as usize);
-
-        true
+        Some(environment_sp as usize)
     }
 
     pub(crate) fn get_return_value(&self) -> JsValue {
@@ -642,6 +663,42 @@ impl Context {
 }
 
 impl Context {
+    fn complete_async_promise_capability_if_needed(&mut self) {
+        let frame = self.vm.frame();
+        if !frame.code_block().is_async() || frame.code_block().is_async_generator() {
+            return;
+        }
+
+        let Some(promise_capability) = self.vm.stack.get_promise_capability(frame) else {
+            return;
+        };
+
+        let already_completed = self
+            .vm
+            .get_return_value()
+            .as_object()
+            .is_some_and(|object| JsObject::equals(&object, promise_capability.promise()));
+        if already_completed {
+            return;
+        }
+
+        if let Some(error) = self.vm.pending_exception.take() {
+            promise_capability
+                .reject()
+                .call(&JsValue::undefined(), &[error.to_opaque(self)], self)
+                .expect("cannot fail per spec");
+        } else {
+            let return_value = self.vm.get_return_value();
+            promise_capability
+                .resolve()
+                .call(&JsValue::undefined(), &[return_value], self)
+                .expect("cannot fail per spec");
+        }
+
+        self.vm
+            .set_return_value(promise_capability.promise().clone().into());
+    }
+
     fn execute_instruction<F>(&mut self, f: F, opcode: Opcode) -> ControlFlow<CompletionRecord>
     where
         F: FnOnce(&mut Context, Opcode) -> ControlFlow<CompletionRecord>,
@@ -700,7 +757,7 @@ impl Context {
                 };
                 frame = Some(f);
             }
-            self.vm.environments.truncate(env_fp);
+            self.unwind_environments_to(env_fp);
             if let Some(frame) = frame {
                 self.vm.stack.truncate_to_frame(&frame);
             }
@@ -709,21 +766,32 @@ impl Context {
 
         // Note: -1 because we increment after fetching the opcode.
         let pc = self.vm.frame().pc.saturating_sub(1);
-        if self.vm.handle_exception_at(pc) {
-            self.vm.pending_exception = Some(err);
+        self.vm.pending_exception = Some(err);
+        if let Some(environment_sp) = self.vm.handle_exception_at(pc) {
+            self.unwind_environments_to(environment_sp);
             return ControlFlow::Continue(());
         }
 
         // Inject realm before crossing the function boundry
-        let err = err.inject_realm(self.realm().clone());
-
+        let err = self
+            .vm
+            .pending_exception
+            .take()
+            .expect("pending exception should be set")
+            .inject_realm(self.realm().clone());
         self.vm.pending_exception = Some(err);
         self.handle_throw()
     }
 
     fn handle_return(&mut self) -> ControlFlow<CompletionRecord> {
         let exit_early = self.vm.frame().exit_early();
+        self.unwind_environments_to(self.vm.frame.env_fp as usize);
+        self.complete_async_promise_capability_if_needed();
         self.vm.stack.truncate_to_frame(&self.vm.frame);
+
+        if self.vm.pending_exception.is_some() {
+            return self.handle_throw();
+        }
 
         let result = self.vm.take_return_value();
         if exit_early {
@@ -759,7 +827,7 @@ impl Context {
 
         let mut env_fp = self.vm.frame().env_fp;
         if self.vm.frame().exit_early() {
-            self.vm.environments.truncate(env_fp as usize);
+            self.unwind_environments_to(env_fp as usize);
             self.vm.stack.truncate_to_frame(&self.vm.frame);
             return ControlFlow::Break(CompletionRecord::Throw(
                 self.vm
@@ -776,10 +844,12 @@ impl Context {
             let pc = self.vm.frame.pc;
             let exit_early = self.vm.frame.exit_early();
 
-            if self.vm.handle_exception_at(pc) {
+            if let Some(environment_sp) = self.vm.handle_exception_at(pc) {
+                self.unwind_environments_to(environment_sp);
                 return ControlFlow::Continue(());
             }
 
+            self.unwind_environments_to(env_fp as usize);
             if exit_early {
                 return ControlFlow::Break(CompletionRecord::Throw(
                     self.vm
@@ -794,7 +864,7 @@ impl Context {
             };
             frame = f;
         }
-        self.vm.environments.truncate(env_fp as usize);
+        self.unwind_environments_to(env_fp as usize);
         self.vm.stack.truncate_to_frame(&frame);
         ControlFlow::Continue(())
     }

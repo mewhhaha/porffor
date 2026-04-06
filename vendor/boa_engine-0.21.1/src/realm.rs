@@ -6,7 +6,7 @@
 //!
 //! A realm is represented in this implementation as a Realm struct with the fields specified from the spec.
 
-use std::any::TypeId;
+use std::{any::TypeId, ops::Range};
 
 use crate::{
     Context, HostDefined, JsNativeError, JsObject, JsResult, JsString,
@@ -16,6 +16,7 @@ use crate::{
         intrinsics::{Intrinsics, StandardConstructor},
     },
     environments::DeclarativeEnvironment,
+    js_string,
     module::Module,
     object::shape::RootShape,
 };
@@ -72,6 +73,26 @@ struct Inner {
     host_classes: GcRefCell<FxHashMap<TypeId, StandardConstructor>>,
 
     host_defined: GcRefCell<HostDefined>,
+    legacy_regexp_statics: GcRefCell<LegacyRegExpStatics>,
+}
+
+#[derive(Debug, Clone, Trace, Finalize)]
+pub(crate) struct LegacyRegExpStatics {
+    pub(crate) input: JsString,
+    #[unsafe_ignore_trace]
+    pub(crate) last_match: Option<Range<usize>>,
+    #[unsafe_ignore_trace]
+    pub(crate) captures: Vec<Option<Range<usize>>>,
+}
+
+impl Default for LegacyRegExpStatics {
+    fn default() -> Self {
+        Self {
+            input: js_string!(),
+            last_match: None,
+            captures: Vec::new(),
+        }
+    }
 }
 
 impl Realm {
@@ -100,6 +121,7 @@ impl Realm {
                 loaded_modules: GcRefCell::default(),
                 host_classes: GcRefCell::default(),
                 host_defined: GcRefCell::default(),
+                legacy_regexp_statics: GcRefCell::default(),
             }),
         };
 
@@ -193,11 +215,7 @@ impl Realm {
             .as_global()
             .expect("Realm should only store global environments")
             .poisonable_environment();
-        let mut bindings = env.bindings().borrow_mut();
-
-        if bindings.len() < binding_number as usize {
-            bindings.resize(binding_number as usize, None);
-        }
+        env.extend_bindings_from_compile(binding_number as usize);
     }
 
     pub(crate) fn push_template(&self, site: u64, template: JsObject) {
@@ -254,5 +272,26 @@ impl Realm {
     pub(crate) fn addr(&self) -> *const () {
         let ptr: *const _ = &raw const *self.inner;
         ptr.cast()
+    }
+
+    pub(crate) fn legacy_regexp_statics(&self) -> GcRef<'_, LegacyRegExpStatics> {
+        self.inner.legacy_regexp_statics.borrow()
+    }
+
+    pub(crate) fn set_legacy_regexp_statics(
+        &self,
+        input: JsString,
+        last_match: Range<usize>,
+        captures: Vec<Option<Range<usize>>>,
+    ) {
+        *self.inner.legacy_regexp_statics.borrow_mut() = LegacyRegExpStatics {
+            input,
+            last_match: Some(last_match),
+            captures,
+        };
+    }
+
+    pub(crate) fn set_legacy_regexp_input(&self, input: JsString) {
+        self.inner.legacy_regexp_statics.borrow_mut().input = input;
     }
 }

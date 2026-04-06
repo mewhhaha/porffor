@@ -69,6 +69,30 @@ impl Operation for ThisForObjectEnvironmentName {
     const COST: u8 = 1;
 }
 
+/// `AddDisposableResource` implements the Opcode Operation for `Opcode::AddDisposableResource`
+///
+/// Operation:
+///  - Adds a `using` / `await using` resource to the current declarative environment.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AddDisposableResource;
+
+impl AddDisposableResource {
+    #[inline(always)]
+    pub(super) fn operation(
+        (value, r#async): (VaryingOperand, VaryingOperand),
+        context: &mut Context,
+    ) -> JsResult<()> {
+        let value = context.vm.get_register(value.into()).clone();
+        context.add_disposable_resource_to_current_environment(value, u32::from(r#async) != 0)
+    }
+}
+
+impl Operation for AddDisposableResource {
+    const NAME: &'static str = "AddDisposableResource";
+    const INSTRUCTION: &'static str = "INST - AddDisposableResource";
+    const COST: u8 = 6;
+}
+
 /// `Super` implements the Opcode Operation for `Opcode::Super`
 ///
 /// Operation:

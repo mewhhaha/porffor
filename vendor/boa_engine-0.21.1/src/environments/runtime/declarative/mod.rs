@@ -8,14 +8,50 @@ pub(crate) use global::GlobalEnvironment;
 pub(crate) use lexical::LexicalEnvironment;
 pub(crate) use module::ModuleEnvironment;
 
-use crate::{JsResult, JsValue};
+use crate::{JsObject, JsResult, JsValue};
 use boa_gc::{Finalize, GcRefCell, Trace};
 use std::cell::Cell;
 
+#[derive(Debug, Trace, Finalize, Clone)]
+enum BindingSlot {
+    Uninitialized,
+    Initialized(JsValue),
+    Deleted,
+}
+
+#[derive(Debug, Trace, Finalize, Clone)]
+pub(crate) struct DisposableResource {
+    value: JsValue,
+    method: JsObject,
+    r#async: bool,
+}
+
+impl DisposableResource {
+    pub(crate) fn new(value: JsValue, method: JsObject, r#async: bool) -> Self {
+        Self {
+            value,
+            method,
+            r#async,
+        }
+    }
+
+    pub(crate) fn value(&self) -> &JsValue {
+        &self.value
+    }
+
+    pub(crate) fn method(&self) -> &JsObject {
+        &self.method
+    }
+
+    pub(crate) const fn r#async(&self) -> bool {
+        self.r#async
+    }
+}
+
 /// A declarative environment holds binding values at runtime.
 ///
-/// Bindings are stored in a fixed size list of optional values.
-/// If a binding is not initialized, the value is `None`.
+/// Bindings are stored in a fixed size list of runtime slots.
+/// Slots track whether a binding is uninitialized, initialized, or deleted.
 ///
 /// Optionally, an environment can hold a `this` value.
 /// The `this` value is present only if the environment is a function environment.
@@ -35,6 +71,7 @@ use std::cell::Cell;
 #[derive(Debug, Trace, Finalize)]
 pub(crate) struct DeclarativeEnvironment {
     kind: DeclarativeEnvironmentKind,
+    disposable_resources: GcRefCell<Vec<DisposableResource>>,
 }
 
 impl DeclarativeEnvironment {
@@ -42,12 +79,16 @@ impl DeclarativeEnvironment {
     pub(crate) fn global() -> Self {
         Self {
             kind: DeclarativeEnvironmentKind::Global(GlobalEnvironment::new()),
+            disposable_resources: GcRefCell::new(Vec::new()),
         }
     }
 
     /// Creates a new `DeclarativeEnvironment` from its kind and compile environment.
     pub(crate) fn new(kind: DeclarativeEnvironmentKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            disposable_resources: GcRefCell::new(Vec::new()),
+        }
     }
 
     /// Returns a reference to the the kind of the environment.
@@ -78,6 +119,30 @@ impl DeclarativeEnvironment {
     #[track_caller]
     pub(crate) fn set(&self, index: u32, value: JsValue) {
         self.kind.set(index, value);
+    }
+
+    /// Returns whether the given binding index exists in this environment.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        self.kind.has_binding_index(index)
+    }
+
+    /// Returns whether the binding is still uninitialized.
+    #[track_caller]
+    pub(crate) fn is_uninitialized(&self, index: u32) -> bool {
+        self.kind.is_uninitialized(index)
+    }
+
+    /// Marks a mutable binding as deletable.
+    #[track_caller]
+    pub(crate) fn set_mutable_binding_deletable(&self, index: u32) {
+        self.kind.set_mutable_binding_deletable(index);
+    }
+
+    /// Deletes a binding when its environment record allows it.
+    #[track_caller]
+    pub(crate) fn delete(&self, index: u32) -> bool {
+        self.kind.delete(index)
     }
 
     /// `GetThisBinding`
@@ -123,11 +188,17 @@ impl DeclarativeEnvironment {
     pub(crate) fn extend_from_compile(&self) {
         if let Some(env) = self.kind().as_function() {
             let compile_bindings_number = env.compile().num_bindings() as usize;
-            let mut bindings = env.poisonable_environment().bindings().borrow_mut();
-            if compile_bindings_number > bindings.len() {
-                bindings.resize(compile_bindings_number, None);
-            }
+            env.poisonable_environment()
+                .extend_bindings_from_compile(compile_bindings_number);
         }
+    }
+
+    pub(crate) fn push_disposable_resource(&self, resource: DisposableResource) {
+        self.disposable_resources.borrow_mut().push(resource);
+    }
+
+    pub(crate) fn take_disposable_resources(&self) -> Vec<DisposableResource> {
+        std::mem::take(&mut *self.disposable_resources.borrow_mut())
     }
 }
 
@@ -202,6 +273,56 @@ impl DeclarativeEnvironmentKind {
         }
     }
 
+    /// Returns whether the given binding index exists in this environment.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        match self {
+            Self::Lexical(inner) => inner.has_binding_index(index),
+            Self::Global(inner) => inner.has_binding_index(index),
+            Self::Function(inner) => inner.has_binding_index(index),
+            Self::Module(inner) => inner.has_binding_index(index),
+        }
+    }
+
+    /// Returns whether the binding is still uninitialized.
+    #[track_caller]
+    pub(crate) fn is_uninitialized(&self, index: u32) -> bool {
+        match self {
+            Self::Lexical(inner) => inner.poisonable_environment().is_uninitialized(index),
+            Self::Global(inner) => inner.poisonable_environment().is_uninitialized(index),
+            Self::Function(inner) => inner.poisonable_environment().is_uninitialized(index),
+            Self::Module(inner) => inner.get(index).is_none(),
+        }
+    }
+
+    /// Marks a mutable binding as deletable.
+    #[track_caller]
+    pub(crate) fn set_mutable_binding_deletable(&self, index: u32) {
+        match self {
+            Self::Lexical(inner) => inner
+                .poisonable_environment()
+                .set_mutable_binding_deletable(index),
+            Self::Global(inner) => inner
+                .poisonable_environment()
+                .set_mutable_binding_deletable(index),
+            Self::Function(inner) => inner
+                .poisonable_environment()
+                .set_mutable_binding_deletable(index),
+            Self::Module(_) => {}
+        }
+    }
+
+    /// Deletes a binding when its environment record allows it.
+    #[track_caller]
+    pub(crate) fn delete(&self, index: u32) -> bool {
+        match self {
+            Self::Lexical(inner) => inner.poisonable_environment().delete(index),
+            Self::Global(inner) => inner.poisonable_environment().delete(index),
+            Self::Function(inner) => inner.poisonable_environment().delete(index),
+            Self::Module(_) => false,
+        }
+    }
+
     /// `GetThisBinding`
     ///
     /// Returns the `this` binding of this environment.
@@ -269,7 +390,8 @@ impl DeclarativeEnvironmentKind {
 
 #[derive(Debug, Trace, Finalize)]
 pub(crate) struct PoisonableEnvironment {
-    bindings: GcRefCell<Vec<Option<JsValue>>>,
+    bindings: GcRefCell<Vec<BindingSlot>>,
+    deletable_bindings: GcRefCell<Vec<bool>>,
     #[unsafe_ignore_trace]
     poisoned: Cell<bool>,
     with: bool,
@@ -279,15 +401,11 @@ impl PoisonableEnvironment {
     /// Creates a new `PoisonableEnvironment`.
     pub(crate) fn new(bindings_count: u32, poisoned: bool, with: bool) -> Self {
         Self {
-            bindings: GcRefCell::new(vec![None; bindings_count as usize]),
+            bindings: GcRefCell::new(vec![BindingSlot::Uninitialized; bindings_count as usize]),
+            deletable_bindings: GcRefCell::new(vec![false; bindings_count as usize]),
             poisoned: Cell::new(poisoned),
             with,
         }
-    }
-
-    /// Gets the bindings of this poisonable environment.
-    pub(crate) const fn bindings(&self) -> &GcRefCell<Vec<Option<JsValue>>> {
-        &self.bindings
     }
 
     /// Gets the binding value from the environment by it's index.
@@ -297,7 +415,10 @@ impl PoisonableEnvironment {
     /// Panics if the binding value is out of range.
     #[track_caller]
     fn get(&self, index: u32) -> Option<JsValue> {
-        self.bindings.borrow()[index as usize].clone()
+        match &self.bindings.borrow()[index as usize] {
+            BindingSlot::Initialized(value) => Some(value.clone()),
+            BindingSlot::Uninitialized | BindingSlot::Deleted => None,
+        }
     }
 
     /// Sets the binding value from the environment by index.
@@ -307,7 +428,52 @@ impl PoisonableEnvironment {
     /// Panics if the binding value is out of range.
     #[track_caller]
     pub(crate) fn set(&self, index: u32, value: JsValue) {
-        self.bindings.borrow_mut()[index as usize] = Some(value);
+        self.bindings.borrow_mut()[index as usize] = BindingSlot::Initialized(value);
+    }
+
+    /// Returns whether the given binding index exists.
+    #[track_caller]
+    pub(crate) fn has_binding_index(&self, index: u32) -> bool {
+        (index as usize) < self.bindings.borrow().len()
+    }
+
+    /// Returns whether the binding is still uninitialized.
+    #[track_caller]
+    pub(crate) fn is_uninitialized(&self, index: u32) -> bool {
+        matches!(
+            self.bindings.borrow()[index as usize],
+            BindingSlot::Uninitialized
+        )
+    }
+
+    /// Marks a mutable binding as deletable.
+    #[track_caller]
+    pub(crate) fn set_mutable_binding_deletable(&self, index: u32) {
+        self.deletable_bindings.borrow_mut()[index as usize] = true;
+    }
+
+    /// Deletes a binding when its environment record allows it.
+    #[track_caller]
+    pub(crate) fn delete(&self, index: u32) -> bool {
+        if !self.deletable_bindings.borrow()[index as usize] {
+            return false;
+        }
+        self.bindings.borrow_mut()[index as usize] = BindingSlot::Deleted;
+        true
+    }
+
+    /// Extends the environment to match compile-time binding counts.
+    pub(crate) fn extend_bindings_from_compile(&self, bindings_count: usize) {
+        let mut bindings = self.bindings.borrow_mut();
+        if bindings_count > bindings.len() {
+            bindings.resize(bindings_count, BindingSlot::Uninitialized);
+        }
+        drop(bindings);
+
+        let mut deletable_bindings = self.deletable_bindings.borrow_mut();
+        if bindings_count > deletable_bindings.len() {
+            deletable_bindings.resize(bindings_count, false);
+        }
     }
 
     /// Returns `true` if this environment is poisoned.
