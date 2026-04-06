@@ -1264,11 +1264,18 @@ fn run_one_case(
                         err.to_string(),
                     ));
                 }
-                Ok(_) if negative.phase.eq_ignore_ascii_case("parse") => {
+                Ok(_)
+                    if (negative.phase.eq_ignore_ascii_case("parse")
+                        || negative.phase.eq_ignore_ascii_case("early"))
+                        && execution_backend != ExecutionBackend::SpecExec =>
+                {
                     return Err(classify_failure(
                         &case.path,
-                        FailureKind::Parser,
-                        "negative test expected parse error but compile succeeded",
+                        negative_kind,
+                        format!(
+                            "negative test expected {} error but compile succeeded",
+                            negative.phase
+                        ),
                     ));
                 }
                 Ok(_) => {}

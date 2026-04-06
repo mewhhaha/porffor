@@ -1513,10 +1513,20 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
 
 const ITERATOR_HELPERS_SHIM: &str = r#"
 (function () {
+  "use strict";
   const IteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
   if (typeof globalThis.Iterator === "function" && typeof globalThis.Iterator.from === "function" &&
       typeof IteratorPrototype.map === "function" && typeof IteratorPrototype.drop === "function") {
     return;
+  }
+
+  if (typeof Symbol.dispose !== "symbol") {
+    Object.defineProperty(Symbol, "dispose", {
+      value: Symbol("Symbol.dispose"),
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
   }
 
   function isObjectLike(value) {
@@ -1534,14 +1544,29 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     return method;
   }
 
-  function normalizeResult(result) {
+  function assertObjectResult(result) {
     if (!isObjectLike(result)) {
       throw new TypeError("iterator result must be an object");
     }
+    return result;
+  }
+
+  function normalizeResult(result) {
+    result = assertObjectResult(result);
     return {
       value: result.value,
       done: Boolean(result.done)
     };
+  }
+
+  function toOptionsObject(options) {
+    if (options === undefined) {
+      return undefined;
+    }
+    if (!isObjectLike(options)) {
+      throw new TypeError("options must be an object");
+    }
+    return options;
   }
 
   function getIteratorDirect(value) {
@@ -1549,9 +1574,6 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       throw new TypeError("iterator helper receiver must be an object");
     }
     const next = value.next;
-    if (typeof next !== "function") {
-      throw new TypeError("iterator helper receiver must have a callable next");
-    }
     return {
       iterator: value,
       next
@@ -1559,10 +1581,32 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
   }
 
   function iteratorStep(record) {
-    return normalizeResult(record.next.call(record.iterator));
+    if (typeof record.next !== "function") {
+      throw new TypeError("iterator helper receiver must have a callable next");
+    }
+    const result = assertObjectResult(record.next.call(record.iterator));
+    if (Boolean(result.done)) {
+      return {
+        value: undefined,
+        done: true
+      };
+    }
+    return {
+      value: result.value,
+      done: false
+    };
   }
 
   function iteratorReturn(record) {
+    const method = getMethod(record.iterator, "return");
+    if (method === undefined) {
+      return { value: undefined, done: true };
+    }
+    assertObjectResult(method.call(record.iterator));
+    return { value: undefined, done: true };
+  }
+
+  function iteratorReturnResult(record) {
     const method = getMethod(record.iterator, "return");
     if (method === undefined) {
       return { value: undefined, done: true };
@@ -1574,12 +1618,108 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     try {
       iteratorReturn(record);
     } catch (closeError) {
-      throw closeError;
+      if (error === undefined) {
+        throw closeError;
+      }
     }
     if (error !== undefined) {
       throw error;
     }
     return { value: undefined, done: true };
+  }
+
+  function closeIteratorsReverse(records, finished, error, skipIndex) {
+    let thrown = error;
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      if (index === skipIndex) {
+        continue;
+      }
+      if (finished[index]) {
+        continue;
+      }
+      try {
+        iteratorReturn(records[index]);
+      } catch (closeError) {
+        if (thrown === undefined) {
+          thrown = closeError;
+        }
+      }
+    }
+    if (thrown !== undefined) {
+      throw thrown;
+    }
+    return { value: undefined, done: true };
+  }
+
+  function collectZipPadding(count, paddingOption) {
+    if (paddingOption === undefined) {
+      return new Array(count).fill(undefined);
+    }
+    if (!isObjectLike(paddingOption)) {
+      throw new TypeError("padding must be an object");
+    }
+    const iterator = getIteratorDirect(iteratorFrom(paddingOption));
+    const paddingValues = new Array(count);
+    for (let index = 0; index < count; index += 1) {
+      const step = iteratorStep(iterator);
+      if (step.done) {
+        paddingValues[index] = undefined;
+      } else {
+        paddingValues[index] = step.value;
+      }
+    }
+    return paddingValues;
+  }
+
+  function collectZipKeyedEntries(iterables) {
+    const records = [];
+    const keys = [];
+    const iterators = [];
+    const allKeys = Reflect.ownKeys(iterables);
+    for (let keyIndex = 0; keyIndex < allKeys.length; keyIndex += 1) {
+      const key = allKeys[keyIndex];
+      let descriptor;
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(iterables, key);
+      } catch (error) {
+        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
+      }
+      if (!descriptor || descriptor.enumerable !== true) {
+        continue;
+      }
+      let value;
+      try {
+        value = iterables[key];
+      } catch (error) {
+        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
+      }
+      if (value === undefined) {
+        continue;
+      }
+      try {
+        keys.push(key);
+        records.push(value);
+        iterators.push(getFlattenableIterator(value, true));
+      } catch (error) {
+        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
+      }
+    }
+    return { keys, iterators };
+  }
+
+  function collectZipKeyedPadding(keys, paddingOption) {
+    if (paddingOption === undefined) {
+      return Object.create(null);
+    }
+    if (!isObjectLike(paddingOption)) {
+      throw new TypeError("padding must be an object");
+    }
+    const values = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      values[key] = paddingOption[key];
+    }
+    return values;
   }
 
   function closeIfPossible(value) {
@@ -1588,7 +1728,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     }
     const method = getMethod(value, "return");
     if (method !== undefined) {
-      method.call(value);
+      assertObjectResult(method.call(value));
     }
   }
 
@@ -1597,10 +1737,14 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     if (number === Infinity) {
       return Infinity;
     }
-    if (!Number.isFinite(number) || Number.isNaN(number) || number < 0) {
+    if (Number.isNaN(number)) {
       throw new RangeError("limit must be a non-negative integer");
     }
-    return Math.floor(number);
+    const integer = number < 0 ? Math.ceil(number) : Math.floor(number);
+    if (!Number.isFinite(integer) || integer < 0) {
+      throw new RangeError("limit must be a non-negative integer");
+    }
+    return integer;
   }
 
   function sameIteratorPrototype(value) {
@@ -1611,17 +1755,26 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
 
   function createIteratorHelper(nextImpl, returnImpl) {
     let done = false;
+    let executing = false;
     const helper = Object.create(IteratorHelperPrototype);
     Object.defineProperty(helper, "next", {
       value: function next() {
         if (done) {
           return { value: undefined, done: true };
         }
-        const result = normalizeResult(nextImpl());
-        if (result.done) {
-          done = true;
+        if (executing) {
+          throw new TypeError("generator is already running");
         }
-        return result;
+        executing = true;
+        try {
+          const result = normalizeResult(nextImpl());
+          if (result.done) {
+            done = true;
+          }
+          return result;
+        } finally {
+          executing = false;
+        }
       },
       writable: true,
       enumerable: false,
@@ -1629,14 +1782,22 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     });
     Object.defineProperty(helper, "return", {
       value: function return_() {
+        if (executing) {
+          throw new TypeError("generator is already running");
+        }
         if (done) {
           return { value: undefined, done: true };
         }
         done = true;
-        if (typeof returnImpl === "function") {
-          return normalizeResult(returnImpl());
+        executing = true;
+        try {
+          if (typeof returnImpl === "function") {
+            return assertObjectResult(returnImpl());
+          }
+          return { value: undefined, done: true };
+        } finally {
+          executing = false;
         }
-        return { value: undefined, done: true };
       },
       writable: true,
       enumerable: false,
@@ -1655,18 +1816,14 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
         return iteratorStep(record);
       },
       function returnImpl() {
-        return iteratorReturn(record);
+        return iteratorReturnResult(record);
       }
     );
   }
 
   function iteratorFrom(value) {
-    if (!isObjectLike(value)) {
-      if (typeof value === "string") {
-        value = Object(value);
-      } else {
-        throw new TypeError("Iterator.from requires an iterable or iterator object");
-      }
+    if (!isObjectLike(value) && typeof value !== "string") {
+      throw new TypeError("Iterator.from requires an iterable or iterator object");
     }
 
     const iteratorMethod = getMethod(value, Symbol.iterator);
@@ -1679,6 +1836,25 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     }
 
     return wrapIterator(value);
+  }
+
+  function getFlattenableIterator(value, allowPrimitiveStrings) {
+    if (!isObjectLike(value)) {
+      if (!(allowPrimitiveStrings && typeof value === "string")) {
+        throw new TypeError("Iterator helper requires an iterable or iterator object");
+      }
+    }
+
+    const iteratorMethod = getMethod(value, Symbol.iterator);
+    if (iteratorMethod !== undefined) {
+      const iterator = iteratorMethod.call(value);
+      if (!isObjectLike(iterator)) {
+        throw new TypeError("iterator helper iterable must produce an object");
+      }
+      return getIteratorDirect(iterator);
+    }
+
+    return getIteratorDirect(value);
   }
 
   const iteratorPrototypeMethods = {
@@ -1705,7 +1881,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
           }
         },
         function returnImpl() {
-          return iteratorReturn(record);
+          return iteratorReturnResult(record);
         }
       );
     },
@@ -1746,32 +1922,38 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       if (!isObjectLike(this)) {
         throw new TypeError("Iterator.prototype.take requires an object receiver");
       }
-      const remainingStart = toPositiveIntegerOrInfinity(limit);
+      let remainingStart;
+      try {
+        remainingStart = toPositiveIntegerOrInfinity(limit);
+      } catch (error) {
+        try {
+          closeIfPossible(this);
+        } catch (_) {}
+        throw error;
+      }
       const record = getIteratorDirect(this);
       let remaining = remainingStart;
       let closed = false;
       return createIteratorHelper(
         function nextImpl() {
-          if (remaining <= 0) {
-            if (!closed) {
-              closed = true;
-              iteratorReturn(record);
-            }
+          if (closed) {
             return { value: undefined, done: true };
+          }
+          if (remaining <= 0) {
+            closed = true;
+            return iteratorClose(record);
           }
           const step = iteratorStep(record);
           if (step.done) {
+            closed = true;
             return step;
           }
           remaining -= 1;
-          if (remaining <= 0) {
-            closed = true;
-          }
           return { value: step.value, done: false };
         },
         function returnImpl() {
           closed = true;
-          return iteratorReturn(record);
+          return iteratorReturnResult(record);
         }
       );
     },
@@ -1779,7 +1961,15 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       if (!isObjectLike(this)) {
         throw new TypeError("Iterator.prototype.drop requires an object receiver");
       }
-      const initial = toPositiveIntegerOrInfinity(limit);
+      let initial;
+      try {
+        initial = toPositiveIntegerOrInfinity(limit);
+      } catch (error) {
+        try {
+          closeIfPossible(this);
+        } catch (_) {}
+        throw error;
+      }
       const record = getIteratorDirect(this);
       let remaining = initial;
       let advanced = false;
@@ -1798,7 +1988,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
           return iteratorStep(record);
         },
         function returnImpl() {
-          return iteratorReturn(record);
+          return iteratorReturnResult(record);
         }
       );
     },
@@ -1833,14 +2023,18 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
             } catch (error) {
               return iteratorClose(record, error);
             }
-            inner = getIteratorDirect(iteratorFrom(mapped));
+            try {
+              inner = getFlattenableIterator(mapped, false);
+            } catch (error) {
+              return iteratorClose(record, error);
+            }
           }
         },
         function returnImpl() {
           if (inner !== null) {
             iteratorReturn(inner);
           }
-          return iteratorReturn(record);
+          return iteratorReturnResult(record);
         }
       );
     },
@@ -2005,20 +2199,29 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     }
   };
 
-  const disposeMethods = typeof Symbol.dispose === "symbol"
-    ? {
-        [Symbol.dispose]() {
-          if (!isObjectLike(this)) {
-            throw new TypeError("Iterator.prototype[Symbol.dispose] requires an object receiver");
-          }
-          const method = getMethod(this, "return");
-          if (method !== undefined) {
-            method.call(this);
-          }
-          return undefined;
-        }
-      }
-    : null;
+  const disposeMethod = function () {
+    if (!isObjectLike(this)) {
+      throw new TypeError("Iterator.prototype[Symbol.dispose] requires an object receiver");
+    }
+    const method = getMethod(this, "return");
+    if (method !== undefined) {
+      method.call(this);
+    }
+    return undefined;
+  };
+
+  Object.defineProperty(disposeMethod, "name", {
+    value: "[Symbol.dispose]",
+    writable: false,
+    enumerable: false,
+    configurable: true
+  });
+  Object.defineProperty(disposeMethod, "length", {
+    value: 0,
+    writable: false,
+    enumerable: false,
+    configurable: true
+  });
 
   function Iterator() {
     if (new.target === undefined || new.target === Iterator) {
@@ -2076,7 +2279,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
         },
         function returnImpl() {
           if (current !== null) {
-            return iteratorReturn(current);
+            return iteratorReturnResult(current);
           }
           return { value: undefined, done: true };
         }
@@ -2090,20 +2293,31 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       if (outerMethod === undefined) {
         throw new TypeError("Iterator.zip requires an iterable object");
       }
-      const optionsObject = options === undefined ? undefined : Object(options);
-      const mode = optionsObject === undefined
-        ? "shortest"
-        : optionsObject.mode === undefined
-        ? "shortest"
-        : optionsObject.mode;
+      const optionsObject = toOptionsObject(options);
+      const modeOption = optionsObject === undefined ? undefined : optionsObject.mode;
+      const mode = modeOption === undefined ? "shortest" : modeOption;
       if (mode !== "shortest" && mode !== "longest" && mode !== "strict") {
         throw new TypeError("Iterator.zip mode must be shortest, longest, or strict");
       }
-      const padding = mode === "longest" && optionsObject !== undefined && isObjectLike(optionsObject.padding)
-        ? optionsObject.padding
-        : [];
-      const values = Array.from(iterables);
-      const iterators = values.map(value => getIteratorDirect(iteratorFrom(value)));
+      const paddingOption = mode === "longest" && optionsObject !== undefined ? optionsObject.padding : undefined;
+      const values = [];
+      const outer = getIteratorDirect(iteratorFrom(iterables));
+      while (true) {
+        const outerStep = iteratorStep(outer);
+        if (outerStep.done) {
+          break;
+        }
+        values.push(outerStep.value);
+      }
+      const iterators = [];
+      for (let index = 0; index < values.length; index += 1) {
+        try {
+          iterators.push(getFlattenableIterator(values[index], true));
+        } catch (error) {
+          closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
+        }
+      }
+      const padding = mode === "longest" ? collectZipPadding(iterators.length, paddingOption) : [];
       const finished = new Array(iterators.length).fill(false);
       return createIteratorHelper(
         function nextImpl() {
@@ -2118,30 +2332,30 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
               results[index] = padding[index];
               continue;
             }
-            const step = iteratorStep(iterators[index]);
+            let step;
+            try {
+              step = iteratorStep(iterators[index]);
+            } catch (error) {
+              return closeIteratorsReverse(iterators, finished, error, -1);
+            }
             if (step.done) {
               finished[index] = true;
               doneCount += 1;
               if (mode === "shortest") {
-                for (let closeIndex = iterators.length - 1; closeIndex >= 0; closeIndex -= 1) {
-                  if (closeIndex !== index && !finished[closeIndex]) {
-                    iteratorReturn(iterators[closeIndex]);
-                  }
-                }
-                return { value: undefined, done: true };
-              }
-              if (mode === "strict" && doneCount !== iterators.length) {
-                for (let closeIndex = iterators.length - 1; closeIndex >= 0; closeIndex -= 1) {
-                  if (closeIndex !== index && !finished[closeIndex]) {
-                    iteratorReturn(iterators[closeIndex]);
-                  }
-                }
-                throw new TypeError("Iterator.zip strict mode requires equal lengths");
+                return closeIteratorsReverse(iterators, finished, undefined, index);
               }
               results[index] = padding[index];
             } else {
               results[index] = step.value;
             }
+          }
+          if (mode === "strict" && doneCount !== 0 && doneCount !== iterators.length) {
+            return closeIteratorsReverse(
+              iterators,
+              finished,
+              new TypeError("Iterator.zip strict mode requires equal lengths"),
+              -1
+            );
           }
           if (doneCount === iterators.length) {
             return { value: undefined, done: true };
@@ -2149,12 +2363,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
           return { value: results, done: false };
         },
         function returnImpl() {
-          for (let index = iterators.length - 1; index >= 0; index -= 1) {
-            if (!finished[index]) {
-              iteratorReturn(iterators[index]);
-            }
-          }
-          return { value: undefined, done: true };
+          return closeIteratorsReverse(iterators, finished, undefined, -1);
         }
       );
     },
@@ -2162,26 +2371,15 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       if (!isObjectLike(iterables)) {
         throw new TypeError("Iterator.zipKeyed requires an object");
       }
-      const optionsObject = options === undefined ? undefined : Object(options);
-      const mode = optionsObject === undefined
-        ? "shortest"
-        : optionsObject.mode === undefined
-        ? "shortest"
-        : optionsObject.mode;
+      const optionsObject = toOptionsObject(options);
+      const modeOption = optionsObject === undefined ? undefined : optionsObject.mode;
+      const mode = modeOption === undefined ? "shortest" : modeOption;
       if (mode !== "shortest" && mode !== "longest" && mode !== "strict") {
         throw new TypeError("Iterator.zipKeyed mode must be shortest, longest, or strict");
       }
-      const padding = mode === "longest" && optionsObject !== undefined && isObjectLike(optionsObject.padding)
-        ? optionsObject.padding
-        : Object.create(null);
-      const keys = Reflect.ownKeys(iterables).filter(function (key) {
-        const descriptor = Object.getOwnPropertyDescriptor(iterables, key);
-        if (!descriptor || descriptor.enumerable !== true) {
-          return false;
-        }
-        return iterables[key] !== undefined;
-      });
-      const iterators = keys.map(key => getIteratorDirect(iteratorFrom(iterables[key])));
+      const paddingOption = mode === "longest" && optionsObject !== undefined ? optionsObject.padding : undefined;
+      const { keys, iterators } = collectZipKeyedEntries(iterables);
+      const padding = mode === "longest" ? collectZipKeyedPadding(keys, paddingOption) : Object.create(null);
       const finished = new Array(iterators.length).fill(false);
       return createIteratorHelper(
         function nextImpl() {
@@ -2197,30 +2395,30 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
               results[key] = padding[key];
               continue;
             }
-            const step = iteratorStep(iterators[index]);
+            let step;
+            try {
+              step = iteratorStep(iterators[index]);
+            } catch (error) {
+              return closeIteratorsReverse(iterators, finished, error, -1);
+            }
             if (step.done) {
               finished[index] = true;
               doneCount += 1;
               if (mode === "shortest") {
-                for (let closeIndex = iterators.length - 1; closeIndex >= 0; closeIndex -= 1) {
-                  if (closeIndex !== index && !finished[closeIndex]) {
-                    iteratorReturn(iterators[closeIndex]);
-                  }
-                }
-                return { value: undefined, done: true };
-              }
-              if (mode === "strict" && doneCount !== iterators.length) {
-                for (let closeIndex = iterators.length - 1; closeIndex >= 0; closeIndex -= 1) {
-                  if (closeIndex !== index && !finished[closeIndex]) {
-                    iteratorReturn(iterators[closeIndex]);
-                  }
-                }
-                throw new TypeError("Iterator.zipKeyed strict mode requires equal lengths");
+                return closeIteratorsReverse(iterators, finished, undefined, index);
               }
               results[key] = padding[key];
             } else {
               results[key] = step.value;
             }
+          }
+          if (mode === "strict" && doneCount !== 0 && doneCount !== iterators.length) {
+            return closeIteratorsReverse(
+              iterators,
+              finished,
+              new TypeError("Iterator.zipKeyed strict mode requires equal lengths"),
+              -1
+            );
           }
           if (doneCount === iterators.length) {
             return { value: undefined, done: true };
@@ -2228,12 +2426,7 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
           return { value: results, done: false };
         },
         function returnImpl() {
-          for (let index = iterators.length - 1; index >= 0; index -= 1) {
-            if (!finished[index]) {
-              iteratorReturn(iterators[index]);
-            }
-          }
-          return { value: undefined, done: true };
+          return closeIteratorsReverse(iterators, finished, undefined, -1);
         }
       );
     }
@@ -2285,14 +2478,12 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
     configurable: true
   });
 
-  if (disposeMethods) {
-    Object.defineProperty(IteratorPrototype, Symbol.dispose, {
-      value: disposeMethods[Symbol.dispose],
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-  }
+  Object.defineProperty(IteratorPrototype, Symbol.dispose, {
+    value: disposeMethod,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
 
   for (const key of Object.keys(iteratorPrototypeMethods)) {
     Object.defineProperty(IteratorPrototype, key, {
@@ -2302,6 +2493,13 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
       configurable: true
     });
   }
+
+  Object.defineProperty(IteratorPrototype.reduce, "length", {
+    value: 1,
+    writable: false,
+    enumerable: false,
+    configurable: true
+  });
 
   for (const key of Object.keys(iteratorStaticMethods)) {
     Object.defineProperty(Iterator, key, {
