@@ -78,6 +78,66 @@ impl AssignmentExpression {
     }
 }
 
+fn async_starts_arrow_function<R: ReadChar>(
+    cursor: &mut Cursor<R>,
+    interner: &mut Interner,
+) -> ParseResult<bool> {
+    let skip_n = if cursor.peek_is_line_terminator(0, interner).or_abrupt()? {
+        2
+    } else {
+        1
+    };
+
+    if cursor
+        .peek_is_line_terminator(skip_n, interner)
+        .or_abrupt()?
+    {
+        return Ok(false);
+    }
+
+    let next = cursor.peek(1, interner).or_abrupt()?;
+
+    match next.kind() {
+        TokenKind::Punctuator(Punctuator::OpenParen) => {
+            if matches!(
+                cursor.peek(2, interner).or_abrupt()?.kind(),
+                TokenKind::Punctuator(Punctuator::CloseParen)
+            ) && matches!(
+                cursor.peek(3, interner).or_abrupt()?.kind(),
+                TokenKind::Punctuator(
+                    Punctuator::Assign
+                        | Punctuator::AssignAdd
+                        | Punctuator::AssignSub
+                        | Punctuator::AssignMul
+                        | Punctuator::AssignDiv
+                        | Punctuator::AssignMod
+                        | Punctuator::AssignPow
+                        | Punctuator::AssignAnd
+                        | Punctuator::AssignOr
+                        | Punctuator::AssignXor
+                        | Punctuator::AssignLeftSh
+                        | Punctuator::AssignRightSh
+                        | Punctuator::AssignURightSh
+                        | Punctuator::AssignBoolAnd
+                        | Punctuator::AssignBoolOr
+                        | Punctuator::AssignCoalesce
+                        | Punctuator::Inc
+                        | Punctuator::Dec
+                ) | TokenKind::Keyword((Keyword::In | Keyword::Of, false))
+            ) {
+                return Ok(false);
+            }
+            Ok(true)
+        }
+        TokenKind::IdentifierName(_)
+        | TokenKind::Keyword((Keyword::Yield | Keyword::Await | Keyword::Of, _)) => Ok(matches!(
+            cursor.peek(2, interner).or_abrupt()?.kind(),
+            TokenKind::Punctuator(Punctuator::Arrow)
+        )),
+        _ => Ok(false),
+    }
+}
+
 impl<R> TokenParser<R> for AssignmentExpression
 where
     R: ReadChar,
@@ -115,29 +175,7 @@ where
             }
             //  AsyncArrowFunction[?In, ?Yield, ?Await]
             TokenKind::Keyword((Keyword::Async, false)) => {
-                let skip_n = if cursor.peek_is_line_terminator(0, interner).or_abrupt()? {
-                    2
-                } else {
-                    1
-                };
-
-                let peek_1 = cursor.peek(1, interner).or_abrupt()?.kind().clone();
-                if !cursor
-                    .peek_is_line_terminator(skip_n, interner)
-                    .or_abrupt()?
-                    && (matches!(peek_1, TokenKind::Punctuator(Punctuator::OpenParen))
-                        || (matches!(
-                            peek_1,
-                            TokenKind::IdentifierName(_)
-                                | TokenKind::Keyword((
-                                    Keyword::Yield | Keyword::Await | Keyword::Of,
-                                    _
-                                ))
-                        ) && matches!(
-                            cursor.peek(2, interner).or_abrupt()?.kind(),
-                            TokenKind::Punctuator(Punctuator::Arrow)
-                        )))
-                {
+                if async_starts_arrow_function(cursor, interner)? {
                     return Ok(AsyncArrowFunction::new(self.allow_in, self.allow_yield)
                         .parse(cursor, interner)?
                         .into());

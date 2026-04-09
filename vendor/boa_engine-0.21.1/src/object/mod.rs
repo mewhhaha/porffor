@@ -449,6 +449,7 @@ impl<'realm> FunctionObjectBuilder<'realm> {
                 name: self.name.clone(),
                 constructor: self.constructor,
                 realm: Some(self.realm.clone()),
+                is_html_dda: false,
             },
             vec![self.length.into(), self.name.into()],
         );
@@ -897,6 +898,7 @@ impl<'ctx> ConstructorBuilder<'ctx> {
                 name: self.name.clone(),
                 constructor: self.kind,
                 realm: Some(self.context.realm().clone()),
+                is_html_dda: false,
             };
             let internal_methods = data.internal_methods();
             let mut constructor = Object {

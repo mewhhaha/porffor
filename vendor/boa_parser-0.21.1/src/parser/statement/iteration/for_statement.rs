@@ -367,7 +367,9 @@ fn initializer_to_iterable_loop_initializer(
     let loop_type = if in_loop { "for-in" } else { "for-of" };
     match initializer {
         ForLoopInitializer::Expression(mut expr) => {
+            let mut parenthesized = false;
             while let ast::Expression::Parenthesized(p) = expr {
+                parenthesized = true;
                 expr = p.expression().clone();
             }
             match expr {
@@ -403,6 +405,11 @@ fn initializer_to_iterable_loop_initializer(
                     .map(|obj| IterableLoopInitializer::Pattern(obj.into())),
                 ast::Expression::PropertyAccess(access) => {
                     Ok(IterableLoopInitializer::Access(access))
+                }
+                ast::Expression::Call(call)
+                    if cfg!(feature = "annex-b") && !strict && !parenthesized =>
+                {
+                    Ok(IterableLoopInitializer::WebCompatCall(Box::new(call)))
                 }
                 _ => Err(Error::lex(LexError::Syntax(
                     "invalid variable for iterable loop".into(),

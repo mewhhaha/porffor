@@ -11,7 +11,7 @@ mod op;
 
 use crate::{
     Expression, Span, Spanned,
-    expression::{Identifier, access::PropertyAccess},
+    expression::{Call, Identifier, access::PropertyAccess},
     visitor::{VisitWith, Visitor, VisitorMut},
 };
 use boa_interner::{Interner, ToInternedString};
@@ -99,6 +99,7 @@ impl VisitWith for Update {
         match self.target.as_ref() {
             UpdateTarget::Identifier(ident) => visitor.visit_identifier(ident),
             UpdateTarget::PropertyAccess(access) => visitor.visit_property_access(access),
+            UpdateTarget::WebCompatCall(call) => visitor.visit_call(call),
         }
     }
 
@@ -109,6 +110,7 @@ impl VisitWith for Update {
         match &mut *self.target {
             UpdateTarget::Identifier(ident) => visitor.visit_identifier_mut(ident),
             UpdateTarget::PropertyAccess(access) => visitor.visit_property_access_mut(access),
+            UpdateTarget::WebCompatCall(call) => visitor.visit_call_mut(call),
         }
     }
 }
@@ -130,6 +132,9 @@ pub enum UpdateTarget {
 
     /// An [`PropertyAccess`] expression.
     PropertyAccess(PropertyAccess),
+
+    /// A sloppy Annex B call target such as `f()`, which must throw at runtime.
+    WebCompatCall(Box<Call>),
 }
 
 impl ToInternedString for UpdateTarget {
@@ -138,6 +143,7 @@ impl ToInternedString for UpdateTarget {
         match self {
             Self::Identifier(identifier) => identifier.to_interned_string(interner),
             Self::PropertyAccess(access) => access.to_interned_string(interner),
+            Self::WebCompatCall(call) => call.to_interned_string(interner),
         }
     }
 }

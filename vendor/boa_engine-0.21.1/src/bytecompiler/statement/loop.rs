@@ -1,5 +1,6 @@
 use boa_ast::{
     declaration::Binding,
+    Expression,
     operations::bound_names,
     scope::BindingLocatorError,
     statement::{
@@ -198,6 +199,12 @@ impl ByteCompiler<'_> {
             IterableLoopInitializer::Access(access) => {
                 self.access_set(Access::Property { access }, |_| &value);
             }
+            IterableLoopInitializer::WebCompatCall(call) => {
+                let scratch = self.register_allocator.alloc();
+                self.compile_expr(&Expression::Call((**call).clone()), &scratch);
+                self.emit_invalid_lhs_reference_error();
+                self.register_allocator.dealloc(scratch);
+            }
             IterableLoopInitializer::Var(declaration) => match declaration.binding() {
                 Binding::Identifier(ident) => {
                     let ident = ident.to_js_string(self.interner());
@@ -339,6 +346,12 @@ impl ByteCompiler<'_> {
             }
             IterableLoopInitializer::Access(access) => {
                 self.access_set(Access::Property { access }, |_| &value);
+            }
+            IterableLoopInitializer::WebCompatCall(call) => {
+                let scratch = self.register_allocator.alloc();
+                self.compile_expr(&Expression::Call((**call).clone()), &scratch);
+                self.emit_invalid_lhs_reference_error();
+                self.register_allocator.dealloc(scratch);
             }
             IterableLoopInitializer::Var(declaration) => {
                 // ignore initializers since those aren't allowed on for-of loops.

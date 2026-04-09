@@ -94,6 +94,7 @@ impl IntrinsicObject for RegExp {
                 None,
                 Attribute::CONFIGURABLE,
             )
+            .static_method(Self::escape, js_string!("escape"), 1)
             .property(js_string!("lastIndex"), 0, Attribute::all())
             .method(Self::test, js_string!("test"), 1)
             .method(Self::exec, js_string!("exec"), 1)
@@ -277,7 +278,7 @@ impl BuiltInObject for RegExp {
 impl BuiltInConstructor for RegExp {
     const CONSTRUCTOR_ARGUMENTS: usize = 2;
     const PROTOTYPE_STORAGE_SLOTS: usize = 30;
-    const CONSTRUCTOR_STORAGE_SLOTS: usize = 40;
+    const CONSTRUCTOR_STORAGE_SLOTS: usize = 41;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
         StandardConstructors::regexp;
@@ -439,12 +440,18 @@ impl RegExp {
 
         // 13. Let parseResult be ParsePattern(patternText, u, v).
         // 14. If parseResult is a non-empty List of SyntaxError objects, throw a SyntaxError exception.
-        let matcher =
+        let matcher = if flags.contains(RegExpFlags::UNICODE)
+            || flags.contains(RegExpFlags::UNICODE_SETS)
+        {
             Regex::from_unicode(p.code_points().map(CodePoint::as_u32), Flags::from(flags))
-                .map_err(|error| {
-                    JsNativeError::syntax()
-                        .with_message(format!("failed to create matcher: {}", error.text))
-                })?;
+        } else {
+            let code_units = p.to_vec();
+            Regex::from_unicode(code_units.iter().copied().map(u32::from), Flags::from(flags))
+        }
+        .map_err(|error| {
+            JsNativeError::syntax()
+                .with_message(format!("failed to create matcher: {}", error.text))
+        })?;
 
         // 15. Assert: parseResult is a Pattern Parse Node.
         // 16. Set obj.[[OriginalSource]] to P.
@@ -533,6 +540,163 @@ impl RegExp {
     fn get_species(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         // 1. Return the this value.
         Ok(this.clone())
+    }
+
+    /// `RegExp.escape ( string )`
+    ///
+    /// More information:
+    ///  - [ECMAScript reference][spec]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#sec-regexp.escape
+    fn escape(_: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+        let Some(string) = args.get_or_undefined(0).as_string() else {
+            return Err(JsNativeError::typ()
+                .with_message("RegExp.escape requires a string")
+                .into());
+        };
+
+        if string.is_empty() {
+            return Ok(js_string!().into());
+        }
+
+        let mut escaped = Vec::with_capacity(string.len());
+        let mut first = true;
+        for code_point in string.code_points() {
+            if first {
+                first = false;
+                if let Some(hex) = Self::leading_ascii_escape(code_point) {
+                    escaped.extend_from_slice(utf16!(r"\x"));
+                    escaped.extend(Self::lower_hex_digits(hex));
+                    continue;
+                }
+            }
+
+            Self::encode_for_reg_exp_escape(code_point, &mut escaped);
+        }
+
+        Ok(js_string!(&escaped[..]).into())
+    }
+
+    fn leading_ascii_escape(code_point: CodePoint) -> Option<u8> {
+        match code_point {
+            CodePoint::Unicode(c) if c.is_ascii_alphanumeric() => Some(c as u8),
+            _ => None,
+        }
+    }
+
+    fn encode_for_reg_exp_escape(code_point: CodePoint, escaped: &mut Vec<u16>) {
+        match code_point {
+            CodePoint::Unicode(c) if Self::is_regexp_syntax_character(c) || c == '/' => {
+                escaped.push('\\' as u16);
+                escaped.push(c as u16);
+            }
+            CodePoint::Unicode(c) => match c {
+                '\t' => escaped.extend_from_slice(utf16!(r"\t")),
+                '\n' => escaped.extend_from_slice(utf16!(r"\n")),
+                '\u{000B}' => escaped.extend_from_slice(utf16!(r"\v")),
+                '\u{000C}' => escaped.extend_from_slice(utf16!(r"\f")),
+                '\r' => escaped.extend_from_slice(utf16!(r"\r")),
+                c if Self::is_other_punctuator(c) => Self::append_hex_escape(c as u32, escaped),
+                c if Self::is_regexp_escape_whitespace(c) => {
+                    Self::append_code_point_escape(c as u32, escaped)
+                }
+                c if Self::is_non_printing_ascii(c) => Self::append_hex_escape(c as u32, escaped),
+                c => {
+                    let mut buf = [0; 2];
+                    escaped.extend_from_slice(c.encode_utf16(&mut buf));
+                }
+            },
+            CodePoint::UnpairedSurrogate(surr) => Self::append_unicode_escape(surr, escaped),
+        }
+    }
+
+    fn is_regexp_syntax_character(c: char) -> bool {
+        matches!(
+            c,
+            '^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|'
+        )
+    }
+
+    fn is_other_punctuator(c: char) -> bool {
+        matches!(
+            c,
+            ',' | '-'
+                | '='
+                | '<'
+                | '>'
+                | '#'
+                | '&'
+                | '!'
+                | '%'
+                | ':'
+                | ';'
+                | '@'
+                | '~'
+                | '\''
+                | '`'
+                | '"'
+        )
+    }
+
+    fn is_regexp_escape_whitespace(c: char) -> bool {
+        matches!(
+            c,
+            '\u{0020}'
+                | '\u{00A0}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+        )
+    }
+
+    fn is_non_printing_ascii(c: char) -> bool {
+        matches!(c, '\u{0000}'..='\u{0008}' | '\u{000E}'..='\u{001F}' | '\u{007F}')
+    }
+
+    fn append_code_point_escape(code_point: u32, escaped: &mut Vec<u16>) {
+        if code_point <= 0xFF {
+            Self::append_hex_escape(code_point, escaped);
+            return;
+        }
+
+        for code_unit in char::from_u32(code_point)
+            .expect("whitespace and line terminators are valid scalar values")
+            .encode_utf16(&mut [0; 2])
+        {
+            Self::append_unicode_escape(*code_unit, escaped);
+        }
+    }
+
+    fn append_hex_escape(code_point: u32, escaped: &mut Vec<u16>) {
+        escaped.extend_from_slice(utf16!(r"\x"));
+        escaped.extend(Self::lower_hex_digits(code_point as u8));
+    }
+
+    fn append_unicode_escape(code_unit: u16, escaped: &mut Vec<u16>) {
+        escaped.extend_from_slice(utf16!(r"\u"));
+        escaped.extend([
+            Self::hex_digit((code_unit >> 12) as u8),
+            Self::hex_digit((code_unit >> 8) as u8),
+            Self::hex_digit((code_unit >> 4) as u8),
+            Self::hex_digit(code_unit as u8),
+        ]);
+    }
+
+    fn lower_hex_digits(byte: u8) -> [u16; 2] {
+        [Self::hex_digit(byte >> 4), Self::hex_digit(byte)]
+    }
+
+    fn hex_digit(value: u8) -> u16 {
+        let nibble = value & 0x0F;
+        match nibble {
+            0..=9 => (b'0' + nibble) as u16,
+            _ => (b'a' + (nibble - 10)) as u16,
+        }
     }
 
     #[cfg(feature = "annex-b")]
@@ -1394,11 +1558,18 @@ impl RegExp {
         a.create_data_property_or_throw(0, matched_substr, context)
             .expect("this CreateDataPropertyOrThrow call must not fail");
 
-        let mut named_groups = match_value
+        let named_groups = match_value
             .named_groups()
             .collect::<Vec<(&str, Option<Range>)>>();
-        // Strict mode requires groups to be created in a sorted order
-        named_groups.sort_by(|(name_x, _), (name_y, _)| name_x.cmp(name_y));
+        let mut unique_named_groups = Vec::new();
+        for (name, _) in &named_groups {
+            if unique_named_groups
+                .iter()
+                .all(|existing: &&str| existing != name)
+            {
+                unique_named_groups.push(*name);
+            }
+        }
 
         // Combines:
         // 26. Let groupNames be a new empty List.
@@ -1406,7 +1577,7 @@ impl RegExp {
         // 31. Else,
         // 33. For each integer i such that 1 ≤ i ≤ n, in ascending order, do
         #[allow(clippy::if_not_else)]
-        let (groups, group_names) = if !named_groups.clone().is_empty() {
+        let (groups, group_names) = if !unique_named_groups.is_empty() {
             // a. Let groups be OrdinaryObjectCreate(null).
             let groups = JsObject::with_null_proto();
             let group_names = JsObject::with_null_proto();
@@ -1415,8 +1586,14 @@ impl RegExp {
             // i. Let s be the CapturingGroupName of that GroupName.
             // ii. Perform ! CreateDataPropertyOrThrow(groups, s, capturedValue).
             // iii. Append s to groupNames.
-            for (name, range) in named_groups {
+            for name in unique_named_groups {
+                let range = named_groups
+                    .iter()
+                    .filter(|(candidate, _)| *candidate == name)
+                    .filter_map(|(_, range)| range.clone())
+                    .last();
                 let name = js_string!(name);
+
                 if let Some(range) = range {
                     let value = input.get_expect(range.clone());
 
@@ -1712,9 +1889,9 @@ impl RegExp {
         // 10. Else, let global be false.
         let global = flags.contains(b'g');
 
-        // 11. If flags contains "u", let fullUnicode be true.
+        // 11. If flags contains "u" or "v", let fullUnicode be true.
         // 12. Else, let fullUnicode be false.
-        let unicode = flags.contains(b'u');
+        let unicode = flags.contains(b'u') || flags.contains(b'v');
 
         // 13. Return ! CreateRegExpStringIterator(matcher, S, global, fullUnicode).
         Ok(RegExpStringIterator::create_regexp_string_iterator(
@@ -1784,8 +1961,8 @@ impl RegExp {
 
         // 9. If global is true, then
         let full_unicode = if global {
-            // a. If flags contains "u", let fullUnicode be true. Otherwise, let fullUnicode be false.
-            let full_unicode = flags.contains(b'u');
+            // a. If flags contains "u" or "v", let fullUnicode be true. Otherwise, let fullUnicode be false.
+            let full_unicode = flags.contains(b'u') || flags.contains(b'v');
 
             // b. Perform ? Set(rx, "lastIndex", +0𝔽, true).
             rx.set(js_string!("lastIndex"), 0, true, context)?;
@@ -2063,9 +2240,9 @@ impl RegExp {
         // 5. Let flags be ? ToString(? Get(rx, "flags")).
         let flags = rx.get(js_string!("flags"), context)?.to_string(context)?;
 
-        // 6. If flags contains "u", let unicodeMatching be true.
+        // 6. If flags contains "u" or "v", let unicodeMatching be true.
         // 7. Else, let unicodeMatching be false.
-        let unicode = flags.contains(b'u');
+        let unicode = flags.contains(b'u') || flags.contains(b'v');
 
         // 8. If flags contains "y", let newFlags be flags.
         // 9. Else, let newFlags be the string-concatenation of flags and "y".

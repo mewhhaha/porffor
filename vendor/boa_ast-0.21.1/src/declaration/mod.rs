@@ -114,7 +114,7 @@ impl VisitWith for Declaration {
 /// [`FromClause`]: https://tc39.es/ecma262/#prod-ModuleSpecifier
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleSpecifier {
     module: Sym,
 }

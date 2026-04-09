@@ -1767,8 +1767,8 @@ impl Array {
         // 3. Let depthNum be 1
         let mut depth_num = 1;
 
-        // 4. If depth is not undefined, then set depthNum to IntegerOrInfinity(depth)
-        if let Some(depth) = args.first() {
+        // 4. If depth is present and not undefined, then set depthNum to IntegerOrInfinity(depth)
+        if let Some(depth) = args.first().filter(|depth| !depth.is_undefined()) {
             // a. Set depthNum to ? ToIntegerOrInfinity(depth).
             // b. If depthNum < 0, set depthNum to 0.
             match depth.to_integer_or_infinity(context)? {

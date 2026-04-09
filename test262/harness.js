@@ -19,8 +19,12 @@ function $DONOTEVALUATE() {
   throw 'Test262: This statement should not be evaluated.';
 }
 
+var __porfHost262 = typeof globalThis.$262 === 'object' && globalThis.$262 ? globalThis.$262 : null;
+
 var $262 = {
   global: globalThis,
+  AbstractModuleSource: __porfHost262 && __porfHost262.AbstractModuleSource,
+  IsHTMLDDA: __porfHost262 && __porfHost262.IsHTMLDDA,
   gc() {
     if (typeof gc === 'function') gc();
   },

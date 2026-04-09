@@ -1,10 +1,11 @@
 //! The ECMAScript context.
 
-use std::{cell::Cell, path::Path, rc::Rc};
+use std::{cell::Cell, mem::MaybeUninit, path::Path, rc::Rc};
 
 use boa_ast::StatementList;
 use boa_interner::Interner;
 use boa_parser::source::ReadChar;
+use dynify::Dynify;
 pub use hooks::{DefaultHooks, HostHooks};
 #[cfg(feature = "intl")]
 pub use icu::IcuError;
@@ -14,17 +15,18 @@ use temporal_rs::provider::TimeZoneProvider;
 #[cfg(feature = "temporal")]
 use timezone_provider::tzif::CompiledTzdbProvider;
 
-use crate::job::Job;
+use crate::job::{Job, NativeAsyncJob};
 use crate::module::DynModuleLoader;
 use crate::vm::RuntimeLimits;
 use crate::{
     HostDefined, JsNativeError, JsResult, JsString, JsValue, NativeObject, Source, builtins,
+    builtins::promise::{Promise, PromiseCapability},
     class::{Class, ClassBuilder},
     job::{JobExecutor, SimpleJobExecutor},
     js_string,
-    module::{IdleModuleLoader, ModuleLoader, SimpleModuleLoader},
+    module::{IdleModuleLoader, ModuleLoader, ModuleRequest, ModuleRequestPhase, Referrer, SimpleModuleLoader},
     native_function::NativeFunction,
-    object::{FunctionObjectBuilder, JsObject, shape::RootShape},
+    object::{FunctionObjectBuilder, JsObject, builtins::JsPromise, shape::RootShape},
     optimizer::{Optimizer, OptimizerOptions, OptimizerStatistics},
     property::{Attribute, PropertyDescriptor, PropertyKey},
     realm::Realm,
@@ -624,6 +626,135 @@ impl Context {
     pub fn get_data<T: NativeObject>(&self) -> Option<&T> {
         self.data.get::<T>()
     }
+
+    /// Starts a host-driven module request and returns the promise for its namespace.
+    pub fn host_enqueue_module_request(&mut self, request: ModuleRequest) -> JsResult<JsPromise> {
+        let referrer = self
+            .get_active_script_or_module()
+            .map_or_else(|| Referrer::Realm(self.realm().clone()), Into::into);
+        let cap = PromiseCapability::new(
+            &self.intrinsics().constructors().promise().constructor(),
+            self,
+        )
+        .expect("promise capability creation must succeed");
+        let promise = JsPromise::from_object(cap.promise().clone())
+            .expect("PromiseCapability must create a native promise");
+        let job = NativeAsyncJob::with_realm(
+            async move |context| {
+                finish_host_module_request(referrer, request, cap, context).await;
+                Ok(JsValue::undefined())
+            },
+            self.realm().clone(),
+        );
+        self.enqueue_job(job.into());
+        Ok(promise)
+    }
+}
+
+async fn finish_host_module_request(
+    referrer: Referrer,
+    request: ModuleRequest,
+    cap: PromiseCapability,
+    context: &std::cell::RefCell<&mut Context>,
+) {
+    let loader = context.borrow().module_loader();
+    let fut = loader.load_imported_module(referrer, request.clone(), context);
+    let mut stack = [MaybeUninit::<u8>::uninit(); 16];
+    let mut heap = Vec::<MaybeUninit<u8>>::new();
+    let module = match fut.init2(&mut stack, &mut heap).await {
+        Ok(module) => module,
+        Err(err) => {
+            let err = err.to_opaque(&mut context.borrow_mut());
+            cap.reject()
+                .call(&JsValue::undefined(), &[err], &mut context.borrow_mut())
+                .expect("default reject must not throw");
+            return;
+        }
+    };
+
+    let load = module.load(&mut context.borrow_mut());
+    let on_rejected = FunctionObjectBuilder::new(
+        context.borrow().realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_, args, cap: &PromiseCapability, context| {
+                cap.reject()
+                    .call(&JsValue::undefined(), args, context)
+                    .expect("default reject must not throw");
+                Ok(JsValue::undefined())
+            },
+            cap.clone(),
+        ),
+    )
+    .build();
+
+    let link_and_finish = FunctionObjectBuilder::new(
+        context.borrow().realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_,
+             _,
+             (module, cap, on_rejected, request): &(
+                crate::module::Module,
+                PromiseCapability,
+                crate::object::builtins::JsFunction,
+                ModuleRequest,
+             ),
+             context| {
+                if let Err(err) = module.link(context) {
+                    let err = err.to_opaque(context);
+                    cap.reject()
+                        .call(&JsValue::undefined(), &[err], context)
+                        .expect("default reject must not throw");
+                    return Ok(JsValue::undefined());
+                }
+
+                if request.phase() == ModuleRequestPhase::Defer {
+                    let namespace = module.deferred_namespace(context);
+                    cap.resolve()
+                        .call(&JsValue::undefined(), &[namespace.into()], context)
+                        .expect("default resolve must not throw");
+                    return Ok(JsValue::undefined());
+                }
+
+                let evaluate = module.evaluate(context);
+                let fulfill = FunctionObjectBuilder::new(
+                    context.realm(),
+                    NativeFunction::from_copy_closure_with_captures(
+                        |_,
+                         _,
+                         (module, cap): &(crate::module::Module, PromiseCapability),
+                         context| {
+                            let namespace = module.namespace(context);
+                            cap.resolve()
+                                .call(&JsValue::undefined(), &[namespace.into()], context)
+                                .expect("default resolve must not throw");
+                            Ok(JsValue::undefined())
+                        },
+                        (module.clone(), cap.clone()),
+                    ),
+                )
+                .build();
+
+                Promise::perform_promise_then(
+                    &evaluate,
+                    Some(fulfill),
+                    Some(on_rejected.clone()),
+                    None,
+                    context,
+                );
+                Ok(JsValue::undefined())
+            },
+            (module.clone(), cap.clone(), on_rejected.clone(), request),
+        ),
+    )
+    .build();
+
+    Promise::perform_promise_then(
+        &load,
+        Some(link_and_finish),
+        Some(on_rejected),
+        None,
+        &mut context.borrow_mut(),
+    );
 }
 
 // ==== Private API ====

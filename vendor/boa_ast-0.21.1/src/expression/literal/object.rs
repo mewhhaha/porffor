@@ -160,6 +160,7 @@ impl ObjectLiteral {
                                     default_init: Some(assign.rhs().clone()),
                                 });
                             }
+                            AssignTarget::WebCompatCall(_) => return None,
                             AssignTarget::Access(access) => {
                                 bindings.push(ObjectPatternElement::AssignmentPropertyAccess {
                                     name: name.clone(),

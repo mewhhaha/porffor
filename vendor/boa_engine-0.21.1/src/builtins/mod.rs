@@ -1,5 +1,6 @@
 //! Boa's ECMAScript built-in object implementations, e.g. Object, String, Math, Array, etc.
 
+pub mod abstract_module_source;
 pub mod array;
 pub mod array_buffer;
 pub mod async_disposable_stack;
@@ -43,6 +44,8 @@ use num_traits::Zero;
 
 #[cfg(feature = "annex-b")]
 pub mod escape;
+#[cfg(feature = "annex-b")]
+pub(crate) mod html_dda;
 
 #[cfg(feature = "intl")]
 pub mod intl;
@@ -55,6 +58,7 @@ pub(crate) mod options;
 pub mod temporal;
 
 pub(crate) use self::{
+    abstract_module_source::AbstractModuleSource,
     array::Array,
     async_function::AsyncFunction,
     async_disposable_stack::{AsyncDisposableStack, DisposableStack},
@@ -84,6 +88,9 @@ pub(crate) use self::{
         Int32Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array,
     },
 };
+
+#[cfg(feature = "annex-b")]
+pub(crate) use self::html_dda::IsHtmlDda;
 
 use crate::{
     Context, JsResult, JsString, JsValue,
@@ -241,6 +248,7 @@ impl Realm {
     pub(crate) fn initialize(&self) {
         BuiltInFunctionObject::init(self);
         OrdinaryObject::init(self);
+        AbstractModuleSource::init(self);
         Iterator::init(self);
         AsyncIterator::init(self);
         AsyncFromSyncIterator::init(self);
@@ -314,6 +322,7 @@ impl Realm {
 
         #[cfg(feature = "annex-b")]
         {
+            IsHtmlDda::init(self);
             escape::Escape::init(self);
             escape::Unescape::init(self);
         }

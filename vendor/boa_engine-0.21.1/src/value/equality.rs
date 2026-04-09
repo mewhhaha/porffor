@@ -62,6 +62,13 @@ impl JsValue {
     ///  For more information, check <https://tc39.es/ecma262/#sec-abstract-equality-comparison>
     #[allow(clippy::float_cmp)]
     pub fn equals(&self, other: &Self, context: &mut Context) -> JsResult<bool> {
+        #[cfg(feature = "annex-b")]
+        if (self.is_html_dda() && other.is_nullish_or_html_dda())
+            || (other.is_html_dda() && self.is_nullish_or_html_dda())
+        {
+            return Ok(true);
+        }
+
         // 1. If Type(x) is the same as Type(y), then
         //     a. Return the result of performing Strict Equality Comparison x === y.
         if self.get_type() == other.get_type() {

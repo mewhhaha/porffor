@@ -634,6 +634,7 @@ pub fn materialize_test(
         if case.flags.contains("async") {
             if let Some(prelude) = preludes.get("doneprintHandle.js") {
                 source.push_str(&prelude.contents);
+                source.push_str("globalThis.$DONE = $DONE;\n");
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
         }

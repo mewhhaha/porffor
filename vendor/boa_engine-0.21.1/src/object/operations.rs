@@ -421,7 +421,9 @@ impl JsObject {
 
         let result = context.run().consume();
 
-        context.vm.pop_frame().expect("frame must exist");
+        if frame_index < context.vm.frames.len() {
+            context.vm.pop_frame().expect("frame must exist");
+        }
 
         result
     }

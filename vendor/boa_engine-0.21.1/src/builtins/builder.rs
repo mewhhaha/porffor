@@ -522,6 +522,7 @@ impl BuiltInCallable<'_> {
                 name: self.name.clone(),
                 constructor: None,
                 realm: Some(self.realm.clone()),
+                is_html_dda: false,
             },
             vec![JsValue::new(self.length), JsValue::new(self.name)],
         );

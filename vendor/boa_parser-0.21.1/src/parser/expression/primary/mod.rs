@@ -614,6 +614,12 @@ fn expression_to_formal_parameters(
                     span.start(),
                 ));
             }
+            AssignTarget::WebCompatCall(_) => {
+                return Err(Error::general(
+                    "invalid initialization expression in formal parameter list",
+                    span.start(),
+                ));
+            }
         },
         ast::Expression::ObjectLiteral(object) => {
             let pattern = object.to_pattern(strict).ok_or_else(|| {

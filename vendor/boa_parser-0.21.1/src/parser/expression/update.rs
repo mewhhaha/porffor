@@ -73,7 +73,13 @@ fn as_simple(
         Expression::PropertyAccess(access) => {
             Ok(Some(UpdateTarget::PropertyAccess(access.clone())))
         }
-        Expression::Parenthesized(p) => as_simple(p.expression(), position, strict),
+        Expression::Parenthesized(p) => match as_simple(p.expression(), position, strict)? {
+            Some(UpdateTarget::WebCompatCall(_)) => Ok(None),
+            other => Ok(other),
+        },
+        Expression::Call(call) if cfg!(feature = "annex-b") && !strict => {
+            Ok(Some(UpdateTarget::WebCompatCall(Box::new(call.clone()))))
+        }
         _ => Ok(None),
     }
 }

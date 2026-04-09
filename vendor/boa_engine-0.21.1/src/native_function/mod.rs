@@ -84,6 +84,9 @@ pub struct NativeFunctionObject {
 
     /// The [`Realm`] in which the function is defined, or `None` if the realm is uninitialized.
     pub(crate) realm: Option<Realm>,
+
+    /// Whether this function object has the Annex B `[[IsHTMLDDA]]` internal slot.
+    pub(crate) is_html_dda: bool,
 }
 
 // SAFETY: this traces all fields that need to be traced by the GC.
@@ -353,6 +356,7 @@ pub(crate) fn native_function_call(
         name,
         constructor,
         realm,
+        ..
     } = obj
         .downcast_ref::<NativeFunctionObject>()
         .expect("the object should be a native function object")
@@ -409,6 +413,7 @@ fn native_function_construct(
         name,
         constructor,
         realm,
+        ..
     } = obj
         .downcast_ref::<NativeFunctionObject>()
         .expect("the object should be a native function object")

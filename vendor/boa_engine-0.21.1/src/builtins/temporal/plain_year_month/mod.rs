@@ -21,7 +21,7 @@ use boa_gc::{Finalize, Trace};
 
 use icu_calendar::AnyCalendarKind;
 use temporal_rs::{
-    Calendar, Duration, MonthCode, PlainYearMonth as InnerYearMonth, TinyAsciiStr,
+    Calendar, MonthCode, PlainYearMonth as InnerYearMonth, TinyAsciiStr,
     fields::{CalendarFields, YearMonthCalendarFields},
     options::{DisplayCalendar, Overflow},
     partial::PartialYearMonth,
@@ -589,9 +589,9 @@ impl PlainYearMonth {
     /// [temporal_rs-docs]: https://docs.rs/temporal_rs/latest/temporal_rs/struct.PlainYearMonth.html#method.add
     fn add(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let duration_like = args.get_or_undefined(0);
-        let options = get_options_object(args.get_or_undefined(1))?;
+        let options = args.get_or_undefined(1);
 
-        add_or_subtract_duration(true, this, duration_like, &options, context)
+        add_or_subtract_duration(true, this, duration_like, options, context)
     }
 
     /// 9.3.15 `Temporal.PlainYearMonth.prototype.subtract ( temporalDurationLike [ , options ] )`
@@ -607,9 +607,9 @@ impl PlainYearMonth {
     /// [temporal_rs-docs]: https://docs.rs/temporal_rs/latest/temporal_rs/struct.PlainYearMonth.html#method.subtract
     fn subtract(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let duration_like = args.get_or_undefined(0);
-        let options = get_options_object(args.get_or_undefined(1))?;
+        let options = args.get_or_undefined(1);
 
-        add_or_subtract_duration(false, this, duration_like, &options, context)
+        add_or_subtract_duration(false, this, duration_like, options, context)
     }
 
     /// 9.3.16 `Temporal.PlainYearMonth.prototype.until ( other [ , options ] )`
@@ -962,22 +962,9 @@ fn add_or_subtract_duration(
     is_addition: bool,
     this: &JsValue,
     duration_like: &JsValue,
-    options: &JsObject,
+    options: &JsValue,
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let duration: Duration = if duration_like.is_object() {
-        to_temporal_duration(duration_like, context)?
-    } else if let Some(duration_string) = duration_like.as_string() {
-        Duration::from_str(duration_string.to_std_string_escaped().as_str())?
-    } else {
-        return Err(JsNativeError::typ()
-            .with_message("cannot handler string durations yet.")
-            .into());
-    };
-
-    let overflow =
-        get_option(options, js_string!("overflow"), context)?.unwrap_or(Overflow::Constrain);
-
     let object = this.as_object();
     let year_month = object
         .as_ref()
@@ -985,6 +972,25 @@ fn add_or_subtract_duration(
         .ok_or_else(|| {
             JsNativeError::typ().with_message("this value must be a PlainYearMonth object.")
         })?;
+
+    let duration = to_temporal_duration(duration_like, context)?;
+    let options = get_options_object(options)?;
+    let overflow =
+        get_option(&options, js_string!("overflow"), context)?.unwrap_or(Overflow::Constrain);
+
+    if duration.weeks() != 0
+        || duration.days() != 0
+        || duration.hours() != 0
+        || duration.minutes() != 0
+        || duration.seconds() != 0
+        || duration.milliseconds() != 0
+        || duration.microseconds() != 0
+        || duration.nanoseconds() != 0
+    {
+        return Err(JsNativeError::range()
+            .with_message("duration cannot contain units smaller than months.")
+            .into());
+    }
 
     let inner = &year_month.inner;
     let year_month_result = if is_addition {
@@ -1076,10 +1082,18 @@ pub(crate) fn to_year_month_calendar_fields(
         })
         .transpose()?;
 
-    Ok(YearMonthCalendarFields::new()
+    let fields = YearMonthCalendarFields::new()
         .with_era(era)
         .with_era_year(era_year)
         .with_optional_year(year)
         .with_optional_month(month)
-        .with_optional_month_code(month_code))
+        .with_optional_month_code(month_code);
+
+    if fields.is_empty() {
+        return Err(JsNativeError::typ()
+            .with_message("partial object must have a year, month, or monthCode field.")
+            .into());
+    }
+
+    Ok(fields)
 }

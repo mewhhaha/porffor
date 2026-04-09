@@ -2,7 +2,10 @@ use crate::bytecompiler::{Access, BindingAccessOpcode, ByteCompiler, Register, T
 use boa_ast::{
     expression::{
         access::{PropertyAccess, PropertyAccessField},
-        operator::{Update, update::UpdateOp},
+        operator::{
+            Update,
+            update::{UpdateOp, UpdateTarget},
+        },
     },
     scope::BindingLocatorError,
 };
@@ -10,6 +13,13 @@ use boa_ast::{
 impl ByteCompiler<'_> {
     pub(crate) fn compile_update(&mut self, update: &Update, dst: &Register) {
         let mut compiler = self.position_guard(update);
+
+        if let UpdateTarget::WebCompatCall(call) = update.target() {
+            compiler.compile_expr(&boa_ast::Expression::Call((**call).clone()), dst);
+            compiler.emit_invalid_lhs_reference_error();
+            return;
+        }
+
         let increment = matches!(
             update.op(),
             UpdateOp::IncrementPost | UpdateOp::IncrementPre

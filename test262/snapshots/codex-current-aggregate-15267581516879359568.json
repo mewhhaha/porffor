@@ -1,0 +1,357 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "e293e16561d443477182729fe2c605e589eaf0f0"
+  },
+  "manifest_hash": 15267581516879359568,
+  "run_kind": "aggregate-matrix",
+  "total": 1390,
+  "passed": 1317,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 10,
+    "Runtime": 63,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [],
+  "matrix_path": [
+    "top-level"
+  ],
+  "completed_nodes": [
+    "annexB",
+    "built-ins/AbstractModuleSource",
+    "built-ins/AggregateError",
+    "built-ins/Array",
+    "built-ins/Array/Symbol.species",
+    "built-ins/Array/from",
+    "built-ins/Array/fromAsync",
+    "built-ins/Array/isArray",
+    "built-ins/Array/length",
+    "built-ins/Array/of"
+  ],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 10,
+    "Runtime": 63,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": [
+    {
+      "node_id": "annexB",
+      "node_kind": "filter-leaf",
+      "filter": "annexB",
+      "matrix_path": [
+        "annexB"
+      ],
+      "total": 1086,
+      "passed": 1021,
+      "failed": 65,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 10,
+        "Runtime": 55,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 13,
+        "boa-runtime": 40,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 12
+      },
+      "manifest_hash": 3823770483607970021
+    },
+    {
+      "node_id": "built-ins/AbstractModuleSource",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/AbstractModuleSource",
+      "matrix_path": [
+        "built-ins",
+        "AbstractModuleSource"
+      ],
+      "total": 8,
+      "passed": 0,
+      "failed": 8,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 8,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 8
+      },
+      "manifest_hash": 16813482994765664798
+    },
+    {
+      "node_id": "built-ins/AggregateError",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/AggregateError",
+      "matrix_path": [
+        "built-ins",
+        "AggregateError"
+      ],
+      "total": 25,
+      "passed": 25,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 5476742782454662887
+    },
+    {
+      "node_id": "built-ins/Array",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array",
+      "matrix_path": [
+        "built-ins",
+        "Array"
+      ],
+      "total": 50,
+      "passed": 50,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 12021004929145691984
+    },
+    {
+      "node_id": "built-ins/Array/Symbol.species",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/Symbol.species",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "Symbol.species"
+      ],
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 8727788614615679170
+    },
+    {
+      "node_id": "built-ins/Array/from",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/from",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "from"
+      ],
+      "total": 47,
+      "passed": 47,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 397220859620793975
+    },
+    {
+      "node_id": "built-ins/Array/fromAsync",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/fromAsync",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "fromAsync"
+      ],
+      "total": 95,
+      "passed": 95,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 10746560581234693443
+    },
+    {
+      "node_id": "built-ins/Array/isArray",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/isArray",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "isArray"
+      ],
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 18055865061094424763
+    },
+    {
+      "node_id": "built-ins/Array/length",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/length",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "length"
+      ],
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 13111163400306296186
+    },
+    {
+      "node_id": "built-ins/Array/of",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/Array/of",
+      "matrix_path": [
+        "built-ins",
+        "Array",
+        "of"
+      ],
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 10214402787443100767
+    }
+  ]
+}

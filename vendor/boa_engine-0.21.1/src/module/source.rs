@@ -64,7 +64,7 @@ pub(super) struct DfsInfo {
 /// [cyclic]: https://tc39.es/ecma262/#table-cyclic-module-fields
 #[derive(Debug, Trace, Finalize, Default)]
 #[boa_gc(unsafe_no_drop)]
-enum ModuleStatus {
+pub(super) enum ModuleStatus {
     #[default]
     Unlinked,
     Linking {
@@ -219,8 +219,8 @@ impl std::fmt::Debug for SourceTextContext {
 /// [spec]: https://tc39.es/ecma262/#sec-source-text-module-records
 #[derive(Trace, Finalize)]
 pub(crate) struct SourceTextModule {
-    status: GcRefCell<ModuleStatus>,
-    loaded_modules: GcRefCell<FxHashMap<JsString, Module>>,
+    pub(super) status: GcRefCell<ModuleStatus>,
+    loaded_modules: GcRefCell<FxHashMap<super::ModuleRequest, Module>>,
     async_parent_modules: GcRefCell<Vec<Module>>,
     import_meta: GcRefCell<Option<JsObject>>,
     #[unsafe_ignore_trace]
@@ -241,17 +241,48 @@ impl std::fmt::Debug for SourceTextModule {
 #[derive(Debug)]
 struct ModuleCode {
     has_tla: bool,
-    requested_modules: IndexSet<JsString, BuildHasherDefault<FxHasher>>,
+    requested_modules: IndexSet<super::ModuleRequest, BuildHasherDefault<FxHasher>>,
     source: boa_ast::Module,
     source_text: SourceText,
     path: Option<PathBuf>,
     import_entries: Vec<ImportEntry>,
     local_export_entries: Vec<LocalExportEntry>,
     indirect_export_entries: Vec<IndirectExportEntry>,
-    star_export_entries: Vec<JsString>,
+    star_export_entries: Vec<super::ModuleRequest>,
 }
 
 impl SourceTextModule {
+    fn gather_async_transitive_dependencies(
+        &self,
+        module_self: &Module,
+        seen: &mut HashSet<Module>,
+        result: &mut Vec<Module>,
+    ) {
+        if !seen.insert(module_self.clone()) {
+            return;
+        }
+
+        match &*self.status.borrow() {
+            ModuleStatus::Evaluating { .. } | ModuleStatus::Evaluated { .. } => return,
+            _ => {}
+        }
+
+        if self.code.has_tla {
+            result.push(module_self.clone());
+            return;
+        }
+
+        let loaded_modules = self.loaded_modules.borrow();
+        for request in &self.code.requested_modules {
+            let Some(required_module) = loaded_modules.get(request) else {
+                continue;
+            };
+            if let ModuleKind::SourceText(required_src) = required_module.kind() {
+                required_src.gather_async_transitive_dependencies(required_module, seen, result);
+            }
+        }
+    }
+
     /// Creates a new `SourceTextModule` from a parsed `ModuleSource`.
     ///
     /// Contains part of the abstract operation [`ParseModule`][parse].
@@ -268,7 +299,7 @@ impl SourceTextModule {
             .items()
             .requests()
             .iter()
-            .map(|name| name.to_js_string(interner))
+            .map(|request| super::ModuleRequest::from_ast(request, interner))
             .collect();
         // 4. Let importEntries be ImportEntries of body.
         let import_entries = code.items().import_entries();
@@ -304,7 +335,7 @@ impl SourceTextModule {
                         //       [[ImportName]]: ie.[[ImportName]], [[LocalName]]: null,
                         //       [[ExportName]]: ee.[[ExportName]] } to indirectExportEntries.
                         indirect_export_entries.push(IndirectExportEntry::new(
-                            module,
+                            module.clone(),
                             ReExportImportName::Name(import),
                             entry.export_name(),
                         ));
@@ -322,7 +353,10 @@ impl SourceTextModule {
                 ExportEntry::StarReExport { module_request } => {
                     // i. Assert: ee.[[ExportName]] is null.
                     // ii. Append ee to starExportEntries.
-                    star_export_entries.push(module_request.to_js_string(interner));
+                    star_export_entries.push(super::ModuleRequest::from_ast(
+                        &module_request,
+                        interner,
+                    ));
                 }
                 // c. Else,
                 //    i. Append ee to indirectExportEntries.
@@ -385,7 +419,7 @@ impl SourceTextModule {
         /// [finish]: https://tc39.es/ecma262/#sec-FinishLoadingImportedModule
         /// [continue]: https://tc39.es/ecma262/#sec-ContinueModuleLoading
         async fn finish_loading_imported_module(
-            specifier: JsString,
+            request: super::ModuleRequest,
             src: Module,
             state: Rc<GraphLoadingState>,
             context: &RefCell<&mut Context>,
@@ -393,7 +427,7 @@ impl SourceTextModule {
             let loader = context.borrow().module_loader();
             let fut = loader.load_imported_module(
                 Referrer::Module(src.clone()),
-                specifier.clone(),
+                request.clone(),
                 context,
             );
             let mut stack = [MaybeUninit::<u8>::uninit(); 16];
@@ -412,9 +446,7 @@ impl SourceTextModule {
                 // b. Else,
                 //    i. Append the Record { [[Specifier]]: specifier, [[Module]]: result.[[Value]] } to referrer.[[LoadedModules]].
                 let mut loaded_modules = src.loaded_modules.borrow_mut();
-                let entry = loaded_modules
-                    .entry(specifier)
-                    .or_insert_with(|| loaded.clone());
+                let entry = loaded_modules.entry(request).or_insert_with(|| loaded.clone());
 
                 //    i. Assert: That Record's [[Module]] is result.[[Value]].
                 assert_eq!(entry, loaded);
@@ -482,12 +514,12 @@ impl SourceTextModule {
                     //       1. Perform HostLoadImportedModule(module, required, state.[[HostDefined]], state).
                     //       2. NOTE: HostLoadImportedModule will call FinishLoadingImportedModule, which re-enters
                     //          the graph loading process through ContinueModuleLoading.
-                    let name_specifier = required.clone();
+                    let module_request = required.clone();
                     let src = module_self.clone();
                     let state = state.clone();
                     let async_job = NativeAsyncJob::with_realm(
                         async move |context| {
-                            finish_loading_imported_module(name_specifier, src, state, context)
+                            finish_loading_imported_module(module_request, src, state, context)
                                 .await;
                             Ok(JsValue::undefined())
                         },
@@ -608,7 +640,7 @@ impl SourceTextModule {
             // a. If SameValue(exportName, e.[[ExportName]]) is true, then
             if export_name == &e.export_name().to_js_string(interner) {
                 // i. Let importedModule be GetImportedModule(module, e.[[ModuleRequest]]).
-                let module_request = e.module_request().to_js_string(interner);
+                let module_request = super::ModuleRequest::from_ast(e.module_request(), interner);
                 let imported_module = self.loaded_modules.borrow()[&module_request].clone();
                 return match e.import_name() {
                     // ii. If e.[[ImportName]] is all, then
@@ -1113,10 +1145,27 @@ impl SourceTextModule {
         // 10. Append module to stack.
         stack.push(module_self.clone());
 
-        // 11. For each String required of module.[[RequestedModules]], do
-        for required in &self.code.requested_modules {
-            // a. Let requiredModule be GetImportedModule(module, required).
-            let required_module = self.loaded_modules.borrow()[required].clone();
+        let mut evaluation_list = Vec::new();
+        {
+            let loaded_modules = self.loaded_modules.borrow();
+            for required in &self.code.requested_modules {
+                let required_module = loaded_modules[required].clone();
+                if required.phase() == super::ModuleRequestPhase::Defer {
+                    if let ModuleKind::SourceText(required_src) = required_module.kind() {
+                        required_src.gather_async_transitive_dependencies(
+                            &required_module,
+                            &mut HashSet::default(),
+                            &mut evaluation_list,
+                        );
+                    }
+                } else if !evaluation_list.contains(&required_module) {
+                    evaluation_list.push(required_module);
+                }
+            }
+        }
+
+        // 11. For each Module Record requiredModule of evaluationList, do
+        for required_module in evaluation_list {
             // b. Set index to ? InnerModuleEvaluation(requiredModule, stack, index).
             index = required_module.inner_evaluate(stack, index, context)?;
 
@@ -1443,6 +1492,7 @@ impl SourceTextModule {
             Namespace {
                 locator: BindingLocator,
                 module: Module,
+                phase: super::ModuleRequestPhase,
             },
             Single {
                 locator: BindingLocator,
@@ -1512,7 +1562,8 @@ impl SourceTextModule {
             // 7. For each ImportEntry Record in of module.[[ImportEntries]], do
             for entry in &self.code.import_entries {
                 // a. Let importedModule be GetImportedModule(module, in.[[ModuleRequest]]).
-                let module_request = entry.module_request().to_js_string(compiler.interner());
+                let module_request =
+                    super::ModuleRequest::from_ast(entry.module_request(), compiler.interner());
                 let imported_module = self.loaded_modules.borrow()[&module_request].clone();
 
                 if let ImportName::Name(name) = entry.import_name() {
@@ -1553,6 +1604,7 @@ impl SourceTextModule {
                         imports.push(ImportBinding::Namespace {
                             locator,
                             module: resolution.module,
+                            phase: module_request.phase(),
                         });
                     }
                 } else {
@@ -1567,6 +1619,7 @@ impl SourceTextModule {
                     imports.push(ImportBinding::Namespace {
                         locator,
                         module: imported_module.clone(),
+                        phase: module_request.phase(),
                     });
                 }
             }
@@ -1694,9 +1747,16 @@ impl SourceTextModule {
         // deferred initialization of import bindings
         for import in imports {
             match import {
-                ImportBinding::Namespace { locator, module } => {
+                ImportBinding::Namespace {
+                    locator,
+                    module,
+                    phase,
+                } => {
                     // i. Let namespace be GetModuleNamespace(importedModule).
-                    let namespace = module.namespace(context);
+                    let namespace = match phase {
+                        super::ModuleRequestPhase::Evaluation => module.namespace(context),
+                        super::ModuleRequestPhase::Defer => module.deferred_namespace(context),
+                    };
                     context.vm.environments.put_lexical_value(
                         locator.scope(),
                         locator.binding_index(),
@@ -1845,8 +1905,18 @@ impl SourceTextModule {
     }
 
     /// Gets the loaded modules of this module.
-    pub(crate) fn loaded_modules(&self) -> &GcRefCell<FxHashMap<JsString, Module>> {
+    pub(crate) fn loaded_modules(&self) -> &GcRefCell<FxHashMap<super::ModuleRequest, Module>> {
         &self.loaded_modules
+    }
+
+    pub(crate) const fn requested_modules(
+        &self,
+    ) -> &IndexSet<super::ModuleRequest, BuildHasherDefault<FxHasher>> {
+        &self.code.requested_modules
+    }
+
+    pub(crate) const fn has_tla(&self) -> bool {
+        self.code.has_tla
     }
 
     /// Gets the import meta object of this module, or initializes

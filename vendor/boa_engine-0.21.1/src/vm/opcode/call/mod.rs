@@ -1,6 +1,5 @@
 use std::{cell::RefCell, mem::MaybeUninit, ops::ControlFlow};
 
-use boa_string::JsString;
 use dynify::Dynify;
 
 use super::VaryingOperand;
@@ -509,12 +508,12 @@ impl Operation for TailCallSpread {
 /// [continue]: https://tc39.es/ecma262/#sec-ContinueDynamicImport
 async fn load_dyn_import(
     referrer: Referrer,
-    specifier: JsString,
+    request: crate::module::ModuleRequest,
     cap: PromiseCapability,
     context: &RefCell<&mut Context>,
 ) {
     let loader = context.borrow().module_loader();
-    let fut = loader.load_imported_module(referrer.clone(), specifier.clone(), context);
+    let fut = loader.load_imported_module(referrer.clone(), request.clone(), context);
     let mut stack = [MaybeUninit::<u8>::uninit(); 16];
     let mut heap = Vec::<MaybeUninit<u8>>::new();
     let completion = fut.init2(&mut stack, &mut heap).await;
@@ -553,7 +552,7 @@ async fn load_dyn_import(
             //     b. Else,
             //         i. Append the Record { [[Specifier]]: specifier, [[Module]]: result.[[Value]] } to referrer.[[LoadedModules]].
             let entry = loaded_modules
-                .entry(specifier)
+                .entry(request.clone())
                 .or_insert_with(|| module.clone());
 
             //         i. Assert: That Record's [[Module]] is result.[[Value]].
@@ -564,14 +563,14 @@ async fn load_dyn_import(
         Referrer::Realm(realm) => {
             let mut loaded_modules = realm.loaded_modules().borrow_mut();
             let entry = loaded_modules
-                .entry(specifier)
+                .entry(request.specifier())
                 .or_insert_with(|| module.clone());
             debug_assert_eq!(&module, entry);
         }
         Referrer::Script(script) => {
             let mut loaded_modules = script.loaded_modules().borrow_mut();
             let entry = loaded_modules
-                .entry(specifier)
+                .entry(request.specifier())
                 .or_insert_with(|| module.clone());
             debug_assert_eq!(&module, entry);
         }
@@ -605,7 +604,7 @@ async fn load_dyn_import(
     let link_evaluate = FunctionObjectBuilder::new(
         context.borrow().realm(),
         NativeFunction::from_copy_closure_with_captures(
-            |_, _, (module, cap, on_rejected), context| {
+            |_, _, (module, cap, on_rejected, request), context| {
                 // a. Let link be Completion(module.Link()).
                 // b. If link is an abrupt completion, then
                 if let Err(e) = module.link(context) {
@@ -619,7 +618,11 @@ async fn load_dyn_import(
                 }
 
                 // c. Let evaluatePromise be module.Evaluate().
-                let evaluate = module.evaluate(context);
+                let evaluate = if request.phase() == crate::module::ModuleRequestPhase::Defer {
+                    None
+                } else {
+                    Some(module.evaluate(context))
+                };
 
                 // d. Let fulfilledClosure be a new Abstract Closure with no parameters that captures module and promiseCapability and performs the following steps when called:
                 // e. Let onFulfilled be CreateBuiltinFunction(fulfilledClosure, 0, "", « »).
@@ -642,20 +645,29 @@ async fn load_dyn_import(
                     ),
                 )
                 .build();
-
-                // f. Perform PerformPromiseThen(evaluatePromise, onFulfilled, onRejected).
-                Promise::perform_promise_then(
-                    &evaluate,
-                    Some(fulfill),
-                    Some(on_rejected.clone()),
-                    None,
-                    context,
-                );
+                if let Some(evaluate) = evaluate {
+                    // f. Perform PerformPromiseThen(evaluatePromise, onFulfilled, onRejected).
+                    Promise::perform_promise_then(
+                        &evaluate,
+                        Some(fulfill),
+                        Some(on_rejected.clone()),
+                        None,
+                        context,
+                    );
+                } else {
+                    cap.resolve()
+                        .call(
+                            &JsValue::undefined(),
+                            &[module.deferred_namespace(context).into()],
+                            context,
+                        )
+                        .expect("default `resolve` function cannot throw");
+                }
 
                 // g. Return unused.
                 Ok(JsValue::undefined())
             },
-            (module.clone(), cap.clone(), on_rejected.clone()),
+            (module.clone(), cap.clone(), on_rejected.clone(), request.clone()),
         ),
     )
     .build();
@@ -713,9 +725,10 @@ impl ImportCall {
             }
             // 8. Perform HostLoadImportedModule(referrer, specifierString, empty, promiseCapability).
             Ok(specifier) => {
+                let request = crate::module::ModuleRequest::new(specifier);
                 let job = NativeAsyncJob::with_realm(
                     async move |context| {
-                        load_dyn_import(referrer, specifier, cap, context).await;
+                        load_dyn_import(referrer, request, cap, context).await;
                         Ok(JsValue::undefined())
                     },
                     context.realm().clone(),

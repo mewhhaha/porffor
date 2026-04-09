@@ -372,10 +372,11 @@ enum Access<'a> {
 }
 
 impl Access<'_> {
-    const fn from_assign_target(target: &AssignTarget) -> Result<Access<'_>, &Pattern> {
+    fn from_assign_target(target: &AssignTarget) -> Result<Access<'_>, &Pattern> {
         match target {
             AssignTarget::Identifier(ident) => Ok(Access::Variable { name: *ident }),
             AssignTarget::Access(access) => Ok(Access::Property { access }),
+            AssignTarget::WebCompatCall(_) => unreachable!("handled before access lowering"),
             AssignTarget::Pattern(pat) => Err(pat),
         }
     }
@@ -390,10 +391,11 @@ impl Access<'_> {
         }
     }
 
-    const fn from_update_target(target: &UpdateTarget) -> Access<'_> {
+    fn from_update_target(target: &UpdateTarget) -> Access<'_> {
         match target {
             UpdateTarget::Identifier(name) => Access::Variable { name: *name },
             UpdateTarget::PropertyAccess(access) => Access::Property { access },
+            UpdateTarget::WebCompatCall(_) => unreachable!("handled before access lowering"),
         }
     }
 }
@@ -426,6 +428,15 @@ impl<'a, 'b> SourcePositionGuard<'a, 'b> {
     fn new(compiler: &'a mut ByteCompiler<'b>, position: Position) -> Self {
         compiler.push_source_position(position);
         Self { compiler }
+    }
+}
+
+impl ByteCompiler<'_> {
+    pub(crate) fn emit_invalid_lhs_reference_error(&mut self) {
+        let message = self.get_or_insert_literal(Literal::String(js_string!(
+            "Invalid left-hand side in assignment"
+        )));
+        self.bytecode.emit_throw_new_reference_error(message.into());
     }
 }
 impl Drop for SourcePositionGuard<'_, '_> {

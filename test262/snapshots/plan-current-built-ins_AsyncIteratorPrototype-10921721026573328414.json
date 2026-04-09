@@ -1,0 +1,132 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "9bcf6f79683e57c1f61966926ef86b89bcdddbc3"
+  },
+  "manifest_hash": 10921721026573328414,
+  "run_kind": "matrix-filter-leaf",
+  "total": 13,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 5,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/prop-desc.js",
+      "duration_ms": 171
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+      "duration_ms": 160
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/length.js",
+      "duration_ms": 121
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+      "duration_ms": 120
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/name.js",
+      "duration_ms": 120
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+      "duration_ms": 117
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+      "duration_ms": 117
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "duration_ms": 116
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "duration_ms": 113
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "duration_ms": 113
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+      "kind": "Runtime",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262Error {\n    message: \"Expected SameValue(«\\\"undefined\\\"», «\\\"function\\\"») to be true\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 7621522044990473362
+    },
+    {
+      "test_path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] TypeError: cannot convert 'null' or 'undefined' to object",
+      "detail_hash": 16929385324020638674
+    },
+    {
+      "test_path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] TypeError: cannot convert 'null' or 'undefined' to object",
+      "detail_hash": 16929385324020638674
+    },
+    {
+      "test_path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+      "kind": "Runtime",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262Error {\n    message: \"obj should have an own property Symbol(Symbol.asyncDispose)\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 2372501617413178267
+    },
+    {
+      "test_path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] TypeError: not a callable function",
+      "detail_hash": 8520774207922484541
+    }
+  ],
+  "completed_paths": [
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/length.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/name.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/prop-desc.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/return-val.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AsyncIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

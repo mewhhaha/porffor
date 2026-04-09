@@ -306,7 +306,8 @@ impl From<RegExpFlags> for Flags {
             icase: value.contains(RegExpFlags::IGNORE_CASE),
             multiline: value.contains(RegExpFlags::MULTILINE),
             dot_all: value.contains(RegExpFlags::DOT_ALL),
-            unicode: value.contains(RegExpFlags::UNICODE),
+            unicode: value.contains(RegExpFlags::UNICODE)
+                || value.contains(RegExpFlags::UNICODE_SETS),
             unicode_sets: value.contains(RegExpFlags::UNICODE_SETS),
             ..Self::default()
         }

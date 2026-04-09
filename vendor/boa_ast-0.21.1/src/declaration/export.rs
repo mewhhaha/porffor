@@ -9,7 +9,7 @@
 //! [spec]: https://tc39.es/ecma262/#sec-exports
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/export
 
-use super::{ModuleSpecifier, VarDeclaration};
+use super::{ModuleRequest, ModuleSpecifier, VarDeclaration};
 use crate::{
     Declaration, Expression,
     function::{
@@ -253,14 +253,14 @@ pub enum ReExportImportName {
 /// [`ExportEntry`][spec] record.
 ///
 /// [spec]: https://tc39.es/ecma262/#table-exportentry-records
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ExportEntry {
     /// An ordinary export entry
     Ordinary(LocalExportEntry),
     /// A star reexport entry.
     StarReExport {
         /// The module from where this reexport will import.
-        module_request: Sym,
+        module_request: ModuleRequest,
     },
     /// A reexport entry with an export name.
     ReExport(IndirectExportEntry),
@@ -309,9 +309,9 @@ impl LocalExportEntry {
 }
 
 /// A reexported export entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct IndirectExportEntry {
-    module_request: Sym,
+    module_request: ModuleRequest,
     import_name: ReExportImportName,
     export_name: Sym,
 }
@@ -320,7 +320,7 @@ impl IndirectExportEntry {
     /// Creates a new `IndirectExportEntry`.
     #[must_use]
     pub const fn new(
-        module_request: Sym,
+        module_request: ModuleRequest,
         import_name: ReExportImportName,
         export_name: Sym,
     ) -> Self {
@@ -333,8 +333,8 @@ impl IndirectExportEntry {
 
     /// Gets the module from where this entry reexports.
     #[must_use]
-    pub const fn module_request(&self) -> Sym {
-        self.module_request
+    pub const fn module_request(&self) -> &ModuleRequest {
+        &self.module_request
     }
 
     /// Gets the import name of the reexport.

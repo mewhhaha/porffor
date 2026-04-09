@@ -83,6 +83,13 @@ where
             Self::SharedBuffer(buf) => buf.is_fixed_len(),
         }
     }
+
+    pub(crate) fn is_immutable(&self) -> bool {
+        match self {
+            Self::Buffer(buf) => buf.is_immutable(),
+            Self::SharedBuffer(_) => false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -209,14 +216,26 @@ pub struct ArrayBuffer {
 
     /// The `[[ArrayBufferDetachKey]]` internal slot.
     detach_key: JsValue,
+
+    /// The `[[ArrayBufferIsImmutable]]` internal slot.
+    is_immutable: bool,
 }
 
 impl ArrayBuffer {
     pub(crate) fn from_data(data: AlignedVec<u8>, detach_key: JsValue) -> Self {
+        Self::from_data_with_immutable(data, detach_key, false)
+    }
+
+    pub(crate) fn from_data_with_immutable(
+        data: AlignedVec<u8>,
+        detach_key: JsValue,
+        is_immutable: bool,
+    ) -> Self {
         Self {
             data: Some(data),
             max_byte_len: None,
             detach_key,
+            is_immutable,
         }
     }
 
@@ -269,6 +288,12 @@ impl ArrayBuffer {
 
     /// Resizes the buffer to the new size, clamped to the maximum byte length if present.
     pub fn resize(&mut self, new_byte_length: u64) -> JsResult<()> {
+        if self.is_immutable {
+            return Err(JsNativeError::typ()
+                .with_message("ArrayBuffer.resize: cannot resize an immutable buffer")
+                .into());
+        }
+
         let Some(max_byte_len) = self.max_byte_len else {
             return Err(JsNativeError::typ()
                 .with_message("ArrayBuffer.resize: cannot resize a fixed-length buffer")
@@ -324,6 +349,14 @@ impl ArrayBuffer {
     pub(crate) fn is_fixed_len(&self) -> bool {
         self.max_byte_len.is_none()
     }
+
+    pub(crate) const fn is_immutable(&self) -> bool {
+        self.is_immutable
+    }
+
+    pub(crate) fn set_immutable(&mut self, is_immutable: bool) {
+        self.is_immutable = is_immutable;
+    }
 }
 
 impl IntrinsicObject for ArrayBuffer {
@@ -349,6 +382,11 @@ impl IntrinsicObject for ArrayBuffer {
         #[cfg(feature = "experimental")]
         let get_detached = BuiltInBuilder::callable(realm, Self::get_detached)
             .name(js_string!("get detached"))
+            .build();
+
+        #[cfg(feature = "experimental")]
+        let get_immutable = BuiltInBuilder::callable(realm, Self::get_immutable)
+            .name(js_string!("get immutable"))
             .build();
 
         let builder = BuiltInBuilder::from_standard_constructor::<Self>(realm)
@@ -388,16 +426,32 @@ impl IntrinsicObject for ArrayBuffer {
         #[cfg(feature = "experimental")]
         let builder = builder
             .accessor(
+                js_string!("immutable"),
+                Some(get_immutable),
+                None,
+                flag_attributes,
+            )
+            .accessor(
                 js_string!("detached"),
                 Some(get_detached),
                 None,
                 flag_attributes,
             )
-            .method(Self::transfer::<false>, js_string!("transfer"), 0)
+            .method(Self::transfer::<false, false>, js_string!("transfer"), 0)
             .method(
-                Self::transfer::<true>,
+                Self::transfer::<true, false>,
                 js_string!("transferToFixedLength"),
                 0,
+            )
+            .method(
+                Self::transfer::<true, true>,
+                js_string!("transferToImmutable"),
+                0,
+            )
+            .method(
+                Self::slice_to_immutable,
+                js_string!("sliceToImmutable"),
+                2,
             );
 
         builder.build();
@@ -413,7 +467,7 @@ impl BuiltInObject for ArrayBuffer {
 }
 
 impl BuiltInConstructor for ArrayBuffer {
-    const PROTOTYPE_STORAGE_SLOTS: usize = 13;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 17;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 3;
     const CONSTRUCTOR_ARGUMENTS: usize = 1;
 
@@ -594,6 +648,27 @@ impl ArrayBuffer {
         Ok(buf.is_detached().into())
     }
 
+    /// [`get ArrayBuffer.prototype.immutable`][spec].
+    ///
+    /// [spec]: https://tc39.es/proposal-arraybuffer-base64/spec/#sec-get-arraybuffer.prototype.immutable
+    #[cfg(feature = "experimental")]
+    fn get_immutable(
+        this: &JsValue,
+        _args: &[JsValue],
+        _context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let object = this.as_object();
+        let buf = object
+            .as_ref()
+            .and_then(JsObject::downcast_ref::<Self>)
+            .ok_or_else(|| {
+                JsNativeError::typ()
+                    .with_message("get ArrayBuffer.prototype.immutable called with invalid `this`")
+            })?;
+
+        Ok(buf.is_immutable().into())
+    }
+
     /// [`ArrayBuffer.prototype.resize ( newLength )`][spec].
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-arraybuffer.prototype.resize
@@ -612,6 +687,12 @@ impl ArrayBuffer {
                 JsNativeError::typ()
                     .with_message("ArrayBuffer.prototype.resize called with invalid `this`")
             })?;
+
+        if buf.borrow().data().is_immutable() {
+            return Err(JsNativeError::typ()
+                .with_message("cannot resize an immutable ArrayBuffer")
+                .into());
+        }
 
         // 4. Let newByteLength be ? ToIndex(newLength).
         let new_byte_length = args.get_or_undefined(0).to_index(context)?;
@@ -646,6 +727,24 @@ impl ArrayBuffer {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-arraybuffer.prototype.slice
     fn slice(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+        Self::slice_impl(this, args, context, false)
+    }
+
+    #[cfg(feature = "experimental")]
+    fn slice_to_immutable(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        Self::slice_impl(this, args, context, true)
+    }
+
+    fn slice_impl(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+        to_immutable: bool,
+    ) -> JsResult<JsValue> {
         // 1. Let O be the this value.
         // 2. Perform ? RequireInternalSlot(O, [[ArrayBufferData]]).
         // 3. If IsSharedArrayBuffer(O) is true, throw a TypeError exception.
@@ -684,21 +783,41 @@ impl ArrayBuffer {
         // 14. Let newLen be max(final - first, 0).
         let new_len = final_.saturating_sub(first);
 
-        // 15. Let ctor be ? SpeciesConstructor(O, %ArrayBuffer%).
-        let ctor = buf
-            .clone()
-            .upcast()
-            .species_constructor(StandardConstructors::array_buffer, context)?;
+        let new = if to_immutable {
+            let constructor = context
+                .intrinsics()
+                .constructors()
+                .array_buffer()
+                .constructor()
+                .clone();
+            let new = Self::allocate(&constructor.into(), new_len, None, context)?;
+            new.borrow_mut().data_mut().set_immutable(true);
+            new
+        } else {
+            // 15. Let ctor be ? SpeciesConstructor(O, %ArrayBuffer%).
+            let ctor = buf
+                .clone()
+                .upcast()
+                .species_constructor(StandardConstructors::array_buffer, context)?;
 
-        // 16. Let new be ? Construct(ctor, « 𝔽(newLen) »).
-        let new = ctor.construct(&[new_len.into()], Some(&ctor), context)?;
+            // 16. Let new be ? Construct(ctor, « 𝔽(newLen) »).
+            let new = ctor.construct(&[new_len.into()], Some(&ctor), context)?;
 
-        // 17. Perform ? RequireInternalSlot(new, [[ArrayBufferData]]).
-        // 18. If IsSharedArrayBuffer(new) is true, throw a TypeError exception.
-        let Ok(new) = new.downcast::<Self>() else {
-            return Err(JsNativeError::typ()
-                .with_message("ArrayBuffer constructor returned invalid object")
-                .into());
+            // 17. Perform ? RequireInternalSlot(new, [[ArrayBufferData]]).
+            // 18. If IsSharedArrayBuffer(new) is true, throw a TypeError exception.
+            let Ok(new) = new.downcast::<Self>() else {
+                return Err(JsNativeError::typ()
+                    .with_message("ArrayBuffer constructor returned invalid object")
+                    .into());
+            };
+
+            if new.borrow().data().is_immutable() {
+                return Err(JsNativeError::typ()
+                    .with_message("ArrayBuffer.slice cannot write into an immutable ArrayBuffer")
+                    .into());
+            }
+
+            new
         };
 
         // 20. If SameValue(new, O) is true, throw a TypeError exception.
@@ -751,7 +870,7 @@ impl ArrayBuffer {
     /// [transfer]: https://tc39.es/proposal-arraybuffer-transfer/#sec-arraybuffer.prototype.transfer
     /// [transferFL]: https://tc39.es/proposal-arraybuffer-transfer/#sec-arraybuffer.prototype.transfertofixedlength
     #[cfg(feature = "experimental")]
-    fn transfer<const TO_FIXED_LENGTH: bool>(
+    fn transfer<const TO_FIXED_LENGTH: bool, const TO_IMMUTABLE: bool>(
         this: &JsValue,
         args: &[JsValue],
         context: &mut Context,
@@ -787,6 +906,12 @@ impl ArrayBuffer {
             new_length.to_index(context)?
         };
 
+        if buf.borrow().data().is_immutable() {
+            return Err(JsNativeError::typ()
+                .with_message("cannot transfer an immutable ArrayBuffer")
+                .into());
+        }
+
         // 5. If IsDetachedBuffer(arrayBuffer) is true, throw a TypeError exception.
         let Some(mut bytes) = buf.borrow_mut().data_mut().data.take() else {
             return Err(JsNativeError::typ()
@@ -803,7 +928,7 @@ impl ArrayBuffer {
             .borrow()
             .data()
             .max_byte_len
-            .filter(|_| !TO_FIXED_LENGTH);
+            .filter(|_| !TO_FIXED_LENGTH && !TO_IMMUTABLE);
 
         // 8. If arrayBuffer.[[ArrayBufferDetachKey]] is not undefined, throw a TypeError exception.
         if !buf.borrow().data().detach_key.is_undefined() {
@@ -854,6 +979,7 @@ impl ArrayBuffer {
                 data: Some(bytes),
                 max_byte_len: new_max_len,
                 detach_key: JsValue::undefined(),
+                is_immutable: TO_IMMUTABLE,
             },
         )
         .into())
@@ -909,6 +1035,7 @@ impl ArrayBuffer {
                 //    c. Set obj.[[ArrayBufferMaxByteLength]] to maxByteLength.
                 max_byte_len,
                 detach_key: JsValue::undefined(),
+                is_immutable: false,
             },
         );
 

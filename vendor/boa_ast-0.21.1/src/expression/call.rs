@@ -4,6 +4,7 @@ use boa_interner::{Interner, ToInternedString};
 use core::ops::ControlFlow;
 
 use super::Expression;
+use crate::declaration::ImportPhase;
 
 /// Calling the function actually performs the specified actions with the indicated parameters.
 ///
@@ -197,6 +198,7 @@ impl VisitWith for SuperCall {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImportCall {
     arg: Box<Expression>,
+    phase: ImportPhase,
     span: Span,
 }
 
@@ -206,8 +208,17 @@ impl ImportCall {
     where
         A: Into<Expression>,
     {
+        Self::new_with_phase(arg, ImportPhase::Evaluation, span)
+    }
+
+    /// Creates a new `ImportCall` AST node with an explicit phase.
+    pub fn new_with_phase<A>(arg: A, phase: ImportPhase, span: Span) -> Self
+    where
+        A: Into<Expression>,
+    {
         Self {
             arg: Box::new(arg.into()),
+            phase,
             span,
         }
     }
@@ -216,6 +227,12 @@ impl ImportCall {
     #[must_use]
     pub const fn argument(&self) -> &Expression {
         &self.arg
+    }
+
+    /// Retrieves the phase of the import call.
+    #[must_use]
+    pub const fn phase(&self) -> ImportPhase {
+        self.phase
     }
 }
 
@@ -229,7 +246,12 @@ impl Spanned for ImportCall {
 impl ToInternedString for ImportCall {
     #[inline]
     fn to_interned_string(&self, interner: &Interner) -> String {
-        format!("import({})", self.arg.to_interned_string(interner))
+        match self.phase {
+            ImportPhase::Evaluation => format!("import({})", self.arg.to_interned_string(interner)),
+            ImportPhase::Defer => {
+                format!("import.defer({})", self.arg.to_interned_string(interner))
+            }
+        }
     }
 }
 

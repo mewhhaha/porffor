@@ -147,6 +147,12 @@ fn flat() {
                     ['a', 'b', 'c', 'd']
                 )
             "#}),
+        TestAction::assert(indoc! {r#"
+                arrayEquals(
+                    [1, [2]].flat(undefined),
+                    [1, 2]
+                )
+            "#}),
         TestAction::assert("arrayEquals( [[[[[['a']]]]]].flat(Infinity), ['a'] )"),
     ]);
 }

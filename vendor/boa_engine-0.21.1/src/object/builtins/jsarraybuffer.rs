@@ -101,6 +101,22 @@ impl JsArrayBuffer {
     /// # }
     /// ```
     pub fn from_byte_block(byte_block: AlignedVec<u8>, context: &mut Context) -> JsResult<Self> {
+        Self::from_byte_block_with_immutable(byte_block, false, context)
+    }
+
+    /// Create a new immutable array buffer from byte block.
+    pub fn from_byte_block_immutable(
+        byte_block: AlignedVec<u8>,
+        context: &mut Context,
+    ) -> JsResult<Self> {
+        Self::from_byte_block_with_immutable(byte_block, true, context)
+    }
+
+    fn from_byte_block_with_immutable(
+        byte_block: AlignedVec<u8>,
+        is_immutable: bool,
+        context: &mut Context,
+    ) -> JsResult<Self> {
         let constructor = context
             .intrinsics()
             .constructors()
@@ -120,14 +136,15 @@ impl JsArrayBuffer {
         // NOTE: We skip step 2. because we already have the block
         // that is passed to us as a function argument.
         let block = byte_block;
+        let data = if is_immutable {
+            ArrayBuffer::from_data_with_immutable(block, JsValue::undefined(), true)
+        } else {
+            ArrayBuffer::from_data(block, JsValue::undefined())
+        };
 
         // 3. Set obj.[[ArrayBufferData]] to block.
         // 4. Set obj.[[ArrayBufferByteLength]] to byteLength.
-        let obj = JsObject::new(
-            context.root_shape(),
-            prototype,
-            ArrayBuffer::from_data(block, JsValue::undefined()),
-        );
+        let obj = JsObject::new(context.root_shape(), prototype, data);
 
         Ok(Self { inner: obj })
     }
@@ -183,6 +200,13 @@ impl JsArrayBuffer {
     #[must_use]
     pub fn byte_length(&self) -> usize {
         self.inner.borrow().data().len()
+    }
+
+    /// Returns `true` if this array buffer is immutable.
+    #[inline]
+    #[must_use]
+    pub fn is_immutable(&self) -> bool {
+        self.inner.borrow().data().is_immutable()
     }
 
     /// Take the inner `ArrayBuffer`'s `array_buffer_data` field and replace it with `None`

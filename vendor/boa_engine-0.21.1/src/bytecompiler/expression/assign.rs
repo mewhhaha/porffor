@@ -6,7 +6,10 @@ use boa_ast::{
     Expression,
     expression::{
         access::{PropertyAccess, PropertyAccessField},
-        operator::{Assign, assign::AssignOp},
+        operator::{
+            Assign,
+            assign::{AssignOp, AssignTarget},
+        },
     },
     scope::BindingLocatorError,
 };
@@ -14,6 +17,12 @@ use boa_ast::{
 impl ByteCompiler<'_> {
     pub(crate) fn compile_assign(&mut self, assign: &Assign, dst: &Register) {
         let mut compiler = self.position_guard(assign);
+
+        if let AssignTarget::WebCompatCall(call) = assign.lhs() {
+            compiler.compile_expr(&Expression::Call((**call).clone()), dst);
+            compiler.emit_invalid_lhs_reference_error();
+            return;
+        }
 
         if assign.op() == AssignOp::Assign {
             match Access::from_assign_target(assign.lhs()) {

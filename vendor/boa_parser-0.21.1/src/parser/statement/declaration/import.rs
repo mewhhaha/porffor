@@ -10,7 +10,7 @@
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import
 
 use crate::{
-    lexer::TokenKind,
+    lexer::{TokenKind, token::ContainsEscapeSequence},
     parser::{
         Error, OrAbrupt, ParseResult, TokenParser,
         cursor::Cursor,
@@ -21,7 +21,8 @@ use crate::{
 use boa_ast::{
     Keyword, Punctuator, Spanned,
     declaration::{
-        ImportDeclaration as AstImportDeclaration, ImportKind,
+        ImportAttribute as AstImportAttribute, ImportDeclaration as AstImportDeclaration,
+        ImportKind, ImportPhase, ModuleRequest as AstModuleRequest,
         ImportSpecifier as AstImportSpecifier, ModuleSpecifier,
     },
     expression::Identifier,
@@ -76,6 +77,7 @@ where
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         cursor.expect((Keyword::Import, false), "import declaration", interner)?;
+        let defer_sym = interner.get_or_intern("defer");
 
         let tok = cursor.peek(0, interner).or_abrupt()?;
 
@@ -84,21 +86,76 @@ where
                 let module_identifier = *module_identifier;
 
                 cursor.advance(interner);
+                let request =
+                    parse_import_request(cursor, interner, ModuleSpecifier::new(module_identifier), ImportPhase::Evaluation)?;
                 cursor.expect_semicolon("import declaration", interner)?;
 
                 return Ok(AstImportDeclaration::new(
                     None,
                     ImportKind::DefaultOrUnnamed,
-                    ModuleSpecifier::new(module_identifier),
+                    request,
                 ));
+            }
+            TokenKind::IdentifierName((name, ContainsEscapeSequence(false))) if *name == defer_sym => {
+                if let Some(next) = cursor.peek(1, interner)?
+                    && next.kind() == &TokenKind::Punctuator(Punctuator::Mul)
+                {
+                    cursor.advance(interner);
+                    let alias = NameSpaceImport.parse(cursor, interner)?;
+                    ImportClause::Namespace(None, alias, ImportPhase::Defer)
+                } else {
+                    let imported_binding = ImportedBinding.parse(cursor, interner)?;
+                    let tok = cursor.peek(0, interner).or_abrupt()?;
+                    match tok.kind() {
+                        TokenKind::Punctuator(Punctuator::Comma) => {
+                            cursor.advance(interner);
+                            let tok = cursor.peek(0, interner).or_abrupt()?;
+
+                            match tok.kind() {
+                                TokenKind::Punctuator(Punctuator::OpenBlock) => {
+                                    let list = NamedImports.parse(cursor, interner)?;
+                                    ImportClause::ImportList(
+                                        Some(imported_binding),
+                                        list,
+                                        ImportPhase::Evaluation,
+                                    )
+                                }
+                                TokenKind::Punctuator(Punctuator::Mul) => {
+                                    let alias = NameSpaceImport.parse(cursor, interner)?;
+                                    ImportClause::Namespace(
+                                        Some(imported_binding),
+                                        alias,
+                                        ImportPhase::Evaluation,
+                                    )
+                                }
+                                _ => {
+                                    return Err(Error::expected(
+                                        [
+                                            Punctuator::OpenBlock.to_string(),
+                                            Punctuator::Mul.to_string(),
+                                        ],
+                                        tok.to_string(interner),
+                                        tok.span(),
+                                        "import declaration",
+                                    ));
+                                }
+                            }
+                        }
+                        _ => ImportClause::ImportList(
+                            Some(imported_binding),
+                            Box::default(),
+                            ImportPhase::Evaluation,
+                        ),
+                    }
+                }
             }
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 let list = NamedImports.parse(cursor, interner)?;
-                ImportClause::ImportList(None, list)
+                ImportClause::ImportList(None, list, ImportPhase::Evaluation)
             }
             TokenKind::Punctuator(Punctuator::Mul) => {
                 let alias = NameSpaceImport.parse(cursor, interner)?;
-                ImportClause::Namespace(None, alias)
+                ImportClause::Namespace(None, alias, ImportPhase::Evaluation)
             }
             TokenKind::IdentifierName(_)
             | TokenKind::Keyword((Keyword::Await | Keyword::Yield, _)) => {
@@ -114,11 +171,19 @@ where
                         match tok.kind() {
                             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                                 let list = NamedImports.parse(cursor, interner)?;
-                                ImportClause::ImportList(Some(imported_binding), list)
+                                ImportClause::ImportList(
+                                    Some(imported_binding),
+                                    list,
+                                    ImportPhase::Evaluation,
+                                )
                             }
                             TokenKind::Punctuator(Punctuator::Mul) => {
                                 let alias = NameSpaceImport.parse(cursor, interner)?;
-                                ImportClause::Namespace(Some(imported_binding), alias)
+                                ImportClause::Namespace(
+                                    Some(imported_binding),
+                                    alias,
+                                    ImportPhase::Evaluation,
+                                )
                             }
                             _ => {
                                 return Err(Error::expected(
@@ -133,7 +198,11 @@ where
                             }
                         }
                     }
-                    _ => ImportClause::ImportList(Some(imported_binding), Box::default()),
+                    _ => ImportClause::ImportList(
+                        Some(imported_binding),
+                        Box::default(),
+                        ImportPhase::Evaluation,
+                    ),
                 }
             }
             _ => {
@@ -152,9 +221,114 @@ where
         };
 
         let module_identifier = FromClause::new("import declaration").parse(cursor, interner)?;
+        let request = parse_import_request(
+            cursor,
+            interner,
+            module_identifier,
+            import_clause.phase(),
+        )?;
 
-        Ok(import_clause.with_specifier(module_identifier))
+        Ok(import_clause.with_request(request))
     }
+}
+
+fn parse_import_request<R: ReadChar>(
+    cursor: &mut Cursor<R>,
+    interner: &mut Interner,
+    specifier: ModuleSpecifier,
+    phase: ImportPhase,
+) -> ParseResult<AstModuleRequest> {
+    let mut attributes = Vec::new();
+
+    if let Some(token) = cursor.peek(0, interner)?
+        && matches!(
+            token.kind(),
+            TokenKind::IdentifierName((Sym::WITH, ContainsEscapeSequence(false)))
+                | TokenKind::Keyword((Keyword::With, false))
+        )
+    {
+        cursor.advance(interner);
+        cursor.expect(Punctuator::OpenBlock, "import attributes", interner)?;
+
+        loop {
+            let token = cursor.peek(0, interner).or_abrupt()?;
+            match token.kind() {
+                TokenKind::Punctuator(Punctuator::CloseBlock) => {
+                    cursor.advance(interner);
+                    break;
+                }
+                TokenKind::Punctuator(Punctuator::Comma) => {
+                    cursor.advance(interner);
+                }
+                _ => {
+                    let token = cursor.next(interner).or_abrupt()?;
+                    let key = match token.kind() {
+                        TokenKind::IdentifierName((name, _)) => {
+                            *name
+                        }
+                        TokenKind::Keyword((kw, _)) => {
+                            kw.to_sym()
+                        }
+                        TokenKind::StringLiteral((name, _)) => {
+                            *name
+                        }
+                        _ => {
+                            return Err(Error::expected(
+                                ["identifier name".to_owned(), "string literal".to_owned()],
+                                token.to_string(interner),
+                                token.span(),
+                                "import attributes",
+                            ));
+                        }
+                    };
+
+                    cursor.expect(Punctuator::Colon, "import attributes", interner)?;
+                    let value = cursor.next(interner).or_abrupt()?;
+                    let value = match value.kind() {
+                        TokenKind::StringLiteral((value, _)) => *value,
+                        _ => {
+                            return Err(Error::expected(
+                                ["string literal".to_owned()],
+                                value.to_string(interner),
+                                value.span(),
+                                "import attributes",
+                            ));
+                        }
+                    };
+
+                    attributes.push(AstImportAttribute::new(key, value));
+
+                    let next = cursor.peek(0, interner).or_abrupt()?;
+                    match next.kind() {
+                        TokenKind::Punctuator(Punctuator::CloseBlock) => {
+                            cursor.advance(interner);
+                            break;
+                        }
+                        TokenKind::Punctuator(Punctuator::Comma) => {
+                            cursor.advance(interner);
+                        }
+                        _ => {
+                            return Err(Error::expected(
+                                [
+                                    Punctuator::CloseBlock.to_string(),
+                                    Punctuator::Comma.to_string(),
+                                ],
+                                next.to_string(interner),
+                                next.span(),
+                                "import attributes",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(AstModuleRequest::with_phase_and_attributes(
+        specifier,
+        phase,
+        attributes.into_boxed_slice(),
+    ))
 }
 
 /// Parses an imported binding
@@ -251,23 +425,30 @@ where
 /// [spec]: https://tc39.es/ecma262/#prod-ImportClause
 #[derive(Debug, Clone)]
 enum ImportClause {
-    Namespace(Option<Identifier>, Identifier),
-    ImportList(Option<Identifier>, Box<[AstImportSpecifier]>),
+    Namespace(Option<Identifier>, Identifier, ImportPhase),
+    ImportList(Option<Identifier>, Box<[AstImportSpecifier]>, ImportPhase),
 }
 
 impl ImportClause {
     #[inline]
-    #[allow(clippy::missing_const_for_fn)]
-    fn with_specifier(self, specifier: ModuleSpecifier) -> AstImportDeclaration {
+    const fn phase(&self) -> ImportPhase {
         match self {
-            Self::Namespace(default, binding) => {
-                AstImportDeclaration::new(default, ImportKind::Namespaced { binding }, specifier)
+            Self::Namespace(_, _, phase) | Self::ImportList(_, _, phase) => *phase,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::missing_const_for_fn)]
+    fn with_request(self, request: AstModuleRequest) -> AstImportDeclaration {
+        match self {
+            Self::Namespace(default, binding, _) => {
+                AstImportDeclaration::new(default, ImportKind::Namespaced { binding }, request)
             }
-            Self::ImportList(default, names) => {
+            Self::ImportList(default, names, _) => {
                 if names.is_empty() {
-                    AstImportDeclaration::new(default, ImportKind::DefaultOrUnnamed, specifier)
+                    AstImportDeclaration::new(default, ImportKind::DefaultOrUnnamed, request)
                 } else {
-                    AstImportDeclaration::new(default, ImportKind::Named { names }, specifier)
+                    AstImportDeclaration::new(default, ImportKind::Named { names }, request)
                 }
             }
         }

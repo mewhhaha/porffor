@@ -1,7 +1,7 @@
 //! Tests for the lexer.
 
 use crate::lexer::{
-    Cursor, Error, Interner, Lexer, Punctuator, TokenKind,
+    Cursor, Error, InputElement, Interner, Lexer, Punctuator, TokenKind,
     template::TemplateString,
     token::{ContainsEscapeSequence, EscapeSequence, Numeric},
 };
@@ -53,6 +53,36 @@ fn check_single_line_comment_with_crlf_ending() {
     let expected = [
         TokenKind::Keyword((Keyword::Var, false)),
         TokenKind::LineTerminator,
+        TokenKind::LineTerminator,
+        TokenKind::BooleanLiteral((true, ContainsEscapeSequence(false))),
+    ];
+
+    expect_tokens(&mut lexer, &expected, interner);
+}
+
+#[test]
+fn check_first_line_html_close_comment() {
+    let s = "--> a comment\ntrue";
+    let mut lexer = Lexer::from(s.as_bytes());
+    lexer.set_goal(InputElement::HashbangOrRegExp);
+    let interner = &mut Interner::default();
+
+    let expected = [
+        TokenKind::LineTerminator,
+        TokenKind::BooleanLiteral((true, ContainsEscapeSequence(false))),
+    ];
+
+    expect_tokens(&mut lexer, &expected, interner);
+}
+
+#[test]
+fn check_first_line_html_close_comment_after_block_comment() {
+    let s = "/* a comment */ /* another */--> a comment\ntrue";
+    let mut lexer = Lexer::from(s.as_bytes());
+    lexer.set_goal(InputElement::HashbangOrRegExp);
+    let interner = &mut Interner::default();
+
+    let expected = [
         TokenKind::LineTerminator,
         TokenKind::BooleanLiteral((true, ContainsEscapeSequence(false))),
     ];

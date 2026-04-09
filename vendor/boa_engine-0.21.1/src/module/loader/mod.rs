@@ -15,7 +15,7 @@ use crate::{
     realm::Realm, vm::ActiveRunnable,
 };
 
-use super::Module;
+use super::{Module, ModuleRequest};
 
 pub mod embedded;
 
@@ -178,7 +178,7 @@ pub trait ModuleLoader: Any {
     async fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> JsResult<Module>;
 
@@ -209,9 +209,9 @@ pub(crate) trait DynModuleLoader: Any {
     fn load_imported_module<'a, 'b, 'fut>(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &'a RefCell<&'b mut Context>,
-    ) -> Fn!(Rc<Self>, Referrer, JsString, &'a RefCell<&'b mut Context> => dyn 'fut + Future<Output = JsResult<Module>>)
+    ) -> Fn!(Rc<Self>, Referrer, ModuleRequest, &'a RefCell<&'b mut Context> => dyn 'fut + Future<Output = JsResult<Module>>)
     where
         'a: 'fut,
         'b: 'fut;
@@ -229,14 +229,14 @@ impl<T: ModuleLoader> DynModuleLoader for T {
     fn load_imported_module<'a, 'b, 'fut>(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &'a RefCell<&'b mut Context>,
-    ) -> Fn!(Rc<Self>, Referrer, JsString, &'a RefCell<&'b mut Context> => dyn 'fut + Future<Output = JsResult<Module>>)
+    ) -> Fn!(Rc<Self>, Referrer, ModuleRequest, &'a RefCell<&'b mut Context> => dyn 'fut + Future<Output = JsResult<Module>>)
     where
         'a: 'fut,
         'b: 'fut,
     {
-        from_fn!(T::load_imported_module, self, referrer, specifier, context)
+        from_fn!(T::load_imported_module, self, referrer, request, context)
     }
 
     fn init_import_meta(
@@ -259,7 +259,7 @@ impl ModuleLoader for IdleModuleLoader {
     async fn load_imported_module(
         self: Rc<Self>,
         _referrer: Referrer,
-        _specifier: JsString,
+        _request: ModuleRequest,
         _context: &RefCell<&mut Context>,
     ) -> JsResult<Module> {
         Err(JsNativeError::typ()
@@ -317,10 +317,11 @@ impl ModuleLoader for MapModuleLoader {
     fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> impl Future<Output = JsResult<Module>> {
         let result = (|| {
+            let specifier = request.specifier();
             let path = resolve_module_specifier(
                 None,
                 &specifier,
@@ -388,10 +389,11 @@ impl ModuleLoader for SimpleModuleLoader {
     fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> impl Future<Output = JsResult<Module>> {
         let result = (|| {
+            let specifier = request.specifier();
             let short_path = specifier.to_std_string_escaped();
             let path = resolve_module_specifier(
                 Some(&self.root),

@@ -1024,13 +1024,15 @@ impl String {
 
         // 2. If searchValue is neither undefined nor null, then
         if !search_value.is_null_or_undefined() {
-            // a. Let replacer be ? GetMethod(searchValue, @@replace).
-            let replacer = search_value.get_method(JsSymbol::replace(), context)?;
+            if let Some(search_value_obj) = search_value.as_object() {
+                // a. Let replacer be ? GetMethod(searchValue, @@replace).
+                let replacer = search_value_obj.get_method(JsSymbol::replace(), context)?;
 
-            // b. If replacer is not undefined, then
-            if let Some(replacer) = replacer {
-                // i. Return ? Call(replacer, searchValue, « O, replaceValue »).
-                return replacer.call(search_value, &[o.clone(), replace_value.clone()], context);
+                // b. If replacer is not undefined, then
+                if let Some(replacer) = replacer {
+                    // i. Return ? Call(replacer, searchValue, « O, replaceValue »).
+                    return replacer.call(search_value, &[o.clone(), replace_value.clone()], context);
+                }
             }
         }
 
@@ -1151,13 +1153,15 @@ impl String {
                 }
             }
 
-            // c. Let replacer be ? GetMethod(searchValue, @@replace).
-            let replacer = search_value.get_method(JsSymbol::replace(), context)?;
+            if let Some(search_value_obj) = search_value.as_object() {
+                // c. Let replacer be ? GetMethod(searchValue, @@replace).
+                let replacer = search_value_obj.get_method(JsSymbol::replace(), context)?;
 
-            // d. If replacer is not undefined, then
-            if let Some(replacer) = replacer {
-                // i. Return ? Call(replacer, searchValue, « O, replaceValue »).
-                return replacer.call(search_value, &[o.clone(), replace_value.clone()], context);
+                // d. If replacer is not undefined, then
+                if let Some(replacer) = replacer {
+                    // i. Return ? Call(replacer, searchValue, « O, replaceValue »).
+                    return replacer.call(search_value, &[o.clone(), replace_value.clone()], context);
+                }
             }
         }
 
@@ -1489,12 +1493,14 @@ impl String {
         // 2. If regexp is neither undefined nor null, then
         let regexp = args.get_or_undefined(0);
         if !regexp.is_null_or_undefined() {
-            // a. Let matcher be ? GetMethod(regexp, @@match).
-            let matcher = regexp.get_method(JsSymbol::r#match(), context)?;
-            // b. If matcher is not undefined, then
-            if let Some(matcher) = matcher {
-                // i. Return ? Call(matcher, regexp, « O »).
-                return matcher.call(regexp, std::slice::from_ref(o), context);
+            if let Some(regexp_obj) = regexp.as_object() {
+                // a. Let matcher be ? GetMethod(regexp, @@match).
+                let matcher = regexp_obj.get_method(JsSymbol::r#match(), context)?;
+                // b. If matcher is not undefined, then
+                if let Some(matcher) = matcher {
+                    // i. Return ? Call(matcher, regexp, « O »).
+                    return matcher.call(regexp, std::slice::from_ref(o), context);
+                }
             }
         }
 
@@ -1933,12 +1939,14 @@ impl String {
 
         // 2. If separator is neither undefined nor null, then
         if !separator.is_null_or_undefined() {
-            // a. Let splitter be ? GetMethod(separator, @@split).
-            let splitter = separator.get_method(JsSymbol::split(), context)?;
-            // b. If splitter is not undefined, then
-            if let Some(splitter) = splitter {
-                // i. Return ? Call(splitter, separator, « O, limit »).
-                return splitter.call(separator, &[this.clone(), limit.clone()], context);
+            if let Some(separator_obj) = separator.as_object() {
+                // a. Let splitter be ? GetMethod(separator, @@split).
+                let splitter = separator_obj.get_method(JsSymbol::split(), context)?;
+                // b. If splitter is not undefined, then
+                if let Some(splitter) = splitter {
+                    // i. Return ? Call(splitter, separator, « O, limit »).
+                    return splitter.call(separator, &[this.clone(), limit.clone()], context);
+                }
             }
         }
 
@@ -2090,11 +2098,13 @@ impl String {
                         .into());
                 }
             }
-            // c. Let matcher be ? GetMethod(regexp, @@matchAll).
-            let matcher = regexp.get_method(JsSymbol::match_all(), context)?;
-            // d. If matcher is not undefined, then
-            if let Some(matcher) = matcher {
-                return matcher.call(regexp, std::slice::from_ref(o), context);
+            if let Some(regexp_obj) = regexp.as_object() {
+                // c. Let matcher be ? GetMethod(regexp, @@matchAll).
+                let matcher = regexp_obj.get_method(JsSymbol::match_all(), context)?;
+                // d. If matcher is not undefined, then
+                if let Some(matcher) = matcher {
+                    return matcher.call(regexp, std::slice::from_ref(o), context);
+                }
             }
         }
 
@@ -2214,12 +2224,14 @@ impl String {
         // 2. If regexp is neither undefined nor null, then
         let regexp = args.get_or_undefined(0);
         if !regexp.is_null_or_undefined() {
-            // a. Let searcher be ? GetMethod(regexp, @@search).
-            let searcher = regexp.get_method(JsSymbol::search(), context)?;
-            // b. If searcher is not undefined, then
-            if let Some(searcher) = searcher {
-                // i. Return ? Call(searcher, regexp, « O »).
-                return searcher.call(regexp, std::slice::from_ref(o), context);
+            if let Some(regexp_obj) = regexp.as_object() {
+                // a. Let searcher be ? GetMethod(regexp, @@search).
+                let searcher = regexp_obj.get_method(JsSymbol::search(), context)?;
+                // b. If searcher is not undefined, then
+                if let Some(searcher) = searcher {
+                    // i. Return ? Call(searcher, regexp, « O »).
+                    return searcher.call(regexp, std::slice::from_ref(o), context);
+                }
             }
         }
 

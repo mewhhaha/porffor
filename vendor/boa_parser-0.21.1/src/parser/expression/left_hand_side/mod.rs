@@ -35,7 +35,7 @@ use crate::{
 };
 use boa_ast::{
     Expression, Keyword, Position, Punctuator, Span, Spanned,
-    expression::{ImportCall, SuperCall},
+    expression::{Call as AstCall, Identifier, ImportCall, SuperCall},
 };
 use boa_interner::Interner;
 
@@ -112,6 +112,58 @@ where
             Ok(None)
         }
 
+        fn is_import_defer_call<R: ReadChar>(
+            cursor: &mut Cursor<R>,
+            interner: &mut Interner,
+        ) -> ParseResult<Option<Position>> {
+            let defer_sym = interner.get_or_intern("defer");
+            let Some(import_token) = cursor.peek(0, interner)? else {
+                return Ok(None);
+            };
+            let TokenKind::Keyword((Keyword::Import, escaped)) = import_token.kind() else {
+                return Ok(None);
+            };
+            let import_start = import_token.span().start();
+            if *escaped {
+                return Err(Error::general(
+                    "keyword `import` cannot contain escaped characters",
+                    import_start,
+                ));
+            }
+
+            let Some(dot) = cursor.peek(1, interner)? else {
+                return Ok(None);
+            };
+            if dot.kind() != &TokenKind::Punctuator(Punctuator::Dot) {
+                return Ok(None);
+            }
+
+            let Some(defer) = cursor.peek(2, interner)? else {
+                return Ok(None);
+            };
+            let TokenKind::IdentifierName((name, escaped)) = defer.kind() else {
+                return Ok(None);
+            };
+            if *name != defer_sym {
+                return Ok(None);
+            }
+            if *escaped != crate::lexer::token::ContainsEscapeSequence(false) {
+                return Err(Error::general(
+                    "`import.defer` cannot contain escaped characters",
+                    defer.span().start(),
+                ));
+            }
+
+            let Some(open) = cursor.peek(3, interner)? else {
+                return Ok(None);
+            };
+            if open.kind() != &TokenKind::Punctuator(Punctuator::OpenParen) {
+                return Ok(None);
+            }
+
+            Ok(Some(import_start))
+        }
+
         cursor.set_goal(InputElement::TemplateTail);
 
         let mut lhs = if let Some(start) = is_keyword_call(Keyword::Super, cursor, interner)? {
@@ -119,6 +171,39 @@ where
             let (args, args_span) =
                 Arguments::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
             SuperCall::new(args, Span::new(start, args_span.end())).into()
+        } else if let Some(start) = is_import_defer_call(cursor, interner)? {
+            cursor.advance(interner);
+            cursor.advance(interner);
+            cursor.advance(interner);
+            cursor.advance(interner);
+
+            let arg = AssignmentExpression::new(true, self.allow_yield, self.allow_await)
+                .parse(cursor, interner)?;
+
+            let end = cursor
+                .expect(
+                    TokenKind::Punctuator(Punctuator::CloseParen),
+                    "import.defer call",
+                    interner,
+                )?
+                .span()
+                .end();
+
+            let callee = Identifier::new(
+                interner.get_or_intern("__porffor_import_defer__"),
+                Span::new(start, end),
+            );
+            CallExpressionTail::new(
+                self.allow_yield,
+                self.allow_await,
+                AstCall::new(
+                    callee.into(),
+                    Box::new([arg]),
+                    Span::new(start, end),
+                )
+                .into(),
+            )
+            .parse(cursor, interner)?
         } else if let Some(start) = is_keyword_call(Keyword::Import, cursor, interner)? {
             // `import`
             cursor.advance(interner);
@@ -127,6 +212,17 @@ where
 
             let arg = AssignmentExpression::new(true, self.allow_yield, self.allow_await)
                 .parse(cursor, interner)?;
+            let second_arg = if let Some(next) = cursor.peek(0, interner)?
+                && next.kind() == &TokenKind::Punctuator(Punctuator::Comma)
+            {
+                cursor.advance(interner);
+                Some(
+                    AssignmentExpression::new(true, self.allow_yield, self.allow_await)
+                        .parse(cursor, interner)?,
+                )
+            } else {
+                None
+            };
 
             let end = cursor
                 .expect(
@@ -137,12 +233,18 @@ where
                 .span()
                 .end();
 
-            CallExpressionTail::new(
-                self.allow_yield,
-                self.allow_await,
-                ImportCall::new(arg, Span::new(start, end)).into(),
-            )
-            .parse(cursor, interner)?
+            let expr = if let Some(second_arg) = second_arg {
+                let callee = Identifier::new(
+                    interner.get_or_intern("__porffor_dynamic_import_with__"),
+                    Span::new(start, end),
+                );
+                AstCall::new(callee.into(), Box::new([arg, second_arg]), Span::new(start, end))
+                    .into()
+            } else {
+                ImportCall::new(arg, Span::new(start, end)).into()
+            };
+
+            CallExpressionTail::new(self.allow_yield, self.allow_await, expr).parse(cursor, interner)?
         } else {
             let mut member = MemberExpression::new(self.allow_yield, self.allow_await)
                 .parse(cursor, interner)?;

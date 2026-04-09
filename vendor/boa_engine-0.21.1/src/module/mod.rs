@@ -47,6 +47,7 @@ use crate::{
     Context, HostDefined, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
     builtins,
     builtins::promise::{PromiseCapability, PromiseState},
+    bytecompiler::ToJsString,
     environments::DeclarativeEnvironment,
     object::{JsObject, JsPromise},
     realm::Realm,
@@ -56,6 +57,131 @@ mod loader;
 mod namespace;
 mod source;
 mod synthetic;
+
+/// The phase of a module request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Trace, Finalize)]
+#[boa_gc(empty_trace)]
+pub enum ModuleRequestPhase {
+    /// A normal eager module request.
+    Evaluation,
+    /// A deferred namespace request.
+    Defer,
+}
+
+/// A static import attribute.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Trace, Finalize)]
+pub struct ImportAttribute {
+    key: JsString,
+    value: JsString,
+}
+
+impl ImportAttribute {
+    /// Creates a new import attribute.
+    #[must_use]
+    pub const fn new(key: JsString, value: JsString) -> Self {
+        Self { key, value }
+    }
+
+    /// Gets the attribute key.
+    #[must_use]
+    pub fn key(&self) -> JsString {
+        self.key.clone()
+    }
+
+    /// Gets the attribute value.
+    #[must_use]
+    pub fn value(&self) -> JsString {
+        self.value.clone()
+    }
+}
+
+/// A fully qualified static module request.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Trace, Finalize)]
+pub struct ModuleRequest {
+    specifier: JsString,
+    phase: ModuleRequestPhase,
+    attributes: Box<[ImportAttribute]>,
+}
+
+impl ModuleRequest {
+    /// Creates a new eager request with no attributes.
+    #[must_use]
+    pub fn new(specifier: JsString) -> Self {
+        Self {
+            specifier,
+            phase: ModuleRequestPhase::Evaluation,
+            attributes: Box::default(),
+        }
+    }
+
+    /// Creates a new request with no attributes for the provided phase.
+    #[must_use]
+    pub fn with_phase(specifier: JsString, phase: ModuleRequestPhase) -> Self {
+        Self {
+            specifier,
+            phase,
+            attributes: Box::default(),
+        }
+    }
+
+    /// Creates a new request from all of its parts.
+    #[must_use]
+    pub fn with_phase_and_attributes(
+        specifier: JsString,
+        phase: ModuleRequestPhase,
+        attributes: Box<[ImportAttribute]>,
+    ) -> Self {
+        Self {
+            specifier,
+            phase,
+            attributes,
+        }
+    }
+
+    /// Converts an AST module request into an engine request.
+    #[must_use]
+    pub fn from_ast(request: &boa_ast::declaration::ModuleRequest, interner: &Interner) -> Self {
+        let phase = match request.phase() {
+            boa_ast::declaration::ImportPhase::Evaluation => ModuleRequestPhase::Evaluation,
+            boa_ast::declaration::ImportPhase::Defer => ModuleRequestPhase::Defer,
+        };
+        let attributes = request
+            .attributes()
+            .iter()
+            .map(|attribute| {
+                ImportAttribute::new(
+                    attribute.key().to_js_string(interner),
+                    attribute.value().to_js_string(interner),
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self::with_phase_and_attributes(
+            request.specifier().sym().to_js_string(interner),
+            phase,
+            attributes,
+        )
+    }
+
+    /// Gets the requested specifier.
+    #[must_use]
+    pub fn specifier(&self) -> JsString {
+        self.specifier.clone()
+    }
+
+    /// Gets the request phase.
+    #[must_use]
+    pub const fn phase(&self) -> ModuleRequestPhase {
+        self.phase
+    }
+
+    /// Gets the request attributes.
+    #[must_use]
+    pub const fn attributes(&self) -> &[ImportAttribute] {
+        &self.attributes
+    }
+}
 
 /// ECMAScript's [**Abstract module record**][spec].
 ///
@@ -79,6 +205,7 @@ impl std::fmt::Debug for Module {
 struct ModuleRepr {
     realm: Realm,
     namespace: GcRefCell<Option<JsObject>>,
+    deferred_namespace: GcRefCell<Option<JsObject>>,
     kind: ModuleKind,
     host_defined: HostDefined,
     path: Option<PathBuf>,
@@ -176,6 +303,7 @@ impl Module {
             inner: Gc::new(ModuleRepr {
                 realm,
                 namespace: GcRefCell::default(),
+                deferred_namespace: GcRefCell::default(),
                 kind: ModuleKind::SourceText(Box::new(src)),
                 host_defined: HostDefined::default(),
                 path,
@@ -205,6 +333,7 @@ impl Module {
             inner: Gc::new(ModuleRepr {
                 realm,
                 namespace: GcRefCell::default(),
+                deferred_namespace: GcRefCell::default(),
                 kind: ModuleKind::Synthetic(Box::new(synth)),
                 host_defined: HostDefined::default(),
                 path,
@@ -570,12 +699,24 @@ impl Module {
     /// [spec]: https://tc39.es/ecma262/#sec-getmodulenamespace
     /// [ns]: https://tc39.es/ecma262/#sec-module-namespace-exotic-objects
     pub fn namespace(&self, context: &mut Context) -> JsObject {
+        self.namespace_with_phase(ModuleRequestPhase::Evaluation, context)
+    }
+
+    pub fn deferred_namespace(&self, context: &mut Context) -> JsObject {
+        self.namespace_with_phase(ModuleRequestPhase::Defer, context)
+    }
+
+    fn namespace_with_phase(&self, phase: ModuleRequestPhase, context: &mut Context) -> JsObject {
         // 1. Assert: If module is a Cyclic Module Record, then module.[[Status]] is not new or unlinked.
         // 2. Let namespace be module.[[Namespace]].
         // 3. If namespace is empty, then
         // 4. Return namespace.
-        self.inner
-            .namespace
+        let namespace_cell = match phase {
+            ModuleRequestPhase::Evaluation => &self.inner.namespace,
+            ModuleRequestPhase::Defer => &self.inner.deferred_namespace,
+        };
+
+        namespace_cell
             .borrow_mut()
             .get_or_insert_with(|| {
                 // a. Let exportedNames be module.GetExportedNames().
@@ -600,9 +741,73 @@ impl Module {
                     .collect();
 
                 //     d. Set namespace to ModuleNamespaceCreate(module, unambiguousNames).
-                ModuleNamespace::create(self.clone(), unambiguous_names, context)
+                ModuleNamespace::create(
+                    self.clone(),
+                    unambiguous_names,
+                    phase == ModuleRequestPhase::Defer,
+                    context,
+                )
             })
             .clone()
+    }
+
+    pub(crate) fn ready_for_sync_execution(&self, seen: &mut HashSet<Module>) -> bool {
+        if !seen.insert(self.clone()) {
+            return true;
+        }
+
+        match self.kind() {
+            ModuleKind::Synthetic(_) => true,
+            ModuleKind::SourceText(src) => match &*src.status.borrow() {
+                source::ModuleStatus::Evaluated { .. } => true,
+                source::ModuleStatus::Evaluating { .. }
+                | source::ModuleStatus::EvaluatingAsync { .. }
+                | source::ModuleStatus::Unlinked
+                | source::ModuleStatus::Linking { .. }
+                | source::ModuleStatus::PreLinked { .. } => false,
+                source::ModuleStatus::Linked { .. } => {
+                    if src.has_tla() {
+                        return false;
+                    }
+
+                    src.requested_modules().iter().all(|request| {
+                        src.loaded_modules()
+                            .borrow()
+                            .get(request)
+                            .is_some_and(|module| module.ready_for_sync_execution(seen))
+                    })
+                }
+            },
+        }
+    }
+
+    pub(crate) fn ensure_deferred_namespace_evaluation(
+        &self,
+        context: &mut Context,
+    ) -> JsResult<()> {
+        if let ModuleKind::SourceText(src) = self.kind()
+            && !matches!(&*src.status.borrow(), source::ModuleStatus::Evaluated { .. })
+            && !self.ready_for_sync_execution(&mut HashSet::default())
+        {
+            return Err(JsNativeError::typ()
+                .with_message("deferred module is not ready for synchronous execution")
+                .into());
+        }
+
+        let promise = match self.kind() {
+            ModuleKind::SourceText(src) => src.evaluate(self, context),
+            ModuleKind::Synthetic(_) => {
+                self.load_link_evaluate(context)
+            }
+        };
+
+        match promise.state() {
+            PromiseState::Fulfilled(_) => Ok(()),
+            PromiseState::Rejected(error) => Err(JsError::from_opaque(error)),
+            PromiseState::Pending => Err(JsNativeError::typ()
+                .with_message("deferred module evaluation remained asynchronous")
+                .into()),
+        }
     }
 
     /// Get an exported value from the module.

@@ -224,14 +224,21 @@ impl<R> Lexer<R> {
             return Ok(None);
         };
 
-        // If the goal symbol is HashbangOrRegExp, then we need to check if the next token is a hashbang comment.
-        // Since the goal symbol is only valid for the first token, we need to change it to RegExp after the first token.
-        if self.get_goal() == InputElement::HashbangOrRegExp {
-            self.set_goal(InputElement::RegExp);
-            if next_ch == 0x23 && self.cursor.peek_char()? == Some(0x21) {
+        let first_token_goal = self.get_goal() == InputElement::HashbangOrRegExp;
+
+        // Keep the first-token goal alive through first-line comments so Annex B `-->` comments
+        // can still be recognized before the first non-comment token.
+        if first_token_goal {
+            if start.line_number() == 1
+                && start.column_number() == 1
+                && next_ch == 0x23
+                && self.cursor.peek_char()? == Some(0x21)
+            {
+                self.set_goal(InputElement::RegExp);
                 let _token = HashbangComment.lex(&mut self.cursor, start, interner);
                 return self.next(interner);
             }
+
         }
 
         // Ignore whitespace
@@ -246,6 +253,20 @@ impl<R> Lexer<R> {
                     break;
                 }
             }
+        }
+
+        #[cfg(feature = "annex-b")]
+        if first_token_goal
+            && !self.module()
+            && next_ch == 0x2D
+            && self.cursor.peek_n(2)?[..2] == [Some(0x2D), Some(0x3E)]
+        {
+            self.cursor.next_char()?.expect("- token vanished");
+            self.cursor.next_char()?.expect("> token vanished");
+            self.set_goal(InputElement::RegExp);
+            return SingleLineComment
+                .lex(&mut self.cursor, start, interner)
+                .map(Some);
         }
 
         if let Ok(c) = char::try_from(next_ch) {
@@ -355,6 +376,10 @@ impl<R> Lexer<R> {
                     Err(Error::syntax(details, start.position()))
                 }
             }?;
+
+            if first_token_goal && token.kind() != &TokenKind::Comment {
+                self.set_goal(InputElement::RegExp);
+            }
 
             Ok(Some(token))
         } else {

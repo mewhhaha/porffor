@@ -21,7 +21,7 @@ use boa_interner::{Interner, Sym, ToInternedString};
 
 use crate::{
     Span, Spanned,
-    expression::{Expression, access::PropertyAccess, identifier::Identifier},
+    expression::{Call, Expression, access::PropertyAccess, identifier::Identifier},
     pattern::Pattern,
     visitor::{VisitWith, Visitor, VisitorMut},
 };
@@ -128,6 +128,8 @@ pub enum AssignTarget {
     Identifier(Identifier),
     /// A property access, such as `a.prop`.
     Access(PropertyAccess),
+    /// A sloppy Annex B call target such as `f()`, which must throw at runtime.
+    WebCompatCall(Box<Call>),
     /// A pattern assignment, such as `{a, b, ...c}`.
     Pattern(Pattern),
 }
@@ -164,7 +166,14 @@ impl AssignTarget {
             }
             Expression::Identifier(id) => Some(Self::Identifier(*id)),
             Expression::PropertyAccess(access) => Some(Self::Access(access.clone())),
-            Expression::Parenthesized(p) => Self::from_expression_simple(p.expression(), strict),
+            Expression::Parenthesized(p) => match Self::from_expression_simple(p.expression(), strict)
+            {
+                Some(Self::WebCompatCall(_)) => None,
+                other => other,
+            },
+            Expression::Call(call) if cfg!(feature = "annex-b") && !strict => {
+                Some(Self::WebCompatCall(Box::new(call.clone())))
+            }
             _ => None,
         }
     }
@@ -176,6 +185,7 @@ impl Spanned for AssignTarget {
         match self {
             AssignTarget::Identifier(identifier) => identifier.span(),
             AssignTarget::Access(property_access) => property_access.span(),
+            AssignTarget::WebCompatCall(call) => call.span(),
             AssignTarget::Pattern(pattern) => pattern.span(),
         }
     }
@@ -187,6 +197,7 @@ impl ToInternedString for AssignTarget {
         match self {
             Self::Identifier(id) => id.to_interned_string(interner),
             Self::Access(access) => access.to_interned_string(interner),
+            Self::WebCompatCall(call) => call.to_interned_string(interner),
             Self::Pattern(pattern) => pattern.to_interned_string(interner),
         }
     }
@@ -207,6 +218,7 @@ impl VisitWith for AssignTarget {
         match self {
             Self::Identifier(id) => visitor.visit_identifier(id),
             Self::Access(pa) => visitor.visit_property_access(pa),
+            Self::WebCompatCall(call) => visitor.visit_call(call),
             Self::Pattern(pat) => visitor.visit_pattern(pat),
         }
     }
@@ -218,6 +230,7 @@ impl VisitWith for AssignTarget {
         match self {
             Self::Identifier(id) => visitor.visit_identifier_mut(id),
             Self::Access(pa) => visitor.visit_property_access_mut(pa),
+            Self::WebCompatCall(call) => visitor.visit_call_mut(call),
             Self::Pattern(pat) => visitor.visit_pattern_mut(pat),
         }
     }

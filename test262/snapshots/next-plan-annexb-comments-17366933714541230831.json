@@ -1,0 +1,102 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "615d8c0dd5fedc08571b6b308b82f286171eaec4"
+  },
+  "manifest_hash": 17366933714541230831,
+  "run_kind": "full",
+  "total": 8,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "annexB/language/comments/single-line-html-open.js",
+      "duration_ms": 307
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close-first-line-1.js",
+      "duration_ms": 265
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close-asi.js",
+      "duration_ms": 262
+    },
+    {
+      "path": "annexB/language/comments/multi-line-html-close.js",
+      "duration_ms": 259
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close-unicode-separators.js",
+      "duration_ms": 245
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close.js",
+      "duration_ms": 183
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close-first-line-3.js",
+      "duration_ms": 169
+    },
+    {
+      "path": "annexB/language/comments/single-line-html-close-first-line-2.js",
+      "duration_ms": 148
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "annexB/language/comments/single-line-html-close-first-line-1.js",
+      "kind": "Runtime",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] negative test error mismatch: expected EvalError, got SyntaxError: unexpected token '>', primary expression at line 1, col 3",
+      "detail_hash": 16027423279477899139
+    },
+    {
+      "test_path": "annexB/language/comments/single-line-html-close-first-line-2.js",
+      "kind": "Runtime",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] negative test error mismatch: expected EvalError, got SyntaxError: unexpected token '>', primary expression at line 1, col 6",
+      "detail_hash": 4479029313510037447
+    },
+    {
+      "test_path": "annexB/language/comments/single-line-html-close-first-line-3.js",
+      "kind": "Runtime",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] negative test error mismatch: expected EvalError, got SyntaxError: unexpected token '>', primary expression at line 1, col 38",
+      "detail_hash": 13640047219758401525
+    }
+  ],
+  "completed_paths": [
+    "annexB/language/comments/multi-line-html-close.js",
+    "annexB/language/comments/single-line-html-close-asi.js",
+    "annexB/language/comments/single-line-html-close-first-line-1.js",
+    "annexB/language/comments/single-line-html-close-first-line-2.js",
+    "annexB/language/comments/single-line-html-close-first-line-3.js",
+    "annexB/language/comments/single-line-html-close-unicode-separators.js",
+    "annexB/language/comments/single-line-html-close.js",
+    "annexB/language/comments/single-line-html-open.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

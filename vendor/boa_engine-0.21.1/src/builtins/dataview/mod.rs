@@ -790,11 +790,22 @@ impl DataView {
     ) -> JsResult<JsValue> {
         // 1. Perform ? RequireInternalSlot(view, [[DataView]]).
         // 2. Assert: view has a [[ViewedArrayBuffer]] internal slot.
-        let object = view.as_object();
-        let view = object
-            .as_ref()
-            .and_then(JsObject::downcast_ref::<Self>)
+        let view = view
+            .as_object()
+            .and_then(|o| o.clone().downcast::<Self>().ok())
             .ok_or_else(|| JsNativeError::typ().with_message("`this` is not a DataView"))?;
+
+        if view
+            .borrow()
+            .data()
+            .viewed_array_buffer
+            .as_buffer()
+            .is_immutable()
+        {
+            return Err(JsNativeError::typ()
+                .with_message("cannot write through a DataView backed by an immutable ArrayBuffer")
+                .into());
+        }
 
         // 3. Let getIndex be ? ToIndex(requestIndex).
         let get_index = request_index.to_index(context)?;
@@ -809,6 +820,8 @@ impl DataView {
         // 8. Let viewRecord be MakeDataViewWithBufferWitnessRecord(view, unordered).
         // 9. NOTE: Bounds checking is not a synchronizing operation when view's backing buffer is a growable SharedArrayBuffer.
         // 10. If IsViewOutOfBounds(viewRecord) is true, throw a TypeError exception.
+        let view = view.borrow();
+        let view = view.data();
         let mut buffer = view.viewed_array_buffer.as_buffer_mut();
 
         let Some(mut data) = buffer

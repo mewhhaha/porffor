@@ -141,10 +141,11 @@ impl ModuleLoader for EmbeddedModuleLoader {
     fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: crate::module::ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> impl Future<Output = JsResult<Module>> {
         let result = (|| {
+            let specifier = request.specifier();
             let specifier_path = boa_engine::module::resolve_module_specifier(
                 None,
                 &specifier,

@@ -9,7 +9,7 @@ use crate::{
     StatementListItem,
     declaration::{
         ExportDeclaration, ExportEntry, ExportSpecifier, ImportDeclaration, ImportEntry,
-        ImportKind, ImportName, IndirectExportEntry, LocalExportEntry, ModuleSpecifier,
+        ImportKind, ImportName, IndirectExportEntry, LocalExportEntry, ModuleRequest,
         ReExportImportName, ReExportKind,
     },
     operations::{BoundNamesVisitor, bound_names},
@@ -201,31 +201,25 @@ impl ModuleItemList {
     /// [spec]: https://tc39.es/ecma262/#sec-static-semantics-modulerequests
     #[inline]
     #[must_use]
-    pub fn requests(&self) -> IndexSet<Sym, BuildHasherDefault<FxHasher>> {
-        #[derive(Debug)]
-        struct RequestsVisitor<'vec>(&'vec mut IndexSet<Sym, BuildHasherDefault<FxHasher>>);
-
-        impl<'ast> Visitor<'ast> for RequestsVisitor<'_> {
-            type BreakTy = Infallible;
-
-            fn visit_statement_list_item(
-                &mut self,
-                _: &'ast StatementListItem,
-            ) -> ControlFlow<Self::BreakTy> {
-                ControlFlow::Continue(())
-            }
-            fn visit_module_specifier(
-                &mut self,
-                node: &'ast ModuleSpecifier,
-            ) -> ControlFlow<Self::BreakTy> {
-                self.0.insert(node.sym());
-                ControlFlow::Continue(())
-            }
-        }
-
+    pub fn requests(&self) -> IndexSet<ModuleRequest, BuildHasherDefault<FxHasher>> {
         let mut requests = IndexSet::default();
 
-        let _ = RequestsVisitor(&mut requests).visit_module_item_list(self);
+        for item in self.items() {
+            match item {
+                ModuleItem::ImportDeclaration(import) => {
+                    requests.insert(import.request().clone());
+                }
+                ModuleItem::ExportDeclaration(export) => {
+                    if let ExportDeclaration::ReExport {
+                        specifier, ..
+                    } = &**export
+                    {
+                        requests.insert(ModuleRequest::from(*specifier));
+                    }
+                }
+                ModuleItem::StatementListItem(_) => {}
+            }
+        }
 
         requests
     }
@@ -257,11 +251,11 @@ impl ModuleItemList {
                 &mut self,
                 node: &'ast ImportDeclaration,
             ) -> ControlFlow<Self::BreakTy> {
-                let module = node.specifier().sym();
+                let module = node.request().clone();
 
                 if let Some(default) = node.default() {
                     self.0.push(ImportEntry::new(
-                        module,
+                        module.clone(),
                         ImportName::Name(Sym::DEFAULT),
                         default,
                     ));
@@ -276,7 +270,7 @@ impl ModuleItemList {
                     ImportKind::Named { names } => {
                         for name in &**names {
                             self.0.push(ImportEntry::new(
-                                module,
+                                module.clone(),
                                 ImportName::Name(name.export_name()),
                                 name.binding(),
                             ));
@@ -324,13 +318,13 @@ impl ModuleItemList {
             ) -> ControlFlow<Self::BreakTy> {
                 let name = match node {
                     ExportDeclaration::ReExport { kind, specifier } => {
-                        let module = specifier.sym();
+                        let module = ModuleRequest::from(*specifier);
 
                         match kind {
                             ReExportKind::Namespaced { name: Some(name) } => {
                                 self.0.push(
                                     IndirectExportEntry::new(
-                                        module,
+                                        module.clone(),
                                         ReExportImportName::Star,
                                         *name,
                                     )
@@ -347,7 +341,7 @@ impl ModuleItemList {
                                 for name in &**names {
                                     self.0.push(
                                         IndirectExportEntry::new(
-                                            module,
+                                            module.clone(),
                                             ReExportImportName::Name(name.private_name()),
                                             name.alias(),
                                         )

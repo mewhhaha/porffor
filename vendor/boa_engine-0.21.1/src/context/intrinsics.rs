@@ -132,6 +132,7 @@ pub struct StandardConstructors {
     generator_function: StandardConstructor,
     async_generator_function: StandardConstructor,
     array: StandardConstructor,
+    abstract_module_source: StandardConstructor,
     async_disposable_stack: StandardConstructor,
     bigint: StandardConstructor,
     number: StandardConstructor,
@@ -223,6 +224,7 @@ impl Default for StandardConstructors {
             async_function: StandardConstructor::default(),
             generator_function: StandardConstructor::default(),
             array: StandardConstructor::with_prototype(JsObject::from_proto_and_data(None, Array)),
+            abstract_module_source: StandardConstructor::default(),
             async_disposable_stack: StandardConstructor::default(),
             bigint: StandardConstructor::default(),
             number: StandardConstructor::with_prototype(JsObject::from_proto_and_data(None, 0.0)),
@@ -399,6 +401,13 @@ impl StandardConstructors {
     #[must_use]
     pub const fn array(&self) -> &StandardConstructor {
         &self.array
+    }
+
+    /// Returns the `AbstractModuleSource` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn abstract_module_source(&self) -> &StandardConstructor {
+        &self.abstract_module_source
     }
 
     /// Returns the `AsyncDisposableStack` constructor.
@@ -1120,6 +1129,10 @@ pub struct IntrinsicObjects {
     /// [`%parseInt%`](https://tc39.es/ecma262/#sec-parseint-string-radix)
     parse_int: JsFunction,
 
+    /// Realm-local Annex B `[[IsHTMLDDA]]` host object.
+    #[cfg(feature = "annex-b")]
+    html_dda: JsFunction,
+
     /// [`%escape%`](https://tc39.es/ecma262/#sec-escape-string)
     #[cfg(feature = "annex-b")]
     escape: JsFunction,
@@ -1172,6 +1185,8 @@ impl IntrinsicObjects {
             is_nan: JsFunction::empty_intrinsic_function(false),
             parse_float: JsFunction::empty_intrinsic_function(false),
             parse_int: JsFunction::empty_intrinsic_function(false),
+            #[cfg(feature = "annex-b")]
+            html_dda: JsFunction::empty_intrinsic_function(false),
             #[cfg(feature = "annex-b")]
             escape: JsFunction::empty_intrinsic_function(false),
             #[cfg(feature = "annex-b")]
@@ -1325,6 +1340,14 @@ impl IntrinsicObjects {
     #[must_use]
     pub fn parse_int(&self) -> JsFunction {
         self.parse_int.clone()
+    }
+
+    /// Gets the realm-local Annex B `[[IsHTMLDDA]]` host object.
+    #[must_use]
+    #[cfg(feature = "annex-b")]
+    #[inline]
+    pub fn html_dda(&self) -> JsFunction {
+        self.html_dda.clone()
     }
 
     /// Gets the [`%escape%`][spec] intrinsic function.

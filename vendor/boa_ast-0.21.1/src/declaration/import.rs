@@ -38,6 +38,157 @@ pub enum ImportKind {
     },
 }
 
+/// The phase of a module request.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
+pub enum ImportPhase {
+    /// A normal eager module request.
+    Evaluation,
+    /// A deferred namespace request.
+    Defer,
+}
+
+/// A static import attribute.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
+pub struct ImportAttribute {
+    key: Sym,
+    value: Sym,
+}
+
+impl ImportAttribute {
+    /// Creates a new import attribute.
+    #[inline]
+    #[must_use]
+    pub const fn new(key: Sym, value: Sym) -> Self {
+        Self { key, value }
+    }
+
+    /// Gets the attribute key.
+    #[inline]
+    #[must_use]
+    pub const fn key(self) -> Sym {
+        self.key
+    }
+
+    /// Gets the attribute value.
+    #[inline]
+    #[must_use]
+    pub const fn value(self) -> Sym {
+        self.value
+    }
+}
+
+impl VisitWith for ImportAttribute {
+    fn visit_with<'a, V>(&'a self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: Visitor<'a>,
+    {
+        visitor.visit_sym(&self.key)?;
+        visitor.visit_sym(&self.value)
+    }
+
+    fn visit_with_mut<'a, V>(&'a mut self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: VisitorMut<'a>,
+    {
+        visitor.visit_sym_mut(&mut self.key)?;
+        visitor.visit_sym_mut(&mut self.value)
+    }
+}
+
+/// A static module request.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ModuleRequest {
+    specifier: ModuleSpecifier,
+    phase: ImportPhase,
+    attributes: Box<[ImportAttribute]>,
+}
+
+impl ModuleRequest {
+    /// Creates a new eager request with no attributes.
+    #[inline]
+    #[must_use]
+    pub fn new(specifier: ModuleSpecifier) -> Self {
+        Self {
+            specifier,
+            phase: ImportPhase::Evaluation,
+            attributes: Box::new([]),
+        }
+    }
+
+    /// Creates a new request from its full parts.
+    #[inline]
+    #[must_use]
+    pub fn with_phase_and_attributes(
+        specifier: ModuleSpecifier,
+        phase: ImportPhase,
+        attributes: Box<[ImportAttribute]>,
+    ) -> Self {
+        Self {
+            specifier,
+            phase,
+            attributes,
+        }
+    }
+
+    /// Gets the requested specifier.
+    #[inline]
+    #[must_use]
+    pub const fn specifier(&self) -> ModuleSpecifier {
+        self.specifier
+    }
+
+    /// Gets the request phase.
+    #[inline]
+    #[must_use]
+    pub const fn phase(&self) -> ImportPhase {
+        self.phase
+    }
+
+    /// Gets the request attributes.
+    #[inline]
+    #[must_use]
+    pub const fn attributes(&self) -> &[ImportAttribute] {
+        &self.attributes
+    }
+}
+
+impl From<ModuleSpecifier> for ModuleRequest {
+    #[inline]
+    fn from(specifier: ModuleSpecifier) -> Self {
+        Self::new(specifier)
+    }
+}
+
+impl VisitWith for ModuleRequest {
+    fn visit_with<'a, V>(&'a self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: Visitor<'a>,
+    {
+        visitor.visit_module_specifier(&self.specifier)?;
+        for attribute in &*self.attributes {
+            attribute.visit_with(visitor)?;
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn visit_with_mut<'a, V>(&'a mut self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: VisitorMut<'a>,
+    {
+        visitor.visit_module_specifier_mut(&mut self.specifier)?;
+        for attribute in &mut *self.attributes {
+            attribute.visit_with_mut(visitor)?;
+        }
+        ControlFlow::Continue(())
+    }
+}
+
 impl VisitWith for ImportKind {
     fn visit_with<'a, V>(&'a self, visitor: &mut V) -> ControlFlow<V::BreakTy>
     where
@@ -85,8 +236,8 @@ pub struct ImportDeclaration {
     default: Option<Identifier>,
     /// See [`ImportKind`].
     kind: ImportKind,
-    /// Module specifier.
-    specifier: ModuleSpecifier,
+    /// Module request.
+    request: ModuleRequest,
 }
 
 impl ImportDeclaration {
@@ -96,13 +247,9 @@ impl ImportDeclaration {
     pub const fn new(
         default: Option<Identifier>,
         kind: ImportKind,
-        specifier: ModuleSpecifier,
+        request: ModuleRequest,
     ) -> Self {
-        Self {
-            default,
-            kind,
-            specifier,
-        }
+        Self { default, kind, request }
     }
 
     /// Gets the binding for the default export of the module.
@@ -116,7 +263,14 @@ impl ImportDeclaration {
     #[inline]
     #[must_use]
     pub const fn specifier(&self) -> ModuleSpecifier {
-        self.specifier
+        self.request.specifier()
+    }
+
+    /// Gets the full module request.
+    #[inline]
+    #[must_use]
+    pub fn request(&self) -> &ModuleRequest {
+        &self.request
     }
 
     /// Gets the import kind of the import declaration
@@ -136,7 +290,7 @@ impl VisitWith for ImportDeclaration {
             visitor.visit_identifier(default)?;
         }
         visitor.visit_import_kind(&self.kind)?;
-        visitor.visit_module_specifier(&self.specifier)
+        self.request.visit_with(visitor)
     }
 
     fn visit_with_mut<'a, V>(&'a mut self, visitor: &mut V) -> ControlFlow<V::BreakTy>
@@ -147,7 +301,7 @@ impl VisitWith for ImportDeclaration {
             visitor.visit_identifier_mut(default)?;
         }
         visitor.visit_import_kind_mut(&mut self.kind)?;
-        visitor.visit_module_specifier_mut(&mut self.specifier)
+        self.request.visit_with_mut(visitor)
     }
 }
 
@@ -221,9 +375,9 @@ pub enum ImportName {
 /// [`ImportEntry`][spec] record.
 ///
 /// [spec]: https://tc39.es/ecma262/#table-importentry-record-fields
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ImportEntry {
-    module_request: Sym,
+    module_request: ModuleRequest,
     import_name: ImportName,
     local_name: Identifier,
 }
@@ -231,7 +385,11 @@ pub struct ImportEntry {
 impl ImportEntry {
     /// Creates a new `ImportEntry`.
     #[must_use]
-    pub const fn new(module_request: Sym, import_name: ImportName, local_name: Identifier) -> Self {
+    pub const fn new(
+        module_request: ModuleRequest,
+        import_name: ImportName,
+        local_name: Identifier,
+    ) -> Self {
         Self {
             module_request,
             import_name,
@@ -241,8 +399,8 @@ impl ImportEntry {
 
     /// Gets the module from where the binding must be imported.
     #[must_use]
-    pub const fn module_request(&self) -> Sym {
-        self.module_request
+    pub const fn module_request(&self) -> &ModuleRequest {
+        &self.module_request
     }
 
     /// Gets the import name of the imported binding.

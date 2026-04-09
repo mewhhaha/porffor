@@ -38,6 +38,7 @@ use crate::{
     },
     error::JsNativeError,
     js_string,
+    native_function::NativeFunctionObject,
     object::JsObject,
     property::{PropertyDescriptor, PropertyKey},
     symbol::JsSymbol,
@@ -414,6 +415,24 @@ impl JsValue {
         self.is_undefined() || self.is_null()
     }
 
+    /// Returns true if the value has the Annex B `[[IsHTMLDDA]]` internal slot.
+    #[inline]
+    #[must_use]
+    pub(crate) fn is_html_dda(&self) -> bool {
+        self.as_object().is_some_and(|object| {
+            object
+                .downcast_ref::<NativeFunctionObject>()
+                .is_some_and(|function| function.is_html_dda)
+        })
+    }
+
+    /// Returns true if the value is `null`, `undefined`, or has `[[IsHTMLDDA]]`.
+    #[inline]
+    #[must_use]
+    pub(crate) fn is_nullish_or_html_dda(&self) -> bool {
+        self.is_null_or_undefined() || self.is_html_dda()
+    }
+
     /// Returns the number if the value is a finite integral Number value, otherwise `None`.
     ///
     /// More information:
@@ -505,6 +524,10 @@ impl JsValue {
     /// [spec]: https://tc39.es/ecma262/#sec-toboolean
     #[must_use]
     pub fn to_boolean(&self) -> bool {
+        if self.is_html_dda() {
+            return false;
+        }
+
         match self.variant() {
             JsVariant::Symbol(_) | JsVariant::Object(_) => true,
             JsVariant::String(s) if !s.is_empty() => true,
@@ -1129,13 +1152,21 @@ impl JsValue {
     /// [spec]: https://tc39.es/ecma262/#sec-typeof-operator
     #[must_use]
     pub fn type_of(&self) -> &'static str {
-        self.variant().type_of()
+        if self.is_html_dda() {
+            "undefined"
+        } else {
+            self.variant().type_of()
+        }
     }
 
     /// Same as [`JsValue::type_of`], but returning a [`JsString`] instead.
     #[must_use]
     pub fn js_type_of(&self) -> JsString {
-        self.variant().js_type_of()
+        if self.is_html_dda() {
+            js_string!("undefined")
+        } else {
+            self.variant().js_type_of()
+        }
     }
 
     /// Maps a `JsValue` into `Option<T>` where T is the result of an

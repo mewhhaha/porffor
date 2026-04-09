@@ -5,11 +5,13 @@ use std::rc::Rc;
 
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::SimpleJobExecutor;
-use boa_engine::module::{Module, ModuleLoader, Referrer};
+use boa_engine::module::{
+    ImportAttribute, Module, ModuleLoader, ModuleRequest, ModuleRequestPhase, Referrer,
+};
 use boa_engine::native_function::NativeFunction;
-use boa_engine::object::builtins::JsArrayBuffer;
+use boa_engine::object::builtins::{AlignedVec, JsArrayBuffer, JsUint8Array};
 use boa_engine::object::ObjectInitializer;
-use boa_engine::property::Attribute;
+use boa_engine::property::{Attribute, PropertyDescriptor};
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsString, JsValue, Source};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -126,6 +128,7 @@ pub fn execute_module(
         .map_err(|err| format_js_error(err, &mut context))?;
     loader.insert(
         module_path.clone().unwrap_or_else(|| loader.entry_path()),
+        LoadedModuleKind::Source,
         module.clone(),
     );
     let promise = module.load_link_evaluate(&mut context);
@@ -154,7 +157,15 @@ pub fn execute_module(
 struct Test262ModuleLoader {
     root: PathBuf,
     entry_path: PathBuf,
-    module_map: RefCell<BTreeMap<PathBuf, Module>>,
+    module_map: RefCell<BTreeMap<(PathBuf, LoadedModuleKind), Module>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LoadedModuleKind {
+    Source,
+    Json,
+    Text,
+    Bytes,
 }
 
 impl Test262ModuleLoader {
@@ -177,12 +188,15 @@ impl Test262ModuleLoader {
         self.entry_path.clone()
     }
 
-    fn insert(&self, path: PathBuf, module: Module) {
-        self.module_map.borrow_mut().insert(path, module);
+    fn insert(&self, path: PathBuf, kind: LoadedModuleKind, module: Module) {
+        self.module_map.borrow_mut().insert((path, kind), module);
     }
 
-    fn get(&self, path: &Path) -> Option<Module> {
-        self.module_map.borrow().get(path).cloned()
+    fn get(&self, path: &Path, kind: LoadedModuleKind) -> Option<Module> {
+        self.module_map
+            .borrow()
+            .get(&(path.to_path_buf(), kind))
+            .cloned()
     }
 
     fn resolve_path(&self, referrer: Referrer, specifier: &JsString) -> JsResult<PathBuf> {
@@ -213,34 +227,107 @@ impl Test262ModuleLoader {
 
         Ok(normalize_absolute_path(&base_dir.join(specifier_path)))
     }
+
+    fn request_kind(request: &ModuleRequest) -> JsResult<LoadedModuleKind> {
+        let mut type_value = None;
+        for attribute in request.attributes() {
+            if attribute.key().to_std_string_escaped() == "type" {
+                type_value = Some(attribute.value().to_std_string_escaped());
+                break;
+            }
+        }
+
+        match type_value.as_deref() {
+            None | Some("") => Ok(LoadedModuleKind::Source),
+            Some("json") => Ok(LoadedModuleKind::Json),
+            Some("text") => Ok(LoadedModuleKind::Text),
+            Some("bytes") => Ok(LoadedModuleKind::Bytes),
+            Some(other) => Err(JsNativeError::syntax()
+                .with_message(format!("unsupported import attribute type `{other}`"))
+                .into()),
+        }
+    }
 }
 
 impl ModuleLoader for Test262ModuleLoader {
     async fn load_imported_module(
         self: Rc<Self>,
         referrer: Referrer,
-        specifier: JsString,
+        request: ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> JsResult<Module> {
+        let specifier = request.specifier();
         let short_path = specifier.to_std_string_escaped();
         let path = self.resolve_path(referrer, &specifier)?;
-        if let Some(module) = self.get(&path) {
+        let kind = Self::request_kind(&request)?;
+        if let Some(module) = self.get(&path, kind) {
             return Ok(module);
         }
 
-        let source = Source::from_filepath(&path).map_err(|err| {
-            JsNativeError::typ()
-                .with_message(format!("could not open file `{short_path}`"))
-                .with_cause(boa_engine::JsError::from_opaque(
-                    js_string!(err.to_string()).into(),
-                ))
-        })?;
-        let module = Module::parse(source, None, &mut context.borrow_mut()).map_err(|err| {
-            JsNativeError::syntax()
-                .with_message(format!("could not parse module `{short_path}`"))
-                .with_cause(err)
-        })?;
-        self.insert(path, module.clone());
+        let module = match kind {
+            LoadedModuleKind::Source => {
+                let source = Source::from_filepath(&path).map_err(|err| {
+                    JsNativeError::typ()
+                        .with_message(format!("could not open file `{short_path}`"))
+                        .with_cause(boa_engine::JsError::from_opaque(
+                            js_string!(err.to_string()).into(),
+                        ))
+                })?;
+                Module::parse(source, None, &mut context.borrow_mut()).map_err(|err| {
+                    JsNativeError::syntax()
+                        .with_message(format!("could not parse module `{short_path}`"))
+                        .with_cause(err)
+                })?
+            }
+            LoadedModuleKind::Json => {
+                let source = std::fs::read_to_string(&path).map_err(|err| {
+                    JsNativeError::typ()
+                        .with_message(format!("could not open file `{short_path}`"))
+                        .with_cause(boa_engine::JsError::from_opaque(
+                            js_string!(err.to_string()).into(),
+                        ))
+                })?;
+                Module::parse_json(js_string!(source), &mut context.borrow_mut()).map_err(
+                    |err| {
+                        JsNativeError::syntax()
+                            .with_message(format!("could not parse module `{short_path}`"))
+                            .with_cause(err)
+                    },
+                )?
+            }
+            LoadedModuleKind::Text => {
+                let source = std::fs::read_to_string(&path).map_err(|err| {
+                    JsNativeError::typ()
+                        .with_message(format!("could not open file `{short_path}`"))
+                        .with_cause(boa_engine::JsError::from_opaque(
+                            js_string!(err.to_string()).into(),
+                        ))
+                })?;
+                Module::from_value_as_default(
+                    JsValue::from(js_string!(source)),
+                    &mut context.borrow_mut(),
+                )
+            }
+            LoadedModuleKind::Bytes => {
+                let source = std::fs::read(&path).map_err(|err| {
+                    JsNativeError::typ()
+                        .with_message(format!("could not open file `{short_path}`"))
+                        .with_cause(boa_engine::JsError::from_opaque(
+                            js_string!(err.to_string()).into(),
+                        ))
+                })?;
+                let bytes = AlignedVec::from_iter(0, source);
+                let value = {
+                    let mut context = context.borrow_mut();
+                    let array_buffer =
+                        JsArrayBuffer::from_byte_block_immutable(bytes, &mut context)?;
+                    let array = JsUint8Array::from_array_buffer(array_buffer, &mut context)?;
+                    JsValue::from(array)
+                };
+                Module::from_value_as_default(value, &mut context.borrow_mut())
+            }
+        };
+        self.insert(path, kind, module.clone());
         Ok(module)
     }
 }
@@ -1518,33 +1605,6 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
     });
     Intl.DurationFormat = DurationFormat;
   }
-
-  if (typeof Temporal === "object" && Temporal) {
-    function installTemporalLocaleString(ctorName) {
-      const ctor = Temporal[ctorName];
-      if (!ctor || !ctor.prototype || typeof ctor.prototype.toLocaleString !== "function") {
-        return;
-      }
-      Object.defineProperty(ctor.prototype, "toLocaleString", {
-        value: function toLocaleString(locales, options) {
-          if (ctorName === "Duration") {
-            return new Intl.DurationFormat(locales, options).format(this);
-          }
-          return new Intl.DateTimeFormat(locales, options).format(this);
-        },
-        writable: true,
-        configurable: true
-      });
-    }
-
-    installTemporalLocaleString("Instant");
-    installTemporalLocaleString("PlainDate");
-    installTemporalLocaleString("PlainDateTime");
-    installTemporalLocaleString("PlainMonthDay");
-    installTemporalLocaleString("PlainTime");
-    installTemporalLocaleString("PlainYearMonth");
-    installTemporalLocaleString("Duration");
-  }
 })();
 "#;
 
@@ -2618,6 +2678,73 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
 })();
 "#;
 
+fn start_host_module_request(context: &mut Context, request: ModuleRequest) -> JsResult<JsValue> {
+    Ok(context.host_enqueue_module_request(request)?.into())
+}
+
+fn host_import_defer(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let specifier = args
+        .get(0)
+        .cloned()
+        .unwrap_or_default()
+        .to_string(context)?;
+    start_host_module_request(
+        context,
+        ModuleRequest::with_phase(specifier, ModuleRequestPhase::Defer),
+    )
+}
+
+fn host_dynamic_import_with(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let specifier = args
+        .get(0)
+        .cloned()
+        .unwrap_or_default()
+        .to_string(context)?;
+    let mut attributes = Vec::new();
+    if let Some(options) = args.get(1) {
+        if options.is_null_or_undefined() {
+            return start_host_module_request(
+                context,
+                ModuleRequest::with_phase_and_attributes(
+                    specifier,
+                    ModuleRequestPhase::Evaluation,
+                    attributes.into_boxed_slice(),
+                ),
+            );
+        }
+
+        let options = options.to_object(context)?;
+        let with = options.get(js_string!("with"), context)?;
+        if !with.is_null_or_undefined() {
+            let with = with.to_object(context)?;
+            let ty = with.get(js_string!("type"), context)?;
+            if !ty.is_null_or_undefined() {
+                attributes.push(ImportAttribute::new(
+                    js_string!("type"),
+                    ty.to_string(context)?,
+                ));
+            }
+        }
+    }
+
+    start_host_module_request(
+        context,
+        ModuleRequest::with_phase_and_attributes(
+            specifier,
+            ModuleRequestPhase::Evaluation,
+            attributes.into_boxed_slice(),
+        ),
+    )
+}
+
 fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), ExecutionError> {
     context
         .register_global_builtin_callable(
@@ -2648,6 +2775,20 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
             js_string!("__porfEvalScript"),
             1,
             NativeFunction::from_fn_ptr(host_eval_script),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porffor_import_defer__"),
+            1,
+            NativeFunction::from_fn_ptr(host_import_defer),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porffor_dynamic_import_with__"),
+            2,
+            NativeFunction::from_fn_ptr(host_dynamic_import_with),
         )
         .map_err(|err| format_js_error(err, context))?;
 
@@ -2713,6 +2854,8 @@ globalThis.$262 = {{
     context
         .eval(Source::from_bytes(bootstrap.as_bytes()))
         .map_err(|err| format_js_error(err, context))?;
+    install_abstract_module_source_host_hook(context)?;
+    install_html_dda_host_hook(context)?;
     context
         .eval(Source::from_bytes(DATE_TIME_FORMAT_SHIM.as_bytes()))
         .map_err(|err| format_js_error(err, context))?;
@@ -2722,6 +2865,58 @@ globalThis.$262 = {{
     context
         .run_jobs()
         .map_err(|err| format_js_error(err, context))?;
+    Ok(())
+}
+
+fn install_abstract_module_source_host_hook(context: &mut Context) -> Result<(), ExecutionError> {
+    let abstract_module_source = context
+        .intrinsics()
+        .constructors()
+        .abstract_module_source()
+        .constructor();
+    let test262 = context
+        .global_object()
+        .get(js_string!("$262"), context)
+        .map_err(|err| format_js_error(err, context))?
+        .as_object()
+        .ok_or_else(|| ExecutionError::new("$262 host hook should be an object"))?;
+
+    test262
+        .define_property_or_throw(
+            js_string!("AbstractModuleSource"),
+            PropertyDescriptor::builder()
+                .value(abstract_module_source)
+                .writable(true)
+                .enumerable(true)
+                .configurable(true),
+            context,
+        )
+        .map_err(|err| format_js_error(err, context))?;
+
+    Ok(())
+}
+
+fn install_html_dda_host_hook(context: &mut Context) -> Result<(), ExecutionError> {
+    let html_dda = context.intrinsics().objects().html_dda();
+    let test262 = context
+        .global_object()
+        .get(js_string!("$262"), context)
+        .map_err(|err| format_js_error(err, context))?
+        .as_object()
+        .ok_or_else(|| ExecutionError::new("$262 host hook should be an object"))?;
+
+    test262
+        .define_property_or_throw(
+            js_string!("IsHTMLDDA"),
+            PropertyDescriptor::builder()
+                .value(html_dda)
+                .writable(true)
+                .enumerable(true)
+                .configurable(true),
+            context,
+        )
+        .map_err(|err| format_js_error(err, context))?;
+
     Ok(())
 }
 
@@ -2998,6 +3193,84 @@ mod tests {
     }
 
     #[test]
+    fn installs_abstract_module_source_on_the_current_realm_host_hook() {
+        execute_script(
+            r#"
+            if (typeof $262.AbstractModuleSource !== "function") {
+              throw new Error("host hook should expose AbstractModuleSource");
+            }
+            if (Object.getPrototypeOf($262.AbstractModuleSource) !== Function.prototype) {
+              throw new Error("AbstractModuleSource should use the current realm intrinsic");
+            }
+            const other = $262.createRealm().getGlobal("$262");
+            if (other.AbstractModuleSource === $262.AbstractModuleSource) {
+              throw new Error("created realms should expose distinct AbstractModuleSource intrinsics");
+            }
+            "#,
+            Some("abstract-module-source.js"),
+            &[],
+        )
+        .expect("host hook should expose a realm-specific AbstractModuleSource intrinsic");
+    }
+
+    #[test]
+    fn installs_html_dda_on_the_current_realm_host_hook() {
+        execute_script(
+            r#"
+            if ($262.IsHTMLDDA === undefined) {
+              throw new Error("host hook should expose IsHTMLDDA");
+            }
+            if (typeof $262.IsHTMLDDA !== "undefined") {
+              throw new Error("typeof should treat IsHTMLDDA like undefined");
+            }
+            if (!!$262.IsHTMLDDA) {
+              throw new Error("IsHTMLDDA should be falsy");
+            }
+            if ($262.IsHTMLDDA != null) {
+              throw new Error("IsHTMLDDA should abstract-equal null");
+            }
+            if ($262.IsHTMLDDA() !== null || $262.IsHTMLDDA("") !== null) {
+              throw new Error("IsHTMLDDA calls should return null for no args and empty string");
+            }
+            const other = $262.createRealm().getGlobal("$262");
+            if (other.IsHTMLDDA === $262.IsHTMLDDA) {
+              throw new Error("created realms should expose distinct IsHTMLDDA objects");
+            }
+            "#,
+            Some("html-dda.js"),
+            &[],
+        )
+        .expect("host hook should expose a realm-specific HTMLDDA object");
+    }
+
+    #[test]
+    fn html_dda_iterator_methods_are_not_treated_as_missing() {
+        execute_script(
+            r#"
+            const items = {};
+            items[Symbol.iterator] = $262.IsHTMLDDA;
+
+            let threw = false;
+            try {
+              Array.from(items);
+            } catch (error) {
+              if (error.constructor !== TypeError) {
+                throw error;
+              }
+              threw = true;
+            }
+
+            if (!threw) {
+              throw new Error("Array.from should attempt to call the HTMLDDA iterator method");
+            }
+            "#,
+            Some("html-dda-array-from.js"),
+            &[],
+        )
+        .expect("Array.from should call an HTMLDDA @@iterator method");
+    }
+
+    #[test]
     fn installs_date_time_format_shim() {
         execute_script(
             r#"
@@ -3191,6 +3464,210 @@ mod tests {
     }
 
     #[test]
+    fn date_time_format_shim_preserves_native_temporal_to_locale_string_shape() {
+        execute_script(
+            r#"
+            const toLocaleString = Temporal.Instant.prototype.toLocaleString;
+            if (toLocaleString.length !== 0) {
+              throw new Error("Temporal toLocaleString length should stay native");
+            }
+            if (Object.prototype.hasOwnProperty.call(toLocaleString, "prototype")) {
+              throw new Error("Temporal toLocaleString should not gain a prototype property");
+            }
+            try {
+              new toLocaleString();
+              throw new Error("Temporal toLocaleString should not be constructable");
+            } catch (err) {
+              if (!(err instanceof TypeError)) {
+                throw err;
+              }
+            }
+            try {
+              toLocaleString.call({});
+              throw new Error("Temporal toLocaleString should preserve native branding");
+            } catch (err) {
+              if (!(err instanceof TypeError)) {
+                throw err;
+              }
+            }
+
+            const formatted = new Intl.DateTimeFormat("en-US", {
+              hour: "numeric",
+              minute: "2-digit"
+            }).format(new Temporal.PlainDateTime(2026, 1, 5, 11, 22));
+            if (typeof formatted !== "string") {
+              throw new Error("DateTimeFormat should still format Temporal values");
+            }
+            "#,
+            Some("dtf-temporal-native-to-locale-string.js"),
+            &[],
+        )
+        .expect("DateTimeFormat shim should preserve native Temporal toLocaleString shape");
+    }
+
+    #[test]
+    fn plain_year_month_add_reads_duration_before_options_and_rejects_lower_units() {
+        execute_script(
+            r#"
+            const expected = [
+              "days",
+              "hours",
+              "microseconds",
+              "milliseconds",
+              "minutes",
+              "months",
+              "nanoseconds",
+              "seconds",
+              "weeks",
+              "years",
+            ];
+            const observed = [];
+            const fields = {};
+            for (const key of expected) {
+              Object.defineProperty(fields, key, {
+                get() {
+                  observed.push(key);
+                  return key === "days" ? 1 : 0;
+                },
+                configurable: true,
+              });
+            }
+
+            const yearMonth = new Temporal.PlainYearMonth(2000, 5);
+            try {
+              yearMonth.add(fields, null);
+              throw new Error("primitive options should still throw");
+            } catch (err) {
+              if (!(err instanceof TypeError)) {
+                throw err;
+              }
+            }
+
+            if (observed.join(",") !== expected.join(",")) {
+              throw new Error("duration fields should be observed before primitive options");
+            }
+
+            for (const value of [{ days: 1 }, { hours: 1 }, { nanoseconds: 1 }]) {
+              try {
+                yearMonth.add(value);
+                throw new Error("lower units should throw RangeError");
+              } catch (err) {
+                if (!(err instanceof RangeError)) {
+                  throw err;
+                }
+              }
+            }
+            "#,
+            Some("plain-year-month-add-order.js"),
+            &[],
+        )
+        .expect("PlainYearMonth.add should observe duration before options and reject lower units");
+    }
+
+    #[test]
+    fn temporal_duration_exactness_regressions() {
+        execute_script(
+            r#"
+            const maxSafeInteger = 9007199254740991;
+            const microseconds = new Temporal.Duration(0, 0, 0, 0, 0, 0, 0, 0, maxSafeInteger, 0);
+            const added = microseconds.add(
+              new Temporal.Duration(0, 0, 0, 0, 0, 0, 0, 0, maxSafeInteger - 1, 0)
+            );
+            if (added.microseconds !== 18014398509481980) {
+              throw new Error("Duration.add should collapse unsafe microsecond slots to float64-representable integers");
+            }
+
+            const rounded = new Temporal.Duration(0, 1, 0, 0, 10).round({
+              smallestUnit: "months",
+              roundingMode: "expand",
+              relativeTo: new Temporal.PlainDate(2020, 1, 31),
+            });
+            if (rounded.months !== 2 || rounded.days !== 0) {
+              throw new Error("relative month rounding should use the expanded window");
+            }
+
+            const zero = new Temporal.Duration();
+            if (
+              zero.round({
+                smallestUnit: "hours",
+                largestUnit: "years",
+                relativeTo: new Temporal.PlainDateTime(1970, 1, 1),
+              }).toString() !== "PT0S"
+            ) {
+              throw new Error("zero relative rounding should stay zero for PlainDateTime");
+            }
+            if (
+              zero.round({
+                smallestUnit: "hours",
+                largestUnit: "years",
+                relativeTo: new Temporal.ZonedDateTime(0n, "UTC"),
+              }).toString() !== "PT0S"
+            ) {
+              throw new Error("zero relative rounding should stay zero for ZonedDateTime");
+            }
+
+            if (new Temporal.Duration(1, 0, 0, 0, 0, 0, 0, 0, 0, 1).toString() !== "P1YT0.000000001S") {
+              throw new Error("Duration stringification should preserve mixed date and subsecond time parts");
+            }
+
+            const totalHours = new Temporal.Duration(0, 0, 0, 0, 816, 0, 0, 0, 0, 2049187497660)
+              .total({ unit: "hours" });
+            if (totalHours !== 816.56921874935) {
+              throw new Error("Duration.total should round exact time totals once at the end");
+            }
+            "#,
+            Some("temporal-duration-exactness.js"),
+            &[],
+        )
+        .expect("Temporal duration exactness regressions should stay fixed");
+    }
+
+    #[test]
+    fn plain_year_month_arithmetic_respects_iso_overflow_and_empty_partial_bags() {
+        execute_script(
+            r#"
+            const lastMonth = new Temporal.PlainYearMonth(275760, 9);
+            const addResult = lastMonth.add({ months: -1 });
+            if (addResult.year !== 275760 || addResult.month !== 8) {
+              throw new Error("adding negative months from the upper boundary should succeed");
+            }
+            const subtractResult = lastMonth.subtract({ months: 1 });
+            if (subtractResult.year !== 275760 || subtractResult.month !== 8) {
+              throw new Error("subtracting months from the upper boundary should succeed");
+            }
+
+            const base = new Temporal.PlainYearMonth(2023, 1);
+            const constrain = base.add(new Temporal.Duration(1), { overflow: "constrain" });
+            const reject = base.add(new Temporal.Duration(1), { overflow: "reject" });
+            if (constrain.toString() !== reject.toString()) {
+              throw new Error("ISO overflow option should not affect PlainYearMonth.add");
+            }
+            const march = new Temporal.PlainYearMonth(2023, 3);
+            const marchConstrain = march.add({ months: -1 }, { overflow: "constrain" });
+            const marchReject = march.add({ months: -1 }, { overflow: "reject" });
+            if (marchConstrain.toString() !== marchReject.toString() || marchReject.toString() !== "2023-02") {
+              throw new Error("ISO overflow option should not affect negative month arithmetic");
+            }
+
+            const yearMonth = Temporal.PlainYearMonth.from("2019-10");
+            for (const value of [{}, { months: 12 }]) {
+              try {
+                yearMonth.with(value);
+                throw new Error("empty partial year-month bags should throw");
+              } catch (err) {
+                if (!(err instanceof TypeError)) {
+                  throw err;
+                }
+              }
+            }
+            "#,
+            Some("plain-year-month-boundary.js"),
+            &[],
+        )
+        .expect("PlainYearMonth arithmetic should preserve ISO overflow behavior and reject empty partial bags");
+    }
+
+    #[test]
     fn date_time_format_shim_filters_unsupported_locales_and_hc_extension() {
         execute_script(
             r#"
@@ -3292,6 +3769,50 @@ mod tests {
             &[],
         )
         .expect("script with promises should run");
+    }
+
+    #[test]
+    fn dataview_setter_rejects_immutable_backing_buffers_before_coercion() {
+        execute_script(
+            r#"
+            const immutable = (new ArrayBuffer(8)).transferToImmutable();
+            if (immutable.immutable !== true) {
+              throw new Error(`immutable flag mismatch: ${immutable.immutable}`);
+            }
+            const view = new DataView(immutable);
+            const calls = [];
+            const byteOffset = {
+              valueOf() {
+                calls.push("byteOffset");
+                return 0;
+              }
+            };
+            const value = {
+              valueOf() {
+                calls.push("value");
+                return 1;
+              }
+            };
+            let threw = false;
+            try {
+              view.setUint8(byteOffset, value);
+            } catch (error) {
+              threw = true;
+              if (error.constructor !== TypeError) {
+                throw new Error(`wrong error constructor: ${error && error.constructor && error.constructor.name}:${error && error.name}:${error}`);
+              }
+              if (calls.length !== 0) {
+                throw new Error("setUint8 should reject before coercing arguments");
+              }
+            }
+            if (!threw) {
+              throw new Error("setUint8 should throw TypeError for immutable buffers");
+            }
+            "#,
+            Some("dataview-immutable.js"),
+            &[],
+        )
+        .expect("DataView setters should reject immutable backing buffers before coercion");
     }
 
     #[test]

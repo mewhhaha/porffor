@@ -10,7 +10,7 @@ mod while_loop;
 
 use crate::{
     declaration::{Binding, Variable},
-    expression::{Identifier, access::PropertyAccess},
+    expression::{Call, Identifier, access::PropertyAccess},
     pattern::Pattern,
 };
 use core::ops::ControlFlow;
@@ -42,6 +42,8 @@ pub enum IterableLoopInitializer {
     Identifier(Identifier),
     /// A property access.
     Access(PropertyAccess),
+    /// A sloppy Annex B call target such as `f()`, which must throw at runtime.
+    WebCompatCall(Box<Call>),
     /// A new var declaration.
     Var(Variable),
     /// A new let declaration.
@@ -62,6 +64,7 @@ impl ToInternedString for IterableLoopInitializer {
             Self::Identifier(ident) => return ident.to_interned_string(interner),
             Self::Pattern(pattern) => return pattern.to_interned_string(interner),
             Self::Access(access) => return access.to_interned_string(interner),
+            Self::WebCompatCall(call) => return call.to_interned_string(interner),
             Self::Var(binding) => (binding.to_interned_string(interner), "var"),
             Self::Let(binding) => (binding.to_interned_string(interner), "let"),
             Self::Const(binding) => (binding.to_interned_string(interner), "const"),
@@ -81,6 +84,7 @@ impl VisitWith for IterableLoopInitializer {
         match self {
             Self::Identifier(id) => visitor.visit_identifier(id),
             Self::Access(pa) => visitor.visit_property_access(pa),
+            Self::WebCompatCall(call) => visitor.visit_call(call),
             Self::Var(b) => visitor.visit_variable(b),
             Self::Let(b) | Self::Const(b) | Self::Using(b) | Self::AwaitUsing(b) => {
                 visitor.visit_binding(b)
@@ -96,6 +100,7 @@ impl VisitWith for IterableLoopInitializer {
         match self {
             Self::Identifier(id) => visitor.visit_identifier_mut(id),
             Self::Access(pa) => visitor.visit_property_access_mut(pa),
+            Self::WebCompatCall(call) => visitor.visit_call_mut(call),
             Self::Var(b) => visitor.visit_variable_mut(b),
             Self::Let(b) | Self::Const(b) | Self::Using(b) | Self::AwaitUsing(b) => {
                 visitor.visit_binding_mut(b)
