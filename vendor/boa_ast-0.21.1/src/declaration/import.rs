@@ -47,6 +47,8 @@ pub enum ImportPhase {
     Evaluation,
     /// A deferred namespace request.
     Defer,
+    /// A source-phase request.
+    Source,
 }
 
 /// A static import attribute.

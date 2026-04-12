@@ -715,6 +715,16 @@ async fn finish_host_module_request(
                     return Ok(JsValue::undefined());
                 }
 
+                if request.phase() == ModuleRequestPhase::Source {
+                    let err = JsNativeError::syntax()
+                        .with_message("source phase imports are not available for source text modules")
+                        .to_opaque(context);
+                    cap.reject()
+                        .call(&JsValue::undefined(), &[err.into()], context)
+                        .expect("default reject must not throw");
+                    return Ok(JsValue::undefined());
+                }
+
                 let evaluate = module.evaluate(context);
                 let fulfill = FunctionObjectBuilder::new(
                     context.realm(),

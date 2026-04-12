@@ -17,7 +17,7 @@ use crate::{
     },
     environments::DeclarativeEnvironment,
     js_string,
-    module::Module,
+    module::{Module, ModuleRequest},
     object::shape::RootShape,
 };
 use boa_ast::scope::Scope;
@@ -69,7 +69,7 @@ struct Inner {
     global_object: JsObject,
     global_this: JsObject,
     template_map: GcRefCell<FxHashMap<u64, JsObject>>,
-    loaded_modules: GcRefCell<FxHashMap<JsString, Module>>,
+    loaded_modules: GcRefCell<FxHashMap<ModuleRequest, Module>>,
     host_classes: GcRefCell<FxHashMap<TypeId, StandardConstructor>>,
 
     host_defined: GcRefCell<HostDefined>,
@@ -202,7 +202,7 @@ impl Realm {
         &self.inner.global_this
     }
 
-    pub(crate) fn loaded_modules(&self) -> &GcRefCell<FxHashMap<JsString, Module>> {
+    pub(crate) fn loaded_modules(&self) -> &GcRefCell<FxHashMap<ModuleRequest, Module>> {
         &self.inner.loaded_modules
     }
 

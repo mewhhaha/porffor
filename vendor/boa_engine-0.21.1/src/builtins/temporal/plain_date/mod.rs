@@ -9,6 +9,7 @@ use crate::{
     JsValue,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
         temporal::calendar::to_temporal_calendar_identifier,
     },
@@ -1218,17 +1219,23 @@ impl PlainDate {
     ///
     /// [spec]: https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.tolocalestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/PlainDate/toLocaleString
-    fn to_locale_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
+    fn to_locale_string(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let object = this.as_object();
-        let date = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("the this object must be a PlainDate object.")
             })?;
-
-        Ok(JsString::from(date.inner.to_string()).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::Date,
+            DateTimeReqs::Date,
+            context,
+        )?
+        .into())
     }
 
     /// 3.3.32 `Temporal.PlainDate.prototype.toJSON ( )`

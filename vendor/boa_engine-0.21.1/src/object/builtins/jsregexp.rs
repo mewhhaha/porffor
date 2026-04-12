@@ -1,6 +1,6 @@
 //! A Rust API wrapper for Boa's `RegExp` Builtin ECMAScript Object
 use crate::{
-    Context, JsNativeError, JsResult, JsValue,
+    Context, JsNativeError, JsResult, JsString, JsValue,
     builtins::RegExp,
     object::{JsArray, JsObject},
     value::TryFromJs,
@@ -63,6 +63,20 @@ impl JsRegExp {
         let regexp = RegExp::initialize(None, &pattern.into(), &flags.into(), context)?
             .as_object()
             .expect("RegExp::initialize must return a RegExp object")
+            .clone();
+
+        Ok(Self { inner: regexp })
+    }
+
+    /// Create a new `JsRegExp` object from parser-validated literal source and flags.
+    pub(crate) fn new_literal(
+        pattern: JsString,
+        flags: JsString,
+        context: &mut Context,
+    ) -> JsResult<Self> {
+        let regexp = RegExp::initialize_from_literal(None, pattern, flags, context)?
+            .as_object()
+            .expect("RegExp::initialize_from_literal must return a RegExp object")
             .clone();
 
         Ok(Self { inner: regexp })

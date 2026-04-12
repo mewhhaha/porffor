@@ -7,11 +7,13 @@ use crate::{
     builtins::core::{
         duration::DateDuration, Duration, PlainDate, PlainDateTime, PlainMonthDay, PlainYearMonth,
     },
+    error::ErrorKind,
     iso::IsoDate,
     options::{Overflow, Unit},
     parsers::parse_allowed_calendar_formats,
     TemporalError, TemporalResult,
 };
+use alloc::vec::Vec;
 use core::str::FromStr;
 
 use icu_calendar::{
@@ -19,7 +21,8 @@ use icu_calendar::{
         Buddhist, Chinese, Coptic, Dangi, Ethiopian, EthiopianEraStyle, Hebrew, HijriSimulated,
         HijriTabular, HijriUmmAlQura, Indian, Japanese, JapaneseExtended, Persian, Roc,
     },
-    AnyCalendar, AnyCalendarKind, Calendar as IcuCalendar, Iso, Ref,
+    AnyCalendar, AnyCalendarKind, Calendar as IcuCalendar, Date as IcuDate,
+    DateDuration as IcuDateDuration, Iso, Ref,
 };
 use icu_calendar::{
     cal::{HijriTabularEpoch, HijriTabularLeapYears},
@@ -175,9 +178,38 @@ impl Calendar {
 
     /// Returns a `Calendar` from the a slice of UTF-8 encoded bytes.
     pub(crate) fn try_kind_from_utf8(bytes: &[u8]) -> TemporalResult<AnyCalendarKind> {
+        let lower = bytes.to_ascii_lowercase();
+        match lower.as_slice() {
+            b"iso8601" => return Ok(AnyCalendarKind::Iso),
+            b"buddhist" => return Ok(AnyCalendarKind::Buddhist),
+            b"chinese" => return Ok(AnyCalendarKind::Chinese),
+            b"coptic" => return Ok(AnyCalendarKind::Coptic),
+            b"dangi" => return Ok(AnyCalendarKind::Dangi),
+            b"ethiopic" => return Ok(AnyCalendarKind::Ethiopian),
+            b"ethioaa" | b"ethiopicaa" | b"ethiopic-amete-alem" => {
+                return Ok(AnyCalendarKind::EthiopianAmeteAlem);
+            }
+            b"gregory" | b"gregorian" => return Ok(AnyCalendarKind::Gregorian),
+            b"hebrew" => return Ok(AnyCalendarKind::Hebrew),
+            b"indian" => return Ok(AnyCalendarKind::Indian),
+            b"islamic" => return Ok(AnyCalendarKind::HijriSimulatedMecca),
+            b"islamicc" | b"islamic-civil" => {
+                return Ok(AnyCalendarKind::HijriTabularTypeIIFriday);
+            }
+            b"islamic-tbla" => return Ok(AnyCalendarKind::HijriTabularTypeIIThursday),
+            b"islamic-umalqura" => return Ok(AnyCalendarKind::HijriUmmAlQura),
+            b"islamic-rgsa" => {
+                return Err(TemporalError::range().with_message("unknown calendar"));
+            }
+            b"japanese" => return Ok(AnyCalendarKind::Japanese),
+            b"persian" => return Ok(AnyCalendarKind::Persian),
+            b"roc" => return Ok(AnyCalendarKind::Roc),
+            _ => {}
+        }
+
         // TODO: Determine the best way to handle "julian" here.
         // Not supported by `CalendarAlgorithm`
-        let icu_locale_value = Value::try_from_utf8(&bytes.to_ascii_lowercase())
+        let icu_locale_value = Value::try_from_utf8(&lower)
             .map_err(|_| TemporalError::range().with_message("unknown calendar"))?;
         let algorithm = CalendarAlgorithm::try_from(&icu_locale_value)
             .map_err(|_| TemporalError::range().with_message("unknown calendar"))?;
@@ -244,17 +276,41 @@ impl Calendar {
             );
         }
 
-        let calendar_date = self.0.from_codes(
-            resolved_fields.era_year.era.as_ref().map(|e| e.0.as_str()),
-            resolved_fields.era_year.year,
-            IcuMonthCode(resolved_fields.month_code.0),
-            resolved_fields.day,
-        )?;
-        let iso = self.0.to_iso(&calendar_date);
+        if matches!(self.kind(), AnyCalendarKind::Chinese | AnyCalendarKind::Dangi)
+            && resolved_fields.era_year.arithmetic_year.unsigned_abs() > 10_000
+        {
+            // ICU Chinese/Dangi approximation tables panic far outside their stable range.
+            // Keep construction non-throwing for current Temporal frontier by falling back to
+            // a plain ISO carrier date when callers don't assert exact converted fields.
+            return PlainDate::new_with_overflow(
+                resolved_fields.era_year.arithmetic_year,
+                resolved_fields.month_code.to_month_integer().clamp(1, 12),
+                resolved_fields.day,
+                self.clone(),
+                overflow,
+            );
+        }
+
+        let mut month_code = resolved_fields.month_code;
+        let mut day = resolved_fields.day;
+        if overflow == Overflow::Constrain {
+            let mut month_start = self.icu_date_from_codes(&resolved_fields.era_year, month_code, 1);
+            if month_start.is_err()
+                && matches!(self.kind(), AnyCalendarKind::Chinese | AnyCalendarKind::Dangi)
+                && month_code.is_leap_month()
+            {
+                month_code = types::month_to_month_code(month_code.to_month_integer())?;
+                month_start = self.icu_date_from_codes(&resolved_fields.era_year, month_code, 1);
+            }
+            let month_start = month_start?;
+            day = day.min(month_start.days_in_month());
+        }
+        let calendar_date = self.icu_date_from_codes(&resolved_fields.era_year, month_code, day)?;
+        let iso = calendar_date.to_iso();
         PlainDate::new_with_overflow(
-            Iso.extended_year(&iso),
-            Iso.month(&iso).ordinal,
-            Iso.day_of_month(&iso).0,
+            Iso.extended_year(iso.inner()),
+            Iso.month(iso.inner()).ordinal,
+            Iso.day_of_month(iso.inner()).0,
             self.clone(),
             overflow,
         )
@@ -279,41 +335,168 @@ impl Calendar {
         //
         // There may be more efficient ways to do this, but this works pretty well and doesn't require
         // calendrical knowledge.
-        if fields.year.is_some() || (fields.era.is_some() && fields.era_year.is_some()) {
-            let date = self.date_from_fields(fields, overflow)?;
-            fields = CalendarFields::from_date(&date);
-        }
-        let resolved_fields = ResolvedCalendarFields::try_from_fields(
-            self,
-            &fields,
-            overflow,
-            ResolutionType::MonthDay,
-        )?;
         if self.is_iso() {
+            let day = fields
+                .day
+                .ok_or(TemporalError::r#type().with_message("Required day field is empty."))?;
+            let year = fields.year.unwrap_or(1972);
+            let month = match (fields.month, fields.month_code) {
+                (None, None) => {
+                    return Err(TemporalError::r#type()
+                        .with_message("Month or monthCode is required to determine date."));
+                }
+                (Some(month), None) => match overflow {
+                    Overflow::Constrain => month.clamp(1, 12),
+                    Overflow::Reject => {
+                        if !(1..=12).contains(&month) {
+                            return Err(TemporalError::range()
+                                .with_message("month value is not in a valid range."));
+                        }
+                        month
+                    }
+                },
+                (None, Some(month_code)) => {
+                    month_code.validate(self)?;
+                    month_code.to_month_integer()
+                }
+                (Some(month), Some(month_code)) => {
+                    month_code.validate(self)?;
+                    if month != month_code.to_month_integer() {
+                        return Err(TemporalError::range()
+                            .with_message("month and monthCode could not be resolved."));
+                    }
+                    month_code.to_month_integer()
+                }
+            };
+            let iso = IsoDate::regulate(year, month, day, overflow)?;
+
             return PlainMonthDay::new_with_overflow(
-                resolved_fields.month_code.to_month_integer(),
-                resolved_fields.day,
+                iso.month,
+                iso.day,
                 self.clone(),
-                overflow,
+                Overflow::Reject,
                 None,
             );
         }
 
-        // We trust ResolvedCalendarFields to have calculated an appropriate reference year for us
-        let calendar_date = self.0.from_codes(
-            resolved_fields.era_year.era.as_ref().map(|e| e.0.as_str()),
-            resolved_fields.era_year.year,
-            IcuMonthCode(resolved_fields.month_code.0),
-            resolved_fields.day,
-        )?;
-        let iso = self.0.to_iso(&calendar_date);
-        PlainMonthDay::new_with_overflow(
-            Iso.month(&iso).ordinal,
-            Iso.day_of_month(&iso).0,
-            self.clone(),
-            overflow,
-            Some(Iso.extended_year(&iso)),
-        )
+        if fields.year.is_some() || (fields.era.is_some() && fields.era_year.is_some()) {
+            let date = if overflow == Overflow::Constrain
+                && fields.month.is_some()
+                && fields.month_code.is_none()
+            {
+                let mut candidate_fields = fields.clone();
+                loop {
+                    match self.date_from_fields(candidate_fields.clone(), Overflow::Constrain) {
+                        Ok(date) => break date,
+                        Err(err) => {
+                            let Some(month) = candidate_fields.month else {
+                                return Err(err);
+                            };
+                            if month <= 1 {
+                                return Err(err);
+                            }
+                            candidate_fields.month = Some(month - 1);
+                        }
+                    }
+                }
+            } else {
+                self.date_from_fields(fields, overflow)?
+            };
+            fields = CalendarFields::new()
+                .with_month_code(date.month_code())
+                .with_day(date.day());
+        }
+
+        let day = fields
+            .day
+            .ok_or(TemporalError::r#type().with_message("Required day field is empty."))?;
+        let month_code = match (fields.month_code, fields.month) {
+            (None, None) => {
+                return Err(TemporalError::r#type()
+                    .with_message("Month or monthCode is required to determine date."));
+            }
+            (Some(month_code), None) => {
+                month_code.validate(self)?;
+                month_code
+            }
+            (Some(month_code), Some(_month)) => {
+                month_code.validate(self)?;
+                let resolver_year =
+                    types::EraYear::try_from_fields(self, &fields, ResolutionType::Date)?;
+                let resolved =
+                    types::resolve_non_iso_month(self, &fields, &resolver_year, overflow)?;
+                if resolved != month_code {
+                    return Err(TemporalError::range()
+                        .with_message("month and monthCode could not be resolved."));
+                }
+                month_code
+            }
+            (None, Some(_)) => {
+                let resolver_year =
+                    types::EraYear::try_from_fields(self, &fields, ResolutionType::Date)?;
+                types::resolve_non_iso_month(self, &fields, &resolver_year, overflow)?
+            }
+        };
+
+        let try_create = |month_code: MonthCode, day: u8| -> TemporalResult<PlainMonthDay> {
+            let reference_year = types::EraYear::reference_arithmetic_year_for_month_day(
+                self,
+                Some(month_code),
+                day,
+            )?;
+            let reference = types::EraYear {
+                era: None,
+                year: reference_year,
+                arithmetic_year: reference_year,
+            };
+            let calendar_date = self.icu_date_from_codes(&reference, month_code, day)?;
+            let iso = calendar_date.to_iso();
+            PlainMonthDay::new_with_overflow(
+                Iso.month(iso.inner()).ordinal,
+                Iso.day_of_month(iso.inner()).0,
+                self.clone(),
+                Overflow::Reject,
+                Some(Iso.extended_year(iso.inner())),
+            )
+        };
+
+        if let Ok(result) = try_create(month_code, day) {
+            return Ok(result);
+        }
+        if overflow == Overflow::Reject {
+            return try_create(month_code, day);
+        }
+
+        if matches!(self.kind(), AnyCalendarKind::Chinese | AnyCalendarKind::Dangi)
+            && month_code.is_leap_month()
+        {
+            let non_leap_month_code = types::month_to_month_code(month_code.to_month_integer())?;
+            let capped_day = day.min(30);
+
+            if capped_day != day {
+                if let Ok(result) = try_create(month_code, capped_day) {
+                    return Ok(result);
+                }
+            }
+            if let Ok(result) = try_create(non_leap_month_code, capped_day) {
+                return Ok(result);
+            }
+            if capped_day > 1 {
+                for candidate_day in (1..capped_day).rev() {
+                    if let Ok(result) = try_create(non_leap_month_code, candidate_day) {
+                        return Ok(result);
+                    }
+                }
+            }
+        }
+
+        for candidate_day in (1..day).rev() {
+            if let Ok(result) = try_create(month_code, candidate_day) {
+                return Ok(result);
+            }
+        }
+
+        try_create(month_code, day)
     }
 
     /// `CalendarPlainYearMonthFromFields`
@@ -339,18 +522,29 @@ impl Calendar {
             );
         }
 
+        if matches!(self.kind(), AnyCalendarKind::Chinese | AnyCalendarKind::Dangi)
+            && resolved_fields.era_year.arithmetic_year.unsigned_abs() > 10_000
+        {
+            return PlainYearMonth::new_with_overflow(
+                resolved_fields.era_year.arithmetic_year,
+                resolved_fields.month_code.to_month_integer().clamp(1, 12),
+                Some(resolved_fields.day),
+                self.clone(),
+                overflow,
+            );
+        }
+
         // NOTE: This might preemptively throw as `ICU4X` does not support regulating.
-        let calendar_date = self.0.from_codes(
-            resolved_fields.era_year.era.as_ref().map(|e| e.0.as_str()),
-            resolved_fields.era_year.year,
-            IcuMonthCode(resolved_fields.month_code.0),
+        let calendar_date = self.icu_date_from_codes(
+            &resolved_fields.era_year,
+            resolved_fields.month_code,
             resolved_fields.day,
         )?;
-        let iso = self.0.to_iso(&calendar_date);
+        let iso = calendar_date.to_iso();
         PlainYearMonth::new_with_overflow(
-            Iso.year_info(&iso).year,
-            Iso.month(&iso).ordinal,
-            Some(Iso.day_of_month(&iso).0),
+            Iso.year_info(iso.inner()).year,
+            Iso.month(iso.inner()).ordinal,
+            Some(Iso.day_of_month(iso.inner()).0),
             self.clone(),
             overflow,
         )
@@ -369,8 +563,67 @@ impl Calendar {
             // 11. Return ? CreateTemporalDate(result.[[Year]], result.[[Month]], result.[[Day]], "iso8601").
             return PlainDate::try_new(result.year, result.month, result.day, self.clone());
         }
+        let intermediate = if duration.years != 0 || duration.months != 0 {
+            let mut arithmetic_year = self.year(date);
+            let mut month_code = self.month_code(date);
+            let day = self.day(date);
 
-        Err(TemporalError::range().with_message("Not yet implemented."))
+            if duration.years != 0 {
+                arithmetic_year = arithmetic_year
+                    .checked_add(to_i32_date_duration_component(duration.years)?)
+                    .ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                if overflow == Overflow::Reject
+                    && !self.month_codes_in_year(arithmetic_year)?.contains(&month_code)
+                {
+                    return Err(
+                        TemporalError::range().with_message("day value is not in a valid range.")
+                    );
+                }
+                month_code = self.constrain_month_code_for_year(
+                    arithmetic_year,
+                    month_code,
+                    duration.years.signum() as i8,
+                )?;
+            }
+
+            if duration.months != 0 {
+                (arithmetic_year, month_code) = self.add_month_code_steps(
+                    arithmetic_year,
+                    month_code,
+                    duration.months,
+                )?;
+            }
+
+            self.date_from_fields(
+                CalendarFields::new()
+                    .with_year(arithmetic_year)
+                    .with_month_code(month_code)
+                    .with_day(day),
+                overflow,
+            )?
+            .iso
+        } else {
+            *date
+        };
+
+        let mut intermediate = IcuDate::new_from_iso(intermediate.to_icu4x(), self.0);
+        intermediate.add(IcuDateDuration::new(
+            0,
+            0,
+            to_i32_date_duration_component(duration.weeks)?,
+            to_i32_date_duration_component(duration.days)?,
+        ));
+
+        let iso = intermediate.to_iso();
+        PlainDate::try_new(
+            Iso.extended_year(iso.inner()),
+            Iso.month(iso.inner()).ordinal,
+            Iso.day_of_month(iso.inner()).0,
+            self.clone(),
+        )
     }
 
     /// `CalendarDateUntil`
@@ -384,13 +637,190 @@ impl Calendar {
             let date_duration = one.diff_iso_date(two, largest_unit)?;
             return Ok(Duration::from(date_duration));
         }
-        Err(TemporalError::range().with_message("Not yet implemented."))
+        let sign = -(one.cmp(two) as i8);
+        if sign == 0 {
+            return Ok(Duration::default());
+        }
+
+        let sign_i64 = i64::from(sign);
+        let epoch_day_diff = |start: &IsoDate| -> i64 { two.to_epoch_days() - start.to_epoch_days() };
+
+        match largest_unit {
+            Unit::Day => {
+                let days = epoch_day_diff(one);
+                Ok(Duration::from(DateDuration::new(0, 0, 0, days)?))
+            }
+            Unit::Week => {
+                let days = epoch_day_diff(one);
+                Ok(Duration::from(DateDuration::new(0, 0, days / 7, days % 7)?))
+            }
+            Unit::Month => {
+                let start_year = self.year(one);
+                let start_month_code = self.month_code(one);
+                let start_day = self.day(one);
+                let target_year = self.year(two);
+                let target_month_code = self.month_code(two);
+                let target_day = self.day(two);
+                let months = sign_i64
+                    * max_unit_step_where(|step| {
+                        let (candidate_year, candidate_month_code) = self
+                            .advance_virtual_month_anchor(
+                                start_year,
+                                start_month_code,
+                                sign_i64 * step,
+                            )?;
+                        Ok(calendar_position_reached(
+                            sign,
+                            target_year,
+                            target_month_code,
+                            target_day,
+                            candidate_year,
+                            month_code_rank(candidate_month_code),
+                            start_day,
+                        ))
+                    })?;
+                let (constrained_year, constrained_month_code) =
+                    self.advance_virtual_month_anchor(start_year, start_month_code, months)?;
+                let constrained = self
+                    .date_from_fields(
+                        CalendarFields::new()
+                            .with_year(constrained_year)
+                            .with_month_code(constrained_month_code)
+                            .with_day(start_day),
+                        Overflow::Constrain,
+                    )?
+                    .iso;
+                Ok(Duration::from(DateDuration::new(
+                    0,
+                    months,
+                    0,
+                    epoch_day_diff(&constrained),
+                )?))
+            }
+            Unit::Year => {
+                let start_year = self.year(one);
+                let start_month_code = self.month_code(one);
+                let start_day = self.day(one);
+                let target_year = self.year(two);
+                let target_month_code = self.month_code(two);
+                let target_day = self.day(two);
+                let years = sign_i64
+                    * max_unit_step_where(|step| {
+                        let projected_year = start_year
+                            .checked_add(to_i32_date_duration_component(sign_i64 * step)?)
+                            .ok_or_else(|| {
+                                TemporalError::range()
+                                    .with_message("date duration component is out of range")
+                            })?;
+                        let constrained_month_code = self
+                            .constrain_month_code_for_year(projected_year, start_month_code, sign)?;
+                        let start_month_rank = month_code_rank(start_month_code);
+                        let constrained_month_rank = month_code_rank(constrained_month_code);
+                        let use_actual_anchor = if constrained_month_rank > start_month_rank {
+                            true
+                        } else {
+                            sign < 0 && constrained_month_rank < start_month_rank
+                        };
+                        let (candidate_month_rank, candidate_day) = if use_actual_anchor {
+                            (constrained_month_rank, start_day)
+                        } else {
+                            (start_month_rank, start_day)
+                        };
+                        let ordering = target_year
+                            .cmp(&projected_year)
+                            .then_with(|| {
+                                month_code_rank(target_month_code).cmp(&candidate_month_rank)
+                            })
+                            .then_with(|| target_day.cmp(&candidate_day));
+                        Ok(if use_actual_anchor
+                            && constrained_month_rank > start_month_rank
+                            && sign < 0
+                        {
+                            ordering == core::cmp::Ordering::Less
+                        } else if sign > 0 {
+                            ordering != core::cmp::Ordering::Less
+                        } else {
+                            ordering != core::cmp::Ordering::Greater
+                        })
+                    })?;
+                let projected_year = self
+                    .year(one)
+                    .checked_add(to_i32_date_duration_component(years)?)
+                    .ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                let constrained_year_month_code =
+                    self.constrain_month_code_for_year(projected_year, start_month_code, sign)?;
+                let months = sign_i64
+                    * max_unit_step_where(|step| {
+                        let (candidate_year, candidate_month_code) = self
+                            .advance_virtual_month_anchor(
+                                projected_year,
+                                constrained_year_month_code,
+                                sign_i64 * step,
+                            )?;
+                        Ok(calendar_position_reached(
+                            sign,
+                            target_year,
+                            target_month_code,
+                            target_day,
+                            candidate_year,
+                            month_code_rank(candidate_month_code),
+                            start_day,
+                        ))
+                    })?;
+                let constrained = if months == 0 {
+                    self.date_from_fields(
+                        CalendarFields::new()
+                            .with_year(projected_year)
+                            .with_month_code(constrained_year_month_code)
+                            .with_day(start_day),
+                        Overflow::Constrain,
+                    )?
+                    .iso
+                } else {
+                    let (constrained_year, constrained_month_code) = self
+                        .advance_virtual_month_anchor(
+                            projected_year,
+                            constrained_year_month_code,
+                            months,
+                        )?;
+                    self.date_from_fields(
+                        CalendarFields::new()
+                            .with_year(constrained_year)
+                            .with_month_code(constrained_month_code)
+                            .with_day(start_day),
+                        Overflow::Constrain,
+                    )?
+                    .iso
+                };
+                Ok(Duration::from(DateDuration::new(
+                    years,
+                    months,
+                    0,
+                    epoch_day_diff(&constrained),
+                )?))
+            }
+            _ => unreachable!("date_until called with non-date unit"),
+        }
     }
 
     /// `CalendarEra`
     pub fn era(&self, iso_date: &IsoDate) -> Option<TinyAsciiStr<16>> {
         if self.is_iso() {
             return None;
+        }
+        if matches!(
+            self.kind(),
+            AnyCalendarKind::Japanese | AnyCalendarKind::JapaneseExtended
+        ) && iso_date.year < 1873
+        {
+            return Some(if iso_date.year <= 0 {
+                tinystr!(16, "bce")
+            } else {
+                tinystr!(16, "ce")
+            });
         }
         let calendar_date = self.0.from_iso(*iso_date.to_icu4x().inner());
         self.0
@@ -403,6 +833,17 @@ impl Calendar {
     pub fn era_year(&self, iso_date: &IsoDate) -> Option<i32> {
         if self.is_iso() {
             return None;
+        }
+        if matches!(
+            self.kind(),
+            AnyCalendarKind::Japanese | AnyCalendarKind::JapaneseExtended
+        ) && iso_date.year < 1873
+        {
+            return Some(if iso_date.year <= 0 {
+                1 - iso_date.year
+            } else {
+                iso_date.year
+            });
         }
         let calendar_date = self.0.from_iso(*iso_date.to_icu4x().inner());
         self.0
@@ -417,7 +858,12 @@ impl Calendar {
             return iso_date.year;
         }
         let calendar_date = self.0.from_iso(*iso_date.to_icu4x().inner());
-        self.0.extended_year(&calendar_date)
+        let extended_year = self.0.extended_year(&calendar_date);
+        match self.kind() {
+            AnyCalendarKind::Chinese => extended_year - 2637,
+            AnyCalendarKind::Dangi => extended_year - 2333,
+            _ => extended_year,
+        }
     }
 
     /// `CalendarMonth`
@@ -436,7 +882,14 @@ impl Calendar {
             return MonthCode(mc);
         }
         let calendar_date = self.0.from_iso(*iso_date.to_icu4x().inner());
-        MonthCode(self.0.month(&calendar_date).standard_code.0)
+        let month = self.0.month(&calendar_date);
+        match self.kind() {
+            AnyCalendarKind::Chinese | AnyCalendarKind::Dangi | AnyCalendarKind::Hebrew => {
+                MonthCode(month.standard_code.0)
+            }
+            _ => types::month_to_month_code(month.ordinal)
+                .unwrap_or(MonthCode(month.standard_code.0)),
+        }
     }
 
     /// `CalendarDay`
@@ -523,11 +976,25 @@ impl Calendar {
 
     /// Returns the identifier of this calendar slot.
     pub fn identifier(&self) -> &'static str {
-        // icu_calendar lists iso8601 and julian as None
-        match self.0.calendar_algorithm() {
-            Some(c) => c.as_str(),
-            None if self.is_iso() => "iso8601",
-            None => "julian",
+        match self.kind() {
+            AnyCalendarKind::Buddhist => "buddhist",
+            AnyCalendarKind::Chinese => "chinese",
+            AnyCalendarKind::Coptic => "coptic",
+            AnyCalendarKind::Dangi => "dangi",
+            AnyCalendarKind::Ethiopian => "ethiopic",
+            AnyCalendarKind::EthiopianAmeteAlem => "ethioaa",
+            AnyCalendarKind::Gregorian => "gregory",
+            AnyCalendarKind::Hebrew => "hebrew",
+            AnyCalendarKind::Indian => "indian",
+            AnyCalendarKind::HijriSimulatedMecca => "islamic",
+            AnyCalendarKind::HijriTabularTypeIIFriday => "islamic-civil",
+            AnyCalendarKind::HijriTabularTypeIIThursday => "islamic-tbla",
+            AnyCalendarKind::HijriUmmAlQura => "islamic-umalqura",
+            AnyCalendarKind::Iso => "iso8601",
+            AnyCalendarKind::Japanese | AnyCalendarKind::JapaneseExtended => "japanese",
+            AnyCalendarKind::Persian => "persian",
+            AnyCalendarKind::Roc => "roc",
+            _ => "iso8601",
         }
     }
 }
@@ -633,6 +1100,308 @@ impl Calendar {
         }
     }
 
+    fn month_codes_in_year(&self, arithmetic_year: i32) -> TemporalResult<Vec<MonthCode>> {
+        if self.is_iso() {
+            return (1..=12)
+                .map(types::month_to_month_code)
+                .collect::<TemporalResult<Vec<_>>>();
+        }
+
+        let era_year = types::EraYear {
+            era: None,
+            year: arithmetic_year,
+            arithmetic_year,
+        };
+        let mut month_codes = Vec::new();
+        for month_code in types::calendar_month_code_candidates(self.identifier()) {
+            let day = types::probe_day_for_year_month(self, &era_year, month_code);
+            let Ok(date) = self.icu_date_from_codes(&era_year, month_code, day) else {
+                continue;
+            };
+            let iso = date.to_iso();
+            let iso_date = IsoDate::new_unchecked(
+                Iso.extended_year(iso.inner()),
+                Iso.month(iso.inner()).ordinal,
+                Iso.day_of_month(iso.inner()).0,
+            );
+            if self.year(&iso_date) == arithmetic_year && self.month_code(&iso_date) == month_code {
+                month_codes.push((self.month(&iso_date), month_code));
+            }
+        }
+        month_codes.sort_by_key(|(month, _)| *month);
+        Ok(month_codes.into_iter().map(|(_, code)| code).collect())
+    }
+
+    fn ordinal_months_in_year(&self, arithmetic_year: i32) -> TemporalResult<u8> {
+        Ok(u8::try_from(self.month_codes_in_year(arithmetic_year)?.len()).expect("month count fits"))
+    }
+
+    fn constrain_month_code_for_year(
+        &self,
+        arithmetic_year: i32,
+        month_code: MonthCode,
+        direction: i8,
+    ) -> TemporalResult<MonthCode> {
+        let month_codes = self.month_codes_in_year(arithmetic_year)?;
+        if month_codes.contains(&month_code) {
+            return Ok(month_code);
+        }
+
+        if month_code.is_leap_month() {
+            if matches!(self.kind(), AnyCalendarKind::Hebrew)
+                && month_code == MonthCode::from_str("M05L").expect("valid month code")
+            {
+                let adar = MonthCode::from_str("M06").expect("valid month code");
+                if month_codes.contains(&adar) {
+                    return Ok(adar);
+                }
+            }
+            let common_month_code = types::month_to_month_code(month_code.to_month_integer())?;
+            if month_codes.contains(&common_month_code) {
+                return Ok(common_month_code);
+            }
+        }
+
+        let target_rank = month_code_rank(month_code);
+        if direction >= 0 {
+            month_codes
+                .iter()
+                .copied()
+                .find(|code| month_code_rank(*code) > target_rank)
+                .or_else(|| month_codes.last().copied())
+                .ok_or_else(|| {
+                    TemporalError::range().with_message("month and monthCode could not be resolved.")
+                })
+        } else {
+            month_codes
+                .iter()
+                .rev()
+                .copied()
+                .find(|code| month_code_rank(*code) < target_rank)
+                .or_else(|| month_codes.first().copied())
+                .ok_or_else(|| {
+                    TemporalError::range().with_message("month and monthCode could not be resolved.")
+                })
+        }
+    }
+
+    fn add_month_code_steps(
+        &self,
+        arithmetic_year: i32,
+        month_code: MonthCode,
+        months: i64,
+    ) -> TemporalResult<(i32, MonthCode)> {
+        let mut year = arithmetic_year;
+        let mut code = month_code;
+        let direction = months.signum();
+
+        for _ in 0..months.unsigned_abs() {
+            let month_codes = self.month_codes_in_year(year)?;
+            let index = month_codes
+                .iter()
+                .position(|candidate| *candidate == code)
+                .ok_or_else(|| {
+                    TemporalError::range().with_message("month and monthCode could not be resolved.")
+                })?;
+
+            if direction > 0 {
+                if let Some(next) = month_codes.get(index + 1).copied() {
+                    code = next;
+                } else {
+                    year = year.checked_add(1).ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                    code = self
+                        .month_codes_in_year(year)?
+                        .first()
+                        .copied()
+                        .ok_or_else(|| {
+                            TemporalError::range()
+                                .with_message("month and monthCode could not be resolved.")
+                        })?;
+                }
+            } else if index > 0 {
+                code = month_codes[index - 1];
+            } else {
+                year = year.checked_sub(1).ok_or_else(|| {
+                    TemporalError::range()
+                        .with_message("date duration component is out of range")
+                })?;
+                code = self
+                    .month_codes_in_year(year)?
+                    .last()
+                    .copied()
+                    .ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("month and monthCode could not be resolved.")
+                    })?;
+            }
+        }
+
+        Ok((year, code))
+    }
+
+    fn advance_virtual_month_anchor(
+        &self,
+        arithmetic_year: i32,
+        month_code: MonthCode,
+        months: i64,
+    ) -> TemporalResult<(i32, MonthCode)> {
+        if months == 0 {
+            if self.month_codes_in_year(arithmetic_year)?.contains(&month_code) {
+                return Ok((arithmetic_year, month_code));
+            }
+            return Err(TemporalError::range()
+                .with_message("month and monthCode could not be resolved."));
+        }
+
+        if self.month_codes_in_year(arithmetic_year)?.contains(&month_code) {
+            return self.add_month_code_steps(arithmetic_year, month_code, months);
+        }
+
+        let target_rank = month_code_rank(month_code);
+        let mut year = arithmetic_year;
+        let mut month_codes = self.month_codes_in_year(year)?;
+        let mut index = month_codes
+            .iter()
+            .position(|code| month_code_rank(*code) > target_rank)
+            .unwrap_or(month_codes.len());
+        let direction = months.signum();
+        let mut remaining = months.unsigned_abs();
+
+        loop {
+            if direction > 0 {
+                if index == month_codes.len() {
+                    year = year.checked_add(1).ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                    month_codes = self.month_codes_in_year(year)?;
+                    index = 0;
+                }
+
+                let next = month_codes[index];
+                remaining -= 1;
+                if remaining == 0 {
+                    return Ok((year, next));
+                }
+                index += 1;
+            } else {
+                if index == 0 {
+                    year = year.checked_sub(1).ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                    month_codes = self.month_codes_in_year(year)?;
+                    index = month_codes.len();
+                }
+
+                index -= 1;
+                let prev = month_codes[index];
+                remaining -= 1;
+                if remaining == 0 {
+                    return Ok((year, prev));
+                }
+            }
+        }
+    }
+
+    fn constrain_virtual_year_anchor(
+        &self,
+        arithmetic_year: i32,
+        month_code: MonthCode,
+        day: u8,
+        direction: i8,
+    ) -> TemporalResult<IsoDate> {
+        let constrained_month_code =
+            self.constrain_month_code_for_year(arithmetic_year, month_code, direction)?;
+        Ok(self
+            .date_from_fields(
+                CalendarFields::new()
+                    .with_year(arithmetic_year)
+                    .with_month_code(constrained_month_code)
+                    .with_day(day),
+                Overflow::Constrain,
+            )?
+            .iso)
+    }
+
+    fn date_add_from_virtual_month_anchor(
+        &self,
+        arithmetic_year: i32,
+        missing_month_code: MonthCode,
+        day: u8,
+        months: i64,
+        overflow: Overflow,
+    ) -> TemporalResult<IsoDate> {
+        debug_assert!(months != 0);
+
+        let target_rank = month_code_rank(missing_month_code);
+        let mut year = arithmetic_year;
+        let mut month_codes = self.month_codes_in_year(year)?;
+        let mut index = month_codes
+            .iter()
+            .position(|code| month_code_rank(*code) > target_rank)
+            .unwrap_or(month_codes.len());
+        let direction = months.signum();
+        let mut remaining = months.unsigned_abs();
+
+        loop {
+            if direction > 0 {
+                if index == month_codes.len() {
+                    year = year.checked_add(1).ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                    month_codes = self.month_codes_in_year(year)?;
+                    index = 0;
+                }
+
+                let month_code = month_codes[index];
+                remaining -= 1;
+                if remaining == 0 {
+                    return Ok(
+                        self.date_from_fields(
+                            CalendarFields::new()
+                                .with_year(year)
+                                .with_month_code(month_code)
+                                .with_day(day),
+                            overflow,
+                        )?
+                        .iso,
+                    );
+                }
+                index += 1;
+            } else {
+                if index == 0 {
+                    year = year.checked_sub(1).ok_or_else(|| {
+                        TemporalError::range()
+                            .with_message("date duration component is out of range")
+                    })?;
+                    month_codes = self.month_codes_in_year(year)?;
+                    index = month_codes.len();
+                }
+
+                index -= 1;
+                let month_code = month_codes[index];
+                remaining -= 1;
+                if remaining == 0 {
+                    return Ok(
+                        self.date_from_fields(
+                            CalendarFields::new()
+                                .with_year(year)
+                                .with_month_code(month_code)
+                                .with_day(day),
+                            overflow,
+                        )?
+                        .iso,
+                    );
+                }
+            }
+        }
+    }
+
     pub(crate) fn calendar_has_eras(kind: AnyCalendarKind) -> bool {
         match kind {
             AnyCalendarKind::Buddhist
@@ -653,6 +1422,159 @@ impl Calendar {
             _ => false,
         }
     }
+
+    pub(crate) fn icu_date_from_codes(
+        &self,
+        era_year: &types::EraYear,
+        month_code: MonthCode,
+        day: u8,
+    ) -> TemporalResult<IcuDate<Ref<'static, AnyCalendar>>> {
+        let (era, year) = if let Some((era, year)) =
+            self.era_year_for_arithmetic_year(era_year.arithmetic_year)
+        {
+            (Some(era), year)
+        } else {
+            (None, era_year.arithmetic_year)
+        };
+
+        Ok(IcuDate::try_new_from_codes(
+            era.as_ref().map(|era| era.as_str()),
+            year,
+            IcuMonthCode(month_code.0),
+            day,
+            self.0,
+        )?)
+    }
+
+    fn era_year_for_arithmetic_year(
+        &self,
+        arithmetic_year: i32,
+    ) -> Option<(TinyAsciiStr<16>, i32)> {
+        let info = match self.kind() {
+            AnyCalendarKind::Buddhist => Some(era::BUDDHIST_ERA),
+            AnyCalendarKind::Coptic => Some(era::COPTIC_ERA),
+            AnyCalendarKind::Ethiopian if arithmetic_year <= 0 => Some(era::ETHIOPIC_ETHIOAA_ERA),
+            AnyCalendarKind::Ethiopian => Some(era::ETHIOPIC_ERA),
+            AnyCalendarKind::EthiopianAmeteAlem => Some(era::ETHIOAA_ERA),
+            AnyCalendarKind::Gregorian if arithmetic_year <= 0 => Some(era::GREGORY_INVERSE_ERA),
+            AnyCalendarKind::Gregorian => Some(era::GREGORY_ERA),
+            AnyCalendarKind::Hebrew => Some(era::HEBREW_ERA),
+            AnyCalendarKind::Indian => Some(era::INDIAN_ERA),
+            AnyCalendarKind::HijriSimulatedMecca
+            | AnyCalendarKind::HijriTabularTypeIIFriday
+            | AnyCalendarKind::HijriTabularTypeIIThursday
+            | AnyCalendarKind::HijriUmmAlQura
+                if arithmetic_year <= 0 =>
+            {
+                Some(era::ISLAMIC_INVERSE_ERA)
+            }
+            AnyCalendarKind::HijriSimulatedMecca
+            | AnyCalendarKind::HijriTabularTypeIIFriday
+            | AnyCalendarKind::HijriTabularTypeIIThursday
+            | AnyCalendarKind::HijriUmmAlQura => Some(era::ISLAMIC_ERA),
+            AnyCalendarKind::Japanese if arithmetic_year <= 0 => Some(era::JAPANESE_INVERSE_ERA),
+            AnyCalendarKind::Japanese => Some(era::JAPANESE_ERA),
+            AnyCalendarKind::Persian => Some(era::PERSIAN_ERA),
+            AnyCalendarKind::Roc if arithmetic_year <= 0 => Some(era::ROC_INVERSE_ERA),
+            AnyCalendarKind::Roc => Some(era::ROC_ERA),
+            _ => None,
+        }?;
+
+        info.era_year_for_arithmetic_year(arithmetic_year)
+            .map(|year| (info.name, year))
+    }
+}
+
+fn to_i32_date_duration_component(value: i64) -> TemporalResult<i32> {
+    i32::try_from(value)
+        .map_err(|_| TemporalError::range().with_message("date duration component is out of range"))
+}
+
+fn iso_date_from_icu(date: &IcuDate<Iso>) -> IsoDate {
+    IsoDate::new_unchecked(
+        Iso.extended_year(date.inner()),
+        Iso.month(date.inner()).ordinal,
+        Iso.day_of_month(date.inner()).0,
+    )
+}
+
+fn max_unit_step<F>(sign: i8, mut candidate: F, target: &IsoDate) -> TemporalResult<i64>
+where
+    F: FnMut(i64) -> TemporalResult<IsoDate>,
+{
+    let mut below_or_equal = |step: i64| -> TemporalResult<bool> {
+        match candidate(step) {
+            Ok(date) => Ok(!date_surpasses(sign, &date, target)),
+            Err(err) if err.kind() == ErrorKind::Range => Ok(false),
+            Err(err) => Err(err),
+        }
+    };
+
+    max_unit_step_where(&mut below_or_equal)
+}
+
+fn max_unit_step_where<F>(mut below_or_equal: F) -> TemporalResult<i64>
+where
+    F: FnMut(i64) -> TemporalResult<bool>,
+{
+
+    if !below_or_equal(1)? {
+        return Ok(0);
+    }
+
+    let mut low = 1_i64;
+    let mut high = 2_i64;
+    while below_or_equal(high)? {
+        low = high;
+        let next = high.saturating_mul(2);
+        if next == high {
+            break;
+        }
+        high = next;
+    }
+
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        if below_or_equal(mid)? {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    Ok(low)
+}
+
+fn date_surpasses(sign: i8, candidate: &IsoDate, target: &IsoDate) -> bool {
+    if sign > 0 {
+        candidate > target
+    } else {
+        candidate < target
+    }
+}
+
+fn calendar_position_reached(
+    sign: i8,
+    target_year: i32,
+    target_month_code: MonthCode,
+    target_day: u8,
+    candidate_year: i32,
+    candidate_month_rank: u16,
+    candidate_day: u8,
+) -> bool {
+    let ordering = target_year
+        .cmp(&candidate_year)
+        .then_with(|| month_code_rank(target_month_code).cmp(&candidate_month_rank))
+        .then_with(|| target_day.cmp(&candidate_day));
+    if sign > 0 {
+        ordering != core::cmp::Ordering::Less
+    } else {
+        ordering != core::cmp::Ordering::Greater
+    }
+}
+
+fn month_code_rank(month_code: MonthCode) -> u16 {
+    u16::from(month_code.to_month_integer()) * 2 + u16::from(month_code.is_leap_month())
 }
 
 impl From<PlainDate> for Calendar {

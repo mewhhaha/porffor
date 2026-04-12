@@ -210,7 +210,9 @@ impl PlainYearMonth {
         let intermediate_date = calendar.date_from_fields(fields.clone(), Overflow::Constrain)?;
 
         // 10. If sign < 0, then
-        let date = if sign.as_sign_multiplier() < 0 {
+        let date = if !calendar.is_iso() {
+            self.iso
+        } else if sign.as_sign_multiplier() < 0 {
             // a. Let oneMonthDuration be ! CreateDateDurationRecord(0, 1, 0, 0).
             // b. Let nextMonth be ? CalendarDateAdd(calendar, intermediateDate, oneMonthDuration, constrain).
             // c. Let date be BalanceISODate(nextMonth.[[Year]], nextMonth.[[Month]], nextMonth.[[Day]] - 1).
@@ -308,15 +310,30 @@ impl PlainYearMonth {
         // 7. Let thisFields be ISODateToFields(calendar, yearMonth.[[ISODate]], year-month).
         // 8. Set thisFields.[[Day]] to 1.
         // 9. Let thisDate be ? CalendarDateFromFields(calendar, thisFields, constrain).
-        let mut this_iso = self.iso;
-        this_iso.day = 1;
-        this_iso.check_within_limits()?;
+        let this_iso = if self.calendar().is_iso() {
+            let mut iso = self.iso;
+            iso.day = 1;
+            iso.check_within_limits()?;
+            iso
+        } else {
+            let fields = CalendarFields::from(YearMonthCalendarFields::try_from_year_month(self)?)
+                .with_day(1);
+            self.calendar().date_from_fields(fields, Overflow::Constrain)?.iso
+        };
         // 10. Let otherFields be ISODateToFields(calendar, other.[[ISODate]], year-month).
         // 11. Set otherFields.[[Day]] to 1.
         // 12. Let otherDate be ? CalendarDateFromFields(calendar, otherFields, constrain).
-        let mut other_iso = other.iso;
-        other_iso.day = 1;
-        other_iso.check_within_limits()?;
+        let other_iso = if self.calendar().is_iso() {
+            let mut iso = other.iso;
+            iso.day = 1;
+            iso.check_within_limits()?;
+            iso
+        } else {
+            let fields =
+                CalendarFields::from(YearMonthCalendarFields::try_from_year_month(other)?)
+                    .with_day(1);
+            self.calendar().date_from_fields(fields, Overflow::Constrain)?.iso
+        };
         // 13. Let dateDifference be CalendarDateUntil(calendar, thisDate, otherDate, settings.[[LargestUnit]]).
         let result = self
             .calendar()
@@ -340,6 +357,7 @@ impl PlainYearMonth {
                 dest_epoch_ns.as_i128(),
                 &PlainDateTime::new_unchecked(iso_date_time, self.calendar.clone()),
                 Option::<(&TimeZone, &NeverProvider)>::None,
+                None,
                 resolved,
             )?;
         }
@@ -1121,6 +1139,19 @@ mod tests {
                 .reference_day(),
             1
         );
+    }
+
+    #[test]
+    fn far_future_chinese_year_month_does_not_panic() {
+        let year_month = PlainYearMonth::from_partial(
+            PartialYearMonth {
+                calendar_fields: YearMonthCalendarFields::new().with_year(250000).with_month(1),
+                calendar: Calendar::CHINESE,
+            },
+            Some(Overflow::Constrain),
+        )
+        .unwrap();
+        assert_eq!(year_month.year(), 250000);
     }
 
     #[test]

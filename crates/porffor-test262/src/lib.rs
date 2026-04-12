@@ -127,7 +127,7 @@ impl Default for SuiteConfig {
             snapshot_dir: root.join("snapshots"),
             timeout_ms: 15_000,
             worker_count: thread::available_parallelism()
-                .map(|count| count.get().min(8))
+                .map(|count| count.get().min(4))
                 .unwrap_or(4),
         }
     }

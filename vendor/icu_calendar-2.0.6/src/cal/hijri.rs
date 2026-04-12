@@ -402,23 +402,24 @@ impl Calendar for HijriSimulated {
         // +1 because the epoch is new year of year 1
         // truncating instead of flooring does not matter, as this is well-defined for
         // positive years only
-        let extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY) as f64
-            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH)
-            as i32
+        let mut extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY)
+            as f64
+            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
             + 1;
 
-        let year = self.load_or_compute_info(extended_year);
-
-        let y = if rd < year.start_day {
-            self.load_or_compute_info(extended_year - 1)
-        } else {
+        let mut y = self.load_or_compute_info(extended_year);
+        while rd < y.start_day && extended_year > i32::MIN {
+            extended_year -= 1;
+            y = self.load_or_compute_info(extended_year);
+        }
+        while extended_year < i32::MAX {
             let next_year = self.load_or_compute_info(extended_year + 1);
             if rd < next_year.start_day {
-                year
-            } else {
-                next_year
+                break;
             }
-        };
+            extended_year += 1;
+            y = next_year;
+        }
         let (m, d) = y.md_from_rd(rd);
         HijriSimulatedDateInner(ArithmeticDate::new_unchecked(y, m, d))
     }
@@ -685,23 +686,24 @@ impl Calendar for HijriUmmAlQura {
         // +1 because the epoch is new year of year 1
         // truncating instead of flooring does not matter, as this is well-defined for
         // positive years only
-        let extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY) as f64
-            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH)
-            as i32
+        let mut extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY)
+            as f64
+            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
             + 1;
 
-        let year = self.load_or_compute_info(extended_year);
-
-        let y = if rd < year.start_day {
-            self.load_or_compute_info(extended_year - 1)
-        } else {
+        let mut y = self.load_or_compute_info(extended_year);
+        while rd < y.start_day && extended_year > i32::MIN {
+            extended_year -= 1;
+            y = self.load_or_compute_info(extended_year);
+        }
+        while extended_year < i32::MAX {
             let next_year = self.load_or_compute_info(extended_year + 1);
             if rd < next_year.start_day {
-                year
-            } else {
-                next_year
+                break;
             }
-        };
+            extended_year += 1;
+            y = next_year;
+        }
         let (m, d) = y.md_from_rd(rd);
         HijriUmmAlQuraDateInner(ArithmeticDate::new_unchecked(y, m, d))
     }
@@ -901,29 +903,31 @@ impl Calendar for HijriTabular {
     }
 
     fn from_rata_die(&self, rd: RataDie) -> Self::DateInner {
-        // Use a clamped arithmetic reconstruction instead of trusting the direct
-        // fixed-date conversion to always return an in-range day/month pair.
-        // This preserves ordinary error paths for invalid ICU inputs instead of
-        // panicking worker threads in Temporal-heavy conformance runs.
         let epoch = self.epoch.rata_die();
-        let mut year = ((rd - epoch) * 30 / (354 * 30 + 11)
-            + (rd >= epoch) as i64)
+        let mut year = ((rd - epoch) * 30 / (354 * 30 + 11) + (rd >= epoch) as i64)
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         let mut new_year =
             calendrical_calculations::islamic::fixed_from_tabular_islamic(year, 1, 1, epoch);
-        let mut days_in_year = i64::from(Self::days_in_provided_year(year));
 
-        if rd >= new_year + days_in_year && year < i32::MAX {
-            year += 1;
+        while rd < new_year && year > i32::MIN {
+            year -= 1;
             new_year =
                 calendrical_calculations::islamic::fixed_from_tabular_islamic(year, 1, 1, epoch);
-            days_in_year = i64::from(Self::days_in_provided_year(year));
         }
 
-        let clamped_rd = rd.clamp(new_year, new_year + days_in_year - 1);
-        let day_of_year = (clamped_rd - new_year) as u16;
+        while year < i32::MAX {
+            let next_new_year =
+                calendrical_calculations::islamic::fixed_from_tabular_islamic(year + 1, 1, 1, epoch);
+            if rd < next_new_year {
+                break;
+            }
+            year += 1;
+            new_year = next_new_year;
+        }
 
-        let mut month = (day_of_year / 30) as u8 + 1;
+        let day_of_year = (rd - new_year) as u16;
+
+        let mut month = 1u8;
         let mut last_day_of_prev_month = 0u16;
         let mut last_day_of_month = u16::from(Self::days_in_provided_month(year, month));
 

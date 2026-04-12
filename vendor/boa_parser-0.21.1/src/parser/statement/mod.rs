@@ -190,6 +190,11 @@ where
                     .parse(cursor, interner)
                     .map(ast::Statement::from)
             }
+            TokenKind::Keyword((Keyword::Debugger, false)) => {
+                cursor.advance(interner);
+                cursor.expect_semicolon("debugger statement", interner)?;
+                Ok(ast::Statement::Debugger)
+            }
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 BlockStatement::new(self.allow_yield, self.allow_await, self.allow_return)
                     .parse(cursor, interner)
@@ -242,6 +247,7 @@ pub(super) struct StatementList {
     break_nodes: &'static [TokenKind],
     directive_prologues: bool,
     strict: bool,
+    allow_using_declarations: bool,
 }
 
 impl StatementList {
@@ -266,7 +272,16 @@ impl StatementList {
             break_nodes,
             directive_prologues,
             strict,
+            allow_using_declarations: true,
         }
+    }
+
+    pub(super) fn with_allow_using_declarations(
+        mut self,
+        allow_using_declarations: bool,
+    ) -> Self {
+        self.allow_using_declarations = allow_using_declarations;
+        self
     }
 }
 
@@ -316,6 +331,7 @@ where
 
             let item =
                 StatementListItem::new(self.allow_yield, self.allow_await, self.allow_return)
+                    .with_allow_using_declarations(self.allow_using_declarations)
                     .parse(cursor, interner)?;
 
             if directive_prologues {
@@ -395,6 +411,7 @@ struct StatementListItem {
     allow_yield: AllowYield,
     allow_await: AllowAwait,
     allow_return: AllowReturn,
+    allow_using_declarations: bool,
 }
 
 impl StatementListItem {
@@ -409,7 +426,13 @@ impl StatementListItem {
             allow_yield: allow_yield.into(),
             allow_await: allow_await.into(),
             allow_return: allow_return.into(),
+            allow_using_declarations: true,
         }
+    }
+
+    fn with_allow_using_declarations(mut self, allow_using_declarations: bool) -> Self {
+        self.allow_using_declarations = allow_using_declarations;
+        self
     }
 }
 
@@ -422,6 +445,13 @@ where
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         let using_decl = using_declaration_kind(cursor, interner, self.allow_await.0, false)?;
         let tok = cursor.peek(0, interner).or_abrupt()?.clone();
+
+        if using_decl.is_some() && !self.allow_using_declarations {
+            return Err(Error::general(
+                "`using` declarations are not allowed in this statement list",
+                tok.span().start(),
+            ));
+        }
 
         match tok.kind().clone() {
             TokenKind::Keyword((Keyword::Function | Keyword::Class | Keyword::Const, _))

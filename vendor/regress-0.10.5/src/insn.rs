@@ -105,6 +105,12 @@ pub enum Insn {
     /// Perform a backreference match with the active scoped ignoreCase modifier.
     BackRefICase(u32),
 
+    /// Perform a named backreference match that may resolve to one of several capture groups.
+    BackRefMulti(Vec<u32>),
+
+    /// Perform a named backreference match with the active scoped ignoreCase modifier.
+    BackRefMultiICase(Vec<u32>),
+
     /// Match the next character against the bracket contents, stored at the given index in the CompiledRegex.
     Bracket(usize),
 

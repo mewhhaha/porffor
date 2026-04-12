@@ -875,6 +875,7 @@ impl<'ast> Visitor<'ast> for VarDeclaredNamesVisitor<'_> {
     fn visit_statement(&mut self, node: &'ast Statement) -> ControlFlow<Self::BreakTy> {
         match node {
             Statement::Empty
+            | Statement::Debugger
             | Statement::Expression(_)
             | Statement::Continue(_)
             | Statement::Break(_)
@@ -1454,6 +1455,7 @@ where
             match node {
                 Statement::Block(node) => self.visit_block(node),
                 Statement::Var(_)
+                | Statement::Debugger
                 | Statement::Empty
                 | Statement::Expression(_)
                 | Statement::Return(_)
@@ -2095,6 +2097,7 @@ impl<'ast> Visitor<'ast> for VarScopedDeclarationsVisitor<'_> {
             Statement::Try(s) => self.visit(s),
             Statement::With(s) => self.visit(s),
             Statement::Empty
+            | Statement::Debugger
             | Statement::Expression(_)
             | Statement::Continue(_)
             | Statement::Break(_)
@@ -2545,7 +2548,7 @@ impl<'ast> Visitor<'ast> for ReturnsValueVisitor {
 
     fn visit_statement(&mut self, node: &'ast Statement) -> ControlFlow<Self::BreakTy> {
         match node {
-            Statement::Empty | Statement::Var(_) => {}
+            Statement::Empty | Statement::Debugger | Statement::Var(_) => {}
             Statement::Block(node) => self.visit(node)?,
             Statement::Labelled(node) => self.visit(node)?,
             _ => return ControlFlow::Break(()),

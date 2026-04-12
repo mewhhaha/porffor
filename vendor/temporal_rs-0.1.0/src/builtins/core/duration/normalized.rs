@@ -6,7 +6,7 @@ use core::{cmp, num::NonZeroU128, ops::Add};
 use num_traits::AsPrimitive;
 
 use crate::{
-    builtins::core::{time_zone::TimeZone, PlainDate, PlainDateTime},
+    builtins::core::{time_zone::TimeZone, Instant, PlainDate, PlainDateTime, ZonedDateTime},
     iso::{IsoDate, IsoDateTime},
     options::{
         Disambiguation, Overflow, ResolvedRoundingOptions, RoundingIncrement, RoundingMode, Unit,
@@ -429,6 +429,7 @@ impl InternalDurationRecord {
         dest_epoch_ns: i128,
         dt: &PlainDateTime,
         time_zone: Option<(&TimeZone, &impl TimeZoneProvider)>, // ???
+        relative_epoch_ns: Option<i128>,
         options: ResolvedRoundingOptions,
     ) -> TemporalResult<NudgeRecord> {
         // NOTE: r2 may never be used...need to test.
@@ -641,18 +642,45 @@ impl InternalDurationRecord {
 
         // 12. Else,
         let (start_epoch_ns, end_epoch_ns) = if let Some((time_zone, provider)) = time_zone {
-            // a. Let startEpochNs be ? GetEpochNanosecondsFor(timeZone, startDateTime, compatible).
-            // b. Let endEpochNs be ? GetEpochNanosecondsFor(timeZone, endDateTime, compatible).
-            let start_epoch_ns =
-                time_zone.get_epoch_nanoseconds_for(start, Disambiguation::Compatible, provider)?;
-            let end_epoch_ns =
-                time_zone.get_epoch_nanoseconds_for(end, Disambiguation::Compatible, provider)?;
-            (start_epoch_ns.ns, end_epoch_ns.ns)
+            if let Some(relative_epoch_ns) = relative_epoch_ns {
+                // Preserve repeated-wallclock occurrence from the original relativeTo instant.
+                let base = ZonedDateTime::new_unchecked_with_provider(
+                    Instant::try_new(relative_epoch_ns)?,
+                    *time_zone,
+                    dt.calendar().clone(),
+                    provider,
+                )?;
+                let start_epoch_ns = base
+                    .add_zoned_date_time(
+                        InternalDurationRecord::from_date_duration(start_duration)?,
+                        Overflow::Constrain,
+                        provider,
+                    )?
+                    .epoch_nanoseconds()
+                    .as_i128();
+                let end_epoch_ns = base
+                    .add_zoned_date_time(
+                        InternalDurationRecord::from_date_duration(end_duration)?,
+                        Overflow::Constrain,
+                        provider,
+                    )?
+                    .epoch_nanoseconds()
+                    .as_i128();
+                (start_epoch_ns, end_epoch_ns)
+            } else {
+                // a. Let startEpochNs be ? GetEpochNanosecondsFor(timeZone, startDateTime, compatible).
+                // b. Let endEpochNs be ? GetEpochNanosecondsFor(timeZone, endDateTime, compatible).
+                let start_epoch_ns = time_zone
+                    .get_epoch_nanoseconds_for(start, Disambiguation::Compatible, provider)?;
+                let end_epoch_ns =
+                    time_zone.get_epoch_nanoseconds_for(end, Disambiguation::Compatible, provider)?;
+                (start_epoch_ns.ns.0, end_epoch_ns.ns.0)
+            }
         // 11. If timeZoneRec is unset, then
         } else {
             // a. Let startEpochNs be GetUTCEpochNanoseconds(start.[[Year]], start.[[Month]], start.[[Day]], start.[[Hour]], start.[[Minute]], start.[[Second]], start.[[Millisecond]], start.[[Microsecond]], start.[[Nanosecond]]).
             // b. Let endEpochNs be GetUTCEpochNanoseconds(end.[[Year]], end.[[Month]], end.[[Day]], end.[[Hour]], end.[[Minute]], end.[[Second]], end.[[Millisecond]], end.[[Microsecond]], end.[[Nanosecond]]).
-            (start.as_nanoseconds(), end.as_nanoseconds())
+            (start.as_nanoseconds().0, end.as_nanoseconds().0)
         };
 
         // TODO: look into handling asserts
@@ -664,11 +692,11 @@ impl InternalDurationRecord {
 
         // 16. Let progress be (destEpochNs - startEpochNs) / (endEpochNs - startEpochNs).
         // 17. Let total be r1 + progress × increment × sign.
-        let total_numerator = i128::from(r1) * (end_epoch_ns.0 - start_epoch_ns.0)
-            + (dest_epoch_ns - start_epoch_ns.0)
+        let total_numerator = i128::from(r1) * (end_epoch_ns - start_epoch_ns)
+            + (dest_epoch_ns - start_epoch_ns)
                 * i128::from(options.increment.get())
                 * i128::from(sign.as_sign_multiplier());
-        let total_denominator = end_epoch_ns.0 - start_epoch_ns.0;
+        let total_denominator = end_epoch_ns - start_epoch_ns;
         let total = exact_ratio_to_f64(total_numerator, total_denominator)?;
 
         // 14. NOTE: The above two steps cannot be implemented directly using floating-point arithmetic.
@@ -692,7 +720,7 @@ impl InternalDurationRecord {
                 Ok(NudgeRecord {
                     normalized: InternalDurationRecord::new(end_duration, TimeDuration::default())?,
                     total: Some(total),
-                    nudge_epoch_ns: end_epoch_ns.0,
+                    nudge_epoch_ns: end_epoch_ns,
                     expanded: true,
                 })
         // 18. Else,
@@ -703,7 +731,7 @@ impl InternalDurationRecord {
                 Ok(NudgeRecord {
                     normalized: InternalDurationRecord::new(start_duration, TimeDuration::default())?,
                     total: Some(total),
-                    nudge_epoch_ns: start_epoch_ns.0,
+                    nudge_epoch_ns: start_epoch_ns,
                     expanded: false,
                 })
         }
@@ -1030,6 +1058,7 @@ impl InternalDurationRecord {
         dest_epoch_ns: i128,
         dt: &PlainDateTime,
         time_zone: Option<(&TimeZone, &impl TimeZoneProvider)>,
+        relative_epoch_ns: Option<i128>,
         options: ResolvedRoundingOptions,
     ) -> TemporalResult<InternalDurationRecord> {
         let duration = *self;
@@ -1047,7 +1076,14 @@ impl InternalDurationRecord {
         let nudge_result = if irregular_length_unit {
             // a. Let record be ? NudgeToCalendarUnit(sign, duration, destEpochNs, isoDateTime, timeZone, calendar, increment, smallestUnit, roundingMode).
             // b. Let nudgeResult be record.[[NudgeResult]].
-            duration.nudge_calendar_unit(sign, dest_epoch_ns, dt, time_zone, options)?
+            duration.nudge_calendar_unit(
+                sign,
+                dest_epoch_ns,
+                dt,
+                time_zone,
+                relative_epoch_ns,
+                options,
+            )?
         } else if let Some((time_zone, time_zone_provider)) = time_zone {
             // 6. Else if timeZone is not unset, then
             //      a. Let nudgeResult be ? NudgeToZonedTime(sign, duration, isoDateTime, timeZone, calendar, increment, smallestUnit, roundingMode).
@@ -1088,6 +1124,7 @@ impl InternalDurationRecord {
         dest_epoch_ns: i128,
         dt: &PlainDateTime,
         time_zone: Option<(&TimeZone, &impl TimeZoneProvider)>,
+        relative_epoch_ns: Option<i128>,
         unit: Unit,
     ) -> TemporalResult<FiniteF64> {
         // 1. If IsCalendarUnit(unit) is true, or timeZone is not unset and unit is day, then
@@ -1100,6 +1137,7 @@ impl InternalDurationRecord {
                 dest_epoch_ns,
                 dt,
                 time_zone,
+                relative_epoch_ns,
                 ResolvedRoundingOptions {
                     largest_unit: unit,
                     smallest_unit: unit,

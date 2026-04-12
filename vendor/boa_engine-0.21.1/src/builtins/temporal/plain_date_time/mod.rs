@@ -7,6 +7,7 @@ use crate::{
     JsValue,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
         temporal::calendar::to_temporal_calendar_identifier,
     },
@@ -1109,7 +1110,7 @@ impl PlainDateTime {
         // 11. Set fields.[[Nanosecond]] to plainDateTime.[[ISODateTime]].[[Time]].[[Nanosecond]].
         // 12. Let partialDateTime be ? PrepareCalendarFields(calendar, temporalDateTimeLike, « year, month, month-code, day », « hour, minute, second, millisecond, microsecond, nanosecond », partial).
         // 13. Set fields to CalendarMergeFields(calendar, fields, partialDateTime).
-        let fields = to_date_time_fields(&partial_object, dt.inner.calendar(), context)?;
+        let fields = to_date_time_fields(&partial_object, dt.inner.calendar(), false, context)?;
         // 14. Let resolvedOptions be ? GetOptionsObject(options).
         let options = get_options_object(args.get_or_undefined(1))?;
         // 15. Let overflow be ? GetTemporalOverflowOption(resolvedOptions).
@@ -1458,20 +1459,23 @@ impl PlainDateTime {
     ///
     /// [spec]: https://tc39.es/proposal-temporal/#sec-temporal.plaindatetime.prototype.with
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/PlainDateTime/with
-    fn to_locale_string(this: &JsValue, _args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
+    fn to_locale_string(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let object = this.as_object();
-        let dt = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("the this object must be a PlainDateTime object.")
             })?;
-
-        let ixdtf = dt
-            .inner
-            .to_ixdtf_string(ToStringRoundingOptions::default(), DisplayCalendar::Auto)?;
-        Ok(JsString::from(ixdtf).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::AnyAll,
+            DateTimeReqs::AnyAll,
+            context,
+        )?
+        .into())
     }
 
     /// 5.3.36 `Temporal.PlainDateTime.prototype.toJSON ( )`
@@ -1729,132 +1733,149 @@ fn to_partial_datetime(
     context: &mut Context,
 ) -> JsResult<PartialDateTime> {
     let calendar = get_temporal_calendar_slot_value_with_default(partial_object, context)?;
-    let fields = to_date_time_fields(partial_object, &calendar, context)?;
+    let fields = to_date_time_fields(partial_object, &calendar, true, context)?;
     Ok(PartialDateTime { fields, calendar })
 }
 
 fn to_date_time_fields(
     partial_object: &JsObject,
     calendar: &Calendar,
+    require_complete_date: bool,
     context: &mut Context,
 ) -> JsResult<DateTimeFields> {
-    let day = partial_object
-        .get(js_string!("day"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            finite
-                .as_positive_integer_with_truncation()
-                .map_err(JsError::from)
-        })
-        .transpose()?;
-    let hour = partial_object
-        .get(js_string!("hour"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
     // TODO: `temporal_rs` needs a `has_era` method
     let has_no_era = calendar.kind() == AnyCalendarKind::Iso
         || calendar.kind() == AnyCalendarKind::Chinese
         || calendar.kind() == AnyCalendarKind::Dangi;
+
+    let day_value = partial_object.get(js_string!("day"), context)?;
+    let day = if day_value.is_undefined() {
+        None
+    } else {
+        let finite = day_value.to_finitef64(context)?;
+        Some(
+            finite
+                .as_positive_integer_with_truncation()
+                .map_err(JsError::from)?,
+        )
+    };
+    let hour_value = partial_object.get(js_string!("hour"), context)?;
+    let hour = if hour_value.is_undefined() {
+        None
+    } else {
+        let finite = hour_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
     let (era, era_year) = if has_no_era {
         (None, None)
     } else {
-        let era = partial_object
-            .get(js_string!("era"), context)?
-            .map(|v| {
-                let v = v.to_primitive(context, crate::value::PreferredType::String)?;
-                let Some(era) = v.as_string() else {
-                    return Err(JsError::from(
-                        JsNativeError::typ()
-                            .with_message("The monthCode field value must be a string."),
-                    ));
-                };
-                // TODO: double check if an invalid monthCode is a range or type error.
+        let era_value = partial_object.get(js_string!("era"), context)?;
+        let era = if era_value.is_undefined() {
+            None
+        } else {
+            let v = era_value.to_primitive(context, crate::value::PreferredType::String)?;
+            let Some(era) = v.as_string() else {
+                return Err(JsError::from(
+                    JsNativeError::typ().with_message("The monthCode field value must be a string."),
+                ));
+            };
+            Some(
                 TinyAsciiStr::<19>::try_from_str(&era.to_std_string_escaped())
-                    .map_err(|e| JsError::from(JsNativeError::range().with_message(e.to_string())))
-            })
-            .transpose()?;
-        let era_year = partial_object
-            .get(js_string!("eraYear"), context)?
-            .map(|v| {
-                let finite = v.to_finitef64(context)?;
-                Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
-            })
-            .transpose()?;
+                    .map_err(|e| JsError::from(JsNativeError::range().with_message(e.to_string())))?,
+            )
+        };
+        let era_year_value = partial_object.get(js_string!("eraYear"), context)?;
+        let era_year = if era_year_value.is_undefined() {
+            None
+        } else {
+            let finite = era_year_value.to_finitef64(context)?;
+            Some(finite.as_integer_with_truncation::<i32>())
+        };
         (era, era_year)
     };
-    let microsecond = partial_object
-        .get(js_string!("microsecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let millisecond = partial_object
-        .get(js_string!("millisecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let minute = partial_object
-        .get(js_string!("minute"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
-
-    let month = partial_object
-        .get(js_string!("month"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
+    let microsecond_value = partial_object.get(js_string!("microsecond"), context)?;
+    let microsecond = if microsecond_value.is_undefined() {
+        None
+    } else {
+        let finite = microsecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let millisecond_value = partial_object.get(js_string!("millisecond"), context)?;
+    let millisecond = if millisecond_value.is_undefined() {
+        None
+    } else {
+        let finite = millisecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let minute_value = partial_object.get(js_string!("minute"), context)?;
+    let minute = if minute_value.is_undefined() {
+        None
+    } else {
+        let finite = minute_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
+    let month_value = partial_object.get(js_string!("month"), context)?;
+    let month = if month_value.is_undefined() {
+        None
+    } else {
+        let finite = month_value.to_finitef64(context)?;
+        Some(
             finite
                 .as_positive_integer_with_truncation()
-                .map_err(JsError::from)
-        })
-        .transpose()?;
+                .map_err(JsError::from)?,
+        )
+    };
+    let month_code_value = partial_object.get(js_string!("monthCode"), context)?;
+    let month_code = if month_code_value.is_undefined() {
+        None
+    } else {
+        let v = month_code_value.to_primitive(context, crate::value::PreferredType::String)?;
+        let Some(month_code) = v.as_string() else {
+            return Err(JsNativeError::typ()
+                .with_message("The monthCode field value must be a string.")
+                .into());
+        };
+        Some(MonthCode::from_str(&month_code.to_std_string_escaped()).map_err(JsError::from)?)
+    };
+    let nanosecond_value = partial_object.get(js_string!("nanosecond"), context)?;
+    let nanosecond = if nanosecond_value.is_undefined() {
+        None
+    } else {
+        let finite = nanosecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let second_value = partial_object.get(js_string!("second"), context)?;
+    let second = if second_value.is_undefined() {
+        None
+    } else {
+        let finite = second_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
+    let year_value = partial_object.get(js_string!("year"), context)?;
+    let year = if year_value.is_undefined() {
+        None
+    } else {
+        let finite = year_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<i32>())
+    };
 
-    let month_code = partial_object
-        .get(js_string!("monthCode"), context)?
-        .map(|v| {
-            let v = v.to_primitive(context, crate::value::PreferredType::String)?;
-            let Some(month_code) = v.as_string() else {
-                return Err(JsNativeError::typ()
-                    .with_message("The monthCode field value must be a string.")
-                    .into());
-            };
-            MonthCode::from_str(&month_code.to_std_string_escaped()).map_err(JsError::from)
-        })
-        .transpose()?;
-
-    let nanosecond = partial_object
-        .get(js_string!("nanosecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let second = partial_object
-        .get(js_string!("second"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
-
-    let year = partial_object
-        .get(js_string!("year"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
-        })
-        .transpose()?;
+    if require_complete_date {
+        if year.is_none() && (has_no_era || era.is_none() || era_year.is_none()) {
+            return Err(JsNativeError::typ()
+                .with_message("Required year field is empty.")
+                .into());
+        }
+        if month.is_none() && month_code.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Month or monthCode is required to determine date.")
+                .into());
+        }
+        if day.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Required day field is empty.")
+                .into());
+        }
+    }
 
     let calendar_fields = CalendarFields {
         year,

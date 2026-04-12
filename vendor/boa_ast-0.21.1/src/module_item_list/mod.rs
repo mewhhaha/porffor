@@ -297,8 +297,13 @@ impl ModuleItemList {
     #[inline]
     #[must_use]
     pub fn export_entries(&self) -> Vec<ExportEntry> {
+        let import_entries = self.import_entries();
+
         #[derive(Debug)]
-        struct ExportEntriesVisitor<'vec>(&'vec mut Vec<ExportEntry>);
+        struct ExportEntriesVisitor<'vec> {
+            entries: &'vec mut Vec<ExportEntry>,
+            import_entries: &'vec [ImportEntry],
+        }
 
         impl<'ast> Visitor<'ast> for ExportEntriesVisitor<'_> {
             type BreakTy = Infallible;
@@ -322,7 +327,7 @@ impl ModuleItemList {
 
                         match kind {
                             ReExportKind::Namespaced { name: Some(name) } => {
-                                self.0.push(
+                                self.entries.push(
                                     IndirectExportEntry::new(
                                         module.clone(),
                                         ReExportImportName::Star,
@@ -332,14 +337,14 @@ impl ModuleItemList {
                                 );
                             }
                             ReExportKind::Namespaced { name: None } => {
-                                self.0.push(ExportEntry::StarReExport {
+                                self.entries.push(ExportEntry::StarReExport {
                                     module_request: module,
                                 });
                             }
 
                             ReExportKind::Named { names } => {
                                 for name in &**names {
-                                    self.0.push(
+                                    self.entries.push(
                                         IndirectExportEntry::new(
                                             module.clone(),
                                             ReExportImportName::Name(name.private_name()),
@@ -355,21 +360,40 @@ impl ModuleItemList {
                     }
                     ExportDeclaration::List(names) => {
                         for name in &**names {
-                            self.0.push(
-                                LocalExportEntry::new(name.private_name(), name.alias()).into(),
-                            );
+                            if let Some(import_entry) = self
+                                .import_entries
+                                .iter()
+                                .find(|entry| entry.local_name().sym() == name.private_name())
+                            {
+                                let import_name = match import_entry.import_name() {
+                                    ImportName::Namespace => ReExportImportName::Star,
+                                    ImportName::Name(name) => ReExportImportName::Name(name),
+                                };
+                                self.entries.push(
+                                    IndirectExportEntry::new(
+                                        import_entry.module_request().clone(),
+                                        import_name,
+                                        name.alias(),
+                                    )
+                                    .into(),
+                                );
+                            } else {
+                                self.entries.push(
+                                    LocalExportEntry::new(name.private_name(), name.alias()).into(),
+                                );
+                            }
                         }
                         return ControlFlow::Continue(());
                     }
                     ExportDeclaration::VarStatement(var) => {
                         for name in bound_names(var) {
-                            self.0.push(LocalExportEntry::new(name, name).into());
+                            self.entries.push(LocalExportEntry::new(name, name).into());
                         }
                         return ControlFlow::Continue(());
                     }
                     ExportDeclaration::Declaration(decl) => {
                         for name in bound_names(decl) {
-                            self.0.push(LocalExportEntry::new(name, name).into());
+                            self.entries.push(LocalExportEntry::new(name, name).into());
                         }
                         return ControlFlow::Continue(());
                     }
@@ -381,7 +405,7 @@ impl ModuleItemList {
                     ExportDeclaration::DefaultAssignmentExpression(_) => Sym::DEFAULT_EXPORT,
                 };
 
-                self.0
+                self.entries
                     .push(LocalExportEntry::new(name, Sym::DEFAULT).into());
 
                 ControlFlow::Continue(())
@@ -390,7 +414,11 @@ impl ModuleItemList {
 
         let mut entries = Vec::default();
 
-        let _ = ExportEntriesVisitor(&mut entries).visit_module_item_list(self);
+        let _ = ExportEntriesVisitor {
+            entries: &mut entries,
+            import_entries: &import_entries,
+        }
+        .visit_module_item_list(self);
 
         entries
     }

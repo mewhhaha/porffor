@@ -1657,9 +1657,13 @@ generate_opcodes! {
     /// Dynamically import a module.
     ///
     /// - Registers:
-    ///   - Input: value
+    ///   - Input: value, options
     ///   - Output: value
-    ImportCall { value: VaryingOperand },
+    ImportCall {
+        value: VaryingOperand,
+        options: VaryingOperand,
+        flags: VaryingOperand
+    },
 
     /// Pop the two values of the stack, strict equal compares the two values,
     /// if true jumps to address, otherwise push the second pop'ed value.

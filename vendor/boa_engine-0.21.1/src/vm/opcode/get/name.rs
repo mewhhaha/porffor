@@ -5,6 +5,38 @@ use crate::{
     property::PropertyKey,
     vm::opcode::{Operation, VaryingOperand},
 };
+use boa_ast::scope::BindingLocatorScope;
+
+fn binding_not_found_error(context: &Context, locator: &boa_ast::scope::BindingLocator) -> JsNativeError {
+    let name = locator.name().to_std_string_escaped();
+    if let BindingLocatorScope::Stack(index) = locator.scope()
+        && matches!(context.environment_expect(index), crate::environments::Environment::Object(_))
+        && !context.vm.frame().code_block.strict()
+    {
+        return JsNativeError::reference().with_message(format!("{name} is not defined"));
+    }
+
+    JsNativeError::reference().with_message(format!("{name} is not defined"))
+}
+
+fn binding_value_or_undefined_for_object_env(
+    context: &mut Context,
+    locator: &boa_ast::scope::BindingLocator,
+) -> JsResult<Option<JsValue>> {
+    match context.get_binding(locator)? {
+        Some(value) => Ok(Some(value)),
+        None => {
+            if let BindingLocatorScope::Stack(index) = locator.scope()
+                && matches!(context.environment_expect(index), crate::environments::Environment::Object(_))
+                && !context.vm.frame().code_block.strict()
+            {
+                Ok(Some(JsValue::undefined()))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
 
 /// `GetName` implements the Opcode Operation for `Opcode::GetName`
 ///
@@ -22,10 +54,8 @@ impl GetName {
         let mut binding_locator =
             context.vm.frame().code_block.bindings[usize::from(index)].clone();
         context.find_runtime_binding(&mut binding_locator)?;
-        let result = context.get_binding(&binding_locator)?.ok_or_else(|| {
-            let name = binding_locator.name().to_std_string_escaped();
-            JsNativeError::reference().with_message(format!("{name} is not defined"))
-        })?;
+        let result = binding_value_or_undefined_for_object_env(context, &binding_locator)?
+            .ok_or_else(|| binding_not_found_error(context, &binding_locator))?;
         context.vm.set_register(value.into(), result);
         Ok(())
     }
@@ -106,10 +136,8 @@ impl GetNameGlobal {
             return Ok(());
         }
 
-        let result = context.get_binding(&binding_locator)?.ok_or_else(|| {
-            let name = binding_locator.name().to_std_string_escaped();
-            JsNativeError::reference().with_message(format!("{name} is not defined"))
-        })?;
+        let result = binding_value_or_undefined_for_object_env(context, &binding_locator)?
+            .ok_or_else(|| binding_not_found_error(context, &binding_locator))?;
 
         context.vm.set_register(dst.into(), result);
         Ok(())
@@ -135,6 +163,12 @@ impl GetLocator {
         let mut binding_locator =
             context.vm.frame().code_block.bindings[usize::from(index)].clone();
         context.find_runtime_binding(&mut binding_locator)?;
+        if context.vm.frame().code_block.strict()
+            && matches!(binding_locator.scope(), BindingLocatorScope::GlobalObject)
+            && !context.is_initialized_binding(&binding_locator)?
+        {
+            binding_locator.set_binding_index(Context::UNRESOLVABLE_GLOBAL_REFERENCE_MARKER);
+        }
 
         context.vm.frame_mut().binding_stack.push(binding_locator);
 
@@ -165,10 +199,8 @@ impl GetNameAndLocator {
         let mut binding_locator =
             context.vm.frame().code_block.bindings[usize::from(index)].clone();
         context.find_runtime_binding(&mut binding_locator)?;
-        let result = context.get_binding(&binding_locator)?.ok_or_else(|| {
-            let name = binding_locator.name().to_std_string_escaped();
-            JsNativeError::reference().with_message(format!("{name} is not defined"))
-        })?;
+        let result = binding_value_or_undefined_for_object_env(context, &binding_locator)?
+            .ok_or_else(|| binding_not_found_error(context, &binding_locator))?;
 
         context.vm.frame_mut().binding_stack.push(binding_locator);
         context.vm.set_register(value.into(), result);

@@ -7,6 +7,7 @@ use crate::{
     JsValue,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
     },
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
@@ -752,19 +753,25 @@ impl PlainYearMonth {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/PlainYearMonth/toLocaleString
     pub(crate) fn to_locale_string(
         this: &JsValue,
-        _: &[JsValue],
-        _: &mut Context,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
         let object = this.as_object();
-        let year_month = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("this value must be a PlainYearMonth object.")
             })?;
-
-        Ok(JsString::from(year_month.inner.to_string()).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::Date,
+            DateTimeReqs::Date,
+            context,
+        )?
+        .into())
     }
 
     /// 9.3.21 `Temporal.PlainYearMonth.prototype.toJSON ( )`

@@ -8,8 +8,10 @@ use crate::{
     builtins::{Promise, promise::PromiseCapability},
     error::JsNativeError,
     job::NativeAsyncJob,
-    module::{ModuleKind, Referrer},
+    js_string,
+    module::{ImportAttribute, ModuleKind, ModuleRequest, ModuleRequestPhase, Referrer},
     object::FunctionObjectBuilder,
+    property::PropertyNameKind,
     vm::{CompletionRecord, opcode::Operation},
 };
 
@@ -20,6 +22,56 @@ fn tail_call_complete(context: &mut Context) -> ControlFlow<CompletionRecord> {
     }
 
     ControlFlow::Continue(())
+}
+
+fn reject_promise(
+    cap: &PromiseCapability,
+    err: JsError,
+    context: &mut Context,
+) -> JsResult<()> {
+    let err = err.to_opaque(context);
+    cap.reject().call(&JsValue::undefined(), &[err], context)?;
+    Ok(())
+}
+
+fn phase_from_flags(flags: u32) -> (ModuleRequestPhase, bool) {
+    let has_options = flags & 1 != 0;
+    let phase = match flags >> 1 {
+        0 => ModuleRequestPhase::Evaluation,
+        1 => ModuleRequestPhase::Defer,
+        2 => ModuleRequestPhase::Source,
+        _ => unreachable!("invalid dynamic import phase"),
+    };
+    (phase, has_options)
+}
+
+fn attributes_from_options(options: JsValue, context: &mut Context) -> JsResult<Box<[ImportAttribute]>> {
+    if options.is_undefined() {
+        return Ok(Box::default());
+    }
+
+    let options = options.to_object(context)?;
+    let with = options.get(js_string!("with"), context)?;
+    if with.is_undefined() {
+        return Ok(Box::default());
+    }
+
+    let with = with.to_object(context)?;
+    let keys = with.enumerable_own_property_names(PropertyNameKind::Key, context)?;
+    let mut attributes = Vec::with_capacity(keys.len());
+    for key in keys {
+        let key = key
+            .as_string()
+            .expect("EnumerableOwnPropertyNames(key) must return string values");
+        let value = with.get(key.clone(), context)?;
+        let Some(value) = value.as_string() else {
+            return Err(JsNativeError::typ()
+                .with_message("dynamic import attribute values must be strings")
+                .into());
+        };
+        attributes.push(ImportAttribute::new(key, value.clone()));
+    }
+    Ok(attributes.into_boxed_slice())
 }
 
 /// `CallEval` implements the Opcode Operation for `Opcode::CallEval`
@@ -508,7 +560,7 @@ impl Operation for TailCallSpread {
 /// [continue]: https://tc39.es/ecma262/#sec-ContinueDynamicImport
 async fn load_dyn_import(
     referrer: Referrer,
-    request: crate::module::ModuleRequest,
+    request: ModuleRequest,
     cap: PromiseCapability,
     context: &RefCell<&mut Context>,
 ) {
@@ -524,7 +576,7 @@ async fn load_dyn_import(
     // `FinishLoadingImportedModule ( referrer, specifier, payload, result )`
     // https://tc39.es/ecma262/#sec-FinishLoadingImportedModule
 
-    let module = match completion {
+    let loaded_module = match completion {
         // 1. If moduleCompletion is an abrupt completion, then
         Err(err) => {
             // a. Perform ! Call(promiseCapability.[[Reject]], undefined, « moduleCompletion.[[Value]] »).
@@ -541,8 +593,8 @@ async fn load_dyn_import(
 
     // 1. If result is a normal completion, then
     match referrer {
-        Referrer::Module(module) => {
-            let ModuleKind::SourceText(src) = module.kind() else {
+        Referrer::Module(referrer_module) => {
+            let ModuleKind::SourceText(src) = referrer_module.kind() else {
                 panic!("referrer cannot be a synthetic module");
             };
 
@@ -553,32 +605,42 @@ async fn load_dyn_import(
             //         i. Append the Record { [[Specifier]]: specifier, [[Module]]: result.[[Value]] } to referrer.[[LoadedModules]].
             let entry = loaded_modules
                 .entry(request.clone())
-                .or_insert_with(|| module.clone());
+                .or_insert_with(|| loaded_module.clone());
 
             //         i. Assert: That Record's [[Module]] is result.[[Value]].
-            debug_assert_eq!(&module, entry);
+            debug_assert_eq!(&loaded_module, entry);
 
             // Same steps apply to referrers below
         }
         Referrer::Realm(realm) => {
             let mut loaded_modules = realm.loaded_modules().borrow_mut();
             let entry = loaded_modules
-                .entry(request.specifier())
-                .or_insert_with(|| module.clone());
-            debug_assert_eq!(&module, entry);
+                .entry(request.clone())
+                .or_insert_with(|| loaded_module.clone());
+            debug_assert_eq!(&loaded_module, entry);
         }
         Referrer::Script(script) => {
             let mut loaded_modules = script.loaded_modules().borrow_mut();
             let entry = loaded_modules
-                .entry(request.specifier())
-                .or_insert_with(|| module.clone());
-            debug_assert_eq!(&module, entry);
+                .entry(request.clone())
+                .or_insert_with(|| loaded_module.clone());
+            debug_assert_eq!(&loaded_module, entry);
         }
+    }
+
+    if request.phase() == ModuleRequestPhase::Source {
+        let err = JsNativeError::syntax()
+            .with_message("source phase imports are not available for source text modules")
+            .to_opaque(&mut context.borrow_mut());
+        cap.reject()
+            .call(&JsValue::undefined(), &[err.into()], &mut context.borrow_mut())
+            .expect("default `reject` function cannot throw");
+        return;
     }
 
     // 2. Let module be moduleCompletion.[[Value]].
     // 3. Let loadPromise be module.LoadRequestedModules().
-    let load = module.load(&mut context.borrow_mut());
+    let load = loaded_module.load(&mut context.borrow_mut());
 
     // 4. Let rejectedClosure be a new Abstract Closure with parameters (reason) that captures promiseCapability and performs the following steps when called:
     // 5. Let onRejected be CreateBuiltinFunction(rejectedClosure, 1, "", « »).
@@ -618,7 +680,7 @@ async fn load_dyn_import(
                 }
 
                 // c. Let evaluatePromise be module.Evaluate().
-                let evaluate = if request.phase() == crate::module::ModuleRequestPhase::Defer {
+                let evaluate = if request.phase() == ModuleRequestPhase::Defer {
                     None
                 } else {
                     Some(module.evaluate(context))
@@ -667,7 +729,12 @@ async fn load_dyn_import(
                 // g. Return unused.
                 Ok(JsValue::undefined())
             },
-            (module.clone(), cap.clone(), on_rejected.clone(), request.clone()),
+            (
+                loaded_module.clone(),
+                cap.clone(),
+                on_rejected.clone(),
+                request.clone(),
+            ),
         ),
     )
     .build();
@@ -693,7 +760,10 @@ pub(crate) struct ImportCall;
 
 impl ImportCall {
     #[inline(always)]
-    pub(super) fn operation(value: VaryingOperand, context: &mut Context) -> JsResult<()> {
+    pub(super) fn operation(
+        (value, options, flags): (VaryingOperand, VaryingOperand, VaryingOperand),
+        context: &mut Context,
+    ) -> JsResult<()> {
         // Import Calls
         // Runtime Semantics: Evaluation
         // https://tc39.es/ecma262/#sec-import-call-runtime-semantics-evaluation
@@ -707,6 +777,8 @@ impl ImportCall {
         // 3. Let argRef be ? Evaluation of AssignmentExpression.
         // 4. Let specifier be ? GetValue(argRef).
         let arg = context.vm.get_register(value.into()).clone();
+        let (phase, has_options) = phase_from_flags(flags.into());
+        let options = has_options.then(|| context.vm.get_register(options.into()).clone());
 
         // 5. Let promiseCapability be ! NewPromiseCapability(%Promise%).
         let cap = PromiseCapability::new(
@@ -720,12 +792,25 @@ impl ImportCall {
         match arg.to_string(context) {
             // 7. IfAbruptRejectPromise(specifierString, promiseCapability).
             Err(err) => {
-                let err = err.to_opaque(context);
-                cap.reject().call(&JsValue::undefined(), &[err], context)?;
+                reject_promise(&cap, err, context)?;
             }
             // 8. Perform HostLoadImportedModule(referrer, specifierString, empty, promiseCapability).
             Ok(specifier) => {
-                let request = crate::module::ModuleRequest::new(specifier);
+                let attributes = match options {
+                    Some(options) if phase == ModuleRequestPhase::Evaluation => {
+                        match attributes_from_options(options, context) {
+                            Ok(attributes) => attributes,
+                            Err(err) => {
+                                reject_promise(&cap, err, context)?;
+                                context.vm.set_register(value.into(), promise.into());
+                                return Ok(());
+                            }
+                        }
+                    }
+                    _ => Box::default(),
+                };
+
+                let request = ModuleRequest::with_phase_and_attributes(specifier, phase, attributes);
                 let job = NativeAsyncJob::with_realm(
                     async move |context| {
                         load_dyn_import(referrer, request, cap, context).await;

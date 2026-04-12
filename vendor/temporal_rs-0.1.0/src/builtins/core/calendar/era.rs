@@ -40,6 +40,15 @@ impl EraInfo {
             ArithmeticYear::Inverse => 1 - era_year,
         }
     }
+
+    pub(crate) fn era_year_for_arithmetic_year(&self, arithmetic_year: i32) -> Option<i32> {
+        let era_year = match self.arithmetic_year {
+            ArithmeticYear::DefaultEra => arithmetic_year,
+            ArithmeticYear::Offset(offset) => arithmetic_year - offset + 1,
+            ArithmeticYear::Inverse => 1 - arithmetic_year,
+        };
+        self.range.contains(&era_year).then_some(era_year)
+    }
 }
 
 macro_rules! era_identifier {

@@ -64,7 +64,13 @@ pub(crate) fn to_temporal_calendar_identifier(calendar_like: &JsValue) -> JsResu
             .with_message("temporalCalendarLike is not a string.")
             .into());
     };
+    let calendar_id = calendar_id.to_std_string_escaped();
+    if matches!(calendar_id.as_str(), "islamic" | "islamic-rgsa") {
+        return Err(JsNativeError::range()
+            .with_message("unknown calendar")
+            .into());
+    }
     // 3. Let identifier be ? ParseTemporalCalendarString(temporalCalendarLike).
     // 4. Return ? CanonicalizeCalendar(identifier).
-    Ok(Calendar::from_str(&calendar_id.to_std_string_escaped())?)
+    Ok(Calendar::from_str(&calendar_id)?)
 }

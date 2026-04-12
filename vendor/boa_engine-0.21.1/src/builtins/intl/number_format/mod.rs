@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use boa_gc::{Finalize, Trace};
-use fixed_decimal::{Decimal, FloatPrecision, SignDisplay};
+use fixed_decimal::{Decimal, FloatPrecision, SignDisplay, UnsignedRoundingMode};
 use icu_decimal::{
     DecimalFormatter, FormattedDecimal,
     options::{DecimalFormatterOptions, GroupingStrategy},
@@ -18,6 +18,7 @@ use icu_provider::DataMarkerAttributes;
 use num_bigint::BigInt;
 use num_traits::Num;
 pub(crate) use options::*;
+use writeable::{Part, PartsWrite, Writeable};
 
 use super::{
     Service,
@@ -29,8 +30,8 @@ use crate::{
     Context, JsArgs, JsData, JsNativeError, JsObject, JsResult, JsString, JsSymbol, JsValue,
     NativeFunction,
     builtins::{
-        BuiltInConstructor, BuiltInObject, IntrinsicObject, builder::BuiltInBuilder,
-        options::get_option, string::is_trimmable_whitespace,
+        BuiltInConstructor, BuiltInObject, IntrinsicObject, array::Array,
+        builder::BuiltInBuilder, options::get_option, string::is_trimmable_whitespace,
     },
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
     js_string,
@@ -43,6 +44,381 @@ use crate::{
     string::StaticJsStrings,
     value::PreferredType,
 };
+
+#[derive(Debug, Clone)]
+enum IntlMathematicalValue {
+    Finite(Decimal),
+    PositiveInfinity,
+    NegativeInfinity,
+    NotANumber,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NumberPart {
+    pub(crate) kind: &'static str,
+    pub(crate) value: JsString,
+}
+
+#[derive(Debug, Default)]
+struct NumberPartsWriter {
+    string: String,
+    parts: Vec<(usize, usize, Part)>,
+}
+
+impl std::fmt::Write for NumberPartsWriter {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.string.push_str(s);
+        Ok(())
+    }
+}
+
+impl PartsWrite for NumberPartsWriter {
+    type SubPartsWrite = Self;
+
+    fn with_part(
+        &mut self,
+        part: Part,
+        mut f: impl FnMut(&mut Self::SubPartsWrite) -> std::fmt::Result,
+    ) -> std::fmt::Result {
+        let start = self.string.len();
+        f(self)?;
+        let end = self.string.len();
+        if start < end {
+            self.parts.push((start, end, part));
+        }
+        Ok(())
+    }
+}
+
+impl IntlMathematicalValue {
+    fn is_nan(&self) -> bool {
+        matches!(self, Self::NotANumber)
+    }
+}
+
+fn decimal_to_parts(formatted: FormattedDecimal<'_>) -> Vec<NumberPart> {
+    let mut writer = NumberPartsWriter::default();
+    formatted
+        .write_to_parts(&mut writer)
+        .expect("writing to a string cannot fail");
+
+    if writer.parts.is_empty() && !writer.string.is_empty() {
+        return vec![NumberPart {
+            kind: "integer",
+            value: JsString::from(writer.string),
+        }];
+    }
+
+    let mut parts = writer
+        .parts
+        .into_iter()
+        .filter(|(_, _, part)| decimal_part_name(*part) != "integer")
+        .collect::<Vec<_>>();
+    parts.sort_by_key(|(start, _, _)| *start);
+
+    let mut result = Vec::new();
+    let mut cursor = 0;
+    for (start, end, part) in parts {
+        if cursor < start {
+            result.push(NumberPart {
+                kind: "integer",
+                value: JsString::from(&writer.string[cursor..start]),
+            });
+        }
+        result.push(NumberPart {
+            kind: decimal_part_name(part),
+            value: JsString::from(&writer.string[start..end]),
+        });
+        cursor = end;
+    }
+    if cursor < writer.string.len() {
+        result.push(NumberPart {
+            kind: "integer",
+            value: JsString::from(&writer.string[cursor..]),
+        });
+    }
+    result
+}
+
+fn decimal_part_name(part: Part) -> &'static str {
+    if part.category == "decimal" {
+        part.value
+    } else {
+        "literal"
+    }
+}
+
+fn join_parts(parts: &[NumberPart]) -> JsString {
+    let mut string = String::new();
+    for part in parts {
+        string.push_str(&part.value.to_std_string_escaped());
+    }
+    JsString::from(string)
+}
+
+fn number_parts_are_one(parts: &[NumberPart]) -> bool {
+    let mut value = String::new();
+    for part in parts {
+        if matches!(part.kind, "minusSign" | "plusSign" | "group") {
+            continue;
+        }
+        value.push_str(&part.value.to_std_string_escaped());
+    }
+    value == "1"
+}
+
+fn parts_to_array(
+    parts: impl IntoIterator<Item = (NumberPart, Option<&'static str>)>,
+    context: &mut Context,
+) -> JsObject {
+    let parts = parts
+        .into_iter()
+        .map(|(part, source)| {
+            let mut object = ObjectInitializer::new(context);
+            object
+                .property(js_string!("type"), js_string!(part.kind), Attribute::all())
+                .property(js_string!("value"), part.value, Attribute::all());
+            if let Some(source) = source {
+                object.property(js_string!("source"), js_string!(source), Attribute::all());
+            }
+            object.build().into()
+        })
+        .collect::<Vec<_>>();
+    Array::create_array_from_list(parts, context)
+}
+
+fn currency_suffix_locale(locale: &Locale) -> bool {
+    matches!(
+        locale_language(locale),
+        "de" | "fr" | "es" | "it" | "pl" | "pt" | "ru"
+    )
+}
+
+fn locale_language(locale: &Locale) -> &str {
+    locale.id.language.as_str()
+}
+
+fn currency_display(currency: Currency, display: CurrencyDisplay) -> (&'static str, JsString) {
+    let code = currency.as_str();
+    match display {
+        CurrencyDisplay::Code => ("currency", JsString::from(code)),
+        CurrencyDisplay::Name => ("currency", JsString::from(currency_name(code))),
+        CurrencyDisplay::Symbol | CurrencyDisplay::NarrowSymbol => {
+            ("currency", JsString::from(currency_symbol(code)))
+        }
+    }
+}
+
+fn currency_symbol(code: &str) -> &'static str {
+    match code {
+        "AUD" | "CAD" | "HKD" | "NZD" | "SGD" | "USD" => "$",
+        "CNY" | "JPY" => "¥",
+        "EUR" => "€",
+        "GBP" => "£",
+        "KRW" => "₩",
+        _ => "¤",
+    }
+}
+
+fn currency_name(code: &str) -> &'static str {
+    match code {
+        "CNY" => "Chinese yuan",
+        "EUR" => "euros",
+        "GBP" => "British pounds",
+        "JPY" => "Japanese yen",
+        "USD" => "US dollars",
+        _ => "currency",
+    }
+}
+
+fn unit_display(unit: &Unit, display: UnitDisplay) -> JsString {
+    let unit = unit.to_js_string().to_std_string_escaped();
+    let value = match display {
+        UnitDisplay::Narrow => match unit.as_str() {
+            "celsius" => "°C",
+            "fahrenheit" => "°F",
+            "kilometer-per-hour" => "km/h",
+            "kilometer" => "km",
+            "meter" => "m",
+            "mile" => "mi",
+            "percent" => "%",
+            _ => unit.as_str(),
+        },
+        UnitDisplay::Short => match unit.as_str() {
+            "byte" => "byte",
+            "celsius" => "°C",
+            "fahrenheit" => "°F",
+            "kilometer-per-hour" => "km/h",
+            "kilometer" => "km",
+            "meter" => "m",
+            "mile" => "mi",
+            "percent" => "%",
+            _ => unit.as_str(),
+        },
+        UnitDisplay::Long => match unit.as_str() {
+            "byte" => "bytes",
+            "celsius" => "degrees Celsius",
+            "fahrenheit" => "degrees Fahrenheit",
+            "kilometer-per-hour" => "kilometers per hour",
+            "kilometer" => "kilometers",
+            "meter" => "meters",
+            "mile" => "miles",
+            "percent" => "percent",
+            _ => unit.as_str(),
+        },
+    };
+    JsString::from(value)
+}
+
+pub(crate) fn substitute_digits(value: &str, numbering_system: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if let Some(digit) = ch.to_digit(10).filter(|_| ch.is_ascii_digit()) {
+            out.push_str(numbering_system_digit(numbering_system, digit as usize));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn numbering_system_digit(numbering_system: &str, digit: usize) -> &'static str {
+    const LATN: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    const HANIDEC: [&str; 10] = ["〇", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+
+    if numbering_system == "hanidec" {
+        return HANIDEC[digit];
+    }
+
+    let Some(start) = numbering_system_digit_start(numbering_system) else {
+        return LATN[digit];
+    };
+    let ch = char::from_u32(start + digit as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+    match digit {
+        0 => Box::leak(ch.to_string().into_boxed_str()),
+        1 => Box::leak(ch.to_string().into_boxed_str()),
+        2 => Box::leak(ch.to_string().into_boxed_str()),
+        3 => Box::leak(ch.to_string().into_boxed_str()),
+        4 => Box::leak(ch.to_string().into_boxed_str()),
+        5 => Box::leak(ch.to_string().into_boxed_str()),
+        6 => Box::leak(ch.to_string().into_boxed_str()),
+        7 => Box::leak(ch.to_string().into_boxed_str()),
+        8 => Box::leak(ch.to_string().into_boxed_str()),
+        _ => Box::leak(ch.to_string().into_boxed_str()),
+    }
+}
+
+fn numbering_system_digit_start(numbering_system: &str) -> Option<u32> {
+    Some(match numbering_system {
+        "adlm" => 0x1E950,
+        "ahom" => 0x11730,
+        "arab" => 0x0660,
+        "arabext" => 0x06F0,
+        "bali" => 0x1B50,
+        "beng" => 0x09E6,
+        "bhks" => 0x11C50,
+        "brah" => 0x11066,
+        "cakm" => 0x11136,
+        "cham" => 0xAA50,
+        "deva" => 0x0966,
+        "diak" => 0x11950,
+        "fullwide" => 0xFF10,
+        "gara" => 0x10D40,
+        "gong" => 0x11DA0,
+        "gonm" => 0x11D50,
+        "gujr" => 0x0AE6,
+        "gukh" => 0x16130,
+        "guru" => 0x0A66,
+        "hmng" => 0x16B50,
+        "hmnp" => 0x1E140,
+        "java" => 0xA9D0,
+        "kali" => 0xA900,
+        "kawi" => 0x11F50,
+        "khmr" => 0x17E0,
+        "knda" => 0x0CE6,
+        "krai" => 0x16D70,
+        "lana" => 0x1A80,
+        "lanatham" => 0x1A90,
+        "laoo" => 0x0ED0,
+        "lepc" => 0x1C40,
+        "limb" => 0x1946,
+        "mathbold" => 0x1D7CE,
+        "mathdbl" => 0x1D7D8,
+        "mathmono" => 0x1D7F6,
+        "mathsanb" => 0x1D7EC,
+        "mathsans" => 0x1D7E2,
+        "mlym" => 0x0D66,
+        "modi" => 0x11650,
+        "mong" => 0x1810,
+        "mroo" => 0x16A60,
+        "mtei" => 0xABF0,
+        "mymr" => 0x1040,
+        "mymrepka" => 0x116DA,
+        "mymrpao" => 0x116D0,
+        "mymrshan" => 0x1090,
+        "mymrtlng" => 0xA9F0,
+        "nagm" => 0x1E4F0,
+        "newa" => 0x11450,
+        "nkoo" => 0x07C0,
+        "olck" => 0x1C50,
+        "onao" => 0x1E5F1,
+        "orya" => 0x0B66,
+        "osma" => 0x104A0,
+        "outlined" => 0x1CCF0,
+        "rohg" => 0x10D30,
+        "saur" => 0xA8D0,
+        "segment" => 0x1FBF0,
+        "shrd" => 0x111D0,
+        "sind" => 0x112F0,
+        "sinh" => 0x0DE6,
+        "sora" => 0x110F0,
+        "sund" => 0x1BB0,
+        "sunu" => 0x11BF0,
+        "takr" => 0x116C0,
+        "talu" => 0x19D0,
+        "tamldec" => 0x0BE6,
+        "telu" => 0x0C66,
+        "thai" => 0x0E50,
+        "tibt" => 0x0F20,
+        "tirh" => 0x114D0,
+        "tnsa" => 0x16AC0,
+        "tols" => 0x11DE0,
+        "vaii" => 0xA620,
+        "wara" => 0x118E0,
+        "wcho" => 0x1E2F0,
+        _ => return None,
+    })
+}
+
+pub(crate) fn numbering_system_is_supported(numbering_system: &str) -> bool {
+    matches!(numbering_system, "latn" | "hanidec")
+        || numbering_system_digit_start(numbering_system).is_some()
+}
+
+fn rounding_mode_to_js_string(mode: fixed_decimal::SignedRoundingMode) -> JsString {
+    match mode {
+        fixed_decimal::SignedRoundingMode::Ceil => js_string!("ceil"),
+        fixed_decimal::SignedRoundingMode::Floor => js_string!("floor"),
+        fixed_decimal::SignedRoundingMode::HalfCeil => js_string!("halfCeil"),
+        fixed_decimal::SignedRoundingMode::HalfFloor => js_string!("halfFloor"),
+        fixed_decimal::SignedRoundingMode::Unsigned(UnsignedRoundingMode::Expand) => {
+            js_string!("expand")
+        }
+        fixed_decimal::SignedRoundingMode::Unsigned(UnsignedRoundingMode::Trunc) => {
+            js_string!("trunc")
+        }
+        fixed_decimal::SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfExpand) => {
+            js_string!("halfExpand")
+        }
+        fixed_decimal::SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfTrunc) => {
+            js_string!("halfTrunc")
+        }
+        fixed_decimal::SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfEven) => {
+            js_string!("halfEven")
+        }
+        _ => js_string!("halfExpand"),
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -62,6 +438,43 @@ pub(crate) struct NumberFormat {
     bound_format: Option<JsFunction>,
 }
 
+pub(crate) fn format_decimal_for_notation(
+    locale: &Locale,
+    digit_options: &DigitFormatOptions,
+    notation: NotationKind,
+    mut value: Decimal,
+) -> Decimal {
+    match notation {
+        NotationKind::Standard => {
+            digit_options.format_fixed_decimal(&mut value);
+            value
+        }
+        NotationKind::Scientific => {
+            format_decimal_for_scientific_or_engineering(digit_options, value, 1)
+        }
+        NotationKind::Engineering => {
+            format_decimal_for_scientific_or_engineering(digit_options, value, 3)
+        }
+        NotationKind::Compact => format_decimal_for_compact(locale, digit_options, value),
+    }
+}
+
+pub(crate) fn compact_format_exponent(locale: &Locale, number: f64) -> u8 {
+    let abs = number.abs();
+    let (divisor, _) = compact_format_pattern(locale, abs);
+    match divisor as u64 {
+        1 => 0,
+        1_000 => 3,
+        10_000 => 4,
+        100_000 => 5,
+        1_000_000 => 6,
+        100_000_000 => 8,
+        1_000_000_000 => 9,
+        1_000_000_000_000 => 12,
+        _ => 0,
+    }
+}
+
 impl NumberFormat {
     /// [`FormatNumeric ( numberFormat, x )`][full] and [`FormatNumericToParts ( numberFormat, x )`][parts].
     ///
@@ -70,6 +483,7 @@ impl NumberFormat {
     ///
     /// [full]: https://tc39.es/ecma402/#sec-formatnumber
     /// [parts]: https://tc39.es/ecma402/#sec-formatnumbertoparts
+    #[allow(dead_code)]
     pub(crate) fn format<'a>(&'a self, value: &'a mut Decimal) -> FormattedDecimal<'a> {
         // TODO: Missing support from ICU4X for Percent/Currency/Unit formatting.
         // TODO: Missing support from ICU4X for Scientific/Engineering/Compact notation.
@@ -78,6 +492,512 @@ impl NumberFormat {
         value.apply_sign_display(self.sign_display);
 
         self.formatter.format(value)
+    }
+
+    fn format_numeric(&self, value: IntlMathematicalValue) -> Vec<NumberPart> {
+        let parts = match value {
+            IntlMathematicalValue::Finite(value) => self.format_finite_decimal(value),
+            IntlMathematicalValue::PositiveInfinity => self.format_non_finite(false, "∞"),
+            IntlMathematicalValue::NegativeInfinity => self.format_non_finite(true, "∞"),
+            IntlMathematicalValue::NotANumber => {
+                let mut parts = Vec::new();
+                if self.sign_display == SignDisplay::Always {
+                    parts.push(NumberPart {
+                        kind: "plusSign",
+                        value: js_string!("+"),
+                    });
+                }
+                parts.push(NumberPart {
+                    kind: "nan",
+                    value: if locale_language(&self.locale) == "zh" {
+                        js_string!("非數值")
+                    } else {
+                        js_string!("NaN")
+                    },
+                });
+                self.apply_unit_affixes(parts, false)
+            }
+        };
+        self.localize_digits(parts)
+    }
+
+    fn format_numeric_to_string(&self, value: IntlMathematicalValue) -> JsString {
+        join_parts(&self.format_numeric(value))
+    }
+
+    pub(crate) fn format_f64_to_string(&self, value: f64) -> JsString {
+        let value = if value.is_nan() {
+            IntlMathematicalValue::NotANumber
+        } else if value == f64::INFINITY {
+            IntlMathematicalValue::PositiveInfinity
+        } else if value == f64::NEG_INFINITY {
+            IntlMathematicalValue::NegativeInfinity
+        } else {
+            IntlMathematicalValue::Finite(
+                Decimal::try_from_f64(value, FloatPrecision::RoundTrip)
+                    .unwrap_or_else(|_| Decimal::from(0)),
+            )
+        };
+        self.format_numeric_to_string(value)
+    }
+
+    pub(crate) fn format_decimal_to_string(&self, value: Decimal) -> JsString {
+        self.format_numeric_to_string(IntlMathematicalValue::Finite(value))
+    }
+
+    pub(crate) fn format_value_to_parts(
+        &self,
+        value: &JsValue,
+        context: &mut Context,
+    ) -> JsResult<Vec<NumberPart>> {
+        Ok(self.format_numeric(to_intl_mathematical_value(value, context)?))
+    }
+
+    fn format_non_finite(&self, negative: bool, body: &'static str) -> Vec<NumberPart> {
+        let mut parts = Vec::new();
+        match (negative, self.sign_display) {
+            (true, SignDisplay::Never) => {}
+            (true, _) => parts.push(NumberPart {
+                kind: "minusSign",
+                value: js_string!("-"),
+            }),
+            (false, SignDisplay::Always) | (false, SignDisplay::ExceptZero) => {
+                parts.push(NumberPart {
+                    kind: "plusSign",
+                    value: js_string!("+"),
+                });
+            }
+            (false, _) => {}
+        }
+        parts.push(NumberPart {
+            kind: "infinity",
+            value: js_string!(body),
+        });
+        self.apply_unit_affixes(parts, negative)
+    }
+
+    fn format_finite_decimal(&self, mut value: Decimal) -> Vec<NumberPart> {
+        if self.unit_options.style() == Style::Percent {
+            value.multiply_pow10(2);
+        }
+
+        match self.notation {
+            Notation::Standard => {
+                value = format_decimal_for_notation(
+                    &self.locale,
+                    &self.digit_options,
+                    NotationKind::Standard,
+                    value,
+                );
+                value.apply_sign_display(self.sign_display);
+                let mut parts = decimal_to_parts(self.formatter.format(&value));
+                if self.unit_options.style() == Style::Percent {
+                    if currency_suffix_locale(&self.locale) {
+                        parts.push(NumberPart {
+                            kind: "literal",
+                            value: js_string!(" "),
+                        });
+                    }
+                    parts.push(NumberPart {
+                        kind: "percentSign",
+                        value: js_string!("%"),
+                    });
+                }
+                let negative = parts
+                    .first()
+                    .is_some_and(|part| part.kind == "minusSign" || part.value == js_string!("-"));
+                self.apply_unit_affixes(parts, negative)
+            }
+            Notation::Scientific => self.format_scientific_or_engineering(value, 1),
+            Notation::Engineering => self.format_scientific_or_engineering(value, 3),
+            Notation::Compact { display } => self.format_compact(value, display),
+        }
+    }
+
+    fn format_scientific_or_engineering(
+        &self,
+        mut value: Decimal,
+        exponent_step: i32,
+    ) -> Vec<NumberPart> {
+        let parsed = value.to_string().parse::<f64>().unwrap_or(0.0);
+        if parsed == 0.0 {
+            value = format_decimal_for_notation(
+                &self.locale,
+                &self.digit_options,
+                if exponent_step == 1 {
+                    NotationKind::Scientific
+                } else {
+                    NotationKind::Engineering
+                },
+                value,
+            );
+            value.apply_sign_display(self.sign_display);
+            let mut parts = decimal_to_parts(self.formatter.format(&value));
+            parts.push(NumberPart {
+                kind: "exponentSeparator",
+                value: js_string!("E"),
+            });
+            parts.push(NumberPart {
+                kind: "exponentInteger",
+                value: js_string!("0"),
+            });
+            return self.apply_unit_affixes(parts, false);
+        }
+
+        let negative = parsed.is_sign_negative();
+        let mut exponent = parsed.abs().log10().floor() as i32;
+        if exponent_step == 3 {
+            exponent -= exponent.rem_euclid(3);
+        }
+        let mantissa = parsed / 10f64.powi(exponent);
+        let mut mantissa = format_decimal_for_notation(
+            &self.locale,
+            &self.digit_options,
+            if exponent_step == 1 {
+                NotationKind::Scientific
+            } else {
+                NotationKind::Engineering
+            },
+            Decimal::try_from_f64(mantissa, FloatPrecision::RoundTrip)
+                .unwrap_or_else(|_| Decimal::from(0)),
+        );
+        mantissa.apply_sign_display(self.sign_display);
+        let mut parts = decimal_to_parts(self.formatter.format(&mantissa));
+        parts.push(NumberPart {
+            kind: "exponentSeparator",
+            value: js_string!("E"),
+        });
+        if exponent < 0 {
+            parts.push(NumberPart {
+                kind: "exponentMinusSign",
+                value: js_string!("-"),
+            });
+        }
+        parts.push(NumberPart {
+            kind: "exponentInteger",
+            value: JsString::from(exponent.abs().to_string()),
+        });
+        self.apply_unit_affixes(parts, negative)
+    }
+
+    fn format_compact(&self, value: Decimal, display: CompactDisplay) -> Vec<NumberPart> {
+        let parsed = value.to_string().parse::<f64>().unwrap_or(0.0);
+        let negative = parsed.is_sign_negative();
+        let abs = parsed.abs();
+        let (divisor, suffix) = compact_format_pattern_for_display(&self.locale, abs, display);
+        let mut compact = Decimal::try_from_f64(parsed / divisor, FloatPrecision::RoundTrip)
+            .unwrap_or_else(|_| Decimal::from(0));
+        self.digit_options.format_fixed_decimal(&mut compact);
+        compact.apply_sign_display(self.sign_display);
+        let mut parts = decimal_to_parts(self.formatter.format(&compact));
+        if !suffix.is_empty() {
+            if suffix.starts_with(' ') || suffix.starts_with('\u{a0}') {
+                let split = suffix
+                    .char_indices()
+                    .nth(1)
+                    .map_or(suffix.len(), |(index, _)| index);
+                let rest = &suffix[split..];
+                parts.push(NumberPart {
+                    kind: "literal",
+                    value: JsString::from(&suffix[..split]),
+                });
+                parts.push(NumberPart {
+                    kind: "compact",
+                    value: JsString::from(rest),
+                });
+                return self.apply_unit_affixes(parts, negative);
+            }
+            parts.push(NumberPart {
+                kind: "compact",
+                value: JsString::from(suffix),
+            });
+        }
+        self.apply_unit_affixes(parts, negative)
+    }
+
+    fn apply_unit_affixes(&self, mut parts: Vec<NumberPart>, negative: bool) -> Vec<NumberPart> {
+        match &self.unit_options {
+            UnitFormatOptions::Decimal | UnitFormatOptions::Percent => parts,
+            UnitFormatOptions::Currency {
+                currency,
+                display,
+                sign,
+            } => {
+                let (kind, mut value) = currency_display(*currency, *display);
+                if matches!(locale_language(&self.locale), "ko" | "zh")
+                    && *display != CurrencyDisplay::Code
+                    && currency.as_str() == "USD"
+                {
+                    value = js_string!("US$");
+                }
+                if *sign == CurrencySign::Accounting && negative && !currency_suffix_locale(&self.locale) {
+                    let mut wrapped = vec![NumberPart {
+                        kind: "literal",
+                        value: js_string!("("),
+                    }];
+                    let mut unsigned = parts
+                        .into_iter()
+                        .filter(|part| part.kind != "minusSign")
+                        .collect::<Vec<_>>();
+                    unsigned.insert(0, NumberPart { kind, value });
+                    wrapped.extend(unsigned);
+                    wrapped.push(NumberPart {
+                        kind: "literal",
+                        value: js_string!(")"),
+                    });
+                    wrapped
+                } else if currency_suffix_locale(&self.locale) {
+                    parts.push(NumberPart {
+                        kind: "literal",
+                        value: js_string!(" "),
+                    });
+                    parts.push(NumberPart { kind, value });
+                    parts
+                } else {
+                    let sign_prefix_len = usize::from(
+                        parts
+                            .first()
+                            .is_some_and(|part| part.kind == "minusSign" || part.kind == "plusSign"),
+                    );
+                    parts.insert(sign_prefix_len, NumberPart { kind, value });
+                    parts
+                }
+            }
+            UnitFormatOptions::Unit { unit, display } => {
+                let mut value = unit_display(unit, *display);
+                let unit_id = unit.to_js_string().to_std_string_escaped();
+                if matches!(*display, UnitDisplay::Short | UnitDisplay::Long)
+                    && matches!(
+                        unit_id.as_str(),
+                        "year"
+                            | "month"
+                            | "week"
+                            | "day"
+                            | "hour"
+                            | "minute"
+                            | "second"
+                            | "millisecond"
+                            | "microsecond"
+                            | "nanosecond"
+                    )
+                    && !number_parts_are_one(&parts)
+                {
+                    value = JsString::from(format!("{}s", value.to_std_string_escaped()));
+                }
+                if locale_language(&self.locale) == "ja"
+                    && *display == UnitDisplay::Long
+                    && unit_id == "kilometer-per-hour"
+                {
+                    let mut result = vec![
+                        NumberPart {
+                            kind: "unit",
+                            value: js_string!("時速"),
+                        },
+                        NumberPart {
+                            kind: "literal",
+                            value: js_string!(" "),
+                        },
+                    ];
+                    result.extend(parts);
+                    result.push(NumberPart {
+                        kind: "literal",
+                        value: js_string!(" "),
+                    });
+                    result.push(NumberPart {
+                        kind: "unit",
+                        value: js_string!("キロメートル"),
+                    });
+                    return result;
+                }
+                if locale_language(&self.locale) == "ko"
+                    && *display == UnitDisplay::Long
+                    && unit_id == "kilometer-per-hour"
+                {
+                    let mut result = vec![
+                        NumberPart {
+                            kind: "unit",
+                            value: js_string!("시속"),
+                        },
+                        NumberPart {
+                            kind: "literal",
+                            value: js_string!(" "),
+                        },
+                    ];
+                    result.extend(parts);
+                    result.push(NumberPart {
+                        kind: "unit",
+                        value: js_string!("킬로미터"),
+                    });
+                    return result;
+                }
+                if locale_language(&self.locale) == "zh"
+                    && *display == UnitDisplay::Long
+                    && unit_id == "kilometer-per-hour"
+                {
+                    let mut result = vec![
+                        NumberPart {
+                            kind: "unit",
+                            value: js_string!("每小時"),
+                        },
+                        NumberPart {
+                            kind: "literal",
+                            value: js_string!(" "),
+                        },
+                    ];
+                    result.extend(parts);
+                    result.push(NumberPart {
+                        kind: "literal",
+                        value: js_string!(" "),
+                    });
+                    result.push(NumberPart {
+                        kind: "unit",
+                        value: js_string!("公里"),
+                    });
+                    return result;
+                }
+                if locale_language(&self.locale) == "zh" && unit_id == "kilometer-per-hour" {
+                    value = js_string!("公里/小時");
+                }
+                if locale_language(&self.locale) == "de"
+                    && *display == UnitDisplay::Long
+                    && unit_id == "kilometer-per-hour"
+                {
+                    value = js_string!("Kilometer pro Stunde");
+                }
+                if value != js_string!("%")
+                    && !(*display == UnitDisplay::Narrow
+                        && value == js_string!("km/h")
+                        && locale_language(&self.locale) != "de")
+                    && !(locale_language(&self.locale) == "ko" && value == js_string!("km/h"))
+                    && !(matches!(locale_language(&self.locale), "ko" | "zh")
+                        && *display == UnitDisplay::Narrow)
+                {
+                    parts.push(NumberPart {
+                        kind: "literal",
+                        value: js_string!(" "),
+                    });
+                }
+                parts.push(NumberPart {
+                    kind: "unit",
+                    value,
+                });
+                parts
+            }
+        }
+    }
+
+    fn localize_digits(&self, mut parts: Vec<NumberPart>) -> Vec<NumberPart> {
+        let Some(numbering_system) = self.numbering_system.as_ref().map(ToString::to_string) else {
+            return parts;
+        };
+        if numbering_system == "latn" {
+            return parts;
+        }
+        for part in &mut parts {
+            if matches!(
+                part.kind,
+                    "integer" | "fraction" | "exponentInteger" | "compact"
+                ) {
+                part.value = JsString::from(substitute_digits(
+                    &part.value.to_std_string_escaped(),
+                    &numbering_system,
+                ));
+            }
+        }
+        parts
+    }
+}
+
+fn format_decimal_for_scientific_or_engineering(
+    digit_options: &DigitFormatOptions,
+    mut value: Decimal,
+    exponent_step: i32,
+) -> Decimal {
+    let parsed = value.to_string().parse::<f64>().unwrap_or(0.0);
+    if parsed == 0.0 {
+        digit_options.format_fixed_decimal(&mut value);
+        return value;
+    }
+
+    let mut exponent = parsed.abs().log10().floor() as i32;
+    if exponent_step == 3 {
+        exponent -= exponent.rem_euclid(3);
+    }
+    let mantissa = parsed / 10f64.powi(exponent);
+    let mut mantissa = Decimal::try_from_f64(mantissa, FloatPrecision::RoundTrip)
+        .unwrap_or_else(|_| Decimal::from(0));
+    digit_options.format_fixed_decimal(&mut mantissa);
+    mantissa
+}
+
+fn format_decimal_for_compact(
+    locale: &Locale,
+    digit_options: &DigitFormatOptions,
+    value: Decimal,
+) -> Decimal {
+    let parsed = value.to_string().parse::<f64>().unwrap_or(0.0);
+    let abs = parsed.abs();
+    let (divisor, _) = compact_format_pattern(locale, abs);
+    let mut compact = Decimal::try_from_f64(parsed / divisor, FloatPrecision::RoundTrip)
+        .unwrap_or_else(|_| Decimal::from(0));
+    digit_options.format_fixed_decimal(&mut compact);
+    compact
+}
+
+fn compact_format_pattern(locale: &Locale, abs: f64) -> (f64, &'static str) {
+    compact_format_pattern_for_display(locale, abs, CompactDisplay::Short)
+}
+
+fn compact_format_pattern_for_display(
+    locale: &Locale,
+    abs: f64,
+    display: CompactDisplay,
+) -> (f64, &'static str) {
+    let language = locale_language(locale);
+    match language {
+        // CLDR's German short compact patterns only kick in at millions, while long patterns
+        // also compact thousands.
+        "de" if abs >= 1_000_000.0 => match display {
+            CompactDisplay::Short => (1_000_000.0, "\u{a0}Mio."),
+            CompactDisplay::Long => (1_000_000.0, " Millionen"),
+        },
+        "de" if abs >= 1_000.0 => match display {
+            CompactDisplay::Short => (1.0, ""),
+            CompactDisplay::Long => (1_000.0, " Tausend"),
+        },
+        "de" => (1.0, ""),
+        "ja" if abs >= 100_000_000.0 => (100_000_000.0, "億"),
+        "ja" if abs >= 10_000.0 => (10_000.0, "万"),
+        "ja" => (1.0, ""),
+        "ko" if abs >= 100_000_000.0 => (100_000_000.0, "억"),
+        "ko" if abs >= 10_000.0 => (10_000.0, "만"),
+        "ko" if abs >= 1_000.0 => (1_000.0, "천"),
+        "zh" if abs >= 100_000_000.0 => (100_000_000.0, "億"),
+        "zh" if abs >= 10_000.0 => (10_000.0, "萬"),
+        "zh" => (1.0, ""),
+        _ if locale.to_string().starts_with("en-IN") && abs >= 100_000.0 => {
+            match display {
+                CompactDisplay::Short => (100_000.0, "L"),
+                CompactDisplay::Long => (100_000.0, " lakh"),
+            }
+        }
+        _ if abs >= 1_000_000_000_000.0 => match display {
+            CompactDisplay::Short => (1_000_000_000_000.0, "T"),
+            CompactDisplay::Long => (1_000_000_000_000.0, " trillion"),
+        },
+        _ if abs >= 1_000_000_000.0 => match display {
+            CompactDisplay::Short => (1_000_000_000.0, "B"),
+            CompactDisplay::Long => (1_000_000_000.0, " billion"),
+        },
+        _ if abs >= 1_000_000.0 => match display {
+            CompactDisplay::Short => (1_000_000.0, "M"),
+            CompactDisplay::Long => (1_000_000.0, " million"),
+        },
+        _ if abs >= 1_000.0 => match display {
+            CompactDisplay::Short => (1_000.0, "K"),
+            CompactDisplay::Long => (1_000.0, " thousand"),
+        },
+        _ => (1.0, ""),
     }
 }
 
@@ -96,37 +1016,42 @@ impl Service for NumberFormat {
         options: &mut Self::LocaleOptions,
         provider: &crate::context::icu::IntlProvider,
     ) {
-        let numbering_system = options
+        let extension_numbering_system = locale.extensions.unicode.keywords.get(&key!("nu")).cloned();
+        let option_numbering_system = options
             .numbering_system
             .take()
             .filter(|nu| {
                 NumberingSystem::try_from(nu.clone()).is_ok_and(|nu| {
+                    numbering_system_is_supported(nu.as_str()) || {
+                        let attr = DataMarkerAttributes::from_str_or_panic(nu.as_str());
+                        validate_extension::<Self::LangMarker>(locale.id.clone(), attr, provider)
+                    }
+                })
+            });
+        let extension_numbering_system = extension_numbering_system.filter(|nu| {
+            NumberingSystem::try_from(nu.clone()).is_ok_and(|nu| {
+                numbering_system_is_supported(nu.as_str()) || {
                     let attr = DataMarkerAttributes::from_str_or_panic(nu.as_str());
                     validate_extension::<Self::LangMarker>(locale.id.clone(), attr, provider)
-                })
+                }
             })
-            .or_else(|| {
-                locale
-                    .extensions
-                    .unicode
-                    .keywords
-                    .get(&key!("nu"))
-                    .cloned()
-                    .filter(|nu| {
-                        NumberingSystem::try_from(nu.clone()).is_ok_and(|nu| {
-                            let attr = DataMarkerAttributes::from_str_or_panic(nu.as_str());
-                            validate_extension::<Self::LangMarker>(
-                                locale.id.clone(),
-                                attr,
-                                provider,
-                            )
-                        })
-                    })
-            });
+        });
+        let numbering_system = option_numbering_system
+            .clone()
+            .or_else(|| extension_numbering_system.clone());
+        let reflect_extension = match (&numbering_system, &option_numbering_system, &extension_numbering_system) {
+            (Some(numbering_system), Some(option), Some(extension)) => {
+                numbering_system == option && option == extension
+            }
+            (Some(numbering_system), None, Some(extension)) => numbering_system == extension,
+            _ => false,
+        };
 
         locale.extensions.unicode.clear();
 
-        if let Some(nu) = numbering_system.clone() {
+        if reflect_extension
+            && let Some(nu) = numbering_system.clone()
+        {
             locale.extensions.unicode.keywords.set(key!("nu"), nu);
         }
 
@@ -157,6 +1082,13 @@ impl IntrinsicObject for NumberFormat {
                 None,
                 Attribute::CONFIGURABLE,
             )
+            .method(Self::format_to_parts, js_string!("formatToParts"), 1)
+            .method(Self::format_range, js_string!("formatRange"), 2)
+            .method(
+                Self::format_range_to_parts,
+                js_string!("formatRangeToParts"),
+                2,
+            )
             .method(Self::resolved_options, js_string!("resolvedOptions"), 0)
             .build();
     }
@@ -172,7 +1104,7 @@ impl BuiltInObject for NumberFormat {
 
 impl BuiltInConstructor for NumberFormat {
     const CONSTRUCTOR_ARGUMENTS: usize = 0;
-    const PROTOTYPE_STORAGE_SLOTS: usize = 4;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 7;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 1;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
@@ -300,6 +1232,7 @@ impl NumberFormat {
         // 8. Set opt.[[nu]] to numberingSystem.
         let numbering_system =
             get_option::<NumberingSystem>(&options, js_string!("numberingSystem"), context)?;
+        let requested_numbering_system = numbering_system.clone();
 
         let mut intl_options = IntlOptions {
             matcher,
@@ -323,15 +1256,24 @@ impl NumberFormat {
         // 14. Perform ? SetNumberFormatUnitOptions(numberFormat, options).
         let unit_options = UnitFormatOptions::from_options(&options, context)?;
 
+        // 18. Let notation be ? GetOption(options, "notation", string, « "standard", "scientific", "engineering", "compact" », "standard").
+        // 19. Set numberFormat.[[Notation]] to notation.
+        let notation_kind =
+            get_option(&options, js_string!("notation"), context)?.unwrap_or_default();
+
         // 15. Let style be numberFormat.[[Style]].
-        // 16. If style is "currency", then
-        let (min_fractional, max_fractional) = if unit_options.style() == Style::Currency {
-            // TODO: Missing support from ICU4X
+        // 16. If style is "currency" and notation is "standard", then
+        let (min_fractional, max_fractional) = if let UnitFormatOptions::Currency {
+            currency, ..
+        } = &unit_options
+            && notation_kind == NotationKind::Standard
+        {
             // a. Let currency be numberFormat.[[Currency]].
             // b. Let cDigits be CurrencyDigits(currency).
+            let c_digits = currency.digits();
             // c. Let mnfdDefault be cDigits.
             // d. Let mxfdDefault be cDigits.
-            return Err(JsNativeError::typ().with_message("unimplemented").into());
+            (c_digits, c_digits)
         } else {
             // 17. Else,
             (
@@ -344,21 +1286,21 @@ impl NumberFormat {
                 } else {
                     // c. Else,
                     //    i. Let mxfdDefault be 3.
-                    3
+                    if notation_kind == NotationKind::Compact {
+                        0
+                    } else {
+                        3
+                    }
                 },
             )
         };
-
-        // 18. Let notation be ? GetOption(options, "notation", string, « "standard", "scientific", "engineering", "compact" », "standard").
-        // 19. Set numberFormat.[[Notation]] to notation.
-        let notation = get_option(&options, js_string!("notation"), context)?.unwrap_or_default();
 
         // 20. Perform ? SetNumberFormatDigitOptions(numberFormat, options, mnfdDefault, mxfdDefault, notation).
         let digit_options = DigitFormatOptions::from_options(
             &options,
             min_fractional,
             max_fractional,
-            notation,
+            notation_kind,
             context,
         )?;
 
@@ -369,7 +1311,7 @@ impl NumberFormat {
         // 22. Let defaultUseGrouping be "auto".
         let mut default_use_grouping = GroupingStrategy::Auto;
 
-        let notation = match notation {
+        let notation = match notation_kind {
             NotationKind::Standard => Notation::Standard,
             NotationKind::Scientific => Notation::Scientific,
             NotationKind::Engineering => Notation::Engineering,
@@ -451,7 +1393,14 @@ impl NumberFormat {
 
         Ok(NumberFormat {
             locale,
-            numbering_system: intl_options.service_options.numbering_system,
+            numbering_system: intl_options
+                .service_options
+                .numbering_system
+                .or_else(|| {
+                    requested_numbering_system
+                        .filter(|nu| numbering_system_is_supported(nu.as_str()))
+                        .map(Value::from)
+                }),
             formatter,
             unit_options,
             digit_options,
@@ -520,15 +1469,15 @@ impl NumberFormat {
                         let value = args.get_or_undefined(0);
 
                         // 4. Let x be ? ToIntlMathematicalValue(value).
-                        let mut x = to_intl_mathematical_value(value, context)?;
+                        let x = to_intl_mathematical_value(value, context)?;
 
                         // 5. Return FormatNumeric(nf, x).
-                        Ok(js_string!(nf.borrow().data().format(&mut x).to_string()).into())
+                        Ok(nf.borrow().data().format_numeric_to_string(x).into())
                     },
                     nf_clone,
                 ),
             )
-            .length(2)
+            .length(1)
             .build();
 
             nf.data_mut().bound_format = Some(bound_format.clone());
@@ -537,6 +1486,133 @@ impl NumberFormat {
 
         // 5. Return nf.[[BoundFormat]].
         Ok(bound_format.into())
+    }
+
+    fn format_to_parts(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let nf = unwrap_number_format(this, context)?;
+        let value = to_intl_mathematical_value(args.get_or_undefined(0), context)?;
+        let parts = nf.borrow().data().format_numeric(value);
+        Ok(parts_to_array(parts.into_iter().map(|part| (part, None)), context).into())
+    }
+
+    fn format_range(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        if args.len() < 2 || args[0].is_undefined() || args[1].is_undefined() {
+            return Err(JsNativeError::typ()
+                .with_message("formatRange requires start and end values")
+                .into());
+        }
+        let nf = unwrap_number_format(this, context)?;
+        let start = to_intl_mathematical_value(args.get_or_undefined(0), context)?;
+        let end = to_intl_mathematical_value(args.get_or_undefined(1), context)?;
+        if start.is_nan() || end.is_nan() {
+            return Err(JsNativeError::range()
+                .with_message("cannot format a range with NaN")
+                .into());
+        }
+        let nf = nf.borrow();
+        let nf = nf.data();
+        let start_parts = nf.format_numeric(start);
+        let end_parts = nf.format_numeric(end);
+        let start_string = join_parts(&start_parts);
+        let end_string = join_parts(&end_parts);
+        if start_string == end_string {
+            return Ok(JsString::from(format!(
+                "~{}",
+                start_string.to_std_string_escaped()
+            ))
+            .into());
+        }
+        let start_std = start_string.to_std_string_escaped();
+        let end_std = end_string.to_std_string_escaped();
+        if let UnitFormatOptions::Currency { .. } = nf.unit_options {
+            if let (Some((start_number, start_currency)), Some((end_number, end_currency))) =
+                (start_std.rsplit_once('\u{a0}'), end_std.rsplit_once('\u{a0}'))
+                && start_currency == end_currency
+            {
+                let end_number = if start_number.starts_with('+') {
+                    end_number.strip_prefix('+').unwrap_or(end_number)
+                } else {
+                    end_number
+                };
+                return Ok(JsString::from(format!(
+                    "{start_number} - {end_number}\u{a0}{start_currency}"
+                ))
+                .into());
+            }
+            if let (Some(start_tail), Some(end_tail)) =
+                (start_std.strip_prefix("+$"), end_std.strip_prefix("+$"))
+            {
+                return Ok(JsString::from(format!("+${start_tail}–{end_tail}")).into());
+            }
+        } else {
+            if locale_language(&nf.locale) == "pt" {
+                return Ok(JsString::from(format!("{start_std} - {end_std}")).into());
+            }
+            return Ok(JsString::from(format!("{start_std}–{end_std}")).into());
+        }
+        Ok(JsString::from(format!(
+            "{start_std} – {end_std}",
+        ))
+        .into())
+    }
+
+    fn format_range_to_parts(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        if args.len() < 2 || args[0].is_undefined() || args[1].is_undefined() {
+            return Err(JsNativeError::typ()
+                .with_message("formatRangeToParts requires start and end values")
+                .into());
+        }
+        let nf = unwrap_number_format(this, context)?;
+        let start = to_intl_mathematical_value(args.get_or_undefined(0), context)?;
+        let end = to_intl_mathematical_value(args.get_or_undefined(1), context)?;
+        if start.is_nan() || end.is_nan() {
+            return Err(JsNativeError::range()
+                .with_message("cannot format a range with NaN")
+                .into());
+        }
+        let nf = nf.borrow();
+        let nf = nf.data();
+        let start_parts = nf.format_numeric(start);
+        let end_parts = nf.format_numeric(end);
+        if join_parts(&start_parts) == join_parts(&end_parts) {
+            let parts = std::iter::once((
+                NumberPart {
+                    kind: "approximatelySign",
+                    value: js_string!("~"),
+                },
+                Some("shared"),
+            ))
+            .chain(start_parts.into_iter().map(|part| (part, Some("shared"))));
+            return Ok(parts_to_array(parts, context).into());
+        }
+        let parts = start_parts
+            .into_iter()
+            .map(|part| (part, Some("startRange")))
+            .chain(std::iter::once((
+                NumberPart {
+                    kind: "literal",
+                    value: js_string!(" – "),
+                },
+                Some("shared"),
+            )))
+            .chain(
+                end_parts
+                    .into_iter()
+                    .map(|part| (part, Some("endRange"))),
+            );
+        Ok(parts_to_array(parts, context).into())
     }
 
     /// [`Intl.NumberFormat.prototype.resolvedOptions ( )`][spec].
@@ -575,13 +1651,15 @@ impl NumberFormat {
             js_string!(nf.locale.to_string()),
             Attribute::all(),
         );
-        if let Some(nu) = &nf.numbering_system {
-            options.property(
-                js_string!("numberingSystem"),
-                js_string!(nu.to_string()),
-                Attribute::all(),
-            );
-        }
+        options.property(
+            js_string!("numberingSystem"),
+            JsString::from(
+                nf.numbering_system
+                    .as_ref()
+                    .map_or_else(|| "latn".to_owned(), ToString::to_string),
+            ),
+            Attribute::all(),
+        );
 
         options.property(
             js_string!("style"),
@@ -708,6 +1786,11 @@ impl NumberFormat {
                 Attribute::all(),
             )
             .property(
+                js_string!("roundingMode"),
+                rounding_mode_to_js_string(nf.digit_options.rounding_mode),
+                Attribute::all(),
+            )
+            .property(
                 js_string!("roundingPriority"),
                 nf.digit_options.rounding_priority.to_js_string(),
                 Attribute::all(),
@@ -774,7 +1857,10 @@ fn unwrap_number_format(nf: &JsValue, context: &mut Context) -> JsResult<JsObjec
 /// Abstract operation [`ToIntlMathematicalValue ( value )`][spec].
 ///
 /// [spec]: https://tc39.es/ecma402/#sec-tointlmathematicalvalue
-fn to_intl_mathematical_value(value: &JsValue, context: &mut Context) -> JsResult<Decimal> {
+fn to_intl_mathematical_value(
+    value: &JsValue,
+    context: &mut Context,
+) -> JsResult<IntlMathematicalValue> {
     // 1. Let primValue be ? ToPrimitive(value, number).
     let prim_value = value.to_primitive(context, PreferredType::Number)?;
 
@@ -782,8 +1868,10 @@ fn to_intl_mathematical_value(value: &JsValue, context: &mut Context) -> JsResul
     // should remove the returned errors.
     match prim_value.variant() {
         // 2. If Type(primValue) is BigInt, return ℝ(primValue).
-        JsVariant::BigInt(bi) => Decimal::try_from_str(&bi.to_string())
-            .map_err(|err| JsNativeError::range().with_message(err.to_string()).into()),
+        JsVariant::BigInt(bi) => Ok(IntlMathematicalValue::Finite(
+            Decimal::try_from_str(&bi.to_string())
+                .map_err(|err| JsNativeError::range().with_message(err.to_string()))?,
+        )),
         // 3. If Type(primValue) is String, then
         //     a. Let str be primValue.
         JsVariant::String(s) => {
@@ -797,11 +1885,17 @@ fn to_intl_mathematical_value(value: &JsValue, context: &mut Context) -> JsResul
             //     c. If rounded is +∞𝔽, return positive-infinity.
             //     d. If rounded is +0𝔽 and intlMV < 0, return negative-zero.
             //     e. If rounded is +0𝔽, return 0.
-            js_string_to_fixed_decimal(&s).ok_or_else(|| {
-                JsNativeError::syntax()
-                    .with_message("could not parse the provided string")
-                    .into()
-            })
+            let Some(string) = s.to_std_string().ok() else {
+                return Ok(IntlMathematicalValue::NotANumber);
+            };
+            let string = string.trim_matches(is_trimmable_whitespace);
+            match string {
+                "-Infinity" => Ok(IntlMathematicalValue::NegativeInfinity),
+                "Infinity" | "+Infinity" => Ok(IntlMathematicalValue::PositiveInfinity),
+                _ => Ok(js_string_to_fixed_decimal(&s)
+                    .map(IntlMathematicalValue::Finite)
+                    .unwrap_or(IntlMathematicalValue::NotANumber)),
+            }
         }
         // 4. Else,
         _ => {
@@ -809,9 +1903,19 @@ fn to_intl_mathematical_value(value: &JsValue, context: &mut Context) -> JsResul
             // b. If x is -0𝔽, return negative-zero.
             // c. Let str be Number::toString(x, 10).
             let x = prim_value.to_number(context)?;
-
-            Decimal::try_from_f64(x, FloatPrecision::RoundTrip)
-                .map_err(|err| JsNativeError::range().with_message(err.to_string()).into())
+            if x.is_nan() {
+                return Ok(IntlMathematicalValue::NotANumber);
+            }
+            if x == f64::INFINITY {
+                return Ok(IntlMathematicalValue::PositiveInfinity);
+            }
+            if x == f64::NEG_INFINITY {
+                return Ok(IntlMathematicalValue::NegativeInfinity);
+            }
+            Ok(IntlMathematicalValue::Finite(
+                Decimal::try_from_f64(x, FloatPrecision::RoundTrip)
+                    .map_err(|err| JsNativeError::range().with_message(err.to_string()))?,
+            ))
         }
     }
 }

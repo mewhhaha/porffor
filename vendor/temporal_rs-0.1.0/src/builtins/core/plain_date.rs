@@ -291,6 +291,7 @@ impl PlainDate {
                 dest_epoch_ns.0,
                 &dt,
                 Option::<(&TimeZone, &NeverProvider)>::None,
+                None,
                 resolved,
             )?
         }

@@ -334,8 +334,23 @@ where
         let mut decls = Vec::new();
 
         loop {
+            let decl_position = cursor.peek(0, interner).or_abrupt()?.span().start();
             let decl = LexicalBinding::new(self.allow_in, self.allow_yield, self.allow_await)
                 .parse(cursor, interner)?;
+
+            if matches!(
+                self.declaration_kind,
+                BindingDeclarationKind::Using | BindingDeclarationKind::AwaitUsing
+            ) && matches!(decl.binding(), boa_ast::declaration::Binding::Pattern(_))
+            {
+                return Err(Error::general(
+                    format!(
+                        "{} declarations only allow binding identifiers",
+                        self.declaration_kind.description()
+                    ),
+                    decl_position,
+                ));
+            }
 
             if self.declaration_kind.requires_initializer() {
                 let init_is_some = decl.init().is_some();

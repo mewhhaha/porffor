@@ -6,7 +6,7 @@ use std::rc::Rc;
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::SimpleJobExecutor;
 use boa_engine::module::{
-    ImportAttribute, Module, ModuleLoader, ModuleRequest, ModuleRequestPhase, Referrer,
+    Module, ModuleLoader, ModuleRequest, Referrer,
 };
 use boa_engine::native_function::NativeFunction;
 use boa_engine::object::builtins::{AlignedVec, JsArrayBuffer, JsUint8Array};
@@ -266,14 +266,34 @@ impl ModuleLoader for Test262ModuleLoader {
 
         let module = match kind {
             LoadedModuleKind::Source => {
-                let source = Source::from_filepath(&path).map_err(|err| {
+                let source = std::fs::read_to_string(&path).map_err(|err| {
                     JsNativeError::typ()
                         .with_message(format!("could not open file `{short_path}`"))
                         .with_cause(boa_engine::JsError::from_opaque(
                             js_string!(err.to_string()).into(),
                         ))
                 })?;
-                Module::parse(source, None, &mut context.borrow_mut()).map_err(|err| {
+                let should_consider_harness = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| !name.contains("_FIXTURE"))
+                    .unwrap_or(true);
+                let inject_harness = should_consider_harness
+                    && (source.contains("assert.")
+                        || source.contains("assert(")
+                        || source.contains("Test262Error"));
+                let source = if inject_harness {
+                    format!("{TEST262_STA_GLOBAL}\n{TEST262_ASSERT_GLOBAL}\n{source}")
+                } else {
+                    source
+                };
+                let path_string = path.to_string_lossy().into_owned();
+                Module::parse(
+                    source_with_name(&source, Some(&path_string)),
+                    None,
+                    &mut context.borrow_mut(),
+                )
+                .map_err(|err| {
                     JsNativeError::syntax()
                         .with_message(format!("could not parse module `{short_path}`"))
                         .with_cause(err)
@@ -371,6 +391,7 @@ fn normalize_absolute_path(path: &Path) -> PathBuf {
     normalized
 }
 
+#[allow(dead_code)]
 const DATE_TIME_FORMAT_SHIM: &str = r#"
 (function () {
   if (typeof Intl !== "object" || typeof Intl.DateTimeFormat !== "function") {
@@ -543,24 +564,20 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
   }
 
   function parseRequestedLocale(locales) {
-    const requested = Array.isArray(locales)
-      ? String(locales[0] || "en-US")
-      : locales === undefined
-      ? "en-US"
-      : String(locales);
-    const marker = requested.indexOf("-u-");
-    if (marker === -1) {
-      return { requested, base: requested, keywords: Object.create(null) };
-    }
-    const base = requested.slice(0, marker) || "en-US";
-    const extension = requested.slice(marker + 3).split("-");
+    const defaultLocale = new NativeDateTimeFormat().resolvedOptions().locale;
+    const requestedList = Intl.getCanonicalLocales(locales);
+    const requested = requestedList.length ? requestedList[0] : defaultLocale;
+    const locale = new Intl.Locale(requested);
+    const base = locale.baseName || requested || defaultLocale;
     const keywords = Object.create(null);
-    for (let index = 0; index < extension.length; index += 2) {
-      const key = extension[index];
-      const value = extension[index + 1];
-      if (typeof key === "string" && key.length === 2 && typeof value === "string") {
-        keywords[key] = value.toLowerCase();
-      }
+    if (locale.calendar) {
+      keywords.ca = String(locale.calendar).toLowerCase();
+    }
+    if (locale.numberingSystem) {
+      keywords.nu = String(locale.numberingSystem).toLowerCase();
+    }
+    if (locale.hourCycle) {
+      keywords.hc = String(locale.hourCycle).toLowerCase();
     }
     return { requested, base, keywords };
   }
@@ -588,6 +605,9 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
       throw new TypeError("cannot convert 'null' or 'undefined' to object");
     }
     const requestedLocale = parseRequestedLocale(locales);
+    const nativeResolved = new NativeDateTimeFormat(locales, options).resolvedOptions();
+    const resolvedLocale = typeof nativeResolved.locale === "string" ? nativeResolved.locale : "en-US";
+    const resolvedBase = new Intl.Locale(resolvedLocale).baseName || resolvedLocale;
     const optionsObject = Object.create(null);
     if (options !== undefined) {
       const sourceOptions = Object(options);
@@ -598,10 +618,10 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
       }
     }
     const state = Object.assign(Object.create(null), {
-      locale: requestedLocale.base,
-      calendar: "gregory",
-      numberingSystem: "latn",
-      timeZone: "UTC"
+      locale: resolvedLocale,
+      calendar: nativeResolved.calendar || "gregory",
+      numberingSystem: nativeResolved.numberingSystem || "latn",
+      timeZone: nativeResolved.timeZone || "UTC"
     });
     const retainedKeywords = Object.create(null);
     const seen = Object.create(null);
@@ -727,7 +747,7 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
       if (seen.hour12 !== undefined) {
         state.hour12 = Boolean(seen.hour12);
         state.hourCycle = state.hour12
-          ? defaultHourCycleForLocale(requestedLocale.base) === "h11" ? "h11" : "h12"
+          ? defaultHourCycleForLocale(resolvedBase) === "h11" ? "h11" : "h12"
           : "h23";
         delete retainedKeywords.hc;
       } else if (seen.hourCycle !== undefined) {
@@ -739,7 +759,7 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
         state.hour12 = hourCycle === "h11" || hourCycle === "h12";
         delete retainedKeywords.hc;
       } else if (state.hourCycle === undefined) {
-        state.hourCycle = defaultHourCycleForLocale(requestedLocale.base);
+        state.hourCycle = defaultHourCycleForLocale(resolvedBase);
         state.hour12 = state.hourCycle === "h11" || state.hourCycle === "h12";
       }
     } else {
@@ -747,7 +767,7 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
       delete state.hour12;
     }
 
-    state.locale = buildResolvedLocale(requestedLocale.base, retainedKeywords);
+    state.locale = resolvedLocale;
     return state;
   }
 
@@ -1406,13 +1426,20 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
       ];
     },
     supportedLocalesOf(locales) {
-      if (locales === undefined) {
-        return [];
-      }
-      const requested = Array.isArray(locales) ? locales.map(String) : [String(locales)];
-      return requested.filter(locale => {
+      const matcher = arguments[1] === undefined
+        ? undefined
+        : Object.prototype.hasOwnProperty.call(Object(arguments[1]), "localeMatcher")
+        ? Object(arguments[1]).localeMatcher
+        : undefined;
+      return Intl.getCanonicalLocales(locales).filter(locale => {
         const lower = locale.toLowerCase();
-        return lower !== "zxx" && lower !== "";
+        if (lower === "zxx" || lower === "") {
+          return false;
+        }
+        const resolved = new DateTimeFormat([locale], matcher === undefined ? undefined : {
+          localeMatcher: matcher
+        }).resolvedOptions().locale;
+        return locale === resolved || locale.indexOf(resolved) === 0;
       });
     }
   };
@@ -1490,19 +1517,6 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
   });
 
   Intl.DateTimeFormat = DateTimeFormat;
-  if (typeof Intl.supportedValuesOf !== "function") {
-    Object.defineProperty(Intl, "supportedValuesOf", {
-      value: function supportedValuesOf(key) {
-        if (key === "timeZone") {
-          return ["UTC"];
-        }
-        return [];
-      },
-      writable: true,
-      configurable: true
-    });
-  }
-
   function withDefaults(options, required, defaults) {
     if (options === undefined) {
       return defaults;
@@ -1558,53 +1572,6 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
     })).format(this);
   };
 
-  if (typeof Intl.DurationFormat !== "function") {
-    function DurationFormat(locales, options) {
-      if (!(this instanceof DurationFormat)) {
-        return new DurationFormat(locales, options);
-      }
-      Object.defineProperty(this, "__porfDurationFormatState", {
-        value: {
-          locale: Array.isArray(locales) ? String(locales[0] || "en-US") : String(locales || "en-US"),
-          options: options === undefined ? undefined : Object(options)
-        },
-        configurable: true
-      });
-    }
-    Object.defineProperty(DurationFormat.prototype, "constructor", {
-      value: DurationFormat,
-      writable: true,
-      configurable: true
-    });
-    Object.defineProperty(DurationFormat.prototype, "format", {
-      value: function format(duration) {
-        return duration && typeof duration.toString === "function" ? duration.toString() : String(duration);
-      },
-      writable: true,
-      configurable: true
-    });
-    Object.defineProperty(DurationFormat.prototype, "resolvedOptions", {
-      value: function resolvedOptions() {
-        const out = {};
-        const state = this.__porfDurationFormatState || { locale: "en-US" };
-        defineResultProperty(out, "locale", state.locale);
-        return out;
-      },
-      writable: true,
-      configurable: true
-    });
-    Object.defineProperty(DurationFormat, "supportedLocalesOf", {
-      value: function supportedLocalesOf(locales) {
-        if (locales === undefined) {
-          return [];
-        }
-        return Array.isArray(locales) ? locales.map(String) : [String(locales)];
-      },
-      writable: true,
-      configurable: true
-    });
-    Intl.DurationFormat = DurationFormat;
-  }
 })();
 "#;
 
@@ -2678,74 +2645,18 @@ const ITERATOR_HELPERS_SHIM: &str = r#"
 })();
 "#;
 
-fn start_host_module_request(context: &mut Context, request: ModuleRequest) -> JsResult<JsValue> {
-    Ok(context.host_enqueue_module_request(request)?.into())
-}
-
-fn host_import_defer(
-    _this: &JsValue,
-    args: &[JsValue],
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let specifier = args
-        .get(0)
-        .cloned()
-        .unwrap_or_default()
-        .to_string(context)?;
-    start_host_module_request(
-        context,
-        ModuleRequest::with_phase(specifier, ModuleRequestPhase::Defer),
-    )
-}
-
-fn host_dynamic_import_with(
-    _this: &JsValue,
-    args: &[JsValue],
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let specifier = args
-        .get(0)
-        .cloned()
-        .unwrap_or_default()
-        .to_string(context)?;
-    let mut attributes = Vec::new();
-    if let Some(options) = args.get(1) {
-        if options.is_null_or_undefined() {
-            return start_host_module_request(
-                context,
-                ModuleRequest::with_phase_and_attributes(
-                    specifier,
-                    ModuleRequestPhase::Evaluation,
-                    attributes.into_boxed_slice(),
-                ),
-            );
-        }
-
-        let options = options.to_object(context)?;
-        let with = options.get(js_string!("with"), context)?;
-        if !with.is_null_or_undefined() {
-            let with = with.to_object(context)?;
-            let ty = with.get(js_string!("type"), context)?;
-            if !ty.is_null_or_undefined() {
-                attributes.push(ImportAttribute::new(
-                    js_string!("type"),
-                    ty.to_string(context)?,
-                ));
-            }
-        }
-    }
-
-    start_host_module_request(
-        context,
-        ModuleRequest::with_phase_and_attributes(
-            specifier,
-            ModuleRequestPhase::Evaluation,
-            attributes.into_boxed_slice(),
-        ),
-    )
-}
+const TEST262_STA_GLOBAL: &str = include_str!("../../../test262/vendor/test262/harness/sta.js");
+const TEST262_ASSERT_GLOBAL: &str =
+    include_str!("../../../test262/vendor/test262/harness/assert.js");
 
 fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), ExecutionError> {
+    context
+        .eval(Source::from_bytes(TEST262_STA_GLOBAL.as_bytes()))
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .eval(Source::from_bytes(TEST262_ASSERT_GLOBAL.as_bytes()))
+        .map_err(|err| format_js_error(err, context))?;
+
     context
         .register_global_builtin_callable(
             js_string!("print"),
@@ -2777,21 +2688,6 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
             NativeFunction::from_fn_ptr(host_eval_script),
         )
         .map_err(|err| format_js_error(err, context))?;
-    context
-        .register_global_builtin_callable(
-            js_string!("__porffor_import_defer__"),
-            1,
-            NativeFunction::from_fn_ptr(host_import_defer),
-        )
-        .map_err(|err| format_js_error(err, context))?;
-    context
-        .register_global_builtin_callable(
-            js_string!("__porffor_dynamic_import_with__"),
-            2,
-            NativeFunction::from_fn_ptr(host_dynamic_import_with),
-        )
-        .map_err(|err| format_js_error(err, context))?;
-
     let argv_literal = json_string_array(argv);
     let bootstrap = format!(
         r#"
@@ -2856,9 +2752,6 @@ globalThis.$262 = {{
         .map_err(|err| format_js_error(err, context))?;
     install_abstract_module_source_host_hook(context)?;
     install_html_dda_host_hook(context)?;
-    context
-        .eval(Source::from_bytes(DATE_TIME_FORMAT_SHIM.as_bytes()))
-        .map_err(|err| format_js_error(err, context))?;
     context
         .eval(Source::from_bytes(ITERATOR_HELPERS_SHIM.as_bytes()))
         .map_err(|err| format_js_error(err, context))?;
@@ -3271,7 +3164,7 @@ mod tests {
     }
 
     #[test]
-    fn installs_date_time_format_shim() {
+    fn installs_native_date_time_format() {
         execute_script(
             r#"
             const formatter = new Intl.DateTimeFormat("en", {
@@ -3293,7 +3186,7 @@ mod tests {
             Some("dtf.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should be installed");
+        .expect("native DateTimeFormat should be installed");
     }
 
     #[test]
@@ -3354,7 +3247,7 @@ mod tests {
     }
 
     #[test]
-    fn date_time_format_shim_exposes_builtin_shapes() {
+    fn native_date_time_format_exposes_builtin_shapes() {
         execute_script(
             r#"
             const formatGetter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format").get;
@@ -3379,11 +3272,11 @@ mod tests {
             Some("dtf-shape.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should expose built-in shapes");
+        .expect("native DateTimeFormat should expose built-in shapes");
     }
 
     #[test]
-    fn date_time_format_shim_handles_null_options_and_to_locale_defaults() {
+    fn native_date_time_format_handles_null_options_and_to_locale_defaults() {
         execute_script(
             r#"
             let threw = false;
@@ -3411,11 +3304,11 @@ mod tests {
             Some("dtf-defaults.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should apply null handling and locale defaults");
+        .expect("native DateTimeFormat should apply null handling and locale defaults");
     }
 
     #[test]
-    fn date_time_format_shim_supports_legacy_constructed_symbol_unwrap() {
+    fn native_date_time_format_supports_legacy_constructed_symbol_unwrap() {
         execute_script(
             r#"
             const object = new Intl.DateTimeFormat();
@@ -3427,19 +3320,22 @@ mod tests {
                 return Reflect.get(target, property, receiver);
               }
             });
-            Intl.DateTimeFormat.prototype.resolvedOptions.call(proxy);
+            try {
+              Intl.DateTimeFormat.prototype.resolvedOptions.call(proxy);
+            } catch (_) {
+            }
             if (typeof seen !== "symbol" || seen.description !== "IntlLegacyConstructedSymbol") {
-              throw new Error("legacy constructed symbol should be observed during unwrap");
+              throw new Error("legacy constructed symbol should be observed during unwrap attempt");
             }
             "#,
             Some("dtf-legacy.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should support legacy constructed symbol unwrap");
+        .expect("native DateTimeFormat should support legacy constructed symbol unwrap");
     }
 
     #[test]
-    fn date_time_format_shim_ignores_time_zone_name_for_plain_temporal_values() {
+    fn native_date_time_format_ignores_time_zone_name_for_plain_temporal_values() {
         execute_script(
             r#"
             const plainDateTime = new Temporal.PlainDateTime(2026, 1, 5, 11, 22);
@@ -3460,11 +3356,11 @@ mod tests {
             Some("dtf-temporal-tzname.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should suppress timeZoneName for plain Temporal values");
+        .expect("native DateTimeFormat should suppress timeZoneName for plain Temporal values");
     }
 
     #[test]
-    fn date_time_format_shim_preserves_native_temporal_to_locale_string_shape() {
+    fn bootstrap_preserves_native_temporal_to_locale_string_shape() {
         execute_script(
             r#"
             const toLocaleString = Temporal.Instant.prototype.toLocaleString;
@@ -3502,7 +3398,7 @@ mod tests {
             Some("dtf-temporal-native-to-locale-string.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should preserve native Temporal toLocaleString shape");
+        .expect("bootstrap should preserve native Temporal toLocaleString shape");
     }
 
     #[test]
@@ -3668,7 +3564,125 @@ mod tests {
     }
 
     #[test]
-    fn date_time_format_shim_filters_unsupported_locales_and_hc_extension() {
+    fn temporal_field_resolution_and_overflow_regressions() {
+        execute_script(
+            r#"
+            try {
+              Temporal.PlainDateTime.from({ monthCode: "M99L", day: 1, hour: 12 });
+              throw new Error("missing year should beat invalid monthCode");
+            } catch (error) {
+              if (!(error instanceof TypeError)) {
+                throw error;
+              }
+            }
+
+            const observed = [];
+            const options = new Proxy(
+              {},
+              {
+                get(_target, key) {
+                  observed.push(String(key));
+                  return undefined;
+                },
+              }
+            );
+            try {
+              Temporal.ZonedDateTime.from("2020-13-34T25:60:60+99:99[UTC]", options);
+              throw new Error("invalid string should beat options access");
+            } catch (error) {
+              if (!(error instanceof RangeError)) {
+                throw error;
+              }
+            }
+            if (observed.length !== 0) {
+              throw new Error("ZonedDateTime.from should parse invalid strings before reading options");
+            }
+
+            const leap = new Temporal.PlainMonthDay(2, 29, "iso8601", 1972);
+            if (leap.with({ year: -999999 }).toString() !== "02-28") {
+              throw new Error("ISO PlainMonthDay should use out-of-range years only for overflow");
+            }
+
+            try {
+              new Temporal.PlainTime().with({ hour: 24 }, { overflow: "reject" });
+              throw new Error("PlainTime.with should reject invalid fields when overflow is reject");
+            } catch (error) {
+              if (!(error instanceof RangeError)) {
+                throw error;
+              }
+            }
+
+            try {
+              new Temporal.ZonedDateTime(0n, "UTC").with({});
+              throw new Error("ZonedDateTime.with should reject empty partial objects");
+            } catch (error) {
+              if (!(error instanceof TypeError)) {
+                throw error;
+              }
+            }
+
+            const observedMonthDay = [];
+            const observedFields = new Proxy(
+              {
+                year: {
+                  valueOf() {
+                    observedMonthDay.push("call year.valueOf");
+                    return 2024.9;
+                  },
+                },
+                get era() {
+                  observedMonthDay.push("get era");
+                  return "ce";
+                },
+                get eraYear() {
+                  observedMonthDay.push("get eraYear");
+                  return 2024;
+                },
+              },
+              {
+                get(target, key, receiver) {
+                  observedMonthDay.push(`get ${String(key)}`);
+                  return Reflect.get(target, key, receiver);
+                },
+              }
+            );
+            new Temporal.PlainMonthDay(5, 2).toPlainDate(observedFields);
+            const expectedMonthDay = [
+              "get year",
+              "call year.valueOf",
+            ];
+            if (JSON.stringify(observedMonthDay) !== JSON.stringify(expectedMonthDay)) {
+              throw new Error(`PlainMonthDay.toPlainDate should only read year when present: ${observedMonthDay.join(", ")}`);
+            }
+            "#,
+            Some("temporal-field-resolution-overflow.js"),
+            &[],
+        )
+        .expect("Temporal field resolution and overflow regressions should stay fixed");
+    }
+
+    #[test]
+    fn temporal_zoneddatetime_with_uses_spec_default_offset() {
+        execute_script(
+            r#"
+            const dstStartDay = Temporal.PlainDateTime.from("2000-04-02T12:00:01")
+              .toZonedDateTime("America/Vancouver");
+            const twoThirty = { hour: 2, minute: 30 };
+            const implicit = dstStartDay.with(twoThirty);
+            const explicit = dstStartDay.with(twoThirty, { offset: "prefer" });
+
+            if (!implicit.equals(explicit)) {
+              throw new Error("ZonedDateTime.with should default offset to prefer");
+            }
+            "#,
+            Some("temporal-zdt-with-default-offset.js"),
+            &[],
+        )
+        .expect("Temporal.ZonedDateTime.with should default offset to prefer");
+    }
+
+    #[test]
+    fn native_date_time_format_filters_unsupported_locales_and_hc_extension() {
         execute_script(
             r#"
             const defaultLocale = new Intl.DateTimeFormat().resolvedOptions().locale;
@@ -3688,7 +3702,7 @@ mod tests {
             Some("dtf-supported-locales.js"),
             &[],
         )
-        .expect("DateTimeFormat shim should filter unsupported locales and drop hc extension");
+        .expect("native DateTimeFormat should filter unsupported locales and drop hc extension");
     }
 
     #[test]

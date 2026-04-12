@@ -333,6 +333,28 @@ impl Scope {
             })
     }
 
+    /// Returns whether binding at `index` is mutable.
+    #[must_use]
+    pub fn binding_is_mutable(&self, index: u32) -> Option<bool> {
+        self.inner
+            .bindings
+            .borrow()
+            .iter()
+            .find(|binding| binding.index == index)
+            .map(Binding::is_mutable)
+    }
+
+    /// Returns whether binding at `index` throws on mutation attempts.
+    #[must_use]
+    pub fn binding_throws_on_mutation(&self, index: u32) -> Option<bool> {
+        self.inner
+            .bindings
+            .borrow()
+            .iter()
+            .find(|binding| binding.index == index)
+            .map(Binding::is_strict)
+    }
+
     /// Simulate a binding access.
     ///
     /// - If the binding access crosses a function border, the binding is marked as escaping.

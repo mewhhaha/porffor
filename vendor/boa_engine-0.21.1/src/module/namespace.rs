@@ -381,7 +381,12 @@ fn module_namespace_exotic_try_get(
     } else {
         // 9. If binding.[[BindingName]] is namespace, then
         //     a. Return GetModuleNamespace(targetModule).
-        Ok(Some(target_module.namespace(context).into()))
+        let namespace = match binding.binding_name() {
+            BindingName::Namespace => target_module.namespace(context),
+            BindingName::DeferredNamespace => target_module.deferred_namespace(context),
+            BindingName::Name(_) => unreachable!("handled above"),
+        };
+        Ok(Some(namespace.into()))
     }
 }
 
@@ -463,7 +468,11 @@ fn module_namespace_exotic_get(
     } else {
         // 9. If binding.[[BindingName]] is namespace, then
         //     a. Return GetModuleNamespace(targetModule).
-        Ok(target_module.namespace(context).into())
+        Ok(match binding.binding_name() {
+            BindingName::Namespace => target_module.namespace(context).into(),
+            BindingName::DeferredNamespace => target_module.deferred_namespace(context).into(),
+            BindingName::Name(_) => unreachable!("handled above"),
+        })
     }
 }
 

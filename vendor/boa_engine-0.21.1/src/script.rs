@@ -16,7 +16,7 @@ use boa_gc::{Finalize, Gc, GcRefCell, Trace};
 use boa_parser::{Parser, Source, source::ReadChar};
 
 use crate::{
-    Context, HostDefined, JsResult, JsString, JsValue, Module, SpannedSourceText,
+    Context, HostDefined, JsResult, JsValue, Module, SpannedSourceText,
     bytecompiler::{ByteCompiler, global_declaration_instantiation_context},
     js_string,
     realm::Realm,
@@ -49,7 +49,7 @@ struct Inner {
     source: boa_ast::Script,
     source_text: SourceText,
     codeblock: GcRefCell<Option<Gc<CodeBlock>>>,
-    loaded_modules: GcRefCell<FxHashMap<JsString, Module>>,
+    loaded_modules: GcRefCell<FxHashMap<crate::module::ModuleRequest, Module>>,
     host_defined: HostDefined,
     path: Option<PathBuf>,
 }
@@ -70,7 +70,9 @@ impl Script {
     }
 
     /// Gets the loaded modules of this script.
-    pub(crate) fn loaded_modules(&self) -> &GcRefCell<FxHashMap<JsString, Module>> {
+    pub(crate) fn loaded_modules(
+        &self,
+    ) -> &GcRefCell<FxHashMap<crate::module::ModuleRequest, Module>> {
         &self.inner.loaded_modules
     }
 

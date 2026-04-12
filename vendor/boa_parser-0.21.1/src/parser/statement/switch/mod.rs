@@ -173,6 +173,7 @@ where
                         false,
                         false,
                     )
+                    .with_allow_using_declarations(false)
                     .parse(cursor, interner)?;
 
                     cases.push(statement::Case::new(cond, statement_list));
@@ -197,6 +198,7 @@ where
                         false,
                         false,
                     )
+                    .with_allow_using_declarations(false)
                     .parse(cursor, interner)?;
 
                     cases.push(statement::Case::default(statement_list));

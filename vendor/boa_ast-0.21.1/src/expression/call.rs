@@ -198,6 +198,7 @@ impl VisitWith for SuperCall {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImportCall {
     arg: Box<Expression>,
+    options: Option<Box<Expression>>,
     phase: ImportPhase,
     span: Span,
 }
@@ -218,6 +219,26 @@ impl ImportCall {
     {
         Self {
             arg: Box::new(arg.into()),
+            options: None,
+            phase,
+            span,
+        }
+    }
+
+    /// Creates a new `ImportCall` AST node with an explicit phase and options expression.
+    pub fn new_with_phase_and_options<A, O>(
+        arg: A,
+        options: Option<O>,
+        phase: ImportPhase,
+        span: Span,
+    ) -> Self
+    where
+        A: Into<Expression>,
+        O: Into<Expression>,
+    {
+        Self {
+            arg: Box::new(arg.into()),
+            options: options.map(Into::into).map(Box::new),
             phase,
             span,
         }
@@ -227,6 +248,12 @@ impl ImportCall {
     #[must_use]
     pub const fn argument(&self) -> &Expression {
         &self.arg
+    }
+
+    /// Retrieves the options argument of the import call, if present.
+    #[must_use]
+    pub fn options(&self) -> Option<&Expression> {
+        self.options.as_deref()
     }
 
     /// Retrieves the phase of the import call.
@@ -247,11 +274,19 @@ impl ToInternedString for ImportCall {
     #[inline]
     fn to_interned_string(&self, interner: &Interner) -> String {
         match self.phase {
-            ImportPhase::Evaluation => format!("import({})", self.arg.to_interned_string(interner)),
-            ImportPhase::Defer => {
-                format!("import.defer({})", self.arg.to_interned_string(interner))
-            }
+            ImportPhase::Evaluation => "import",
+            ImportPhase::Defer => "import.defer",
+            ImportPhase::Source => "import.source",
         }
+        .to_owned()
+        + "("
+        + &self.arg.to_interned_string(interner)
+        + &self
+            .options
+            .as_ref()
+            .map(|expr| format!(", {}", expr.to_interned_string(interner)))
+            .unwrap_or_default()
+        + ")"
     }
 }
 
@@ -267,13 +302,21 @@ impl VisitWith for ImportCall {
     where
         V: Visitor<'a>,
     {
-        visitor.visit_expression(&self.arg)
+        visitor.visit_expression(&self.arg)?;
+        if let Some(options) = &self.options {
+            visitor.visit_expression(options)?;
+        }
+        ControlFlow::Continue(())
     }
 
     fn visit_with_mut<'a, V>(&'a mut self, visitor: &mut V) -> ControlFlow<V::BreakTy>
     where
         V: VisitorMut<'a>,
     {
-        visitor.visit_expression_mut(&mut self.arg)
+        visitor.visit_expression_mut(&mut self.arg)?;
+        if let Some(options) = &mut self.options {
+            visitor.visit_expression_mut(options)?;
+        }
+        ControlFlow::Continue(())
     }
 }

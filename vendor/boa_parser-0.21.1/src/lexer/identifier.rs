@@ -27,6 +27,53 @@ impl Identifier {
         Self { init }
     }
 
+    fn is_unicode_17_identifier_start(ch: u32) -> bool {
+        matches!(
+            ch,
+            0x088F
+                | 0x0C5C
+                | 0x0CDC
+                | 0xA7D2
+                | 0xA7D4
+                | 0xA7F1
+                | 0xA7CE..=0xA7CF
+                | 0x10940..=0x10959
+                | 0x10EC5..=0x10EC7
+                | 0x11DB0..=0x11DDB
+                | 0x16EA0..=0x16EB8
+                | 0x16EBB..=0x16ED3
+                | 0x16FF2..=0x16FF6
+                | 0x187F8..=0x187FF
+                | 0x18D09..=0x18D1E
+                | 0x18D80..=0x18DF2
+                | 0x1E6C0..=0x1E6DE
+                | 0x1E6E0..=0x1E6E2
+                | 0x1E6E4..=0x1E6E5
+                | 0x1E6E7..=0x1E6ED
+                | 0x1E6F0..=0x1E6F4
+                | 0x1E6FE..=0x1E6FF
+                | 0x2B73A..=0x2B73F
+                | 0x2CEA2..=0x2CEAD
+                | 0x323B0..=0x33479
+        )
+    }
+
+    fn is_unicode_17_identifier_part(ch: u32) -> bool {
+        Self::is_unicode_17_identifier_start(ch)
+            || matches!(
+                ch,
+                0x1ACF..=0x1ADD
+                    | 0x1AE0..=0x1AEB
+                    | 0x10EFA..=0x10EFB
+                    | 0x11B60..=0x11B67
+                    | 0x11DE0..=0x11DE9
+                    | 0x1E6E3
+                    | 0x1E6E6
+                    | 0x1E6EE..=0x1E6EF
+                    | 0x1E6F5
+            )
+    }
+
     /// Checks if a character is `IdentifierStart` as per ECMAScript standards.
     ///
     /// More information:
@@ -35,7 +82,9 @@ impl Identifier {
     /// [spec]: https://tc39.es/ecma262/#sec-names-and-keywords
     pub(super) fn is_identifier_start(ch: u32) -> bool {
         const ID_START: CodePointSetDataBorrowed<'static> = CodePointSetData::new::<IdStart>();
-        matches!(ch, 0x0024 /* $ */ | 0x005F /* _ */) || ID_START.contains32(ch)
+        matches!(ch, 0x0024 /* $ */ | 0x005F /* _ */)
+            || ID_START.contains32(ch)
+            || Self::is_unicode_17_identifier_start(ch)
     }
 
     /// Checks if a character is `IdentifierPart` as per ECMAScript standards.
@@ -51,6 +100,7 @@ impl Identifier {
             ch,
             0x0024 /* $ */ | 0x005F /* _ */ | 0x200C /* <ZWNJ> */ | 0x200D /* <ZWJ> */
         ) || ID_CONTINUE.contains32(ch)
+            || Self::is_unicode_17_identifier_part(ch)
     }
 }
 

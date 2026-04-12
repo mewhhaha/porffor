@@ -35,9 +35,9 @@ use crate::{
 };
 use boa_ast::{
     Expression, Keyword, Position, Punctuator, Span, Spanned,
-    expression::{Call as AstCall, Identifier, ImportCall, SuperCall},
+    expression::{ImportCall, SuperCall},
 };
-use boa_interner::Interner;
+use boa_interner::{Interner, Sym};
 
 /// Parses a left hand side expression.
 ///
@@ -112,11 +112,12 @@ where
             Ok(None)
         }
 
-        fn is_import_defer_call<R: ReadChar>(
+        fn is_import_phase_call<R: ReadChar>(
             cursor: &mut Cursor<R>,
             interner: &mut Interner,
+            phase_name: Sym,
+            display_name: &str,
         ) -> ParseResult<Option<Position>> {
-            let defer_sym = interner.get_or_intern("defer");
             let Some(import_token) = cursor.peek(0, interner)? else {
                 return Ok(None);
             };
@@ -138,19 +139,19 @@ where
                 return Ok(None);
             }
 
-            let Some(defer) = cursor.peek(2, interner)? else {
+            let Some(phase) = cursor.peek(2, interner)? else {
                 return Ok(None);
             };
-            let TokenKind::IdentifierName((name, escaped)) = defer.kind() else {
+            let TokenKind::IdentifierName((name, escaped)) = phase.kind() else {
                 return Ok(None);
             };
-            if *name != defer_sym {
+            if *name != phase_name {
                 return Ok(None);
             }
             if *escaped != crate::lexer::token::ContainsEscapeSequence(false) {
                 return Err(Error::general(
-                    "`import.defer` cannot contain escaped characters",
-                    defer.span().start(),
+                    format!("`{display_name}` cannot contain escaped characters"),
+                    phase.span().start(),
                 ));
             }
 
@@ -164,87 +165,128 @@ where
             Ok(Some(import_start))
         }
 
+        fn parse_import_call<R: ReadChar>(
+            cursor: &mut Cursor<R>,
+            interner: &mut Interner,
+            allow_yield: AllowYield,
+            allow_await: AllowAwait,
+            start: Position,
+            phase: boa_ast::declaration::ImportPhase,
+            context_name: &'static str,
+        ) -> ParseResult<Expression> {
+            cursor.advance(interner);
+            if phase != boa_ast::declaration::ImportPhase::Evaluation {
+                cursor.advance(interner);
+                cursor.advance(interner);
+            }
+            cursor.advance(interner);
+
+            let arg = AssignmentExpression::new(true, allow_yield, allow_await)
+                .parse(cursor, interner)?;
+
+            let mut options = None;
+            if let Some(next) = cursor.peek(0, interner)?
+                && next.kind() == &TokenKind::Punctuator(Punctuator::Comma)
+            {
+                cursor.advance(interner);
+
+                if let Some(next) = cursor.peek(0, interner)?
+                    && next.kind() != &TokenKind::Punctuator(Punctuator::CloseParen)
+                {
+                    options = Some(
+                        AssignmentExpression::new(true, allow_yield, allow_await)
+                            .parse(cursor, interner)?,
+                    );
+
+                    if let Some(next) = cursor.peek(0, interner)?
+                        && next.kind() == &TokenKind::Punctuator(Punctuator::Comma)
+                    {
+                        cursor.advance(interner);
+                    }
+                }
+            }
+
+            let end = cursor
+                .expect(
+                    TokenKind::Punctuator(Punctuator::CloseParen),
+                    context_name,
+                    interner,
+                )?
+                .span()
+                .end();
+
+            Ok(
+                ImportCall::new_with_phase_and_options(arg, options, phase, Span::new(start, end))
+                    .into(),
+            )
+        }
+
         cursor.set_goal(InputElement::TemplateTail);
+        let defer_sym = interner.get_or_intern("defer");
+        let source_sym = interner.get_or_intern("source");
 
         let mut lhs = if let Some(start) = is_keyword_call(Keyword::Super, cursor, interner)? {
             cursor.advance(interner);
             let (args, args_span) =
                 Arguments::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
             SuperCall::new(args, Span::new(start, args_span.end())).into()
-        } else if let Some(start) = is_import_defer_call(cursor, interner)? {
-            cursor.advance(interner);
-            cursor.advance(interner);
-            cursor.advance(interner);
-            cursor.advance(interner);
-
-            let arg = AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                .parse(cursor, interner)?;
-
-            let end = cursor
-                .expect(
-                    TokenKind::Punctuator(Punctuator::CloseParen),
-                    "import.defer call",
-                    interner,
-                )?
-                .span()
-                .end();
-
-            let callee = Identifier::new(
-                interner.get_or_intern("__porffor_import_defer__"),
-                Span::new(start, end),
-            );
+        } else if let Some(start) =
+            is_import_phase_call(
+                cursor,
+                interner,
+                defer_sym,
+                "import.defer",
+            )?
+        {
             CallExpressionTail::new(
                 self.allow_yield,
                 self.allow_await,
-                AstCall::new(
-                    callee.into(),
-                    Box::new([arg]),
-                    Span::new(start, end),
-                )
-                .into(),
+                parse_import_call(
+                    cursor,
+                    interner,
+                    self.allow_yield,
+                    self.allow_await,
+                    start,
+                    boa_ast::declaration::ImportPhase::Defer,
+                    "import.defer call",
+                )?,
+            )
+            .parse(cursor, interner)?
+        } else if let Some(start) = is_import_phase_call(
+            cursor,
+            interner,
+            source_sym,
+            "import.source",
+        )? {
+            CallExpressionTail::new(
+                self.allow_yield,
+                self.allow_await,
+                parse_import_call(
+                    cursor,
+                    interner,
+                    self.allow_yield,
+                    self.allow_await,
+                    start,
+                    boa_ast::declaration::ImportPhase::Source,
+                    "import.source call",
+                )?,
             )
             .parse(cursor, interner)?
         } else if let Some(start) = is_keyword_call(Keyword::Import, cursor, interner)? {
-            // `import`
-            cursor.advance(interner);
-            // `(`
-            cursor.advance(interner);
-
-            let arg = AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                .parse(cursor, interner)?;
-            let second_arg = if let Some(next) = cursor.peek(0, interner)?
-                && next.kind() == &TokenKind::Punctuator(Punctuator::Comma)
-            {
-                cursor.advance(interner);
-                Some(
-                    AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?,
-                )
-            } else {
-                None
-            };
-
-            let end = cursor
-                .expect(
-                    TokenKind::Punctuator(Punctuator::CloseParen),
-                    "import call",
+            CallExpressionTail::new(
+                self.allow_yield,
+                self.allow_await,
+                parse_import_call(
+                    cursor,
                     interner,
-                )?
-                .span()
-                .end();
-
-            let expr = if let Some(second_arg) = second_arg {
-                let callee = Identifier::new(
-                    interner.get_or_intern("__porffor_dynamic_import_with__"),
-                    Span::new(start, end),
-                );
-                AstCall::new(callee.into(), Box::new([arg, second_arg]), Span::new(start, end))
-                    .into()
-            } else {
-                ImportCall::new(arg, Span::new(start, end)).into()
-            };
-
-            CallExpressionTail::new(self.allow_yield, self.allow_await, expr).parse(cursor, interner)?
+                    self.allow_yield,
+                    self.allow_await,
+                    start,
+                    boa_ast::declaration::ImportPhase::Evaluation,
+                    "import call",
+                )?,
+            )
+            .parse(cursor, interner)?
         } else {
             let mut member = MemberExpression::new(self.allow_yield, self.allow_await)
                 .parse(cursor, interner)?;

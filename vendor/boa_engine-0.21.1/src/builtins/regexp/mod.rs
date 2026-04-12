@@ -25,8 +25,8 @@ use crate::{
 use boa_gc::{Finalize, Trace};
 use boa_macros::{js_str, utf16};
 use boa_parser::lexer::regex::RegExpFlags;
-use regress::{Flags, Range, Regex};
-use std::str::FromStr;
+use regress::{Flags, Range, Regex, backends::try_parse};
+use std::{cell::RefCell, str::FromStr};
 
 use super::{BuiltInBuilder, BuiltInConstructor, IntrinsicObject};
 
@@ -41,7 +41,7 @@ mod tests;
 #[boa_gc(unsafe_empty_trace)]
 pub struct RegExp {
     /// Regex matcher.
-    matcher: Regex,
+    matcher: RefCell<Option<Regex>>,
     flags: RegExpFlags,
     original_source: JsString,
     original_flags: JsString,
@@ -370,6 +370,54 @@ impl BuiltInConstructor for RegExp {
 }
 
 impl RegExp {
+    fn validate_pattern_source(p: &JsString, flags: RegExpFlags) -> JsResult<()> {
+        let parse_result = if flags.contains(RegExpFlags::UNICODE)
+            || flags.contains(RegExpFlags::UNICODE_SETS)
+        {
+            try_parse(p.code_points().map(CodePoint::as_u32), Flags::from(flags))
+        } else {
+            let code_units = p.to_vec();
+            try_parse(code_units.iter().copied().map(u32::from), Flags::from(flags))
+        };
+
+        parse_result
+            .map(|_| ())
+            .map_err(|error| {
+                JsNativeError::syntax()
+                    .with_message(format!("failed to create matcher: {}", error.text))
+                    .into()
+            })
+    }
+
+    fn build_matcher_from_source(p: &JsString, flags: RegExpFlags) -> JsResult<Regex> {
+        let matcher = if flags.contains(RegExpFlags::UNICODE)
+            || flags.contains(RegExpFlags::UNICODE_SETS)
+        {
+            Regex::from_unicode(p.code_points().map(CodePoint::as_u32), Flags::from(flags))
+        } else {
+            let code_units = p.to_vec();
+            Regex::from_unicode(code_units.iter().copied().map(u32::from), Flags::from(flags))
+        };
+
+        matcher.map_err(|error| {
+            JsNativeError::syntax()
+                .with_message(format!("failed to create matcher: {}", error.text))
+                .into()
+        })
+    }
+
+    fn with_matcher<T>(&self, op: impl FnOnce(&Regex) -> JsResult<T>) -> JsResult<T> {
+        if self.matcher.borrow().is_none() {
+            let matcher = Self::build_matcher_from_source(&self.original_source, self.flags)?;
+            *self.matcher.borrow_mut() = Some(matcher);
+        }
+
+        let matcher = self.matcher.borrow();
+        op(matcher
+            .as_ref()
+            .expect("RegExp matcher must be initialized before use"))
+    }
+
     /// `7.2.8 IsRegExp ( argument )`
     ///
     /// This modified to return the object if it's `true`, [`None`] otherwise.
@@ -440,18 +488,7 @@ impl RegExp {
 
         // 13. Let parseResult be ParsePattern(patternText, u, v).
         // 14. If parseResult is a non-empty List of SyntaxError objects, throw a SyntaxError exception.
-        let matcher = if flags.contains(RegExpFlags::UNICODE)
-            || flags.contains(RegExpFlags::UNICODE_SETS)
-        {
-            Regex::from_unicode(p.code_points().map(CodePoint::as_u32), Flags::from(flags))
-        } else {
-            let code_units = p.to_vec();
-            Regex::from_unicode(code_units.iter().copied().map(u32::from), Flags::from(flags))
-        }
-        .map_err(|error| {
-            JsNativeError::syntax()
-                .with_message(format!("failed to create matcher: {}", error.text))
-        })?;
+        Self::validate_pattern_source(&p, flags)?;
 
         // 15. Assert: parseResult is a Pattern Parse Node.
         // 16. Set obj.[[OriginalSource]] to P.
@@ -461,10 +498,30 @@ impl RegExp {
         // 20. Set obj.[[RegExpRecord]] to rer.
         // 21. Set obj.[[RegExpMatcher]] to CompilePattern of parseResult with argument rer.
         Ok(RegExp {
-            matcher,
+            matcher: RefCell::new(None),
             flags,
             original_source: p,
             original_flags: f,
+            owner_realm: context.realm().clone(),
+            intrinsic_instance: true,
+        })
+    }
+
+    fn compile_literal_regexp(
+        pattern: JsString,
+        flags_text: JsString,
+        context: &mut Context,
+    ) -> JsResult<RegExp> {
+        let flags = match RegExpFlags::from_str(&flags_text.to_std_string_escaped()) {
+            Err(msg) => return Err(JsNativeError::syntax().with_message(msg).into()),
+            Ok(result) => result,
+        };
+
+        Ok(RegExp {
+            matcher: RefCell::new(None),
+            flags,
+            original_source: pattern,
+            original_flags: flags_text,
             owner_realm: context.realm().clone(),
             intrinsic_instance: true,
         })
@@ -511,6 +568,39 @@ impl RegExp {
         };
 
         // 23. Return obj.
+        Ok(obj.into())
+    }
+
+    pub(crate) fn initialize_from_literal(
+        prototype: Option<JsObject>,
+        pattern: JsString,
+        flags: JsString,
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let intrinsic_prototype = context.intrinsics().constructors().regexp().prototype();
+        let intrinsic_instance = prototype
+            .as_ref()
+            .is_none_or(|prototype| JsObject::equals(prototype, &intrinsic_prototype));
+        let mut regexp = Self::compile_literal_regexp(pattern, flags, context)?;
+        regexp.owner_realm = context.realm().clone();
+        regexp.intrinsic_instance = intrinsic_instance;
+
+        let obj = if let Some(prototype) = prototype {
+            let mut template = context
+                .intrinsics()
+                .templates()
+                .regexp_without_proto()
+                .clone();
+            template.set_prototype(prototype);
+            template.create(regexp, vec![0.into()])
+        } else {
+            context
+                .intrinsics()
+                .templates()
+                .regexp()
+                .create(regexp, vec![0.into()])
+        };
+
         Ok(obj.into())
     }
 
@@ -1426,8 +1516,6 @@ impl RegExp {
         }
 
         // 8. Let matcher be R.[[RegExpMatcher]].
-        let matcher = &rx.matcher;
-
         // 9. If flags contains "u" or flags contains "v", let fullUnicode be true; else let fullUnicode be false.
         let full_unicode = flags.contains(b'u') || flags.contains(b'v');
 
@@ -1452,21 +1540,23 @@ impl RegExp {
 
         // 13.b. Let inputIndex be the index into input of the character that was obtained from element lastIndex of S.
         // 13.c. Let r be matcher(input, inputIndex).
-        let r: Option<regress::Match> = match (full_unicode, input.as_str().variant()) {
-            (true | false, JsStrVariant::Latin1(_)) => {
-                // TODO: Currently regress does not support latin1 encoding.
-                let input = input.to_vec();
+        let r: Option<regress::Match> = rx.with_matcher(|matcher| {
+            Ok(match (full_unicode, input.as_str().variant()) {
+                (true | false, JsStrVariant::Latin1(_)) => {
+                    // TODO: Currently regress does not support latin1 encoding.
+                    let input = input.to_vec();
 
-                // NOTE: We can use the faster ucs2 variant since there will never be two byte unicode.
-                matcher.find_from_ucs2(&input, last_index as usize).next()
-            }
-            (true, JsStrVariant::Utf16(input)) => {
-                matcher.find_from_utf16(input, last_index as usize).next()
-            }
-            (false, JsStrVariant::Utf16(input)) => {
-                matcher.find_from_ucs2(input, last_index as usize).next()
-            }
-        };
+                    // NOTE: We can use the faster ucs2 variant since there will never be two byte unicode.
+                    matcher.find_from_ucs2(&input, last_index as usize).next()
+                }
+                (true, JsStrVariant::Utf16(input)) => {
+                    matcher.find_from_utf16(input, last_index as usize).next()
+                }
+                (false, JsStrVariant::Utf16(input)) => {
+                    matcher.find_from_ucs2(input, last_index as usize).next()
+                }
+            })
+        })?;
 
         let Some(match_value) = r else {
             // d. If r is failure, then

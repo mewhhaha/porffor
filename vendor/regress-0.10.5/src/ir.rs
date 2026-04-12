@@ -87,9 +87,12 @@ pub enum Node {
     /// A backreference.
     /// Indices are 1-based. That is, it matches JS syntax: \1 is the first capture group,
     /// not everything.
-    /// A backreference that logically may match multiple capture groups (through shared names)
-    /// are emitted through alternations of backreferences.
     BackRef { group: u32, icase: bool },
+
+    /// A named backreference that may resolve to one of several capture groups with the same name.
+    ///
+    /// Indices are 1-based, in source order.
+    BackRefMulti { groups: Vec<u32>, icase: bool },
 
     /// A bracket.
     Bracket(BracketContents),
@@ -241,6 +244,10 @@ impl Node {
                 unicode_icase,
             },
             &Node::BackRef { group, icase } => Node::BackRef { group, icase },
+            Node::BackRefMulti { groups, icase } => Node::BackRefMulti {
+                groups: groups.clone(),
+                icase: *icase,
+            },
             Node::Bracket(bc) => Node::Bracket(bc.clone()),
             // Do not reverse into lookarounds, they already have the right sense.
             Node::LookaroundAssertion {
@@ -317,6 +324,7 @@ where
             | Node::CharSet(..)
             | Node::WordBoundary { .. }
             | Node::BackRef { .. }
+            | Node::BackRefMulti { .. }
             | Node::Bracket { .. }
             | Node::MatchAny
             | Node::MatchAnyExceptLineTerminator
@@ -390,6 +398,7 @@ where
             | Node::Anchor { .. }
             | Node::WordBoundary { .. }
             | Node::BackRef { .. }
+            | Node::BackRefMulti { .. }
             | Node::Bracket { .. } => {}
             Node::Cat(nodes) => {
                 nodes.iter_mut().for_each(|node| self.process(node));
@@ -559,6 +568,9 @@ fn display_node(node: &Node, depth: usize, f: &mut fmt::Formatter) -> fmt::Resul
         }
         &Node::BackRef { group, icase } => {
             writeln!(f, "BackRef {:?} icase={:?} ", group, icase)?;
+        }
+        Node::BackRefMulti { groups, icase } => {
+            writeln!(f, "BackRefMulti {:?} icase={:?} ", groups, icase)?;
         }
         Node::Bracket(contents) => {
             writeln!(f, "Bracket {:?}", contents)?;

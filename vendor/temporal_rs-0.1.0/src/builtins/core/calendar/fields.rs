@@ -288,6 +288,7 @@ macro_rules! impl_with_fallback_method {
     ($method_name:ident, $fields_type:ident, ( $(with_day: $day:ident)? ) $component_type:ty) => {
         pub(crate) fn $method_name(&self, fallback: &$component_type, calendar: icu_calendar::AnyCalendarKind, overflow: Overflow) -> TemporalResult<Self> {
             let keys_to_ignore = self.field_keys_to_ignore(calendar);
+            let non_iso = calendar != icu_calendar::AnyCalendarKind::Iso;
             let mut era = self.era;
 
             let mut era_year = self.era_year;
@@ -315,7 +316,9 @@ macro_rules! impl_with_fallback_method {
             let (month, month_code) = match (self.month, self.month_code) {
                 (Some(month), Some(mc)) => (Some(month), Some(mc)),
                 (Some(month), None) => {
-                    let month_maybe_clamped = if overflow == Overflow::Constrain {
+                    let month_maybe_clamped = if non_iso {
+                        month
+                    } else if overflow == Overflow::Constrain {
                         // TODO (manishearth) this should be managed by ICU4X
                         // https://github.com/unicode-org/icu4x/issues/6790
                         month.clamp(1, 12)
@@ -323,13 +326,29 @@ macro_rules! impl_with_fallback_method {
                         month
                     };
 
-                    (Some(month_maybe_clamped), Some(month_to_month_code(month_maybe_clamped)?))
+                    if non_iso {
+                        (Some(month_maybe_clamped), None)
+                    } else {
+                        (Some(month_maybe_clamped), Some(month_to_month_code(month_maybe_clamped)?))
+                    }
                 }
-                (None, Some(mc)) => (Some(mc.to_month_integer()).map(Into::into), Some(mc)),
-                (None, None) if !keys_to_ignore.month => (
-                    Some(fallback.month()).map(Into::into),
-                    Some(fallback.month_code()),
-                ),
+                (None, Some(mc)) => {
+                    if non_iso {
+                        (None, Some(mc))
+                    } else {
+                        (Some(mc.to_month_integer()).map(Into::into), Some(mc))
+                    }
+                }
+                (None, None) if !keys_to_ignore.month => {
+                    if non_iso {
+                        (None, Some(fallback.month_code()))
+                    } else {
+                        (
+                            Some(fallback.month()).map(Into::into),
+                            Some(fallback.month_code()),
+                        )
+                    }
+                }
                 // This should currently be unreachable, but it may change as CalendarFieldKeysToIgnore
                 // changes
                 (None, None) => (None, None)

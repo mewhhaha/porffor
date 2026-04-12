@@ -126,6 +126,7 @@ impl ByteCompiler<'_> {
                 }
                 self.register_allocator.dealloc(value);
             }
+            Statement::Debugger => {}
             Statement::With(with) => self.compile_with(with, use_expr),
             Statement::Empty => {}
         }

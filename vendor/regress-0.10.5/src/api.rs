@@ -172,8 +172,17 @@ impl Match {
         if name.is_empty() {
             return None;
         }
-        let pos = self.group_names.iter().position(|s| s.as_ref() == name)?;
-        self.captures[pos].clone()
+        let mut best = None;
+        let mut found = false;
+        for (idx, group_name) in self.group_names.iter().enumerate() {
+            if group_name.as_ref() == name {
+                found = true;
+                if let Some(range) = self.captures[idx].clone() {
+                    best = Some(range);
+                }
+            }
+        }
+        if found { best } else { None }
     }
 
     /// Return an iterator over the named groups of a Match.
@@ -338,15 +347,13 @@ impl<'m> Iterator for NamedGroups<'m> {
                 continue;
             }
 
-            // This is the first occurrence of this name. Find the best range value.
-            // Prefer a Some value over None when there are duplicate names.
+            // This is the first occurrence of this name. Use the last participating capture
+            // among all groups that share this name.
             let mut best_range = self.mat.captures[idx].clone();
             for check_idx in (idx + 1)..end {
                 if self.mat.group_names[check_idx].as_ref() == name {
-                    // Found a duplicate name. Prefer a Some value over None.
-                    if best_range.is_none() && self.mat.captures[check_idx].is_some() {
+                    if self.mat.captures[check_idx].is_some() {
                         best_range = self.mat.captures[check_idx].clone();
-                        break; // Stop once we find a Some value
                     }
                 }
             }
@@ -357,10 +364,20 @@ impl<'m> Iterator for NamedGroups<'m> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.mat.group_names[self.next_group_idx..]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .count();
+        let end = self.mat.group_names.len();
+        let mut size = 0;
+        for idx in self.next_group_idx..end {
+            let name = self.mat.group_names[idx].as_ref();
+            if name.is_empty() {
+                continue;
+            }
+            let already_seen = self.mat.group_names[self.next_group_idx..idx]
+                .iter()
+                .any(|existing| existing.as_ref() == name);
+            if !already_seen {
+                size += 1;
+            }
+        }
 
         (size, Some(size))
     }

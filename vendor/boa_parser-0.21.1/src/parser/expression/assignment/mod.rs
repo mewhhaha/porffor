@@ -296,6 +296,18 @@ where
                         AssignTarget::from_expression_simple(&lhs, cursor.strict())
                     {
                         let assignop = p.as_assign_op().expect("assignop disappeared");
+                        if matches!(
+                            (&assignop, &target),
+                            (
+                                AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce,
+                                AssignTarget::WebCompatCall(_)
+                            )
+                        ) {
+                            return Err(Error::lex(LexError::Syntax(
+                                "Invalid left-hand side in assignment".into(),
+                                tok.span().start(),
+                            )));
+                        }
 
                         let mut rhs = self.parse(cursor, interner)?;
                         if (assignop == AssignOp::BoolAnd

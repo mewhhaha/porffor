@@ -321,14 +321,17 @@ impl SourceTextModule {
                 ExportEntry::Ordinary(entry) => {
                     // ii. Else,
                     //     1. Let ie be the element of importEntries whose [[LocalName]] is ee.[[LocalName]].
-                    if let Some((module, import)) =
-                        import_entries.iter().find_map(|ie| match ie.import_name() {
-                            ImportName::Name(name) if ie.local_name() == entry.local_name() => {
-                                Some((ie.module_request(), name))
-                            }
-                            _ => None,
-                        })
+                    if let Some((module, import_name)) = import_entries
+                        .iter()
+                        .find(|ie| ie.local_name() == entry.local_name())
+                        .map(|ie| (ie.module_request(), ie.import_name()))
                     {
+                        // 2. If ie.[[ImportName]] is namespace-object, then
+                        //    a. NOTE: This is a re-export of an imported module namespace object.
+                        //    b. Append the ExportEntry Record { [[ModuleRequest]]: ie.[[ModuleRequest]],
+                        //       [[ImportName]]: ~all~, [[LocalName]]: null,
+                        //       [[ExportName]]: ee.[[ExportName]] } to indirectExportEntries.
+                        //
                         // 3. Else,
                         //    a. NOTE: This is a re-export of a single name.
                         //    b. Append the ExportEntry Record { [[ModuleRequest]]: ie.[[ModuleRequest]],
@@ -336,16 +339,15 @@ impl SourceTextModule {
                         //       [[ExportName]]: ee.[[ExportName]] } to indirectExportEntries.
                         indirect_export_entries.push(IndirectExportEntry::new(
                             module.clone(),
-                            ReExportImportName::Name(import),
+                            match import_name {
+                                ImportName::Namespace => ReExportImportName::Star,
+                                ImportName::Name(import) => ReExportImportName::Name(import),
+                            },
                             entry.export_name(),
                         ));
                     } else {
                         // i. If importedBoundNames does not contain ee.[[LocalName]], then
                         //    1. Append ee to localExportEntries.
-
-                        //    2. If ie.[[ImportName]] is namespace-object, then
-                        //       a. NOTE: This is a re-export of an imported module namespace object.
-                        //       b. Append ee to localExportEntries.
                         local_export_entries.push(entry);
                     }
                 }
@@ -648,7 +650,11 @@ impl SourceTextModule {
                     //    2. Return ResolvedBinding Record { [[Module]]: importedModule, [[BindingName]]: namespace }.
                     ReExportImportName::Star => Ok(ResolvedBinding {
                         module: imported_module,
-                        binding_name: BindingName::Namespace,
+                        binding_name: match module_request.phase() {
+                            super::ModuleRequestPhase::Evaluation => BindingName::Namespace,
+                            super::ModuleRequestPhase::Defer => BindingName::DeferredNamespace,
+                            super::ModuleRequestPhase::Source => BindingName::Namespace,
+                        },
                     }),
                     // iii. Else,
                     //    1. Assert: module imports a specific binding for this export.
@@ -703,13 +709,19 @@ impl SourceTextModule {
                     //    resolution.[[BindingName]] or starResolution.[[BindingName]] is namespace,
                     //    return ambiguous.
                     (BindingName::Namespace, BindingName::Name(_))
-                    | (BindingName::Name(_), BindingName::Namespace) => {
+                    | (BindingName::Name(_), BindingName::Namespace)
+                    | (BindingName::DeferredNamespace, BindingName::Name(_))
+                    | (BindingName::Name(_), BindingName::DeferredNamespace) => {
                         return Err(ResolveExportError::Ambiguous);
                     }
                     // 4. If resolution.[[BindingName]] is a String, starResolution.[[BindingName]] is a
                     //    String, and SameValue(resolution.[[BindingName]], starResolution.[[BindingName]])
                     //    is false, return ambiguous.
                     (BindingName::Name(res), BindingName::Name(star)) if res != star => {
+                        return Err(ResolveExportError::Ambiguous);
+                    }
+                    (BindingName::Namespace, BindingName::DeferredNamespace)
+                    | (BindingName::DeferredNamespace, BindingName::Namespace) => {
                         return Err(ResolveExportError::Ambiguous);
                     }
                     _ => {}
@@ -1601,10 +1613,15 @@ impl SourceTextModule {
                     } else {
                         // 1. Let namespace be GetModuleNamespace(resolution.[[Module]]).
                         // deferred to initialization below
+                        let phase = match resolution.binding_name() {
+                            BindingName::Namespace => super::ModuleRequestPhase::Evaluation,
+                            BindingName::DeferredNamespace => super::ModuleRequestPhase::Defer,
+                            BindingName::Name(_) => unreachable!("handled above"),
+                        };
                         imports.push(ImportBinding::Namespace {
                             locator,
                             module: resolution.module,
-                            phase: module_request.phase(),
+                            phase,
                         });
                     }
                 } else {
@@ -1756,6 +1773,7 @@ impl SourceTextModule {
                     let namespace = match phase {
                         super::ModuleRequestPhase::Evaluation => module.namespace(context),
                         super::ModuleRequestPhase::Defer => module.deferred_namespace(context),
+                        super::ModuleRequestPhase::Source => module.namespace(context),
                     };
                     context.vm.environments.put_lexical_value(
                         locator.scope(),
@@ -1778,6 +1796,14 @@ impl SourceTextModule {
                         .set_indirect(locator.binding_index(), export_locator.module, name),
                     BindingName::Namespace => {
                         let namespace = export_locator.module.namespace(context);
+                        context.vm.environments.put_lexical_value(
+                            locator.scope(),
+                            locator.binding_index(),
+                            namespace.into(),
+                        );
+                    }
+                    BindingName::DeferredNamespace => {
+                        let namespace = export_locator.module.deferred_namespace(context);
                         context.vm.environments.put_lexical_value(
                             locator.scope(),
                             locator.binding_index(),

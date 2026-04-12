@@ -19,6 +19,8 @@ use crate::{
     realm::Realm,
     string::StaticJsStrings,
 };
+#[cfg(feature = "intl")]
+use crate::builtins::intl::DurationFormat;
 use boa_gc::{Finalize, Trace};
 use temporal_rs::{
     Duration as InnerDuration,
@@ -1122,10 +1124,9 @@ impl Duration {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/Duration/toLocaleString
     pub(crate) fn to_locale_string(
         this: &JsValue,
-        _: &[JsValue],
-        _: &mut Context,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
         let object = this.as_object();
         let duration = object
             .as_ref()
@@ -1134,11 +1135,25 @@ impl Duration {
                 JsNativeError::typ().with_message("this value must be a Duration object.")
             })?;
 
+        #[cfg(feature = "intl")]
+        {
+            return DurationFormat::format_duration_to_string(
+                args.get_or_undefined(0),
+                args.get_or_undefined(1),
+                *duration.inner,
+                context,
+            )
+            .map(JsValue::from);
+        }
+
+        #[cfg(not(feature = "intl"))]
+        {
         let result = duration
             .inner
             .as_temporal_string(ToStringRoundingOptions::default())?;
 
         Ok(JsString::from(result).into())
+        }
     }
 
     /// 7.3.25 `Temporal.Duration.prototype.valueOf ( )`

@@ -66,6 +66,8 @@ pub enum ModuleRequestPhase {
     Evaluation,
     /// A deferred namespace request.
     Defer,
+    /// A source-phase request.
+    Source,
 }
 
 /// A static import attribute.
@@ -144,6 +146,7 @@ impl ModuleRequest {
         let phase = match request.phase() {
             boa_ast::declaration::ImportPhase::Evaluation => ModuleRequestPhase::Evaluation,
             boa_ast::declaration::ImportPhase::Defer => ModuleRequestPhase::Defer,
+            boa_ast::declaration::ImportPhase::Source => ModuleRequestPhase::Source,
         };
         let attributes = request
             .attributes()
@@ -249,6 +252,8 @@ pub(crate) enum BindingName {
     Name(JsString),
     /// The whole namespace of the containing module.
     Namespace,
+    /// The deferred namespace of the containing module.
+    DeferredNamespace,
 }
 
 impl ResolvedBinding {
@@ -714,6 +719,7 @@ impl Module {
         let namespace_cell = match phase {
             ModuleRequestPhase::Evaluation => &self.inner.namespace,
             ModuleRequestPhase::Defer => &self.inner.deferred_namespace,
+            ModuleRequestPhase::Source => &self.inner.namespace,
         };
 
         namespace_cell

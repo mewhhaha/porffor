@@ -553,7 +553,20 @@ impl ByteCompiler<'_> {
             }
             Expression::ImportCall(import) => {
                 self.compile_expr(import.argument(), dst);
-                self.bytecode.emit_import_call(dst.variable());
+                let (has_options, options) = if let Some(options) = import.options() {
+                    let register = self.register_allocator.alloc();
+                    self.compile_expr(options, &register);
+                    let operand = register.variable();
+                    self.register_allocator.dealloc(register);
+                    (true, operand)
+                } else {
+                    (false, dst.variable())
+                };
+                self.bytecode.emit_import_call(
+                    dst.variable(),
+                    options,
+                    (((import.phase() as u32) << 1) | u32::from(has_options)).into(),
+                );
             }
             Expression::NewTarget(_new_target) => {
                 self.bytecode.emit_new_target(dst.variable());

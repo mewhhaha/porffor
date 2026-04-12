@@ -1,6 +1,6 @@
-use oxc_allocator::Allocator;
-use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
-use oxc_span::SourceType;
+use boa_ast::scope::Scope;
+use boa_interner::Interner;
+use boa_parser::{Parser, Source};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseGoal {
@@ -73,30 +73,25 @@ pub fn parse(
         ));
     }
 
-    if matches!(options.goal, ParseGoal::Script) {
-        let trimmed = source_text.trim_start();
-        if trimmed.starts_with("export ") || trimmed.starts_with("import ") {
-            return Err(ParseError::new(
-                "parse error: import/export syntax requires module goal",
-            ));
+    let mut interner = Interner::default();
+    let scope = Scope::new_global();
+    let source = if let Some(filename) = &options.filename {
+        Source::from_bytes(source_text.as_bytes()).with_path(std::path::Path::new(filename))
+    } else {
+        Source::from_bytes(source_text.as_bytes())
+    };
+
+    match options.goal {
+        ParseGoal::Script => {
+            Parser::new(source)
+                .parse_script(&scope, &mut interner)
+                .map_err(|err| ParseError::new(format!("parse error: {err}")))?;
         }
-    }
-
-    let allocator = Allocator::default();
-    let source_type = source_type_for(&options);
-    let parser_return = Parser::new(&allocator, &source_text, source_type)
-        .with_options(OxcParseOptions {
-            parse_regular_expression: true,
-            ..OxcParseOptions::default()
-        })
-        .parse();
-
-    if parser_return.panicked {
-        return Err(ParseError::new("parse error: parser panicked"));
-    }
-
-    if let Some(error) = parser_return.errors.into_iter().next() {
-        return Err(ParseError::new(format!("parse error: {error}")));
+        ParseGoal::Module => {
+            Parser::new(source)
+                .parse_module(&scope, &mut interner)
+                .map_err(|err| ParseError::new(format!("parse error: {err}")))?;
+        }
     }
 
     Ok(SourceUnit {
@@ -105,23 +100,6 @@ pub fn parse(
         source_text,
     })
 }
-
-fn source_type_for(options: &ParseOptions) -> SourceType {
-    if let Some(filename) = &options.filename {
-        if let Ok(source_type) = SourceType::from_path(filename) {
-            return match options.goal {
-                ParseGoal::Script => source_type.with_script(true),
-                ParseGoal::Module => source_type.with_module(true),
-            };
-        }
-    }
-
-    match options.goal {
-        ParseGoal::Script => SourceType::script(),
-        ParseGoal::Module => SourceType::mjs(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

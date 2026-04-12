@@ -427,6 +427,18 @@ fn initializer_to_iterable_loop_initializer(
                         position,
                     )));
                     }
+                    if in_loop
+                        && matches!(
+                            initializer.declaration(),
+                            ast::declaration::LexicalDeclaration::Using(_)
+                                | ast::declaration::LexicalDeclaration::AwaitUsing(_)
+                        )
+                    {
+                        return Err(Error::lex(LexError::Syntax(
+                            "using declarations are not allowed in for-in loop heads".into(),
+                            position,
+                        )));
+                    }
                     Ok(match initializer.declaration() {
                         ast::declaration::LexicalDeclaration::Const(_) => {
                             IterableLoopInitializer::Const(decl.binding().clone())

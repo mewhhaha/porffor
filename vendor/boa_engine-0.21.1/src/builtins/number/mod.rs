@@ -15,7 +15,7 @@
 
 use crate::{
     Context, JsArgs, JsResult, JsString,
-    builtins::BuiltInObject,
+    builtins::{BuiltInObject, intl::number_format::NumberFormat},
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
     error::JsNativeError,
     js_string,
@@ -303,11 +303,16 @@ impl Number {
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_locale_string(
         this: &JsValue,
-        _: &[JsValue],
-        _: &mut Context,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
         let this_num = Self::this_number_value(this)?;
-        Ok(JsValue::new(js_string!(this_num)))
+        let formatter = NumberFormat::new(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            context,
+        )?;
+        Ok(formatter.format_f64_to_string(this_num).into())
     }
 
     /// `flt_str_to_exp` - used in `to_precision`

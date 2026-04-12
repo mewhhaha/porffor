@@ -6,6 +6,7 @@ use crate::{
     JsValue,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
         temporal::{calendar::get_temporal_calendar_slot_value_with_default, to_calendar_fields},
     },
@@ -17,9 +18,10 @@ use crate::{
     string::StaticJsStrings,
 };
 use boa_gc::{Finalize, Trace};
+use icu_calendar::AnyCalendarKind;
 
 use temporal_rs::{
-    Calendar, MonthCode, PlainMonthDay as InnerMonthDay,
+    Calendar, MonthCode, PlainMonthDay as InnerMonthDay, TinyAsciiStr,
     fields::CalendarFields,
     options::{DisplayCalendar, Overflow},
     parsed_intermediates::ParsedDate,
@@ -376,19 +378,25 @@ impl PlainMonthDay {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/PlainMonthDay/toLocaleString
     pub(crate) fn to_locale_string(
         this: &JsValue,
-        _: &[JsValue],
-        _: &mut Context,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
         let object = this.as_object();
-        let month_day = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("this value must be a PlainMonthDay object.")
             })?;
-
-        Ok(JsString::from(month_day.inner.to_string()).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::Date,
+            DateTimeReqs::Date,
+            context,
+        )?
+        .into())
     }
 
     /// 10.3.10 `Temporal.PlainMonthDay.prototype.toJSON ( )`
@@ -469,7 +477,46 @@ impl PlainMonthDay {
             })
             .transpose()?;
 
-        let fields = CalendarFields::new().with_optional_year(year);
+        let fields = if let Some(year) = year {
+            CalendarFields::new().with_optional_year(Some(year))
+        } else {
+            let has_no_era = matches!(
+                month_day.inner.calendar().kind(),
+                AnyCalendarKind::Iso | AnyCalendarKind::Chinese | AnyCalendarKind::Dangi
+            );
+
+            if has_no_era {
+                CalendarFields::new()
+            } else {
+                let era = item
+                    .get(js_string!("era"), context)?
+                    .map(|v| {
+                        let primitive =
+                            v.to_primitive(context, crate::value::PreferredType::String)?;
+                        let Some(era) = primitive.as_string() else {
+                            return Err(JsNativeError::typ()
+                                .with_message("era field must be a string.")
+                                .into());
+                        };
+                        TinyAsciiStr::<19>::try_from_str(&era.to_std_string_escaped()).map_err(
+                            |e| JsError::from(JsNativeError::range().with_message(e.to_string())),
+                        )
+                    })
+                    .transpose()?;
+
+                let era_year = item
+                    .get(js_string!("eraYear"), context)?
+                    .map(|v| {
+                        let finite = v.to_finitef64(context)?;
+                        Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
+                    })
+                    .transpose()?;
+
+                CalendarFields::new()
+                    .with_era(era)
+                    .with_era_year(era_year)
+            }
+        };
 
         // 7. Let mergedFields be CalendarMergeFields(calendar, fields, inputFields).
         // 8. Let isoDate be ? CalendarDateFromFields(calendar, mergedFields, constrain).
@@ -583,12 +630,63 @@ fn to_temporal_month_day(
             })
             .transpose()?;
 
+        let has_no_era = calendar.kind() == AnyCalendarKind::Iso
+            || calendar.kind() == AnyCalendarKind::Chinese
+            || calendar.kind() == AnyCalendarKind::Dangi;
+        let (era, era_year) = if has_no_era {
+            (None, None)
+        } else {
+            let era = obj
+                .get(js_string!("era"), context)?
+                .map(|v| {
+                    let primitive = v.to_primitive(context, crate::value::PreferredType::String)?;
+                    let Some(era) = primitive.as_string() else {
+                        return Err(JsNativeError::typ()
+                            .with_message("The monthCode field value must be a string.")
+                            .into());
+                    };
+                    TinyAsciiStr::<19>::try_from_str(&era.to_std_string_escaped())
+                        .map_err(|e| JsError::from(JsNativeError::range().with_message(e.to_string())))
+                })
+                .transpose()?;
+            let era_year = obj
+                .get(js_string!("eraYear"), context)?
+                .map(|v| {
+                    let finite = v.to_finitef64(context)?;
+                    Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
+                })
+                .transpose()?;
+            (era, era_year)
+        };
+
         let partial_date = PartialDate::new()
             .with_month(month)
             .with_day(day)
             .with_year(year)
             .with_month_code(month_code)
-            .with_calendar(calendar);
+            .with_era(era)
+            .with_era_year(era_year)
+            .with_calendar(calendar.clone());
+
+        if month.is_none() && month_code.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Month or monthCode is required to determine date.")
+                .into());
+        }
+        if day.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Required day field is empty.")
+                .into());
+        }
+        if !calendar.is_iso()
+            && month.is_some()
+            && year.is_none()
+            && (has_no_era || era.is_none() || era_year.is_none())
+        {
+            return Err(JsNativeError::typ()
+                .with_message("Required year field is empty.")
+                .into());
+        }
 
         // d. Let resolvedOptions be ? GetOptionsObject(options).
         let options = get_options_object(options)?;

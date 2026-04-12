@@ -347,6 +347,19 @@ impl Emitter {
                         };
                         self.emit_insn(insn)
                     }
+                    Node::BackRefMulti { groups, icase } => {
+                        debug_assert!(
+                            groups.iter().all(|group| *group >= 1),
+                            "Groups should not be zero"
+                        );
+                        let groups = groups.iter().map(|group| group - 1).collect();
+                        let insn = if *icase {
+                            Insn::BackRefMultiICase(groups)
+                        } else {
+                            Insn::BackRefMulti(groups)
+                        };
+                        self.emit_insn(insn)
+                    }
 
                     Node::ByteSet(bytes) => self.emit_byte_set_insn(bytes),
 

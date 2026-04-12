@@ -2135,7 +2135,7 @@ impl<'ctx> ByteCompiler<'ctx> {
                         kind = CallKind::CallEval;
                     }
 
-                    if self.in_with {
+                    if self.in_with && kind == CallKind::Call {
                         let name = self.resolve_identifier_expect(*ident);
                         let binding = self.get_identifier_reference(name);
                         let index = self.get_binding(&binding);
@@ -2145,14 +2145,21 @@ impl<'ctx> ByteCompiler<'ctx> {
                                 unreachable!("with binding cannot be local")
                             }
                         };
+                        let this = self.register_allocator.alloc();
                         let value = self.register_allocator.alloc();
                         self.bytecode
-                            .emit_this_for_object_environment_name(value.variable(), index.into());
+                            .emit_get_name_and_locator(value.variable(), index.into());
+                        self.bytecode
+                            .emit_this_for_object_environment_name(this.variable(), index.into());
+                        self.push_from_register(&this);
                         self.push_from_register(&value);
+                        self.register_allocator.dealloc(this);
                         self.register_allocator.dealloc(value);
                     } else {
                         let value = self.register_allocator.alloc();
                         self.bytecode.emit_push_undefined(value.variable());
+                        self.push_from_register(&value);
+                        self.compile_expr(expr, &value);
                         self.push_from_register(&value);
                         self.register_allocator.dealloc(value);
                     }
@@ -2160,13 +2167,10 @@ impl<'ctx> ByteCompiler<'ctx> {
                     let value = self.register_allocator.alloc();
                     self.bytecode.emit_push_undefined(value.variable());
                     self.push_from_register(&value);
+                    self.compile_expr(expr, &value);
+                    self.push_from_register(&value);
                     self.register_allocator.dealloc(value);
                 }
-
-                let value = self.register_allocator.alloc();
-                self.compile_expr(expr, &value);
-                self.push_from_register(&value);
-                self.register_allocator.dealloc(value);
             }
             expr => {
                 let this = self.register_allocator.alloc();

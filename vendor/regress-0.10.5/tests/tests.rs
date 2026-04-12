@@ -2193,23 +2193,35 @@ fn test_duplicate_named_groups_tc(tc: TestConfig) {
     let ng = m.named_groups();
     assert!(ng.eq([("x", Some(0..1)), ("y", Some(1..2))]));
 
-    // Backreferences with duplicate names
-    // TODO: Backreferences with duplicate named groups require additional work
-    // in the matcher to determine which group participated. This is deferred.
-    //let m = tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>")
-    //    .find("xx")
-    //    .unwrap();
-    //assert_eq!(m.group(0), Some(0..2));
+    // Backreferences with duplicate names must follow the participating capture.
+    let m = tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>").find("xx").unwrap();
+    assert_eq!(m.group(0), Some(0..2));
+    assert_eq!(m.named_group("a"), Some(0..1));
 
-    //let m = tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>")
-    //    .find("yy")
-    //    .unwrap();
-    //assert_eq!(m.group(0), Some(0..2));
+    let m = tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>").find("yy").unwrap();
+    assert_eq!(m.group(0), Some(0..2));
+    assert_eq!(m.named_group("a"), Some(0..1));
 
-    //// Should NOT match when backreference doesn't match
-    //assert!(tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>")
-    //    .find("xy")
-    //    .is_none());
+    assert!(tc.compile(r"(?:(?<a>x)|(?<a>y))\k<a>").find("xy").is_none());
+
+    let m = tc
+        .compile(r"(?:(?:(?<x>a)|(?<x>b))\k<x>){2}")
+        .find("aabb")
+        .unwrap();
+    assert_eq!(m.group(0), Some(0..4));
+    assert_eq!(m.named_group("x"), Some(2..3));
+
+    assert!(tc
+        .compile(r"(?:(?:(?<x>a)|(?<x>b))\k<x>){2}")
+        .find("abab")
+        .is_none());
+
+    let m = tc
+        .compile(r"^(?:(?<a>x)|(?<a>y)|z)\k<a>$")
+        .find("z")
+        .unwrap();
+    assert_eq!(m.group(0), Some(0..1));
+    assert_eq!(m.named_group("a"), None);
 }
 
 #[test]
@@ -2228,6 +2240,22 @@ fn test_duplicate_named_groups_same_alternative_rejected() {
 
     // Should reject duplicates in nested groups within same alternative
     assert!(Regex::new(r"(?<a>x)(?:(?<a>y))").is_err());
+}
+
+#[test]
+fn test_named_group_names_from_utf16_code_units_non_unicode() {
+    use regress::Regex;
+
+    let pattern = r"(?<𝓑𝓻𝓸𝔀𝓷>brown)";
+    let regex = Regex::from_unicode(pattern.encode_utf16().map(u32::from), "").unwrap();
+    let mat = regex.find("quick brown fox").unwrap();
+    assert_eq!(mat.named_group("𝓑𝓻𝓸𝔀𝓷"), Some(6..11));
+
+    let pattern = r"(?<𝓓𝓸𝓰>dog)(.*?)(\k<𝓓𝓸𝓰>)";
+    let regex = Regex::from_unicode(pattern.encode_utf16().map(u32::from), "").unwrap();
+    let mat = regex.find("dog eat dog").unwrap();
+    assert_eq!(mat.named_group("𝓓𝓸𝓰"), Some(0..3));
+    assert_eq!(mat.group(3), Some(8..11));
 }
 
 #[test]

@@ -314,6 +314,7 @@ impl PlainDateTime {
             dest_epoch_ns.0,
             self,
             Option::<(&TimeZone, &NeverProvider)>::None,
+            None,
             options,
         )
     }
@@ -342,6 +343,7 @@ impl PlainDateTime {
             dest_epoch_ns.0,
             self,
             Option::<(&TimeZone, &NeverProvider)>::None,
+            None,
             unit,
         )
     }

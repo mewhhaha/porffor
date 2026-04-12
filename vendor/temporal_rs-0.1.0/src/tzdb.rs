@@ -65,4 +65,27 @@ mod tests {
             assert_eq!(result.offset(), offset);
         }
     }
+
+    #[test]
+    fn temporal_primary_identifier_uses_ecma402_link_mapping() {
+        let provider = FsTzdbProvider::default();
+
+        let jan_mayen =
+            TimeZone::try_from_identifier_str_with_provider("Atlantic/Jan_Mayen", &provider)
+                .unwrap();
+        let longyearbyen =
+            TimeZone::try_from_identifier_str_with_provider("Arctic/Longyearbyen", &provider)
+                .unwrap();
+        assert!(jan_mayen
+            .time_zone_equals_with_provider(&longyearbyen, &provider)
+            .unwrap());
+
+        let asmera = TimeZone::try_from_identifier_str_with_provider("Africa/Asmera", &provider)
+            .unwrap();
+        let asmara = TimeZone::try_from_identifier_str_with_provider("Africa/Asmara", &provider)
+            .unwrap();
+        assert!(asmera
+            .time_zone_equals_with_provider(&asmara, &provider)
+            .unwrap());
+    }
 }

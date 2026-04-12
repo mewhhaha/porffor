@@ -21,6 +21,32 @@ use crate::util::DebugCheckIndex;
 use alloc::vec::Vec;
 use core::ops::Range;
 
+fn match_backreference_candidates<Input, Dir>(
+    input: &Input,
+    dir: Dir,
+    groups: &[GroupData<Input::Position>],
+    candidate_groups: &[u32],
+    pos: &mut Input::Position,
+    icase: bool,
+) -> bool
+where
+    Input: InputIndexer,
+    Dir: Direction,
+{
+    let mut selected = None;
+    for &group_idx in candidate_groups {
+        if let Some(range) = groups[group_idx as usize].as_range() {
+            selected = Some(range);
+        }
+    }
+
+    match selected {
+        Some(range) if icase => matchers::backref_icase(input, dir, range, pos),
+        Some(range) => matchers::backref(input, dir, range, pos),
+        None => true,
+    }
+}
+
 #[derive(Clone, Debug)]
 enum BacktrackInsn<Input: InputIndexer> {
     /// Nothing more to backtrack.
@@ -870,21 +896,28 @@ impl<'a, Input: InputIndexer> MatchAttempter<'a, Input> {
                     &Insn::BackRef(cg_idx) | &Insn::BackRefICase(cg_idx) => {
                         let cg = self.s.groups.mat(cg_idx as usize);
                         let icase = matches!(re.insns.iat(ip), Insn::BackRefICase(_));
-                        // Backreferences to a capture group that did not match always succeed (ES5
-                        // 15.10.2.9).
-                        // Note we may be in the capture group we are examining, e.g. /(abc\1)/.
-                        let matched;
-                        if let Some(orig_range) = cg.as_range() {
+                        let matched = if let Some(orig_range) = cg.as_range() {
                             if icase {
-                                matched = matchers::backref_icase(input, dir, orig_range, &mut pos);
+                                matchers::backref_icase(input, dir, orig_range, &mut pos)
                             } else {
-                                matched = matchers::backref(input, dir, orig_range, &mut pos);
+                                matchers::backref(input, dir, orig_range, &mut pos)
                             }
                         } else {
-                            // This group has not been exited and so the match succeeds (ES6
-                            // 21.2.2.9).
-                            matched = true;
-                        }
+                            true
+                        };
+                        next_or_bt!(matched)
+                    }
+
+                    Insn::BackRefMulti(groups) | Insn::BackRefMultiICase(groups) => {
+                        let icase = matches!(re.insns.iat(ip), Insn::BackRefMultiICase(_));
+                        let matched = match_backreference_candidates(
+                            input,
+                            dir,
+                            self.s.groups.as_slice(),
+                            groups,
+                            &mut pos,
+                            icase,
+                        );
                         next_or_bt!(matched)
                     }
 

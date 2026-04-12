@@ -61,6 +61,16 @@ pub enum Statement {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/Empty
     Empty,
 
+    /// A debugger statement.
+    ///
+    /// More information:
+    ///  - [ECMAScript reference][spec]
+    ///  - [MDN documentation][mdn]
+    ///
+    /// [spec]: https://tc39.es/ecma262/#prod-DebuggerStatement
+    /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/debugger
+    Debugger,
+
     /// See [`Expression`].
     Expression(Expression),
 
@@ -117,6 +127,7 @@ impl Statement {
             Self::Block(block) => return block.to_indented_string(interner, indentation),
             Self::Var(var) => var.to_interned_string(interner),
             Self::Empty => return ";".to_owned(),
+            Self::Debugger => "debugger".to_owned(),
             Self::Expression(expr) => expr.to_indented_string(interner, indentation),
             Self::If(if_smt) => return if_smt.to_indented_string(interner, indentation),
             Self::DoWhileLoop(do_while) => do_while.to_indented_string(interner, indentation),
@@ -199,6 +210,7 @@ impl VisitWith for Statement {
                 // do nothing; there is nothing to visit here
                 ControlFlow::Continue(())
             }
+            Self::Debugger => ControlFlow::Continue(()),
             Self::Expression(e) => visitor.visit_expression(e),
             Self::If(i) => visitor.visit_if(i),
             Self::DoWhileLoop(dw) => visitor.visit_do_while_loop(dw),
@@ -228,6 +240,7 @@ impl VisitWith for Statement {
                 // do nothing; there is nothing to visit here
                 ControlFlow::Continue(())
             }
+            Self::Debugger => ControlFlow::Continue(()),
             Self::Expression(e) => visitor.visit_expression_mut(e),
             Self::If(i) => visitor.visit_if_mut(i),
             Self::DoWhileLoop(dw) => visitor.visit_do_while_loop_mut(dw),

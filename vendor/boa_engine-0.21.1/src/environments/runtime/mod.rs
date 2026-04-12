@@ -5,7 +5,7 @@ use crate::{
     object::builtins::JsPromise,
     js_string,
 };
-use boa_ast::scope::{BindingLocator, BindingLocatorScope, Scope};
+use boa_ast::scope::{BindingLocator, BindingLocatorError, BindingLocatorScope, Scope};
 use boa_gc::{Finalize, Gc, Trace};
 
 mod declarative;
@@ -386,12 +386,22 @@ impl EnvironmentStack {
 }
 
 impl Context {
+    pub(crate) const UNRESOLVABLE_GLOBAL_REFERENCE_MARKER: u32 = u32::MAX;
+
     fn explicit_resource_symbol(&self, r#async: bool) -> JsSymbol {
         if r#async {
             JsSymbol::async_dispose()
         } else {
             JsSymbol::dispose()
         }
+    }
+
+    fn is_binding_unscopable(&mut self, object: &JsObject, key: &JsString) -> JsResult<bool> {
+        let Some(unscopables) = object.get(JsSymbol::unscopables(), self)?.as_object() else {
+            return Ok(false);
+        };
+
+        Ok(unscopables.get(key.clone(), self)?.to_boolean())
     }
 
     pub(crate) fn get_dispose_method(
@@ -635,9 +645,7 @@ impl Context {
                     let o = o.clone();
                     let key = locator.name().clone();
                     if o.has_property(key.clone(), self)? {
-                        if let Some(unscopables) = o.get(JsSymbol::unscopables(), self)?.as_object()
-                            && unscopables.get(key.clone(), self)?.to_boolean()
-                        {
+                        if self.is_binding_unscopable(&o, &key)? {
                             continue;
                         }
                         locator.set_scope(BindingLocatorScope::Stack(index));
@@ -663,6 +671,16 @@ impl Context {
         &mut self,
         locator: &BindingLocator,
     ) -> JsResult<Option<JsObject>> {
+        if matches!(locator.scope(), BindingLocatorScope::GlobalObject) {
+            return Ok(None);
+        }
+
+        if let BindingLocatorScope::Stack(index) = locator.scope()
+            && let Environment::Object(obj) = self.environment_expect(index)
+        {
+            return Ok(Some(obj.clone()));
+        }
+
         if let Some(env) = self.vm.environments.current_declarative_ref()
             && !env.with()
         {
@@ -692,9 +710,7 @@ impl Context {
                     let o = o.clone();
                     let key = locator.name().clone();
                     if o.has_property(key.clone(), self)? {
-                        if let Some(unscopables) = o.get(JsSymbol::unscopables(), self)?.as_object()
-                            && unscopables.get(key.clone(), self)?.to_boolean()
-                        {
+                        if self.is_binding_unscopable(&o, &key)? {
                             continue;
                         }
                         return Ok(Some(o));
@@ -755,7 +771,11 @@ impl Context {
                 Environment::Object(obj) => {
                     let key = locator.name().clone();
                     let obj = obj.clone();
-                    obj.get(key, self).map(Some)
+                    if obj.has_property(key.clone(), self)? {
+                        obj.get(key, self).map(Some)
+                    } else {
+                        Ok(None)
+                    }
                 }
             },
         }
@@ -775,11 +795,44 @@ impl Context {
     ) -> JsResult<()> {
         match locator.scope() {
             BindingLocatorScope::GlobalObject => {
+                if locator.binding_index() == Self::UNRESOLVABLE_GLOBAL_REFERENCE_MARKER {
+                    return Ok(());
+                }
                 let key = locator.name().clone();
                 let obj = self.global_object();
                 obj.set(key, value, strict, self)?;
             }
             BindingLocatorScope::GlobalDeclarative => {
+                let global_scope = self.realm().scope();
+                if global_scope
+                    .binding_throws_on_mutation(locator.binding_index())
+                    .unwrap_or(false)
+                {
+                    return Err(JsNativeError::typ()
+                        .with_message(format!(
+                            "cannot mutate an immutable binding '{}'",
+                            locator.name().to_std_string_escaped()
+                        ))
+                        .into());
+                }
+                if !global_scope
+                    .binding_is_mutable(locator.binding_index())
+                    .unwrap_or(true)
+                {
+                    return Ok(());
+                }
+                match global_scope.set_mutable_binding(locator.name().clone()) {
+                    Ok(_) => {}
+                    Err(BindingLocatorError::MutateImmutable) => {
+                        return Err(JsNativeError::typ()
+                            .with_message(format!(
+                                "cannot mutate an immutable binding '{}'",
+                                locator.name().to_std_string_escaped()
+                            ))
+                            .into());
+                    }
+                    Err(BindingLocatorError::Silent) => return Ok(()),
+                }
                 let env = self.vm.environments.global();
                 env.set(locator.binding_index(), value);
             }
@@ -790,6 +843,15 @@ impl Context {
                 Environment::Object(obj) => {
                     let key = locator.name().clone();
                     let obj = obj.clone();
+                    let still_exists = obj.has_property(key.clone(), self)?;
+                    if !still_exists && strict {
+                        return Err(JsNativeError::reference()
+                            .with_message(format!(
+                                "{} is not defined",
+                                locator.name().to_std_string_escaped()
+                            ))
+                            .into());
+                    }
                     obj.set(key, value, strict, self)?;
                 }
             },

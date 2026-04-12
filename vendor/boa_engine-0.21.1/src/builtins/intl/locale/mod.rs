@@ -2,7 +2,7 @@ use crate::{builtins::options::get_option, realm::Realm, string::StaticJsStrings
 use icu_locale::{
     extensions::unicode::Value,
     extensions_unicode_key as key, extensions_unicode_value as value,
-    preferences::extensions::unicode::keywords::{CollationCaseFirst, HourCycle},
+    preferences::extensions::unicode::keywords::CollationCaseFirst,
 };
 
 #[cfg(all(test, feature = "intl_bundled"))]
@@ -15,7 +15,7 @@ mod options;
 
 use crate::{
     Context, JsArgs, JsNativeError, JsResult, JsString, JsValue,
-    builtins::{BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject},
+    builtins::{Array, BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject},
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
     js_string,
     object::{JsObject, internal_methods::get_prototype_from_constructor},
@@ -74,12 +74,23 @@ impl IntrinsicObject for Locale {
             .name(js_string!("get variants"))
             .build();
 
+        let first_day_of_week = BuiltInBuilder::callable(realm, Self::first_day_of_week)
+            .name(js_string!("get firstDayOfWeek"))
+            .build();
+
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .property(
                 JsSymbol::to_string_tag(),
                 js_string!("Intl.Locale"),
                 Attribute::CONFIGURABLE,
             )
+            .method(Self::get_calendars, js_string!("getCalendars"), 0)
+            .method(Self::get_collations, js_string!("getCollations"), 0)
+            .method(Self::get_hour_cycles, js_string!("getHourCycles"), 0)
+            .method(Self::get_numbering_systems, js_string!("getNumberingSystems"), 0)
+            .method(Self::get_text_info, js_string!("getTextInfo"), 0)
+            .method(Self::get_time_zones, js_string!("getTimeZones"), 0)
+            .method(Self::get_week_info, js_string!("getWeekInfo"), 0)
             .method(Self::maximize, js_string!("maximize"), 0)
             .method(Self::minimize, js_string!("minimize"), 0)
             .method(Self::to_string, js_string!("toString"), 0)
@@ -149,6 +160,12 @@ impl IntrinsicObject for Locale {
                 None,
                 Attribute::CONFIGURABLE,
             )
+            .accessor(
+                js_string!("firstDayOfWeek"),
+                Some(first_day_of_week),
+                None,
+                Attribute::CONFIGURABLE,
+            )
             .build();
     }
 
@@ -163,7 +180,7 @@ impl BuiltInObject for Locale {
 
 impl BuiltInConstructor for Locale {
     const CONSTRUCTOR_ARGUMENTS: usize = 1;
-    const PROTOTYPE_STORAGE_SLOTS: usize = 26;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 40;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 0;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
@@ -258,7 +275,9 @@ impl BuiltInConstructor for Locale {
         // 16. If calendar is not undefined, then
         //     a. If calendar cannot be matched by the type Unicode locale nonterminal, throw a RangeError exception.
         // 17. Set opt.[[ca]] to calendar.
-        let ca = get_option(options, js_string!("calendar"), context)?;
+        let ca = get_option::<JsString>(options, js_string!("calendar"), context)?
+            .and_then(|calendar| canonicalize_calendar(calendar.to_std_string_escaped()).transpose())
+            .transpose()?;
 
         // 18. Let collation be ? GetOption(options, "collation", string, empty, undefined).
         // 19. If collation is not undefined, then
@@ -268,7 +287,9 @@ impl BuiltInConstructor for Locale {
 
         // 21. Let hc be ? GetOption(options, "hourCycle", string, « "h11", "h12", "h23", "h24" », undefined).
         // 22. Set opt.[[hc]] to hc.
-        let hc = get_option::<HourCycle>(options, js_string!("hourCycle"), context)?;
+        let hc = get_option::<JsString>(options, js_string!("hourCycle"), context)?
+            .and_then(|hour_cycle| canonicalize_hour_cycle(hour_cycle.to_std_string_escaped()).transpose())
+            .transpose()?;
 
         // 23. Let kf be ? GetOption(options, "caseFirst", string, « "upper", "lower", "false" », undefined).
         // 24. Set opt.[[kf]] to kf.
@@ -285,6 +306,11 @@ impl BuiltInConstructor for Locale {
         // 30. Set opt.[[nu]] to numberingSystem.
         let nu = get_option(options, js_string!("numberingSystem"), context)?;
 
+        // 31. Let firstDayOfWeek be ? GetOption(options, "firstDayOfWeek", string, empty, undefined).
+        let fw = get_option::<JsString>(options, js_string!("firstDayOfWeek"), context)?
+            .and_then(|first_day| canonicalize_first_day_of_week(first_day.to_std_string_escaped()).transpose())
+            .transpose()?;
+
         // 31. Let r be MakeLocaleRecord(tag, opt, localeExtensionKeys).
         // 32. Set locale.[[Locale]] to r.[[locale]].
         if let Some(ca) = ca {
@@ -297,7 +323,7 @@ impl BuiltInConstructor for Locale {
         }
         if let Some(hc) = hc {
             // 35. Set locale.[[HourCycle]] to r.[[hc]].
-            tag.extensions.unicode.keywords.set(key!("hc"), hc.into());
+            tag.extensions.unicode.keywords.set(key!("hc"), hc);
         }
         if let Some(kf) = kf {
             // 36. If localeExtensionKeys contains "kf", then
@@ -318,6 +344,9 @@ impl BuiltInConstructor for Locale {
         if let Some(nu) = nu {
             // 38. Set locale.[[NumberingSystem]] to r.[[nu]].
             tag.extensions.unicode.keywords.set(key!("nu"), nu);
+        }
+        if let Some(fw) = fw {
+            tag.extensions.unicode.keywords.set(key!("fw"), fw);
         }
 
         context
@@ -358,6 +387,18 @@ impl Locale {
             })?
             .clone();
 
+        if is_variant_only_posix(&loc) {
+            let prototype = context.intrinsics().constructors().locale().prototype();
+            return Ok(
+                JsObject::from_proto_and_data_with_shared_shape(
+                    context.root_shape(),
+                    prototype,
+                    loc,
+                )
+                .into(),
+            );
+        }
+
         // 3. Let maximal be the result of the Add Likely Subtags algorithm applied to loc.[[Locale]]. If an error is signaled, set maximal to loc.[[Locale]].
         context
             .intl_provider()
@@ -397,6 +438,18 @@ impl Locale {
             })?
             .clone();
 
+        if is_variant_only_posix(&loc) {
+            let prototype = context.intrinsics().constructors().locale().prototype();
+            return Ok(
+                JsObject::from_proto_and_data_with_shared_shape(
+                    context.root_shape(),
+                    prototype,
+                    loc,
+                )
+                .into(),
+            );
+        }
+
         // 3. Let minimal be the result of the Remove Likely Subtags algorithm applied to loc.[[Locale]]. If an error is signaled, set minimal to loc.[[Locale]].
         context
             .intl_provider()
@@ -432,7 +485,7 @@ impl Locale {
             })?;
 
         // 3. Return loc.[[Locale]].
-        Ok(js_string!(loc.to_string()).into())
+        Ok(js_string!(locale_to_canonical_string(&loc)).into())
     }
 
     /// [`get Intl.Locale.prototype.baseName`][spec].
@@ -486,7 +539,7 @@ impl Locale {
             .unicode
             .keywords
             .get(&key!("ca"))
-            .map(|v| js_string!(v.to_string()).into())
+            .map(|v| js_string!(canonical_calendar_string(&v.to_string())).into())
             .unwrap_or_default())
     }
 
@@ -772,4 +825,205 @@ impl Locale {
         // 4. Return the substring of variants from 1.
         Ok(js_string!(loc.id.variants.to_string()).into())
     }
+
+    pub(crate) fn first_day_of_week(
+        this: &JsValue,
+        _: &[JsValue],
+        _: &mut Context,
+    ) -> JsResult<JsValue> {
+        let loc = locale_from_this(this, "`get Locale.prototype.firstDayOfWeek`")?;
+
+        Ok(loc
+            .extensions
+            .unicode
+            .keywords
+            .get(&key!("fw"))
+            .map(|v| js_string!(v.to_string()).into())
+            .unwrap_or_default())
+    }
+
+    pub(crate) fn get_calendars(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        drop(locale_from_this(this, "`Locale.prototype.getCalendars`")?);
+        Ok(Array::create_array_from_list(
+            supported_calendars()
+                .iter()
+                .map(|value| js_string!(*value).into()),
+            context,
+        )
+        .into())
+    }
+
+    pub(crate) fn get_collations(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        drop(locale_from_this(this, "`Locale.prototype.getCollations`")?);
+        Ok(Array::create_array_from_list(
+            supported_collations()
+                .iter()
+                .map(|value| js_string!(*value).into()),
+            context,
+        )
+        .into())
+    }
+
+    pub(crate) fn get_hour_cycles(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        drop(locale_from_this(this, "`Locale.prototype.getHourCycles`")?);
+        Ok(Array::create_array_from_list(
+            supported_hour_cycles()
+                .iter()
+                .map(|value| js_string!(*value).into()),
+            context,
+        )
+        .into())
+    }
+
+    pub(crate) fn get_numbering_systems(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        drop(locale_from_this(this, "`Locale.prototype.getNumberingSystems`")?);
+        Ok(Array::create_array_from_list(
+            supported_numbering_systems()
+                .iter()
+                .map(|value| js_string!(*value).into()),
+            context,
+        )
+        .into())
+    }
+
+    pub(crate) fn get_text_info(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let loc = locale_from_this(this, "`Locale.prototype.getTextInfo`")?;
+        let info = JsObject::with_object_proto(context.intrinsics());
+        info.create_data_property_or_throw(
+            js_string!("direction"),
+            js_string!(text_info_direction(&loc)),
+            context,
+        )?;
+        Ok(info.into())
+    }
+
+    pub(crate) fn get_time_zones(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let loc = locale_from_this(this, "`Locale.prototype.getTimeZones`")?;
+        if loc.id.region.is_none() {
+            return Ok(JsValue::undefined());
+        }
+
+        Ok(Array::create_array_from_list(
+            supported_time_zones()
+                .iter()
+                .map(|value| js_string!(*value).into()),
+            context,
+        )
+        .into())
+    }
+
+    pub(crate) fn get_week_info(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let loc = locale_from_this(this, "`Locale.prototype.getWeekInfo`")?;
+        let info = JsObject::with_object_proto(context.intrinsics());
+        info.create_data_property_or_throw(
+            js_string!("firstDay"),
+            week_info_first_day(&loc),
+            context,
+        )?;
+        let weekend = Array::create_array_from_list([JsValue::new(6), JsValue::new(7)], context);
+        info.create_data_property_or_throw(js_string!("weekend"), weekend, context)?;
+        Ok(info.into())
+    }
+}
+
+fn locale_from_this(this: &JsValue, label: &str) -> JsResult<icu_locale::Locale> {
+    this.as_object()
+        .as_ref()
+        .and_then(|o| o.downcast_ref::<icu_locale::Locale>())
+        .map(|locale| locale.clone())
+        .ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message(format!("{label} can only be called on a `Locale` object"))
+                .into()
+        })
+}
+
+fn canonicalize_calendar(value: String) -> JsResult<Option<Value>> {
+    if value.is_empty()
+        || !value
+            .split('-')
+            .all(|segment| (3..=8).contains(&segment.len()) && segment.chars().all(|ch| ch.is_ascii_alphanumeric()))
+    {
+        return Err(JsNativeError::range()
+            .with_message("provided calendar is invalid")
+            .into());
+    }
+
+    let value = value.to_ascii_lowercase();
+    let canonical = canonical_calendar_string(&value);
+    Ok(Some(
+        canonical
+            .parse::<Value>()
+            .map_err(|e| JsNativeError::range().with_message(e.to_string()))?,
+    ))
+}
+
+fn canonical_calendar_string(value: &str) -> &str {
+    match value {
+        "islamicc" | "islamic" | "islamic-rgsa" => "islamic-civil",
+        "ethiopic-amete-alem" => "ethioaa",
+        _ => value,
+    }
+}
+
+fn canonicalize_hour_cycle(value: String) -> JsResult<Option<Value>> {
+    match value.as_str() {
+        "h11" | "h12" | "h23" | "h24" => Ok(Some(
+            value
+                .parse::<Value>()
+                .map_err(|e| JsNativeError::range().with_message(e.to_string()))?,
+        )),
+        _ => Err(JsNativeError::range()
+            .with_message("provided hour cycle was not `h11`, `h12`, `h23` or `h24`")
+            .into()),
+    }
+}
+
+fn canonicalize_first_day_of_week(value: String) -> JsResult<Option<Value>> {
+    let lower = value.to_ascii_lowercase();
+    let canonical = weekday_to_string(&lower).unwrap_or(lower.as_str());
+
+    if canonical != "true"
+        && !canonical
+            .split('-')
+            .all(|segment| (3..=8).contains(&segment.len()) && segment.chars().all(|ch| ch.is_ascii_alphanumeric()))
+    {
+        return Err(JsNativeError::range()
+            .with_message("provided firstDayOfWeek is invalid")
+            .into());
+    }
+
+    Ok(Some(
+        canonical
+            .parse::<Value>()
+            .map_err(|e| JsNativeError::range().with_message(e.to_string()))?,
+    ))
 }

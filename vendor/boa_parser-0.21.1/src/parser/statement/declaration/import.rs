@@ -296,6 +296,16 @@ fn parse_import_request<R: ReadChar>(
                         }
                     };
 
+                    if attributes
+                        .iter()
+                        .any(|attribute: &AstImportAttribute| attribute.key() == key)
+                    {
+                        return Err(Error::general(
+                            "duplicate import attribute key",
+                            token.span().start(),
+                        ));
+                    }
+
                     attributes.push(AstImportAttribute::new(key, value));
 
                     let next = cursor.peek(0, interner).or_abrupt()?;

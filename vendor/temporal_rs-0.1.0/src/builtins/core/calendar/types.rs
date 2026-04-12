@@ -1,14 +1,15 @@
 //! Implementation of `ResolvedCalendarFields`
 
+use alloc::{format, vec::Vec};
 use tinystr::tinystr;
 use tinystr::TinyAsciiStr;
 
 use crate::fields::CalendarFields;
-use crate::iso::{constrain_iso_day, is_valid_iso_day};
+use crate::iso::{constrain_iso_day, is_valid_iso_day, IsoDate};
 use crate::options::Overflow;
 use crate::Calendar;
 use crate::{TemporalError, TemporalResult};
-use icu_calendar::AnyCalendarKind;
+use icu_calendar::{AnyCalendarKind, Calendar as IcuCalendar, Iso, types::MonthCode as IcuMonthCode};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ResolutionType {
@@ -63,7 +64,7 @@ impl ResolvedCalendarFields {
             });
         }
 
-        let month_code = MonthCode::try_from_fields(calendar, fields)?;
+        let month_code = resolve_non_iso_month(calendar, fields, &era_year, overflow)?;
         let day = resolve_day(
             fields.day,
             resolve_type == ResolutionType::YearMonth,
@@ -83,34 +84,39 @@ impl ResolvedCalendarFields {
 fn resolve_day(
     day: Option<u8>,
     is_year_month: bool,
-    year: &EraYear,
-    month_code: MonthCode,
-    calendar: &Calendar,
+    _year: &EraYear,
+    _month_code: MonthCode,
+    _calendar: &Calendar,
 ) -> TemporalResult<u8> {
     if is_year_month {
-        if calendar.kind() == AnyCalendarKind::Japanese {
-            Ok(
-                match (year.arithmetic_year, month_code.to_month_integer()) {
-                    // Meiji begins Oct 23, 1868
-                    (1868, 10) => 23,
-                    // Taisho begins Jul 30, 1912
-                    (1912, 7) => 30,
-                    // Showa begins Dec 12, 1926
-                    (1926, 12) => 25,
-                    // Heisei begins 8 Jan 1989
-                    (1989, 1) => 8,
-                    // Reiwa begins 1 May 2019
-                    (2019, 5) => 1,
-                    _ => 1,
-                },
-            )
-        } else {
-            // PlainYearMonth construction paths all *require* setting the day to the first day of the month.
-            // See https://tc39.es/proposal-temporal/#sec-temporal-calendaryearmonthfromfields
-            Ok(1)
-        }
+        Ok(1)
     } else {
         day.ok_or(TemporalError::r#type().with_message("Required day field is empty."))
+    }
+}
+
+pub(super) fn probe_day_for_year_month(
+    calendar: &Calendar,
+    year: &EraYear,
+    month_code: MonthCode,
+) -> u8 {
+    if calendar.kind() == AnyCalendarKind::Japanese {
+        match (year.arithmetic_year, month_code.to_month_integer()) {
+            // Meiji begins Oct 23, 1868
+            (1868, 10) => 23,
+            // Taisho begins Jul 30, 1912
+            (1912, 7) => 30,
+            // Showa begins Dec 25, 1926
+            (1926, 12) => 25,
+            // Heisei begins Jan 8, 1989
+            (1989, 1) => 8,
+            // Reiwa begins May 1, 2019
+            (2019, 5) => 1,
+            _ => 1,
+        }
+    } else {
+        // PlainYearMonth construction paths all use the first day of the calendar month.
+        1
     }
 }
 
@@ -136,6 +142,19 @@ impl EraYear {
         partial: &CalendarFields,
         resolution_type: ResolutionType,
     ) -> TemporalResult<Self> {
+        if !Calendar::calendar_has_eras(calendar.kind()) && resolution_type != ResolutionType::MonthDay {
+            if let Some(year) = partial.year {
+                return Ok(Self {
+                    era: None,
+                    year,
+                    arithmetic_year: year,
+                });
+            }
+
+            return Err(TemporalError::r#type()
+                .with_message("Required fields missing to determine an era and year."));
+        }
+
         match (partial.year, partial.era, partial.era_year) {
             _ if resolution_type == ResolutionType::MonthDay => {
                 let day = partial
@@ -159,10 +178,6 @@ impl EraYear {
                 let Some(era_info) = calendar.get_era_info(&era) else {
                     return Err(TemporalError::range().with_message("Invalid era provided."));
                 };
-                if !era_info.range.contains(&era_year) {
-                    return Err(TemporalError::range()
-                        .with_message("Year is not valid for the provided era"));
-                }
                 let calculated_arith = era_info.arithmetic_year_for(era_year);
                 // or a RangeError exception if the fields are sufficient but their values are internally inconsistent
                 // within the calendar (e.g., when fields such as [[Month]] and [[MonthCode]] have conflicting non-unset values). For example:
@@ -180,7 +195,7 @@ impl EraYear {
                 })
             }
             (Some(year), None, None) => Ok(Self {
-                era: calendar.get_calendar_default_era().map(|e| Era(e.name)),
+                era: None,
                 year,
                 arithmetic_year: year,
             }),
@@ -189,40 +204,65 @@ impl EraYear {
         }
     }
 
-    fn reference_arithmetic_year_for_month_day(
+    pub(crate) fn reference_arithmetic_year_for_month_day(
         calendar: &Calendar,
         month_code: Option<MonthCode>,
         day: u8,
     ) -> TemporalResult<i32> {
-        // For simple calendars without leap days
-        // (or if leap days have already been handled)
-        // This needs the date of 1972-12-31 represented in that calendar
-        fn threshold(month: u8, day: u8, dec_31_1972: (i32, u8, u8)) -> i32 {
-            // If it's after the day of dec 31 in the primary reference year,
-            // go one year earlier
-            if month == dec_31_1972.1 && day > dec_31_1972.2 || month > dec_31_1972.1 {
-                dec_31_1972.0 - 1
-            } else {
-                // Return the primary reference year
-                dec_31_1972.0
-            }
-        }
-        // For simple calendars with a single leap day.
-        // This needs the date of 1972-12-31 represented in that calendar, the month-day of the leap day,
-        // and the first reference year where the leap day occurs on or before 1972-12-31
-        fn threshold_with_leap_day(
-            month: u8,
+        fn find_reference_year_for_lunisolar_month_day(
+            calendar: &Calendar,
+            month_code: MonthCode,
             day: u8,
-            dec_31_1972: (i32, u8, u8),
-            leap_day: (u8, u8),
-            leap_year: i32,
-        ) -> i32 {
-            // If it's a leap day, just return the leap year
-            if (month, day) == leap_day {
-                leap_year
-            } else {
-                threshold(month, day, dec_31_1972)
+            start_year: i32,
+            end_year: i32,
+        ) -> TemporalResult<i32> {
+            let reference_limit = IsoDate::new_unchecked(1972, 12, 31);
+            let mut latest_on_or_before = None;
+            let mut earliest_after = None;
+
+            for arithmetic_year in start_year..=end_year {
+                let Ok(date) = calendar.0.from_codes(
+                    None,
+                    arithmetic_year,
+                    IcuMonthCode(month_code.0),
+                    day,
+                ) else {
+                    continue;
+                };
+                let iso = calendar.0.to_iso(&date);
+                let iso_date = IsoDate::new_unchecked(
+                    Iso.extended_year(&iso),
+                    Iso.month(&iso).ordinal,
+                    Iso.day_of_month(&iso).0,
+                );
+                if calendar.month_code(&iso_date) != month_code || calendar.day(&iso_date) != day {
+                    continue;
+                }
+
+                if iso_date <= reference_limit {
+                    let replace = latest_on_or_before
+                        .map(|(candidate, _)| candidate < iso_date)
+                        .unwrap_or(true);
+                    if replace {
+                        latest_on_or_before = Some((iso_date, arithmetic_year));
+                    }
+                } else {
+                    let replace = earliest_after
+                        .map(|(candidate, _)| iso_date < candidate)
+                        .unwrap_or(true);
+                    if replace {
+                        earliest_after = Some((iso_date, arithmetic_year));
+                    }
+                }
             }
+
+            latest_on_or_before
+                .or(earliest_after)
+                .map(|(_, arithmetic_year)| arithmetic_year)
+                .ok_or_else(|| {
+                    TemporalError::range()
+                        .with_message("Do not currently support MonthDay with this calendar")
+                })
         }
 
         let kind = calendar.kind();
@@ -238,127 +278,24 @@ impl EraYear {
             }
         };
 
-        // The reference date is the latest ISO 8601 date corresponding to the calendar date, that is also earlier than
-        // or equal to the ISO 8601 date December 31, 1972. If that calendar date never occurs on or before the ISO 8601 date December 31, 1972,
-        // then the reference date is the earliest ISO 8601 date corresponding to that calendar date.
-        // The reference year is almost always 1972 (the first ISO 8601 leap year after the epoch), with exceptions
-        // for calendars where some dates (e.g. leap days or days in leap months) didn't occur during that ISO 8601 year.
-        // For example, Hebrew calendar leap month Adar I occurred in calendar years 5730 and 5733 (respectively overlapping
-        // ISO 8601 February/March 1970 and February/March 1973), but did not occur between them, so the reference year for days of that month is 1970.
-
-        Ok(match calendar.kind() {
-            AnyCalendarKind::Iso | AnyCalendarKind::Gregorian => 1972,
-            // These calendars just wrap Gregorian with a different epoch
-            AnyCalendarKind::Buddhist => 1972 + 543,
-            AnyCalendarKind::Roc => 1972 - 1911,
-
-            AnyCalendarKind::Indian => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1894, 10, 10), (1, 30), 1984)
-            }
-            AnyCalendarKind::Persian => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1351, 10, 10), (12, 30), 1350)
-            }
-            AnyCalendarKind::HijriTabularTypeIIFriday => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1392, 11, 25), (12, 30), 1390)
-            }
-            AnyCalendarKind::HijriTabularTypeIIThursday => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1392, 11, 26), (12, 30), 1390)
-            }
-            AnyCalendarKind::Coptic => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1689, 4, 22), (13, 6), 1687)
-            }
-            AnyCalendarKind::Ethiopian => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (1965, 4, 22), (13, 6), 1963)
-            }
-            AnyCalendarKind::EthiopianAmeteAlem => {
-                let month = month_code.to_month_integer();
-                threshold_with_leap_day(month, day, (7465, 4, 22), (13, 6), 7463)
-            }
-            AnyCalendarKind::Hebrew => {
-                // 1972-12-31 is y=5733 am, m=4, d=26. We must produce year 5732 or lower
-                if month_code.is_leap_month() {
-                    // 5730 is a leap year
-                    5730
-                } else {
-                    let month = month_code.to_month_integer();
-                    if (month == 4 && day == 26) || month > 4 {
-                        // 5733 will produce dates after 1972, return 5732 instead
-                        5732
-                    } else {
-                        // All months have 29 days
-                        if day <= 29 {
-                            5733
-                        // Ḥeshvan/Kislev only have 30 days sometimes
-                        // Fortunately 5732 has 30 days for both
-                        } else if month == 2 || month == 3 {
-                            5732
-                        } else {
-                            // Some other month, we don't actually need to check
-                            5733
-                        }
-                    }
-                }
-            }
-
-            // TODO(Manishearth) Chinese, Dangi, waiting on https://github.com/unicode-org/icu4x/pull/6762
-
-            // These lunar calendars are iffier: The ones above are mathematically defined,
-            // the algorithm for these may change. This data may need to be updated on occasion.
-            AnyCalendarKind::HijriUmmAlQura => {
-                let month = month_code.to_month_integer();
-                if day < 30 {
-                    threshold(month, day, (1392, 11, 25))
-                } else {
-                    match month {
-                        1 => 1392,
-                        2 => 1390,
-                        3 => 1391,
-                        4 => 1392,
-                        5 => 1391,
-                        6 => 1392,
-                        7 => 1389,
-                        8 => 1392,
-                        9 => 1392,
-                        10 => 1390,
-                        11 => 1391,
-                        12 => 1390,
-                        _ => 1392,
-                    }
-                }
-            }
-            AnyCalendarKind::HijriSimulatedMecca => {
-                let month = month_code.to_month_integer();
-                if day < 30 {
-                    threshold(month, day, (1392, 11, 24))
-                } else {
-                    match month {
-                        1 => 1390,
-                        2 => 1391,
-                        3 => 1392,
-                        4 => 1391,
-                        5 => 1390,
-                        6 => 1392,
-                        7 => 1392,
-                        8 => 1392,
-                        9 => 1390,
-                        10 => 1392,
-                        11 => 1390,
-                        12 => 1391,
-                        _ => 1392,
-                    }
-                }
-            }
+        let (start_year, end_year) = match kind {
+            AnyCalendarKind::Chinese => (1899, 2099),
+            AnyCalendarKind::Dangi => (1899, 2049),
             _ => {
-                return Err(TemporalError::range()
-                    .with_message("Do not currently support MonthDay with this calendar"))
+                let reference_limit = IsoDate::new_unchecked(1972, 12, 31);
+                let calendar_date = calendar.0.from_iso(*reference_limit.to_icu4x().inner());
+                let center_year = calendar.0.extended_year(&calendar_date);
+                (center_year - 8, center_year + 8)
             }
-        })
+        };
+
+        find_reference_year_for_lunisolar_month_day(
+            calendar,
+            month_code,
+            day,
+            start_year,
+            end_year,
+        )
     }
 }
 
@@ -433,8 +370,12 @@ impl MonthCode {
         }
 
         match calendar.identifier() {
-            "chinese" | "dangi" if LUNAR_LEAP_MONTHS.contains(&self.0) => Ok(()),
-            "coptic" | "ethiopic" | "ethiopicaa" if MONTH_THIRTEEN == self.0 => Ok(()),
+            "chinese" | "dangi"
+                if LUNAR_LEAP_MONTHS.contains(&self.0) || MONTH_THIRTEEN == self.0 =>
+            {
+                Ok(())
+            }
+            "coptic" | "ethiopic" | "ethioaa" if MONTH_THIRTEEN == self.0 => Ok(()),
             "hebrew" if MONTH_FIVE_LEAP == self.0 => Ok(()),
             _ => Err(TemporalError::range()
                 .with_message("MonthCode was not valid for the current calendar.")),
@@ -609,6 +550,151 @@ fn resolve_iso_month(
     };
     month_code.validate(calendar)?;
     Ok(month_code)
+}
+
+pub(crate) fn resolve_non_iso_month(
+    calendar: &Calendar,
+    fields: &CalendarFields,
+    era_year: &EraYear,
+    overflow: Overflow,
+) -> TemporalResult<MonthCode> {
+    if matches!(calendar.identifier(), "chinese" | "dangi")
+        && era_year.arithmetic_year.unsigned_abs() > 10_000
+    {
+        return match (fields.month_code, fields.month) {
+            (None, None) => Err(TemporalError::r#type()
+                .with_message("Month or monthCode is required to determine date.")),
+            (None, Some(month)) => resolve_ordinal_month_code(calendar, era_year, month, overflow),
+            (Some(month_code), None) | (Some(month_code), Some(_)) => {
+                month_code.validate(calendar)?;
+                if month_code.is_leap_month() {
+                    if overflow == Overflow::Reject {
+                        Err(TemporalError::range()
+                            .with_message("month and monthCode could not be resolved."))
+                    } else {
+                        month_to_month_code(month_code.to_month_integer())
+                    }
+                } else if month_code.to_month_integer() == 13 {
+                    month_to_month_code(12)
+                } else {
+                    Ok(month_code)
+                }
+            }
+        };
+    }
+
+    let year_month_codes = calendar.month_codes_in_year(era_year.arithmetic_year)?;
+    match (fields.month_code, fields.month) {
+        (None, None) => Err(
+            TemporalError::r#type().with_message("Month or monthCode is required to determine date.")
+        ),
+        (Some(month_code), None) => {
+            month_code.validate(calendar)?;
+            if year_month_codes.contains(&month_code) {
+                Ok(month_code)
+            } else if overflow == Overflow::Constrain {
+                calendar.constrain_month_code_for_year(era_year.arithmetic_year, month_code, 1)
+            } else {
+                Err(TemporalError::range()
+                    .with_message("month and monthCode could not be resolved."))
+            }
+        }
+        (None, Some(month)) => resolve_ordinal_month_code(calendar, era_year, month, overflow),
+        (Some(month_code), Some(month)) => {
+            month_code.validate(calendar)?;
+            if year_month_codes.contains(&month_code) {
+                let actual_month = month_number_for_code(calendar, era_year, month_code)?;
+                if actual_month != month {
+                    return Err(TemporalError::range()
+                        .with_message("month and monthCode could not be resolved."));
+                }
+                return Ok(month_code);
+            }
+            if overflow == Overflow::Constrain {
+                return calendar
+                    .constrain_month_code_for_year(era_year.arithmetic_year, month_code, 1);
+            }
+            Err(TemporalError::range()
+                .with_message("month and monthCode could not be resolved."))
+        }
+    }
+}
+
+fn month_number_for_code(
+    calendar: &Calendar,
+    era_year: &EraYear,
+    month_code: MonthCode,
+) -> TemporalResult<u8> {
+    let day = probe_day_for_year_month(calendar, era_year, month_code);
+    let date = calendar.icu_date_from_codes(era_year, month_code, day)?;
+    Ok(date.month().ordinal)
+}
+
+fn resolve_ordinal_month_code(
+    calendar: &Calendar,
+    era_year: &EraYear,
+    month: u8,
+    overflow: Overflow,
+) -> TemporalResult<MonthCode> {
+    if matches!(calendar.identifier(), "chinese" | "dangi")
+        && era_year.arithmetic_year.unsigned_abs() > 10_000
+    {
+        let month = if overflow == Overflow::Constrain {
+            month.clamp(1, 13)
+        } else {
+            month
+        };
+        let month_code = if month == 13 {
+            month_to_month_code(12)?
+        } else {
+            month_to_month_code(month)?
+        };
+        month_code.validate(calendar)?;
+        return Ok(month_code);
+    }
+
+    let month = if overflow == Overflow::Constrain {
+        month.clamp(1, calendar.ordinal_months_in_year(era_year.arithmetic_year)?)
+    } else {
+        month
+    };
+
+    for candidate in calendar_month_code_candidates(calendar.identifier()) {
+        let Ok(date) = calendar.icu_date_from_codes(era_year, candidate, 1) else {
+            continue;
+        };
+        if date.month().ordinal == month {
+            return Ok(candidate);
+        }
+    }
+
+    let month_code = if matches!(calendar.identifier(), "chinese" | "dangi") && month == 13 {
+        month_to_month_code(12)?
+    } else {
+        month_to_month_code(month)?
+    };
+    month_code.validate(calendar)?;
+    Ok(month_code)
+}
+
+pub(super) fn calendar_month_code_candidates(identifier: &str) -> Vec<MonthCode> {
+    let mut candidates = (1..=13)
+        .filter_map(|month| month_to_month_code(month).ok())
+        .collect::<Vec<_>>();
+
+    if matches!(identifier, "chinese" | "dangi") {
+        for month in 1..=12 {
+            if let Ok(code) = MonthCode::try_from_utf8(format!("M{month:02}L").as_bytes()) {
+                candidates.push(code);
+            }
+        }
+    } else if identifier == "hebrew" {
+        if let Ok(code) = MonthCode::try_from_utf8(b"M05L") {
+            candidates.push(code);
+        }
+    }
+
+    candidates
 }
 
 #[cfg(test)]
@@ -786,5 +872,37 @@ mod tests {
             ResolutionType::Date,
         );
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn constrain_missing_chinese_leap_month_code_to_common_month() {
+        let fields = CalendarFields::new()
+            .with_year(2022)
+            .with_month_code(MonthCode::from_str("M02L").unwrap());
+        let resolved = super::ResolvedCalendarFields::try_from_fields(
+            &Calendar::CHINESE,
+            &fields,
+            Overflow::Constrain,
+            ResolutionType::YearMonth,
+        )
+        .unwrap();
+        assert_eq!(resolved.month_code.as_str(), "M02");
+    }
+
+    #[test]
+    fn keep_month_code_authoritative_when_constraining_year_change() {
+        let fields = CalendarFields::new()
+            .with_year(2024)
+            .with_month(7)
+            .with_month_code(MonthCode::from_str("M06L").unwrap())
+            .with_day(1);
+        let resolved = super::ResolvedCalendarFields::try_from_fields(
+            &Calendar::CHINESE,
+            &fields,
+            Overflow::Constrain,
+            ResolutionType::Date,
+        )
+        .unwrap();
+        assert_eq!(resolved.month_code.as_str(), "M06");
     }
 }

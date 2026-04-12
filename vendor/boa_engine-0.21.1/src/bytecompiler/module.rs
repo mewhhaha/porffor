@@ -1,7 +1,36 @@
 use super::{ByteCompiler, Literal, ToJsString};
 use crate::vm::opcode::BindingOpcode;
-use boa_ast::{ModuleItem, ModuleItemList, declaration::ExportDeclaration};
+use boa_ast::{
+    Expression, ModuleItem, ModuleItemList,
+    declaration::ExportDeclaration,
+    function::{ClassElement, ClassElementName},
+    property::PropertyName,
+};
 use boa_interner::Sym;
+
+fn class_expression_has_static_literal_name_property(expr: &Expression) -> bool {
+    match expr {
+        Expression::ClassExpression(class) => class.elements().iter().any(|element| match element {
+            ClassElement::MethodDefinition(method) => {
+                method.is_static()
+                    && matches!(
+                        method.name(),
+                        ClassElementName::PropertyName(PropertyName::Literal(name))
+                            if name.sym() == Sym::NAME
+                    )
+            }
+            ClassElement::StaticFieldDefinition(field)
+            | ClassElement::StaticAccessorFieldDefinition(field) => {
+                matches!(field.name(), PropertyName::Literal(name) if name.sym() == Sym::NAME)
+            }
+            _ => false,
+        }),
+        Expression::Parenthesized(expr) => {
+            class_expression_has_static_literal_name_property(expr.expression())
+        }
+        _ => false,
+    }
+}
 
 impl ByteCompiler<'_> {
     /// Compiles a [`ModuleItemList`].
@@ -48,7 +77,9 @@ impl ByteCompiler<'_> {
                         let function = self.register_allocator.alloc();
                         self.compile_expr(expr, &function);
 
-                        if expr.is_anonymous_function_definition() {
+                        if expr.is_anonymous_function_definition()
+                            && !class_expression_has_static_literal_name_property(expr)
+                        {
                             let default = self
                                 .interner()
                                 .resolve_expect(Sym::DEFAULT)

@@ -1,0 +1,427 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "06e649a28d8df1ce42c2f356b076511c390b58a3"
+  },
+  "manifest_hash": 17689890132505430060,
+  "run_kind": "full",
+  "total": 87,
+  "passed": 50,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 37,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-plaindate-overflow-reject.js",
+      "duration_ms": 208
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/buddhist-month-codes.js",
+      "duration_ms": 183
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/chinese-month-codes.js",
+      "duration_ms": 181
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/chinese-dangi-constrain-rare-leap-months.js",
+      "duration_ms": 169
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/ethiopic-month-codes.js",
+      "duration_ms": 168
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/reference-year-1972.js",
+      "duration_ms": 168
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/chinese-leap-month-codes-common.js",
+      "duration_ms": 167
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/fields-object.js",
+      "duration_ms": 167
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/chinese-30-day-leap-months.js",
+      "duration_ms": 166
+    },
+    {
+      "path": "intl402/Temporal/PlainMonthDay/from/dangi-leap-month-codes-common.js",
+      "duration_ms": 166
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/buddhist-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-chinese.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: month and monthCode could not be resolved.",
+      "detail_hash": 5183144793887146462
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-hebrew.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: month and monthCode could not be resolved.",
+      "detail_hash": 5183144793887146462
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/canonicalize-calendar.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-30-day-leap-months.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-calendar-dates.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Month not in a valid range.",
+      "detail_hash": 6715257551324653732
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-dangi-constrain-rare-leap-months.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-options-bag.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-plaindate-overflow-reject.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Unknown month code.",
+      "detail_hash": 14724302669685450402
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-leap-month-codes-common.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/chinese-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/constrain-to-leap-day.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/coptic-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/dangi-30-day-leap-months.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/dangi-calendar-dates.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Month not in a valid range.",
+      "detail_hash": 6715257551324653732
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/dangi-leap-month-codes-common.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/dangi-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/ethioaa-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/ethiopic-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/gregory-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/hebrew-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/indian-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/islamic-civil-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/islamic-tbla-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/islamic-umalqura-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/islamic.js",
+      "kind": "Runtime",
+      "origin": "icu-intl",
+      "detail": "[origin:icu-intl] Test262Error {\n    message: \"fallback for calendar ID 'islamic' only supported in Intl.DateTimeFormat constructor, not Temporal Expected a RangeError to be thrown but no exception was thrown at all\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 2807814882607478011
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/japanese-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Do not currently support MonthDay with this calendar",
+      "detail_hash": 6854941791300700068
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/persian-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/reference-year-1972.js",
+      "kind": "Runtime",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262Error {\n    message: \"reference date Expected SameValue(«\\\"1972-01-13[u-ca=hebrew]\\\"», «\\\"1972-12-31[u-ca=hebrew]\\\"») to be true\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 11490514001656167076
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/from/roc-month-codes.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/equals/canonicalize-calendar.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Day out of range.",
+      "detail_hash": 16263563083931848752
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/monthCode/chinese-calendar-dates.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Month not in a valid range.",
+      "detail_hash": 6715257551324653732
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/monthCode/dangi-calendar-dates.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] RangeError: Month not in a valid range.",
+      "detail_hash": 6715257551324653732
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/calendar-mismatch.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262Error {\n    message: \"calendar mismatch Expected a RangeError to be thrown but no exception was thrown at all\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 16351410229784260277
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/dateStyle.js",
+      "kind": "Runtime",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262Error {\n    message: \"dateStyle: long writes month of Ramadan out in full\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 16837168722607223958
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/datestyle-and-timestyle.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262Error {\n    message: \"Expected a TypeError to be thrown but no exception was thrown at all\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 4017861073090009387
+    },
+    {
+      "test_path": "intl402/Temporal/PlainMonthDay/prototype/toPlainDate/infinity-throws-rangeerror.js",
+      "kind": "Runtime",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262Error {\n    message: \"eraYear property cannot be Infinity Expected a RangeError but got a TypeError\",\n    name: \"Test262Error\"\n}",
+      "detail_hash": 1804846700873107828
+    }
+  ],
+  "completed_paths": [
+    "intl402/Temporal/PlainMonthDay/canonicalize-calendar.js",
+    "intl402/Temporal/PlainMonthDay/from/buddhist-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/buddhist-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/calendar-not-supporting-eras.js",
+    "intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-chinese.js",
+    "intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-hebrew.js",
+    "intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-islamic.js",
+    "intl402/Temporal/PlainMonthDay/from/canonicalize-calendar.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-30-day-leap-months.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-calendar-dates.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-dangi-constrain-rare-leap-months.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-options-bag-overflow-reject.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-options-bag.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-dangi-leap-month-with-year-from-plaindate-overflow-reject.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-leap-month-codes-common.js",
+    "intl402/Temporal/PlainMonthDay/from/chinese-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/constrain-to-leap-day.js",
+    "intl402/Temporal/PlainMonthDay/from/coptic-invalid-month-code-m14.js",
+    "intl402/Temporal/PlainMonthDay/from/coptic-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/dangi-30-day-leap-months.js",
+    "intl402/Temporal/PlainMonthDay/from/dangi-calendar-dates.js",
+    "intl402/Temporal/PlainMonthDay/from/dangi-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/dangi-leap-month-codes-common.js",
+    "intl402/Temporal/PlainMonthDay/from/dangi-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js",
+    "intl402/Temporal/PlainMonthDay/from/ethioaa-invalid-month-code-m14.js",
+    "intl402/Temporal/PlainMonthDay/from/ethioaa-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/ethiopic-invalid-month-code-m14.js",
+    "intl402/Temporal/PlainMonthDay/from/ethiopic-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/fields-missing-properties.js",
+    "intl402/Temporal/PlainMonthDay/from/fields-object.js",
+    "intl402/Temporal/PlainMonthDay/from/fields-overspecified.js",
+    "intl402/Temporal/PlainMonthDay/from/fields-underspecified.js",
+    "intl402/Temporal/PlainMonthDay/from/gregory-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/gregory-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/hebrew-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/indian-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/indian-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/invalid-month-codes-hebrew.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-civil-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-civil-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-rgsa.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-tbla-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-tbla-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-umalqura-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic-umalqura-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/islamic.js",
+    "intl402/Temporal/PlainMonthDay/from/japanese-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/japanese-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/persian-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/persian-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/from/reference-date-noniso-calendar.js",
+    "intl402/Temporal/PlainMonthDay/from/reference-year-1972.js",
+    "intl402/Temporal/PlainMonthDay/from/roc-invalid-month-code-m13.js",
+    "intl402/Temporal/PlainMonthDay/from/roc-month-codes.js",
+    "intl402/Temporal/PlainMonthDay/prototype/calendarId/basic.js",
+    "intl402/Temporal/PlainMonthDay/prototype/equals/calendars.js",
+    "intl402/Temporal/PlainMonthDay/prototype/equals/canonicalize-calendar.js",
+    "intl402/Temporal/PlainMonthDay/prototype/equals/infinity-throws-rangeerror.js",
+    "intl402/Temporal/PlainMonthDay/prototype/monthCode/chinese-calendar-dates.js",
+    "intl402/Temporal/PlainMonthDay/prototype/monthCode/dangi-calendar-dates.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toJSON/calendarname.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toJSON/year-format.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/basic.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/calendar-mismatch.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/dateStyle-timeStyle-undefined.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/dateStyle.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/datestyle-and-timestyle.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/default-does-not-include-year-time-and-time-zone-name.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/era.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/locales-undefined.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/lone-options-accepted.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/options-conflict.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/options-undefined.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toLocaleString/resolved-time-zone.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toPlainDate/infinity-throws-rangeerror.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-always.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/options-undefined.js",
+    "intl402/Temporal/PlainMonthDay/prototype/toString/year-format.js",
+    "intl402/Temporal/PlainMonthDay/prototype/with/fields-missing-properties.js",
+    "intl402/Temporal/PlainMonthDay/prototype/with/non-iso-calendar-fields.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

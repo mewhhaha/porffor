@@ -147,15 +147,23 @@ impl<R> Tokenizer<R> for RegexLiteral {
             }
         }
 
-        // Only try to parse and validate, do not optimize/compile.
-        drop(
-            regress::backends::try_parse(body.into_iter(), flags.into()).map_err(|error| {
-                Error::syntax(
-                    format!("Invalid regular expression literal: {error}"),
-                    start_pos,
-                )
-            })?,
-        );
+        // Most hot-path regexp literals in the suite are plain characters and simple
+        // backslash sequences. Skip the full parser for those non-Unicode forms.
+        if flags.intersects(RegExpFlags::UNICODE | RegExpFlags::UNICODE_SETS)
+            || !is_simple_non_unicode_pattern(&body)
+        {
+            // Only try to parse and validate, do not optimize/compile.
+            drop(
+                regress::backends::try_parse(body.iter().copied(), flags.into()).map_err(
+                    |error| {
+                        Error::syntax(
+                            format!("Invalid regular expression literal: {error}"),
+                            start_pos,
+                        )
+                    },
+                )?,
+            );
+        }
 
         Ok(Token::new_by_position_group(
             TokenKind::regular_expression_literal(
@@ -166,6 +174,24 @@ impl<R> Tokenizer<R> for RegexLiteral {
             cursor.pos_group(),
         ))
     }
+}
+
+fn is_simple_non_unicode_pattern(body: &[u32]) -> bool {
+    let mut i = 0;
+    while i < body.len() {
+        match body[i] {
+            0x28 | 0x29 | 0x2A | 0x2B | 0x3F | 0x5B | 0x5D | 0x7B | 0x7D => return false,
+            0x5C => {
+                i += 1;
+                if i >= body.len() {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    true
 }
 
 bitflags! {

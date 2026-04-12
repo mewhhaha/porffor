@@ -5,9 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-oxc_allocator = "0.123.0"
-oxc_parser = "0.123.0"
-oxc_span = "0.123.0"
+boa_ast = "0.21.1"
+boa_interner = "0.21.1"
+boa_parser = "0.21.1"
 
 [lib]
 path = "src/lib.rs"

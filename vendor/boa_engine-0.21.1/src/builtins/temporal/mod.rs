@@ -196,6 +196,7 @@ pub(crate) fn get_relative_to_option(
             &object,
             &calendar,
             ZdtFieldsType::TimeZoneNotRequired,
+            false,
             context,
         )?;
         // f. Let result be ? InterpretTemporalDateTimeFields(calendar, fields, constrain).

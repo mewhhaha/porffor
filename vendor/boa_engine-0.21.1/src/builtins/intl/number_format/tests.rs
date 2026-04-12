@@ -1,5 +1,9 @@
 use crate::builtins::intl::number_format::RoundingIncrement;
+use crate::builtins::intl::number_format::{
+    CompactDisplay, compact_format_pattern, compact_format_pattern_for_display,
+};
 use fixed_decimal::RoundingIncrement::*;
+use icu_locale::Locale;
 
 #[test]
 fn u16_to_rounding_increment_sunny_day() {
@@ -38,4 +42,24 @@ fn u16_to_rounding_increment_rainy_day() {
     for num in INVALID_CASES {
         assert!(RoundingIncrement::from_u16(num).is_none());
     }
+}
+
+#[test]
+fn de_compact_patterns_match_short_and_long_thresholds() {
+    let locale: Locale = "de-DE".parse().expect("valid locale");
+
+    assert_eq!(compact_format_pattern(&locale, 9_876.0), (1.0, ""));
+    assert_eq!(
+        compact_format_pattern(&locale, 98_765_432.0),
+        (1_000_000.0, "\u{a0}Mio.")
+    );
+
+    assert_eq!(
+        compact_format_pattern_for_display(&locale, 9_876.0, CompactDisplay::Long),
+        (1_000.0, " Tausend")
+    );
+    assert_eq!(
+        compact_format_pattern_for_display(&locale, 98_765_432.0, CompactDisplay::Long),
+        (1_000_000.0, " Millionen")
+    );
 }

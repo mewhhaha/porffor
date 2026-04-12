@@ -54,10 +54,14 @@ impl ThisForObjectEnvironmentName {
         (dst, index): (VaryingOperand, VaryingOperand),
         context: &mut Context,
     ) -> JsResult<()> {
-        let binding_locator = context.vm.frame().code_block.bindings[usize::from(index)].clone();
-        let this = context
-            .this_from_object_environment_binding(&binding_locator)?
-            .map_or(JsValue::undefined(), Into::into);
+        let this = if let Some(binding_locator) = context.vm.frame_mut().binding_stack.pop() {
+            context
+                .this_from_object_environment_binding(&binding_locator)?
+                .map_or(JsValue::undefined(), Into::into)
+        } else {
+            let _ = index;
+            JsValue::undefined()
+        };
         context.vm.set_register(dst.into(), this);
         Ok(())
     }

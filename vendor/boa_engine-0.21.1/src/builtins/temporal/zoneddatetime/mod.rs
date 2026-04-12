@@ -7,6 +7,7 @@ use crate::{
     JsSymbol, JsValue, JsVariant,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
         temporal::{calendar::to_temporal_calendar_identifier, options::get_digits_option},
     },
@@ -28,6 +29,7 @@ use temporal_rs::{
         Disambiguation, DisplayCalendar, DisplayOffset, DisplayTimeZone, OffsetDisambiguation,
         Overflow, RoundingIncrement, RoundingMode, RoundingOptions, ToStringRoundingOptions, Unit,
     },
+    parsed_intermediates::ParsedZonedDateTime,
     partial::{PartialTime, PartialZonedDateTime},
     provider::TransitionDirection,
 };
@@ -1209,6 +1211,7 @@ impl ZonedDateTime {
             &obj,
             zdt.inner.calendar(),
             ZdtFieldsType::NoTimeZone,
+            false,
             context,
         )?;
 
@@ -1613,25 +1616,24 @@ impl ZonedDateTime {
     ///
     /// [spec]: https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime.prototype.tolocalestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/ZonedDateTime/toLocaleString
-    fn to_locale_string(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
+    fn to_locale_string(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let object = this.as_object();
-        let zdt = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("the this object must be a ZonedDateTime object.")
             })?;
 
-        let ixdtf = zdt.inner.to_ixdtf_string_with_provider(
-            DisplayOffset::Auto,
-            DisplayTimeZone::Auto,
-            DisplayCalendar::Auto,
-            ToStringRoundingOptions::default(),
-            context.tz_provider(),
-        )?;
-
-        Ok(JsString::from(ixdtf).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::AnyAll,
+            DateTimeReqs::AnyAll,
+            context,
+        )?
+        .into())
     }
 
     /// 6.3.43 `Temporal.ZonedDateTime.prototype.toJSON ( )`
@@ -1927,7 +1929,6 @@ pub(crate) fn to_temporal_zoneddatetime(
                 // and perform independent validation in alphabetical order
                 // (GetTemporalDisambiguationOption reads "disambiguation", GetTemporalOffsetOption
                 // reads "offset", and GetTemporalOverflowOption reads "overflow").
-                // ii. Let resolvedOptions be ? GetOptionsObject(options).
                 let options = get_options_object(&options.unwrap_or_default())?;
                 // iii. Perform ? GetTemporalDisambiguationOption(resolvedOptions).
                 let _disambiguation =
@@ -1981,9 +1982,13 @@ pub(crate) fn to_temporal_zoneddatetime(
             // j. If calendar is empty, set calendar to "iso8601".
             // k. Set calendar to ? CanonicalizeCalendar(calendar).
             // l. Set matchBehaviour to match-minutes.
+            // n. Let disambiguation be ? GetTemporalDisambiguationOption(resolvedOptions).
+            let parsed = ParsedZonedDateTime::from_utf8_with_provider(
+                zdt_source.to_std_string_escaped().as_bytes(),
+                context.tz_provider(),
+            )?;
             // m. Let resolvedOptions be ? GetOptionsObject(options).
             let options = get_options_object(&options.unwrap_or_default())?;
-            // n. Let disambiguation be ? GetTemporalDisambiguationOption(resolvedOptions).
             let disambiguation =
                 get_option::<Disambiguation>(&options, js_string!("disambiguation"), context)?
                     .unwrap_or(Disambiguation::Compatible);
@@ -1999,8 +2004,8 @@ pub(crate) fn to_temporal_zoneddatetime(
             // 7. If offsetBehaviour is option, then
             //        a. Set offsetNanoseconds to ! ParseDateTimeUTCOffset(offsetString).
             // 8. Let epochNanoseconds be ? InterpretISODateTimeOffset(isoDate, time, offsetBehaviour, offsetNanoseconds, timeZone, disambiguation, offsetOption, matchBehaviour).
-            Ok(ZonedDateTimeInner::from_utf8_with_provider(
-                zdt_source.to_std_string_escaped().as_bytes(),
+            Ok(ZonedDateTimeInner::from_parsed_with_provider(
+                parsed,
                 disambiguation,
                 offset_option,
                 context.tz_provider(),
@@ -2077,6 +2082,7 @@ pub(crate) fn to_partial_zoneddatetime(
         partial_object,
         &calendar,
         ZdtFieldsType::TimeZoneRequired,
+        true,
         context,
     )?;
     Ok(PartialZonedDateTime {
@@ -2101,123 +2107,123 @@ pub(crate) fn to_zoned_date_time_fields(
     partial_object: &JsObject,
     calendar: &Calendar,
     zdt_fields_type: ZdtFieldsType,
+    require_complete_date: bool,
     context: &mut Context,
 ) -> JsResult<(ZonedDateTimeFields, Option<TimeZone>)> {
-    let day = partial_object
-        .get(js_string!("day"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            finite
-                .as_positive_integer_with_truncation()
-                .map_err(JsError::from)
-        })
-        .transpose()?;
-    let hour = partial_object
-        .get(js_string!("hour"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
     // TODO: `temporal_rs` needs a `has_era` method
     let has_no_era = calendar.kind() == AnyCalendarKind::Iso
         || calendar.kind() == AnyCalendarKind::Chinese
         || calendar.kind() == AnyCalendarKind::Dangi;
+
+    let day_value = partial_object.get(js_string!("day"), context)?;
+    let day = if day_value.is_undefined() {
+        None
+    } else {
+        let finite = day_value.to_finitef64(context)?;
+        Some(
+            finite
+                .as_positive_integer_with_truncation()
+                .map_err(JsError::from)?,
+        )
+    };
+    let hour_value = partial_object.get(js_string!("hour"), context)?;
+    let hour = if hour_value.is_undefined() {
+        None
+    } else {
+        let finite = hour_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
     let (era, era_year) = if has_no_era {
         (None, None)
     } else {
-        let era = partial_object
-            .get(js_string!("era"), context)?
-            .map(|v| {
-                let v = v.to_primitive(context, PreferredType::String)?;
-                let Some(era) = v.as_string() else {
-                    return Err(JsError::from(
-                        JsNativeError::typ()
-                            .with_message("The monthCode field value must be a string."),
-                    ));
-                };
-                // TODO: double check if an invalid monthCode is a range or type error.
+        let era_value = partial_object.get(js_string!("era"), context)?;
+        let era = if era_value.is_undefined() {
+            None
+        } else {
+            let v = era_value.to_primitive(context, PreferredType::String)?;
+            let Some(era) = v.as_string() else {
+                return Err(JsError::from(
+                    JsNativeError::typ().with_message("The monthCode field value must be a string."),
+                ));
+            };
+            Some(
                 TinyAsciiStr::<19>::try_from_str(&era.to_std_string_escaped())
-                    .map_err(|e| JsError::from(JsNativeError::range().with_message(e.to_string())))
-            })
-            .transpose()?;
-        let era_year = partial_object
-            .get(js_string!("eraYear"), context)?
-            .map(|v| {
-                let finite = v.to_finitef64(context)?;
-                Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
-            })
-            .transpose()?;
+                    .map_err(|e| JsError::from(JsNativeError::range().with_message(e.to_string())))?,
+            )
+        };
+        let era_year_value = partial_object.get(js_string!("eraYear"), context)?;
+        let era_year = if era_year_value.is_undefined() {
+            None
+        } else {
+            let finite = era_year_value.to_finitef64(context)?;
+            Some(finite.as_integer_with_truncation::<i32>())
+        };
         (era, era_year)
     };
-    let microsecond = partial_object
-        .get(js_string!("microsecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let millisecond = partial_object
-        .get(js_string!("millisecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let minute = partial_object
-        .get(js_string!("minute"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
-
-    let month = partial_object
-        .get(js_string!("month"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
+    let microsecond_value = partial_object.get(js_string!("microsecond"), context)?;
+    let microsecond = if microsecond_value.is_undefined() {
+        None
+    } else {
+        let finite = microsecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let millisecond_value = partial_object.get(js_string!("millisecond"), context)?;
+    let millisecond = if millisecond_value.is_undefined() {
+        None
+    } else {
+        let finite = millisecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let minute_value = partial_object.get(js_string!("minute"), context)?;
+    let minute = if minute_value.is_undefined() {
+        None
+    } else {
+        let finite = minute_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
+    let month_value = partial_object.get(js_string!("month"), context)?;
+    let month = if month_value.is_undefined() {
+        None
+    } else {
+        let finite = month_value.to_finitef64(context)?;
+        Some(
             finite
                 .as_positive_integer_with_truncation()
-                .map_err(JsError::from)
-        })
-        .transpose()?;
-
-    let month_code = partial_object
-        .get(js_string!("monthCode"), context)?
-        .map(|v| {
-            let v = v.to_primitive(context, PreferredType::String)?;
-            let Some(month_code) = v.as_string() else {
-                return Err(JsNativeError::typ()
-                    .with_message("The monthCode field value must be a string.")
-                    .into());
-            };
-            MonthCode::from_str(&month_code.to_std_string_escaped()).map_err(JsError::from)
-        })
-        .transpose()?;
-
-    let nanosecond = partial_object
-        .get(js_string!("nanosecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
-
-    let offset = partial_object
-        .get(js_string!("offset"), context)?
-        .map(|v| to_offset_string(v, context))
-        .transpose()?;
-
-    let second = partial_object
-        .get(js_string!("second"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
-
+                .map_err(JsError::from)?,
+        )
+    };
+    let month_code_value = partial_object.get(js_string!("monthCode"), context)?;
+    let month_code = if month_code_value.is_undefined() {
+        None
+    } else {
+        let v = month_code_value.to_primitive(context, PreferredType::String)?;
+        let Some(month_code) = v.as_string() else {
+            return Err(JsNativeError::typ()
+                .with_message("The monthCode field value must be a string.")
+                .into());
+        };
+        Some(MonthCode::from_str(&month_code.to_std_string_escaped()).map_err(JsError::from)?)
+    };
+    let nanosecond_value = partial_object.get(js_string!("nanosecond"), context)?;
+    let nanosecond = if nanosecond_value.is_undefined() {
+        None
+    } else {
+        let finite = nanosecond_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u16>())
+    };
+    let offset_value = partial_object.get(js_string!("offset"), context)?;
+    let offset = if offset_value.is_undefined() {
+        None
+    } else {
+        Some(to_offset_string(&offset_value, context)?)
+    };
+    let second_value = partial_object.get(js_string!("second"), context)?;
+    let second = if second_value.is_undefined() {
+        None
+    } else {
+        let finite = second_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<u8>())
+    };
     let time_zone = match zdt_fields_type {
         ZdtFieldsType::NoTimeZone => None,
         ZdtFieldsType::TimeZoneNotRequired | ZdtFieldsType::TimeZoneRequired => {
@@ -2233,14 +2239,31 @@ pub(crate) fn to_zoned_date_time_fields(
             time_zone
         }
     };
+    let year_value = partial_object.get(js_string!("year"), context)?;
+    let year = if year_value.is_undefined() {
+        None
+    } else {
+        let finite = year_value.to_finitef64(context)?;
+        Some(finite.as_integer_with_truncation::<i32>())
+    };
 
-    let year = partial_object
-        .get(js_string!("year"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<i32, JsError>(finite.as_integer_with_truncation::<i32>())
-        })
-        .transpose()?;
+    if require_complete_date {
+        if year.is_none() && (has_no_era || era.is_none() || era_year.is_none()) {
+            return Err(JsNativeError::typ()
+                .with_message("Required year field is empty.")
+                .into());
+        }
+        if month.is_none() && month_code.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Month or monthCode is required to determine date.")
+                .into());
+        }
+        if day.is_none() {
+            return Err(JsNativeError::typ()
+                .with_message("Required day field is empty.")
+                .into());
+        }
+    }
 
     let calendar_fields = CalendarFields::new()
         .with_optional_year(year)

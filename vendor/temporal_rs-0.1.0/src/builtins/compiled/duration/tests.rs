@@ -508,6 +508,44 @@ fn round_relative_to_zoned_datetime() {
 }
 
 #[test]
+fn round_and_total_use_actual_fall_back_occurrence_span() {
+    let relative_to = ZonedDateTime::from_utf8(
+        b"2025-11-02T01:00:00-08:00[America/Vancouver]",
+        Default::default(),
+        OffsetDisambiguation::Reject,
+    )
+    .unwrap();
+
+    let rounded = Duration::from_partial_duration(PartialDuration {
+        hours: Some(11),
+        minutes: Some(30),
+        ..Default::default()
+    })
+    .unwrap()
+    .round(
+        RoundingOptions {
+            largest_unit: Some(Unit::Day),
+            smallest_unit: Some(Unit::Day),
+            rounding_mode: Some(RoundingMode::HalfExpand),
+            increment: None,
+        },
+        Some(RelativeTo::ZonedDateTime(relative_to.clone())),
+    )
+    .unwrap();
+    assert_eq!(rounded.days(), 0);
+
+    let total = Duration::from_hours(2)
+        .total(Unit::Day, Some(RelativeTo::ZonedDateTime(relative_to.clone())))
+        .unwrap();
+    assert_eq!(total, 2.0 / 24.0);
+
+    let backward_total = Duration::from_hours(-2)
+        .total(Unit::Day, Some(RelativeTo::ZonedDateTime(relative_to)))
+        .unwrap();
+    assert_eq!(backward_total, -2.0 / 25.0);
+}
+
+#[test]
 fn test_duration_total() {
     let d1 = Duration::from_partial_duration(PartialDuration {
         hours: Some(130),

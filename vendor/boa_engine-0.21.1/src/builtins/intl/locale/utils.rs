@@ -22,6 +22,200 @@ use indexmap::IndexSet;
 
 use tap::TapOptional;
 
+const SUPPORTED_CALENDARS: &[&str] = &[
+    "buddhist",
+    "chinese",
+    "coptic",
+    "dangi",
+    "ethioaa",
+    "ethiopic",
+    "gregory",
+    "hebrew",
+    "indian",
+    "islamic-civil",
+    "islamic-tbla",
+    "islamic-umalqura",
+    "iso8601",
+    "japanese",
+    "persian",
+    "roc",
+];
+
+const SUPPORTED_COLLATIONS: &[&str] = &[
+    "compat",
+    "dict",
+    "emoji",
+    "eor",
+    "phonebk",
+    "pinyin",
+    "searchjl",
+    "stroke",
+    "trad",
+    "unihan",
+    "zhuyin",
+];
+
+const SUPPORTED_HOUR_CYCLES: &[&str] = &["h11", "h12", "h23", "h24"];
+
+const SUPPORTED_NUMBERING_SYSTEMS: &[&str] = &[
+    "adlm",
+    "ahom",
+    "arab",
+    "arabext",
+    "bali",
+    "beng",
+    "bhks",
+    "brah",
+    "cakm",
+    "cham",
+    "deva",
+    "diak",
+    "fullwide",
+    "gara",
+    "gong",
+    "gonm",
+    "gujr",
+    "gukh",
+    "guru",
+    "hanidec",
+    "hmng",
+    "hmnp",
+    "java",
+    "kali",
+    "kawi",
+    "khmr",
+    "knda",
+    "krai",
+    "lana",
+    "lanatham",
+    "laoo",
+    "latn",
+    "lepc",
+    "limb",
+    "mathbold",
+    "mathdbl",
+    "mathmono",
+    "mathsanb",
+    "mathsans",
+    "mlym",
+    "modi",
+    "mong",
+    "mroo",
+    "mtei",
+    "mymr",
+    "mymrepka",
+    "mymrpao",
+    "mymrshan",
+    "mymrtlng",
+    "nagm",
+    "newa",
+    "nkoo",
+    "olck",
+    "onao",
+    "orya",
+    "osma",
+    "outlined",
+    "rohg",
+    "saur",
+    "segment",
+    "shrd",
+    "sind",
+    "sinh",
+    "sora",
+    "sund",
+    "sunu",
+    "takr",
+    "talu",
+    "tamldec",
+    "tnsa",
+    "telu",
+    "thai",
+    "tirh",
+    "tibt",
+    "tols",
+    "vaii",
+    "wara",
+    "wcho",
+];
+
+const SUPPORTED_TIME_ZONES: &[&str] = &[
+    "Etc/GMT+1",
+    "Etc/GMT+10",
+    "Etc/GMT+11",
+    "Etc/GMT+12",
+    "Etc/GMT+2",
+    "Etc/GMT+3",
+    "Etc/GMT+4",
+    "Etc/GMT+5",
+    "Etc/GMT+6",
+    "Etc/GMT+7",
+    "Etc/GMT+8",
+    "Etc/GMT+9",
+    "Etc/GMT-1",
+    "Etc/GMT-10",
+    "Etc/GMT-11",
+    "Etc/GMT-12",
+    "Etc/GMT-13",
+    "Etc/GMT-14",
+    "Etc/GMT-2",
+    "Etc/GMT-3",
+    "Etc/GMT-4",
+    "Etc/GMT-5",
+    "Etc/GMT-6",
+    "Etc/GMT-7",
+    "Etc/GMT-8",
+    "Etc/GMT-9",
+    "UTC",
+];
+
+const SUPPORTED_UNITS: &[&str] = &[
+    "acre",
+    "bit",
+    "byte",
+    "celsius",
+    "centimeter",
+    "day",
+    "degree",
+    "fahrenheit",
+    "fluid-ounce",
+    "foot",
+    "gallon",
+    "gigabit",
+    "gigabyte",
+    "gram",
+    "hectare",
+    "hour",
+    "inch",
+    "kilobit",
+    "kilobyte",
+    "kilogram",
+    "kilometer",
+    "liter",
+    "megabit",
+    "megabyte",
+    "meter",
+    "microsecond",
+    "mile",
+    "mile-scandinavian",
+    "milliliter",
+    "millimeter",
+    "millisecond",
+    "minute",
+    "month",
+    "nanosecond",
+    "ounce",
+    "percent",
+    "petabyte",
+    "pound",
+    "second",
+    "stone",
+    "terabit",
+    "terabyte",
+    "week",
+    "yard",
+    "year",
+];
+
 /// Abstract operation `DefaultLocale ( )`
 ///
 /// Returns a String value representing the structurally valid and canonicalized
@@ -64,6 +258,12 @@ pub(crate) fn locale_from_value(tag: &JsValue, context: &mut Context) -> JsResul
             .with_message("locale is not a structurally valid language tag")
             .into());
     }
+
+    let tag = if tag.eq_ignore_ascii_case("posix") {
+        "und-posix".to_owned()
+    } else {
+        tag
+    };
 
     let mut tag = tag
         .parse()
@@ -109,6 +309,7 @@ pub(crate) fn canonicalize_locale_list(
 
     // 2. Let seen be a new empty List.
     let mut seen = IndexSet::new();
+    let mut result = Vec::new();
 
     // 3. If Type(locales) is String or Type(locales) is Object and locales has an [[InitializedLocale]] internal slot, then
     let o = if locales.is_string() || locales.as_object().is_some_and(|o| o.is::<Locale>()) {
@@ -132,15 +333,135 @@ pub(crate) fn canonicalize_locale_list(
         // c.i. Let kValue be ? Get(O, Pk).
         if let Some(k_value) = o.try_get(k, context)? {
             let tag = locale_from_value(&k_value, context)?;
+            let canonical = locale_to_canonical_string(&tag);
 
             // vii. If canonicalizedTag is not an element of seen, append canonicalizedTag as the last element of seen.
-            seen.insert(tag);
+            if seen.insert(canonical) {
+                result.push(tag);
+            }
         }
         // d. Increase k by 1.
     }
 
     // 8. Return seen.
-    Ok(seen.into_iter().collect())
+    Ok(result)
+}
+
+pub(crate) fn is_variant_only_posix(locale: &Locale) -> bool {
+    locale.id.language == LanguageIdentifier::UNKNOWN.language
+        && locale.id.script.is_none()
+        && locale.id.region.is_none()
+        && locale.id.variants.to_string() == "posix"
+        && locale.extensions.unicode.is_empty()
+        && locale.extensions.transform.is_empty()
+        && locale.extensions.private.is_empty()
+}
+
+pub(crate) fn locale_to_canonical_string(locale: &Locale) -> String {
+    let mut locale = locale.to_string();
+
+    if locale == "und-posix" {
+        locale = "posix".to_owned();
+    }
+
+    for (from, to) in [
+        ("-ca-ethiopic-amete-alem", "-ca-ethioaa"),
+        ("-ca-islamicc", "-ca-islamic-civil"),
+        ("-ks-primary", "-ks-level1"),
+        ("-ks-tertiary", "-ks-level3"),
+        ("-ms-imperial", "-ms-uksystem"),
+        ("-tz-cnckg", "-tz-cnsha"),
+        ("-tz-eire", "-tz-iedub"),
+        ("-tz-est", "-tz-papty"),
+        ("-tz-gmt0", "-tz-gmt"),
+        ("-tz-uct", "-tz-utc"),
+        ("-tz-zulu", "-tz-utc"),
+        ("-kb-yes", "-kb"),
+        ("-kc-yes", "-kc"),
+        ("-kh-yes", "-kh"),
+        ("-kk-yes", "-kk"),
+        ("-kn-yes", "-kn"),
+        ("-m0-names", "-m0-prprname"),
+    ] {
+        locale = locale.replace(from, to);
+    }
+
+    locale
+}
+
+pub(crate) fn supported_calendars() -> &'static [&'static str] {
+    SUPPORTED_CALENDARS
+}
+
+pub(crate) fn supported_collations() -> &'static [&'static str] {
+    SUPPORTED_COLLATIONS
+}
+
+pub(crate) fn supported_hour_cycles() -> &'static [&'static str] {
+    SUPPORTED_HOUR_CYCLES
+}
+
+pub(crate) fn supported_numbering_systems() -> &'static [&'static str] {
+    SUPPORTED_NUMBERING_SYSTEMS
+}
+
+pub(crate) fn supported_time_zones() -> &'static [&'static str] {
+    SUPPORTED_TIME_ZONES
+}
+
+pub(crate) fn supported_units() -> &'static [&'static str] {
+    SUPPORTED_UNITS
+}
+
+pub(crate) fn text_info_direction(locale: &Locale) -> &'static str {
+    match locale.id.language.as_str() {
+        "ar" | "fa" | "he" | "ur" => "rtl",
+        _ => "ltr",
+    }
+}
+
+pub(crate) fn week_info_first_day(locale: &Locale) -> u8 {
+    if let Some(first_day) = locale
+        .extensions
+        .unicode
+        .keywords
+        .get(&icu_locale::extensions_unicode_key!("fw"))
+        .and_then(|value| weekday_to_number(&value.to_string()))
+    {
+        return first_day;
+    }
+
+    if locale.id.region.as_ref().is_some_and(|region| region.as_str() == "US") {
+        7
+    } else {
+        1
+    }
+}
+
+pub(crate) fn weekday_to_string(value: &str) -> Option<&'static str> {
+    match value {
+        "0" | "7" | "sun" => Some("sun"),
+        "1" | "mon" => Some("mon"),
+        "2" | "tue" => Some("tue"),
+        "3" | "wed" => Some("wed"),
+        "4" | "thu" => Some("thu"),
+        "5" | "fri" => Some("fri"),
+        "6" | "sat" => Some("sat"),
+        _ => None,
+    }
+}
+
+pub(crate) fn weekday_to_number(value: &str) -> Option<u8> {
+    match value {
+        "mon" => Some(1),
+        "tue" => Some(2),
+        "wed" => Some(3),
+        "thu" => Some(4),
+        "fri" => Some(5),
+        "sat" => Some(6),
+        "sun" => Some(7),
+        _ => None,
+    }
 }
 
 /// Abstract operation [`LookupMatchingLocaleByPrefix ( availableLocales, requestedLocales )`][prefix]

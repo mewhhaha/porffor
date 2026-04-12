@@ -1,7 +1,9 @@
 mod options;
 
 use boa_gc::{Finalize, Trace};
-use fixed_decimal::{Decimal, SignedRoundingMode, UnsignedRoundingMode};
+use fixed_decimal::{
+    CompactDecimal, Decimal, FloatPrecision, SignedRoundingMode, UnsignedRoundingMode,
+};
 use icu_locale::Locale;
 use icu_plurals::{
     PluralCategory, PluralRuleType, PluralRules as NativePluralRules, PluralRulesOptions,
@@ -25,7 +27,10 @@ use crate::{
 use super::{
     Service,
     locale::{canonicalize_locale_list, filter_locales, resolve_locale},
-    number_format::{DigitFormatOptions, Extrema, NotationKind},
+    number_format::{
+        DigitFormatOptions, Extrema, NotationKind, compact_format_exponent,
+        format_decimal_for_notation,
+    },
     options::{IntlOptions, coerce_options_to_object},
 };
 
@@ -452,7 +457,20 @@ impl PluralRules {
 #[allow(unused)] // Will be used when we implement `selectRange`
 struct ResolvedPlural {
     category: PluralCategory,
-    formatted: Option<Decimal>,
+    formatted: Option<ResolvedPluralFormatted>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ResolvedPluralFormatted {
+    Decimal(Decimal),
+    ScientificOrEngineering {
+        significand: Decimal,
+        exponent: i32,
+    },
+    Compact {
+        significand: Decimal,
+        exponent: u8,
+    },
 }
 
 /// Abstract operation [`ResolvePlural ( pluralRules, n )`][spec]
@@ -476,17 +494,55 @@ fn resolve_plural(plural_rules: &PluralRules, n: f64) -> ResolvedPlural {
     // 5. Let locale be pluralRules.[[Locale]].
     // 6. Let type be pluralRules.[[Type]].
     // 7. Let res be ! FormatNumericToString(pluralRules, n).
-    let fixed = plural_rules.format_options.format_f64(n);
+    let fixed = format_decimal_for_notation(
+        &plural_rules.locale,
+        &plural_rules.format_options,
+        plural_rules.notation,
+        Decimal::try_from_f64(n, FloatPrecision::RoundTrip).unwrap_or_else(|_| Decimal::from(0)),
+    );
 
     // 8. Let s be res.[[FormattedString]].
     // 9. Let operands be ! GetOperands(s).
     // 10. Let p be ! PluralRuleSelect(locale, type, n, operands).
-    let category = plural_rules.native.rules().category_for(&fixed);
+    let (category, formatted) = match plural_rules.notation {
+        NotationKind::Standard => (
+            plural_rules.native.rules().category_for(&fixed),
+            ResolvedPluralFormatted::Decimal(fixed),
+        ),
+        NotationKind::Scientific | NotationKind::Engineering => {
+            let mut exponent = if n == 0.0 {
+                0
+            } else {
+                n.abs().log10().floor() as i32
+            };
+            if plural_rules.notation == NotationKind::Engineering && n != 0.0 {
+                exponent -= exponent.rem_euclid(3);
+            }
+            (
+                plural_rules.native.rules().category_for(&fixed),
+                ResolvedPluralFormatted::ScientificOrEngineering {
+                    significand: fixed,
+                    exponent,
+                },
+            )
+        }
+        NotationKind::Compact => {
+            let exponent = compact_format_exponent(&plural_rules.locale, n);
+            let compact = CompactDecimal::from_significand_and_exponent(fixed.clone(), exponent);
+            (
+                plural_rules.native.rules().category_for(&compact),
+                ResolvedPluralFormatted::Compact {
+                    significand: fixed,
+                    exponent,
+                },
+            )
+        }
+    };
 
     // 11. Return the Record { [[PluralCategory]]: p, [[FormattedString]]: s }.
     ResolvedPlural {
         category,
-        formatted: Some(fixed),
+        formatted: Some(formatted),
     }
 }
 

@@ -89,6 +89,7 @@ impl ByteCompiler<'_> {
 
                 let no_throw = self.jump();
                 self.patch_handler(catch_handler);
+                self.bytecode.emit_exception(error.variable());
                 self.bytecode.emit_push_true(finally_re_throw.variable());
 
                 self.patch_jump(no_throw);
@@ -100,10 +101,10 @@ impl ByteCompiler<'_> {
                     .expect("there should be a try block")
                     .flags |= JumpControlInfoFlags::IN_FINALLY;
                 self.compile_finally_stmt(f);
-                self.register_allocator.dealloc(error);
                 let do_not_throw_exit = self.jump_if_false(&finally_re_throw);
-                self.bytecode.emit_re_throw();
+                self.bytecode.emit_throw(error.variable());
                 self.patch_jump(do_not_throw_exit);
+                self.register_allocator.dealloc(error);
                 self.pop_try_with_finally_control_info(finally_start);
                 self.register_allocator.dealloc(finally_re_throw);
                 self.register_allocator.dealloc(finally_jump_index);

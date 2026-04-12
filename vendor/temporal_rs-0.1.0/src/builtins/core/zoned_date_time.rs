@@ -10,10 +10,10 @@ use crate::{
     builtins::{
         calendar::CalendarFields,
         core::{
-            calendar::Calendar,
-            duration::normalized::{InternalDurationRecord, TimeDuration},
-            time_zone::{TimeZone, UtcOffset},
-            Duration, Instant, PlainDate, PlainDateTime, PlainTime,
+        calendar::Calendar,
+        duration::normalized::{InternalDurationRecord, TimeDuration},
+        time_zone::{TimeZone, UtcOffset},
+        duration::DateDuration, Duration, Instant, PlainDate, PlainDateTime, PlainTime,
         },
     },
     error::ErrorMessage,
@@ -397,6 +397,7 @@ impl ZonedDateTime {
             other.epoch_nanoseconds().as_i128(),
             &PlainDateTime::new_unchecked(iso, self.calendar().clone()),
             Some((self.time_zone(), provider)),
+            Some(self.epoch_nanoseconds().as_i128()),
             resolved_options,
         )
     }
@@ -428,6 +429,7 @@ impl ZonedDateTime {
             other.epoch_nanoseconds().as_i128(),
             &PlainDateTime::new_unchecked(iso, self.calendar().clone()),
             Some((self.time_zone(), provider)),
+            Some(self.epoch_nanoseconds().as_i128()),
             unit,
         )
     }
@@ -457,6 +459,15 @@ impl ZonedDateTime {
         // 6. Let dayCorrection be 0.
         // 7. Let timeDuration be DifferenceTime(startDateTime.[[Time]], endDateTime.[[Time]]).
         let time = start.time.diff(&end.time);
+        if start.date == end.date && time.sign() as i8 == -(sign as i8) {
+            return Ok(InternalDurationRecord::combine(
+                DateDuration::default(),
+                TimeDuration::from_nanosecond_difference(
+                    other.epoch_nanoseconds().as_i128(),
+                    self.epoch_nanoseconds().as_i128(),
+                )?,
+            ));
+        }
         // 8. If TimeDurationSign(timeDuration) = -sign, set dayCorrection to dayCorrection + 1.
         let mut day_correction = if time.sign() as i8 == -(sign as i8) {
             1
@@ -505,6 +516,12 @@ impl ZonedDateTime {
         let date_largest = largest_unit.max(Unit::Day);
         // 13. Let dateDifference be CalendarDateUntil(calendar, startDateTime.[[ISODate]], intermediateDateTime.[[ISODate]], dateLargestUnit).
         // 14. Return CombineDateAndTimeDuration(dateDifference, timeDuration).
+        if start.date == intermediate_dt.date {
+            return Ok(InternalDurationRecord::combine(
+                DateDuration::default(),
+                time_duration,
+            ));
+        }
         let date_diff =
             self.calendar()
                 .date_until(&start.date, &intermediate_dt.date, date_largest)?;
@@ -731,9 +748,14 @@ impl ZonedDateTime {
         overflow: Option<Overflow>,
         provider: &impl TimeZoneProvider,
     ) -> TemporalResult<Self> {
+        if fields.is_empty() {
+            return Err(
+                TemporalError::r#type().with_message("ZonedDateTimeFields must have a field.")
+            );
+        }
         let overflow = overflow.unwrap_or_default();
         let disambiguation = disambiguation.unwrap_or_default();
-        let offset_option = offset_option.unwrap_or(OffsetDisambiguation::Reject);
+        let offset_option = offset_option.unwrap_or(OffsetDisambiguation::Prefer);
         // 8. Let isoDateTime be GetISODateTimeFor(timeZone, epochNs).
         let iso_date_time = self.get_iso_datetime();
         let plain_date_time = PlainDateTime::new_unchecked(iso_date_time, self.calendar.clone());

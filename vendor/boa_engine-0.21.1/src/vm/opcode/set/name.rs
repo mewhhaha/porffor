@@ -105,6 +105,37 @@ impl Operation for SetNameByLocator {
 
 /// Checks that the binding pointed by `locator` exists and is initialized.
 fn verify_initialized(locator: &BindingLocator, context: &mut Context) -> JsResult<()> {
+    if matches!(locator.scope(), BindingLocatorScope::GlobalObject)
+        && locator.binding_index() == Context::UNRESOLVABLE_GLOBAL_REFERENCE_MARKER
+    {
+        return Err(JsNativeError::reference()
+            .with_message(format!(
+                "{} is not defined",
+                locator.name().to_std_string_escaped()
+            ))
+            .into());
+    }
+
+    match locator.scope() {
+        BindingLocatorScope::GlobalObject => {
+            if !context.is_initialized_binding(locator)? && context.vm.frame().code_block.strict() {
+                return Err(JsNativeError::reference()
+                    .with_message(format!(
+                        "cannot assign to uninitialized global property `{}`",
+                        locator.name().to_std_string_escaped()
+                    ))
+                    .into());
+            }
+            return Ok(());
+        }
+        BindingLocatorScope::Stack(index)
+            if matches!(context.environment_expect(index), Environment::Object(_)) =>
+        {
+            return Ok(());
+        }
+        BindingLocatorScope::GlobalDeclarative | BindingLocatorScope::Stack(_) => {}
+    }
+
     if !context.is_initialized_binding(locator)? {
         let key = locator.name();
         let strict = context.vm.frame().code_block.strict();

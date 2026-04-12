@@ -18,6 +18,32 @@ use crate::util::DebugCheckIndex;
 use alloc::{string::String, vec::Vec};
 use core::ops::Range;
 
+fn match_backreference_candidates<Input, Dir>(
+    input: &Input,
+    dir: Dir,
+    groups: &[GroupData<Input::Position>],
+    candidate_groups: &[u32],
+    pos: &mut Input::Position,
+    icase: bool,
+) -> bool
+where
+    Input: InputIndexer,
+    Dir: Direction,
+{
+    let mut selected = None;
+    for &group_idx in candidate_groups {
+        if let Some(range) = groups[group_idx as usize].as_range() {
+            selected = Some(range);
+        }
+    }
+
+    match selected {
+        Some(range) if icase => matchers::backref_icase(input, dir, range, pos),
+        Some(range) => matchers::backref(input, dir, range, pos),
+        None => true,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct State<Position: PositionType> {
     /// Position in the input string.
@@ -236,6 +262,19 @@ fn try_match_state<Input: InputIndexer, Dir: Direction>(
                 // (ES6 21.2.2.9).
                 matched = true;
             }
+            nextinsn_or_fail!(matched)
+        }
+
+        Insn::BackRefMulti(groups) | Insn::BackRefMultiICase(groups) => {
+            let icase = matches!(re.insns[s.ip], Insn::BackRefMultiICase(_));
+            let matched = match_backreference_candidates(
+                input,
+                dir,
+                &s.groups,
+                groups,
+                &mut s.pos,
+                icase,
+            );
             nextinsn_or_fail!(matched)
         }
 

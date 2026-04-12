@@ -103,6 +103,7 @@ where
                     }
                 };
 
+                parse_ignored_import_attributes(cursor, interner)?;
                 cursor.expect_semicolon("star re-export", interner)?;
 
                 export
@@ -119,6 +120,7 @@ where
                     let specifier =
                         FromClause::new("export declaration").parse(cursor, interner)?;
 
+                    parse_ignored_import_attributes(cursor, interner)?;
                     cursor.expect_semicolon("named re-exports", interner)?;
 
                     AstExportDeclaration::ReExport {
@@ -219,6 +221,99 @@ where
 
         Ok(export_clause)
     }
+}
+
+fn parse_ignored_import_attributes<R: ReadChar>(
+    cursor: &mut Cursor<R>,
+    interner: &mut Interner,
+) -> ParseResult<()> {
+    let mut attributes = Vec::new();
+
+    if let Some(token) = cursor.peek(0, interner)?
+        && matches!(
+            token.kind(),
+            TokenKind::IdentifierName((Sym::WITH, ContainsEscapeSequence(false)))
+                | TokenKind::Keyword((Keyword::With, false))
+        )
+    {
+        cursor.advance(interner);
+        cursor.expect(Punctuator::OpenBlock, "import attributes", interner)?;
+
+        loop {
+            let token = cursor.peek(0, interner).or_abrupt()?;
+            match token.kind() {
+                TokenKind::Punctuator(Punctuator::CloseBlock) => {
+                    cursor.advance(interner);
+                    break;
+                }
+                TokenKind::Punctuator(Punctuator::Comma) => {
+                    cursor.advance(interner);
+                }
+                _ => {
+                    let token = cursor.next(interner).or_abrupt()?;
+                    let key = match token.kind() {
+                        TokenKind::IdentifierName((name, _)) => *name,
+                        TokenKind::Keyword((kw, _)) => kw.to_sym(),
+                        TokenKind::StringLiteral((name, _)) => *name,
+                        _ => {
+                            return Err(Error::expected(
+                                ["identifier name".to_owned(), "string literal".to_owned()],
+                                token.to_string(interner),
+                                token.span(),
+                                "import attributes",
+                            ));
+                        }
+                    };
+
+                    cursor.expect(Punctuator::Colon, "import attributes", interner)?;
+                    let value = cursor.next(interner).or_abrupt()?;
+                    match value.kind() {
+                        TokenKind::StringLiteral(_) => {}
+                        _ => {
+                            return Err(Error::expected(
+                                ["string literal".to_owned()],
+                                value.to_string(interner),
+                                value.span(),
+                                "import attributes",
+                            ));
+                        }
+                    }
+
+                    if attributes.contains(&key) {
+                        return Err(Error::general(
+                            "duplicate import attribute key",
+                            token.span().start(),
+                        ));
+                    }
+                    attributes.push(key);
+
+                    let next = cursor.peek(0, interner).or_abrupt()?;
+                    match next.kind() {
+                        TokenKind::Punctuator(Punctuator::CloseBlock) => {
+                            cursor.advance(interner);
+                            break;
+                        }
+                        TokenKind::Punctuator(Punctuator::Comma) => {
+                            cursor.advance(interner);
+                        }
+                        _ => {
+                            return Err(Error::expected(
+                                [
+                                    Punctuator::CloseBlock.to_string(),
+                                    Punctuator::Comma.to_string(),
+                                ],
+                                next.to_string(interner),
+                                next.span(),
+                                "import attributes",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Parses a named export list.

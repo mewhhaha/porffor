@@ -168,6 +168,172 @@ pub enum TimeZone {
 }
 
 impl TimeZone {
+    fn ecma402_primary_identifier(identifier: &str) -> Option<&'static str> {
+        const PRIMARY_MAPPINGS: &[(&str, &str)] = &[
+            ("Europe/Nicosia", "Asia/Nicosia"),
+            ("Asia/Ashkhabad", "Asia/Ashgabat"),
+            ("Asia/Calcutta", "Asia/Kolkata"),
+            ("Asia/Choibalsan", "Asia/Ulaanbaatar"),
+            ("Asia/Chongqing", "Asia/Shanghai"),
+            ("Asia/Chungking", "Asia/Shanghai"),
+            ("Asia/Dacca", "Asia/Dhaka"),
+            ("Asia/Harbin", "Asia/Shanghai"),
+            ("Asia/Istanbul", "Europe/Istanbul"),
+            ("Asia/Kashgar", "Asia/Urumqi"),
+            ("Asia/Katmandu", "Asia/Kathmandu"),
+            ("Asia/Macao", "Asia/Macau"),
+            ("Asia/Rangoon", "Asia/Yangon"),
+            ("Asia/Saigon", "Asia/Ho_Chi_Minh"),
+            ("Asia/Tel_Aviv", "Asia/Jerusalem"),
+            ("Asia/Thimbu", "Asia/Thimphu"),
+            ("Asia/Ujung_Pandang", "Asia/Makassar"),
+            ("Asia/Ulan_Bator", "Asia/Ulaanbaatar"),
+            ("Africa/Asmera", "Africa/Asmara"),
+            ("Africa/Timbuktu", "Africa/Bamako"),
+            ("Antarctica/South_Pole", "Antarctica/McMurdo"),
+            ("Australia/ACT", "Australia/Sydney"),
+            ("Australia/Canberra", "Australia/Sydney"),
+            ("Australia/Currie", "Australia/Hobart"),
+            ("Australia/LHI", "Australia/Lord_Howe"),
+            ("Australia/NSW", "Australia/Sydney"),
+            ("Australia/North", "Australia/Darwin"),
+            ("Australia/Queensland", "Australia/Brisbane"),
+            ("Australia/South", "Australia/Adelaide"),
+            ("Australia/Tasmania", "Australia/Hobart"),
+            ("Australia/Victoria", "Australia/Melbourne"),
+            ("Australia/West", "Australia/Perth"),
+            ("Australia/Yancowinna", "Australia/Broken_Hill"),
+            ("Pacific/Enderbury", "Pacific/Kanton"),
+            ("Pacific/Johnston", "Pacific/Honolulu"),
+            ("Pacific/Ponape", "Pacific/Pohnpei"),
+            ("Pacific/Samoa", "Pacific/Pago_Pago"),
+            ("Pacific/Truk", "Pacific/Chuuk"),
+            ("Pacific/Yap", "Pacific/Chuuk"),
+            ("Europe/Belfast", "Europe/London"),
+            ("Europe/Kiev", "Europe/Kyiv"),
+            ("Europe/Nicosia", "Asia/Nicosia"),
+            ("Europe/Tiraspol", "Europe/Chisinau"),
+            ("Europe/Uzhgorod", "Europe/Kyiv"),
+            ("Europe/Zaporozhye", "Europe/Kyiv"),
+            (
+                "America/Argentina/ComodRivadavia",
+                "America/Argentina/Catamarca",
+            ),
+            ("America/Atka", "America/Adak"),
+            ("America/Buenos_Aires", "America/Argentina/Buenos_Aires"),
+            ("America/Catamarca", "America/Argentina/Catamarca"),
+            ("America/Coral_Harbour", "America/Atikokan"),
+            ("America/Cordoba", "America/Argentina/Cordoba"),
+            ("America/Ensenada", "America/Tijuana"),
+            ("America/Fort_Wayne", "America/Indiana/Indianapolis"),
+            ("America/Godthab", "America/Nuuk"),
+            ("America/Indianapolis", "America/Indiana/Indianapolis"),
+            ("America/Jujuy", "America/Argentina/Jujuy"),
+            ("America/Knox_IN", "America/Indiana/Knox"),
+            ("America/Louisville", "America/Kentucky/Louisville"),
+            ("America/Mendoza", "America/Argentina/Mendoza"),
+            ("America/Montreal", "America/Toronto"),
+            ("America/Nipigon", "America/Toronto"),
+            ("America/Pangnirtung", "America/Iqaluit"),
+            ("America/Porto_Acre", "America/Rio_Branco"),
+            ("America/Rainy_River", "America/Winnipeg"),
+            ("America/Rosario", "America/Argentina/Cordoba"),
+            ("America/Santa_Isabel", "America/Tijuana"),
+            ("America/Shiprock", "America/Denver"),
+            ("America/Thunder_Bay", "America/Toronto"),
+            ("America/Virgin", "America/St_Thomas"),
+            ("America/Yellowknife", "America/Edmonton"),
+            ("US/Alaska", "America/Anchorage"),
+            ("US/Aleutian", "America/Adak"),
+            ("US/Arizona", "America/Phoenix"),
+            ("US/Central", "America/Chicago"),
+            ("US/East-Indiana", "America/Indiana/Indianapolis"),
+            ("US/Eastern", "America/New_York"),
+            ("US/Hawaii", "Pacific/Honolulu"),
+            ("US/Indiana-Starke", "America/Indiana/Knox"),
+            ("US/Michigan", "America/Detroit"),
+            ("US/Mountain", "America/Denver"),
+            ("US/Pacific", "America/Los_Angeles"),
+            ("US/Samoa", "Pacific/Pago_Pago"),
+            ("Atlantic/Faeroe", "Atlantic/Faroe"),
+            ("Atlantic/Jan_Mayen", "Arctic/Longyearbyen"),
+            ("Brazil/Acre", "America/Rio_Branco"),
+            ("Brazil/DeNoronha", "America/Noronha"),
+            ("Brazil/East", "America/Sao_Paulo"),
+            ("Brazil/West", "America/Manaus"),
+            ("CET", "Europe/Brussels"),
+            ("CST6CDT", "America/Chicago"),
+            ("Canada/Atlantic", "America/Halifax"),
+            ("Canada/Central", "America/Winnipeg"),
+            ("Canada/Eastern", "America/Toronto"),
+            ("Canada/Mountain", "America/Edmonton"),
+            ("Canada/Newfoundland", "America/St_Johns"),
+            ("Canada/Pacific", "America/Vancouver"),
+            ("Canada/Saskatchewan", "America/Regina"),
+            ("Canada/Yukon", "America/Whitehorse"),
+            ("Chile/Continental", "America/Santiago"),
+            ("Chile/EasterIsland", "Pacific/Easter"),
+            ("Cuba", "America/Havana"),
+            ("EET", "Europe/Athens"),
+            ("EST", "America/Panama"),
+            ("EST5EDT", "America/New_York"),
+            ("Egypt", "Africa/Cairo"),
+            ("Eire", "Europe/Dublin"),
+            ("Etc/GMT", "UTC"),
+            ("Etc/GMT+0", "UTC"),
+            ("Etc/GMT-0", "UTC"),
+            ("Etc/GMT0", "UTC"),
+            ("Etc/Greenwich", "UTC"),
+            ("Etc/UCT", "UTC"),
+            ("Etc/UTC", "UTC"),
+            ("Etc/Universal", "UTC"),
+            ("Etc/Zulu", "UTC"),
+            ("GB", "Europe/London"),
+            ("GB-Eire", "Europe/London"),
+            ("GMT", "UTC"),
+            ("GMT+0", "UTC"),
+            ("GMT-0", "UTC"),
+            ("GMT0", "UTC"),
+            ("Greenwich", "UTC"),
+            ("HST", "Pacific/Honolulu"),
+            ("Hongkong", "Asia/Hong_Kong"),
+            ("Iceland", "Atlantic/Reykjavik"),
+            ("Iran", "Asia/Tehran"),
+            ("Israel", "Asia/Jerusalem"),
+            ("Jamaica", "America/Jamaica"),
+            ("Japan", "Asia/Tokyo"),
+            ("Kwajalein", "Pacific/Kwajalein"),
+            ("Libya", "Africa/Tripoli"),
+            ("MET", "Europe/Brussels"),
+            ("MST", "America/Phoenix"),
+            ("MST7MDT", "America/Denver"),
+            ("Mexico/BajaNorte", "America/Tijuana"),
+            ("Mexico/BajaSur", "America/Mazatlan"),
+            ("Mexico/General", "America/Mexico_City"),
+            ("NZ", "Pacific/Auckland"),
+            ("NZ-CHAT", "Pacific/Chatham"),
+            ("Navajo", "America/Denver"),
+            ("PRC", "Asia/Shanghai"),
+            ("PST8PDT", "America/Los_Angeles"),
+            ("Poland", "Europe/Warsaw"),
+            ("Portugal", "Europe/Lisbon"),
+            ("ROC", "Asia/Taipei"),
+            ("ROK", "Asia/Seoul"),
+            ("Singapore", "Asia/Singapore"),
+            ("Turkey", "Europe/Istanbul"),
+            ("UCT", "UTC"),
+            ("Universal", "UTC"),
+            ("W-SU", "Europe/Moscow"),
+            ("WET", "Europe/Lisbon"),
+            ("Zulu", "UTC"),
+        ];
+
+        PRIMARY_MAPPINGS
+            .iter()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(identifier))
+            .map(|(_, primary)| *primary)
+    }
+
     // Create a `TimeZone` from an ixdtf `TimeZoneRecord`.
     #[inline]
     pub(crate) fn from_time_zone_record(
@@ -247,7 +413,14 @@ impl TimeZone {
         provider: &impl TimeZoneProvider,
     ) -> TemporalResult<Self> {
         Ok(match self {
-            TimeZone::IanaIdentifier(s) => TimeZone::IanaIdentifier(provider.canonicalized(*s)?),
+            TimeZone::IanaIdentifier(s) => {
+                let identifier = provider.identifier(*s)?;
+                if let Some(primary) = Self::ecma402_primary_identifier(identifier.as_ref()) {
+                    TimeZone::IanaIdentifier(provider.get(primary.as_bytes())?)
+                } else {
+                    TimeZone::IanaIdentifier(provider.canonicalized(*s)?)
+                }
+            }
             TimeZone::UtcOffset(offset) => TimeZone::UtcOffset(*offset),
         })
     }
@@ -264,13 +437,14 @@ impl TimeZone {
         other: &Self,
         provider: &impl TimeZoneProvider,
     ) -> TemporalResult<bool> {
-        Ok(match (self, other) {
+        Ok(match (
+            self.primary_identifier_with_provider(provider)?,
+            other.primary_identifier_with_provider(provider)?,
+        ) {
             (TimeZone::IanaIdentifier(one), TimeZone::IanaIdentifier(two)) => {
-                let one = provider.canonicalized(*one)?;
-                let two = provider.canonicalized(*two)?;
-                one.normalized == two.normalized
+                provider.identifier(one)?.eq_ignore_ascii_case(provider.identifier(two)?.as_ref())
             }
-            (&TimeZone::UtcOffset(one), &TimeZone::UtcOffset(two)) => one == two,
+            (TimeZone::UtcOffset(one), TimeZone::UtcOffset(two)) => one == two,
             _ => false,
         })
     }

@@ -14,7 +14,7 @@
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl
 
 use crate::{
-    Context, JsArgs, JsData, JsResult, JsString, JsValue,
+    Context, JsArgs, JsData, JsNativeError, JsResult, JsString, JsValue,
     builtins::{Array, BuiltInBuilder, BuiltInObject, IntrinsicObject},
     context::{icu::IntlProvider, intrinsics::Intrinsics},
     js_string,
@@ -31,15 +31,20 @@ use static_assertions::const_assert;
 
 pub(crate) mod collator;
 pub(crate) mod date_time_format;
+pub(crate) mod display_names;
+pub(crate) mod duration_format;
 pub(crate) mod list_format;
 pub(crate) mod locale;
 pub(crate) mod number_format;
 pub(crate) mod plural_rules;
+pub(crate) mod relative_time_format;
 pub(crate) mod segmenter;
 
 pub(crate) use self::{
-    collator::Collator, date_time_format::DateTimeFormat, list_format::ListFormat, locale::Locale,
-    number_format::NumberFormat, plural_rules::PluralRules, segmenter::Segmenter,
+    collator::Collator, date_time_format::DateTimeFormat, display_names::DisplayNames,
+    duration_format::DurationFormat, list_format::ListFormat, locale::Locale,
+    number_format::NumberFormat, plural_rules::PluralRules,
+    relative_time_format::RelativeTimeFormat, segmenter::Segmenter,
 };
 
 mod options;
@@ -50,6 +55,9 @@ mod options;
 const_assert! {!<Collator as Service>::LangMarker::INFO.is_singleton}
 const_assert! {!<ListFormat as Service>::LangMarker::INFO.is_singleton}
 const_assert! {!<NumberFormat as Service>::LangMarker::INFO.is_singleton}
+const_assert! {!<DisplayNames as Service>::LangMarker::INFO.is_singleton}
+const_assert! {!<DurationFormat as Service>::LangMarker::INFO.is_singleton}
+const_assert! {!<RelativeTimeFormat as Service>::LangMarker::INFO.is_singleton}
 const_assert! {!<PluralRules as Service>::LangMarker::INFO.is_singleton}
 const_assert! {!<Segmenter as Service>::LangMarker::INFO.is_singleton}
 
@@ -132,11 +140,39 @@ impl IntrinsicObject for Intl {
                     .constructor(),
                 NumberFormat::ATTRIBUTE,
             )
+            .static_property(
+                DisplayNames::NAME,
+                realm
+                    .intrinsics()
+                    .constructors()
+                    .display_names()
+                    .constructor(),
+                DisplayNames::ATTRIBUTE,
+            )
+            .static_property(
+                DurationFormat::NAME,
+                realm
+                    .intrinsics()
+                    .constructors()
+                    .duration_format()
+                    .constructor(),
+                DurationFormat::ATTRIBUTE,
+            )
+            .static_property(
+                RelativeTimeFormat::NAME,
+                realm
+                    .intrinsics()
+                    .constructors()
+                    .relative_time_format()
+                    .constructor(),
+                RelativeTimeFormat::ATTRIBUTE,
+            )
             .static_method(
                 Self::get_canonical_locales,
                 js_string!("getCanonicalLocales"),
                 1,
             )
+            .static_method(Self::supported_values_of, js_string!("supportedValuesOf"), 1)
             .build();
     }
 
@@ -172,9 +208,38 @@ impl Intl {
 
         // 2. Return CreateArrayFromList(ll).
         Ok(JsValue::new(Array::create_array_from_list(
-            ll.into_iter().map(|loc| js_string!(loc.to_string()).into()),
+            ll.into_iter()
+                .map(|loc| js_string!(locale::locale_to_canonical_string(&loc)).into()),
             context,
         )))
+    }
+
+    pub(crate) fn supported_values_of(
+        _: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let key = args.get_or_undefined(0).to_string(context)?.to_std_string_escaped();
+        let mut values = match key.as_str() {
+            "calendar" => locale::supported_calendars().to_vec(),
+            "collation" => locale::supported_collations().to_vec(),
+            "currency" => Vec::new(),
+            "numberingSystem" => locale::supported_numbering_systems().to_vec(),
+            "timeZone" => locale::supported_time_zones().to_vec(),
+            "unit" => locale::supported_units().to_vec(),
+            _ => {
+                return Err(JsNativeError::range()
+                    .with_message("provided key is not a valid Intl.supportedValuesOf key")
+                    .into())
+            }
+        };
+        values.sort_unstable();
+
+        Ok(Array::create_array_from_list(
+            values.into_iter().map(|value| js_string!(value).into()),
+            context,
+        )
+        .into())
     }
 }
 
@@ -206,9 +271,10 @@ trait Service {
     /// - If the implementor service doesn't contain any `[[RelevantExtensionKeys]]`, this can be
     ///   skipped.
     fn resolve(
-        _locale: &mut icu_locale::Locale,
+        locale: &mut icu_locale::Locale,
         _options: &mut Self::LocaleOptions,
         _provider: &IntlProvider,
     ) {
+        locale.extensions.unicode.clear();
     }
 }

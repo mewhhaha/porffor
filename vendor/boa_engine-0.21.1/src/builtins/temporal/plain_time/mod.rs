@@ -10,6 +10,7 @@ use crate::{
     JsValue,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
+        intl::date_time_format::{DateTimeReqs, format_temporal_date_time_value},
         options::{get_option, get_options_object},
     },
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
@@ -540,11 +541,16 @@ impl PlainTime {
         };
 
         // Steps 5-16 equate to the below
-        let partial = to_partial_time_record(&partial_object, context)?;
+        let (partial, has_invalid_time_fields) = to_partial_time_record(&partial_object, context)?;
         // 17. Let resolvedOptions be ? GetOptionsObject(options).
         // 18. Let overflow be ? GetTemporalOverflowOption(resolvedOptions).
         let options = get_options_object(args.get_or_undefined(1))?;
         let overflow = get_option::<Overflow>(&options, js_string!("overflow"), context)?;
+        if overflow == Some(Overflow::Reject) && has_invalid_time_fields {
+            return Err(JsNativeError::range()
+                .with_message("invalid time field")
+                .into());
+        }
 
         create_temporal_time(time.inner.with(partial, overflow)?, None, context).map(Into::into)
     }
@@ -769,20 +775,23 @@ impl PlainTime {
     ///
     /// [spec]: https://tc39.es/proposal-temporal/#sec-temporal.plaintime.prototype.tolocalestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/PlainTime/toLocaleString
-    fn to_locale_string(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-        // TODO: Update for ECMA-402 compliance
+    fn to_locale_string(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let object = this.as_object();
-        let time = object
+        object
             .as_ref()
             .and_then(JsObject::downcast_ref::<Self>)
             .ok_or_else(|| {
                 JsNativeError::typ().with_message("the this object must be a PlainTime object.")
             })?;
-
-        let ixdtf = time
-            .inner
-            .to_ixdtf_string(ToStringRoundingOptions::default())?;
-        Ok(JsString::from(ixdtf).into())
+        Ok(format_temporal_date_time_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            this,
+            DateTimeReqs::Time,
+            DateTimeReqs::Time,
+            context,
+        )?
+        .into())
     }
 
     /// 4.3.18 `Temporal.PlainTime.prototype.toJSON ( )`
@@ -907,10 +916,14 @@ pub(crate) fn to_temporal_time(
             // e. Set result to ? RegulateTime(result.[[Hour]], result.[[Minute]],
             // result.[[Second]], result.[[Millisecond]], result.[[Microsecond]],
             // result.[[Nanosecond]], overflow).
-            let partial = to_partial_time_record(&object, context)?;
-
+            let (partial, has_invalid_time_fields) = to_partial_time_record(&object, context)?;
             let options = get_options_object(options)?;
             let overflow = get_option::<Overflow>(&options, js_string!("overflow"), context)?;
+            if overflow == Some(Overflow::Reject) && has_invalid_time_fields {
+                return Err(JsNativeError::range()
+                    .with_message("invalid time field")
+                    .into());
+            }
 
             PlainTimeInner::from_partial(partial, overflow).map_err(Into::into)
         }
@@ -937,61 +950,95 @@ pub(crate) fn to_temporal_time(
 pub(crate) fn to_partial_time_record(
     partial_object: &JsObject,
     context: &mut Context,
-) -> JsResult<PartialTime> {
-    let hour = partial_object
-        .get(js_string!("hour"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
+) -> JsResult<(PartialTime, bool)> {
+    let hour_value = partial_object.get(js_string!("hour"), context)?;
+    let hour = if hour_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = hour_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u8::MAX.into()) as u8),
+            !(0..=23).contains(&integer),
+        )
+    };
 
-    let microsecond = partial_object
-        .get(js_string!("microsecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
+    let microsecond_value = partial_object.get(js_string!("microsecond"), context)?;
+    let microsecond = if microsecond_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = microsecond_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u16::MAX.into()) as u16),
+            !(0..=999).contains(&integer),
+        )
+    };
 
-    let millisecond = partial_object
-        .get(js_string!("millisecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
+    let millisecond_value = partial_object.get(js_string!("millisecond"), context)?;
+    let millisecond = if millisecond_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = millisecond_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u16::MAX.into()) as u16),
+            !(0..=999).contains(&integer),
+        )
+    };
 
-    let minute = partial_object
-        .get(js_string!("minute"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
+    let minute_value = partial_object.get(js_string!("minute"), context)?;
+    let minute = if minute_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = minute_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u8::MAX.into()) as u8),
+            !(0..=59).contains(&integer),
+        )
+    };
 
-    let nanosecond = partial_object
-        .get(js_string!("nanosecond"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u16, JsError>(finite.as_integer_with_truncation::<u16>())
-        })
-        .transpose()?;
+    let nanosecond_value = partial_object.get(js_string!("nanosecond"), context)?;
+    let nanosecond = if nanosecond_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = nanosecond_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u16::MAX.into()) as u16),
+            !(0..=999).contains(&integer),
+        )
+    };
 
-    let second = partial_object
-        .get(js_string!("second"), context)?
-        .map(|v| {
-            let finite = v.to_finitef64(context)?;
-            Ok::<u8, JsError>(finite.as_integer_with_truncation::<u8>())
-        })
-        .transpose()?;
+    let second_value = partial_object.get(js_string!("second"), context)?;
+    let second = if second_value.is_undefined() {
+        (None, false)
+    } else {
+        let finite = second_value.to_finitef64(context)?;
+        let integer = finite.as_integer_with_truncation::<i64>();
+        (
+            Some(integer.clamp(0, u8::MAX.into()) as u8),
+            !(0..=59).contains(&integer),
+        )
+    };
 
-    Ok(PartialTime {
-        hour,
-        minute,
-        second,
-        millisecond,
-        microsecond,
-        nanosecond,
-    })
+    let has_invalid_time_fields = hour.1
+        || minute.1
+        || second.1
+        || millisecond.1
+        || microsecond.1
+        || nanosecond.1;
+
+    Ok((
+        PartialTime {
+            hour: hour.0,
+            minute: minute.0,
+            second: second.0,
+            millisecond: millisecond.0,
+            microsecond: microsecond.0,
+            nanosecond: nanosecond.0,
+        },
+        has_invalid_time_fields,
+    ))
 }

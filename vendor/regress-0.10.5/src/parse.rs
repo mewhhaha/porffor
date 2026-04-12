@@ -1695,7 +1695,6 @@ where
             // [+NamedCaptureGroups] k GroupName
             'k' if self.flags.unicode || !self.named_group_indices.is_empty() => {
                 // The sequence `\k` must be the start of a backreference to a named capture group.
-                // Note multiple capture groups may have the same name; we must map all of them to their indices.
                 self.consume('k');
                 // Must have a valid group name.
                 let Some(group_name) = self.try_consume_named_capture_group_name() else {
@@ -1711,27 +1710,14 @@ where
                 // Note backreferences are 1-based.
                 let node = match group_indices.len() {
                     0 => unreachable!("Should not have empty indices for group name"),
-                    1 => {
-                        // Common case of a backref matching a single group.
-                        ir::Node::BackRef {
-                            group: group_indices[0] + 1,
-                            icase: self.flags.icase,
-                        }
-                    }
-                    _ => {
-                        // Unusual case of multiple groups sharing a name: the backref should try each in turn.
-                        // Lower to alternations of backreferences. Reverse to keep it right-associative: a | (b | (c | d))...
-                        let backrefs = group_indices
-                            .iter()
-                            .rev()
-                            .map(|group_index| ir::Node::BackRef {
-                                group: *group_index + 1,
-                                icase: self.flags.icase,
-                            });
-                        backrefs
-                            .reduce(|right, left| ir::Node::Alt(Box::new(left), Box::new(right)))
-                            .unwrap()
-                    }
+                    1 => ir::Node::BackRef {
+                        group: group_indices[0] + 1,
+                        icase: self.flags.icase,
+                    },
+                    _ => ir::Node::BackRefMulti {
+                        groups: group_indices.iter().map(|group_index| group_index + 1).collect(),
+                        icase: self.flags.icase,
+                    },
                 };
                 Ok(node)
             }
@@ -1845,6 +1831,49 @@ where
         }
     }
 
+    fn try_consume_group_name_code_point(&mut self) -> Option<u32> {
+        let orig_input = self.input.clone();
+
+        if self.try_consume('\\') {
+            if !self.try_consume('u') {
+                self.input = orig_input;
+                return None;
+            }
+
+            let cp = self.try_escape_unicode_sequence()?;
+            return char::from_u32(cp).map(u32::from).or_else(|| {
+                self.input = orig_input;
+                None
+            });
+        }
+
+        let first = self.next()?;
+        if let Some(ch) = char::from_u32(first) {
+            return Some(u32::from(ch));
+        }
+
+        let Some(low) = self.peek() else {
+            self.input = orig_input;
+            return None;
+        };
+        let high = first as u16;
+        let low = low as u16;
+        if !(0xD800..=0xDBFF).contains(&high) || !(0xDC00..=0xDFFF).contains(&low) {
+            self.input = orig_input;
+            return None;
+        }
+
+        self.consume(u32::from(low));
+        char::decode_utf16([high, low])
+            .next()
+            .and_then(Result::ok)
+            .map(u32::from)
+            .or_else(|| {
+                self.input = orig_input;
+                None
+            })
+    }
+
     fn try_consume_named_capture_group_name(&mut self) -> Option<String> {
         if !self.try_consume('<') {
             return None;
@@ -1853,52 +1882,36 @@ where
         let orig_input = self.input.clone();
         let mut group_name = String::new();
 
-        if let Some(mut c) = self.next().and_then(char::from_u32) {
-            if c == '\\' && self.try_consume('u') {
-                if let Some(escaped) = self.try_escape_unicode_sequence().and_then(char::from_u32) {
-                    c = escaped;
-                } else {
-                    self.input = orig_input;
-                    return None;
-                }
-            }
-
-            if interval_contains(id_start_ranges(), c.into()) || c == '$' || c == '_' {
-                group_name.push(c);
-            } else {
-                self.input = orig_input;
-                return None;
-            }
+        let Some(first) = self.try_consume_group_name_code_point() else {
+            self.input = orig_input;
+            return None;
+        };
+        let first = char::from_u32(first).expect("identifier code point must be a scalar value");
+        if interval_contains(id_start_ranges(), first.into()) || first == '$' || first == '_' {
+            group_name.push(first);
         } else {
             self.input = orig_input;
             return None;
         }
 
         loop {
-            if let Some(mut c) = self.next().and_then(char::from_u32) {
-                if c == '\\' && self.try_consume('u') {
-                    if let Some(escaped) =
-                        self.try_escape_unicode_sequence().and_then(char::from_u32)
-                    {
-                        c = escaped;
-                    } else {
-                        self.input = orig_input;
-                        return None;
-                    }
-                }
+            if self.try_consume('>') {
+                break;
+            }
 
-                if c == '>' {
-                    break;
-                }
+            let Some(c) = self.try_consume_group_name_code_point() else {
+                self.input = orig_input;
+                return None;
+            };
+            let c = char::from_u32(c).expect("identifier code point must be a scalar value");
 
-                if interval_contains(id_continue_ranges(), c.into()) || c == '$' || c == '_' || c == '\u{200C}' /* <ZWNJ> */ || c == '\u{200D}'
-                /* <ZWJ> */
-                {
-                    group_name.push(c);
-                } else {
-                    self.input = orig_input;
-                    return None;
-                }
+            if interval_contains(id_continue_ranges(), c.into())
+                || c == '$'
+                || c == '_'
+                || c == '\u{200C}'
+                || c == '\u{200D}'
+            {
+                group_name.push(c);
             } else {
                 self.input = orig_input;
                 return None;

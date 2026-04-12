@@ -26,7 +26,7 @@ const SECONDS_PER_MINUTE: f64 = 60.0;
 const MS_PER_SECOND: f64 = 1000.0;
 
 // msPerMinute = 60000𝔽 = msPerSecond × 𝔽(SecondsPerMinute)
-pub(super) const MS_PER_MINUTE: f64 = MS_PER_SECOND * SECONDS_PER_MINUTE;
+pub(crate) const MS_PER_MINUTE: f64 = MS_PER_SECOND * SECONDS_PER_MINUTE;
 
 // msPerHour = 3600000𝔽 = msPerMinute × 𝔽(MinutesPerHour)
 const MS_PER_HOUR: f64 = MS_PER_MINUTE * MINUTES_PER_HOUR;
@@ -130,7 +130,7 @@ fn time_from_year(y: f64) -> f64 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-yearfromtime
-pub(super) fn year_from_time(t: f64) -> i32 {
+pub(crate) fn year_from_time(t: f64) -> i32 {
     const MS_PER_AVERAGE_YEAR: f64 = 12.0 * 30.436_875 * MS_PER_DAY;
 
     // 1. Return the largest integral Number y (closest to +∞) such that TimeFromYear(y) ≤ t.
@@ -169,7 +169,7 @@ fn in_leap_year(t: f64) -> u16 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-monthfromtime
-pub(super) fn month_from_time(t: f64) -> u8 {
+pub(crate) fn month_from_time(t: f64) -> u8 {
     // 1. Let inLeapYear be InLeapYear(t).
     let in_leap_year = in_leap_year(t);
 
@@ -211,7 +211,7 @@ pub(super) fn month_from_time(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-datefromtime
-pub(super) fn date_from_time(t: f64) -> u8 {
+pub(crate) fn date_from_time(t: f64) -> u8 {
     // 1. Let inLeapYear be InLeapYear(t).
     let in_leap_year = in_leap_year(t);
 
@@ -257,7 +257,7 @@ pub(super) fn date_from_time(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-weekday
-pub(super) fn week_day(t: f64) -> u8 {
+pub(crate) fn week_day(t: f64) -> u8 {
     // 1. Return 𝔽(ℝ(Day(t) + 4𝔽) modulo 7).
     (day(t) + 4.0).rem_euclid(7.0) as u8
 }
@@ -268,7 +268,7 @@ pub(super) fn week_day(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-hourfromtime
-pub(super) fn hour_from_time(t: f64) -> u8 {
+pub(crate) fn hour_from_time(t: f64) -> u8 {
     // 1. Return 𝔽(floor(ℝ(t / msPerHour)) modulo HoursPerDay).
     ((t / MS_PER_HOUR).floor()).rem_euclid(HOURS_PER_DAY) as u8
 }
@@ -279,7 +279,7 @@ pub(super) fn hour_from_time(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-minfromtime
-pub(super) fn min_from_time(t: f64) -> u8 {
+pub(crate) fn min_from_time(t: f64) -> u8 {
     // 1. Return 𝔽(floor(ℝ(t / msPerMinute)) modulo MinutesPerHour).
     ((t / MS_PER_MINUTE).floor()).rem_euclid(MINUTES_PER_HOUR) as u8
 }
@@ -290,7 +290,7 @@ pub(super) fn min_from_time(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-secfromtime
-pub(super) fn sec_from_time(t: f64) -> u8 {
+pub(crate) fn sec_from_time(t: f64) -> u8 {
     // 1. Return 𝔽(floor(ℝ(t / msPerSecond)) modulo SecondsPerMinute).
     ((t / MS_PER_SECOND).floor()).rem_euclid(SECONDS_PER_MINUTE) as u8
 }
@@ -301,7 +301,7 @@ pub(super) fn sec_from_time(t: f64) -> u8 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-msfromtime
-pub(super) fn ms_from_time(t: f64) -> u16 {
+pub(crate) fn ms_from_time(t: f64) -> u16 {
     // 1. Return 𝔽(ℝ(t) modulo ℝ(msPerSecond)).
     t.rem_euclid(MS_PER_SECOND) as u16
 }
@@ -312,7 +312,7 @@ pub(super) fn ms_from_time(t: f64) -> u16 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-localtime
-pub(super) fn local_time(t: f64, hooks: &dyn HostHooks) -> f64 {
+pub(crate) fn local_time(t: f64, hooks: &dyn HostHooks) -> f64 {
     t + f64::from(local_timezone_offset_seconds(t, hooks)) * MS_PER_SECOND
 }
 
@@ -365,7 +365,7 @@ pub(super) fn make_time(hour: f64, min: f64, sec: f64, ms: f64) -> f64 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-makeday
-pub(super) fn make_day(year: f64, month: f64, date: f64) -> f64 {
+pub(crate) fn make_day(year: f64, month: f64, date: f64) -> f64 {
     // 1. If year is not finite, month is not finite, or date is not finite, return NaN.
     if !year.is_finite() || !month.is_finite() || !date.is_finite() {
         return f64::NAN;
@@ -424,7 +424,7 @@ pub(super) fn make_day(year: f64, month: f64, date: f64) -> f64 {
 /// - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-makedate
-pub(super) fn make_date(day: f64, time: f64) -> f64 {
+pub(crate) fn make_date(day: f64, time: f64) -> f64 {
     // 1. If day is not finite or time is not finite, return NaN.
     if !day.is_finite() || !time.is_finite() {
         return f64::NAN;

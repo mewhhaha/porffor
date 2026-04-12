@@ -8,7 +8,7 @@
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date
 
 use crate::{
-    Context, JsArgs, JsData, JsError, JsResult, JsString,
+    Context, JsArgs, JsData, JsResult, JsString,
     builtins::{
         BuiltInBuilder, BuiltInConstructor, BuiltInObject, IntrinsicObject,
         date::utils::{
@@ -17,6 +17,9 @@ use crate::{
             pad_five, pad_four, pad_six, pad_three, pad_two, parse_date, sec_from_time, time_clip,
             time_string, time_within_day, time_zone_string, to_date_string_t, utc_t, week_day,
             year_from_time,
+        },
+        intl::date_time_format::{
+            DateTimeReqs, format_date_time_for_date_value,
         },
     },
     context::intrinsics::{Intrinsics, StandardConstructor, StandardConstructors},
@@ -1619,13 +1622,26 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.tolocaledatestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toLocaleDateString
     pub(crate) fn to_locale_date_string(
-        _this: &JsValue,
-        _args: &[JsValue],
-        _context: &mut Context,
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        Err(JsError::from_opaque(JsValue::new(js_string!(
-            "Function Unimplemented"
-        ))))
+        let value = this
+            .as_object()
+            .and_then(|obj| obj.downcast_ref::<Date>().as_deref().copied())
+            .ok_or_else(|| JsNativeError::typ().with_message("'this' is not a Date"))?;
+        if value.0.is_nan() {
+            return Ok(js_string!("Invalid Date").into());
+        }
+        Ok(format_date_time_for_date_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            DateTimeReqs::Date,
+            DateTimeReqs::Date,
+            value.0,
+            context,
+        )?
+        .into())
     }
 
     /// [`Date.prototype.toLocaleString()`][spec].
@@ -1638,13 +1654,26 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.tolocalestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toLocaleString
     pub(crate) fn to_locale_string(
-        _this: &JsValue,
-        _: &[JsValue],
-        _context: &mut Context,
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        Err(JsError::from_opaque(JsValue::new(js_string!(
-            "Function Unimplemented]"
-        ))))
+        let value = this
+            .as_object()
+            .and_then(|obj| obj.downcast_ref::<Date>().as_deref().copied())
+            .ok_or_else(|| JsNativeError::typ().with_message("'this' is not a Date"))?;
+        if value.0.is_nan() {
+            return Ok(js_string!("Invalid Date").into());
+        }
+        Ok(format_date_time_for_date_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            DateTimeReqs::AnyAll,
+            DateTimeReqs::AnyAll,
+            value.0,
+            context,
+        )?
+        .into())
     }
 
     /// [`Date.prototype.toLocaleTimeString()`][spec].
@@ -1658,13 +1687,26 @@ impl Date {
     /// [spec]: https://tc39.es/ecma262/#sec-date.prototype.tolocaletimestring
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toLocaleTimeString
     pub(crate) fn to_locale_time_string(
-        _this: &JsValue,
-        _args: &[JsValue],
-        _context: &mut Context,
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
     ) -> JsResult<JsValue> {
-        Err(JsError::from_opaque(JsValue::new(js_string!(
-            "Function Unimplemented]"
-        ))))
+        let value = this
+            .as_object()
+            .and_then(|obj| obj.downcast_ref::<Date>().as_deref().copied())
+            .ok_or_else(|| JsNativeError::typ().with_message("'this' is not a Date"))?;
+        if value.0.is_nan() {
+            return Ok(js_string!("Invalid Date").into());
+        }
+        Ok(format_date_time_for_date_value(
+            args.get_or_undefined(0),
+            args.get_or_undefined(1),
+            DateTimeReqs::Time,
+            DateTimeReqs::Time,
+            value.0,
+            context,
+        )?
+        .into())
     }
 
     /// [`Date.prototype.toString()`][spec].

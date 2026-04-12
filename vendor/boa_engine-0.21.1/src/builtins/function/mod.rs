@@ -312,6 +312,10 @@ impl IntrinsicObject for BuiltInFunctionObject {
             .build();
 
         let throw_type_error = realm.intrinsics().objects().throw_type_error();
+        let caller_getter = BuiltInBuilder::callable(realm, Self::legacy_caller_getter)
+            .name(js_string!("get caller"))
+            .length(0)
+            .build();
 
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .method(Self::apply, js_string!("apply"), 2)
@@ -321,7 +325,7 @@ impl IntrinsicObject for BuiltInFunctionObject {
             .property(JsSymbol::has_instance(), has_instance, Attribute::default())
             .accessor(
                 js_string!("caller"),
-                Some(throw_type_error.clone()),
+                Some(caller_getter),
                 Some(throw_type_error.clone()),
                 Attribute::CONFIGURABLE,
             )
@@ -909,6 +913,35 @@ impl BuiltInFunctionObject {
 
     #[allow(clippy::unnecessary_wraps)]
     fn prototype(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+        Ok(JsValue::undefined())
+    }
+
+    fn legacy_caller_getter(
+        this: &JsValue,
+        _: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let Some(function) = this.as_callable() else {
+            return Err(JsNativeError::typ().with_message("not a function").into());
+        };
+
+        let Some(function) = function.downcast_ref::<OrdinaryFunction>() else {
+            return Err(JsNativeError::typ()
+                .with_message(
+                    "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them",
+                )
+                .into());
+        };
+
+        if function.code.strict() || function.code.this_mode.is_lexical() || !function.code.is_ordinary() {
+            return Err(JsNativeError::typ()
+                .with_message(
+                    "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them",
+                )
+                .into());
+        }
+
+        let _ = context;
         Ok(JsValue::undefined())
     }
 }
