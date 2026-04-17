@@ -42,10 +42,11 @@ impl Intrinsics {
     pub(crate) fn uninit(root_shape: &RootShape) -> Option<Self> {
         let constructors = StandardConstructors::default();
         let templates = ObjectTemplates::new(root_shape, &constructors);
+        let objects = IntrinsicObjects::uninit(&constructors)?;
 
         Some(Self {
             constructors,
-            objects: IntrinsicObjects::uninit()?,
+            objects,
             templates,
         })
     }
@@ -124,6 +125,7 @@ impl StandardConstructor {
 /// Cached core standard constructors.
 #[derive(Debug, Trace, Finalize)]
 pub struct StandardConstructors {
+    iterator: StandardConstructor,
     object: StandardConstructor,
     proxy: StandardConstructor,
     date: StandardConstructor,
@@ -149,8 +151,10 @@ pub struct StandardConstructors {
     eval_error: StandardConstructor,
     uri_error: StandardConstructor,
     aggregate_error: StandardConstructor,
+    suppressed_error: StandardConstructor,
     map: StandardConstructor,
     set: StandardConstructor,
+    shadow_realm: StandardConstructor,
     typed_array: StandardConstructor,
     typed_int8_array: StandardConstructor,
     typed_uint8_array: StandardConstructor,
@@ -170,6 +174,7 @@ pub struct StandardConstructors {
     data_view: StandardConstructor,
     date_time_format: StandardConstructor,
     promise: StandardConstructor,
+    finalization_registry: StandardConstructor,
     weak_ref: StandardConstructor,
     weak_map: StandardConstructor,
     weak_set: StandardConstructor,
@@ -216,6 +221,7 @@ pub struct StandardConstructors {
 impl Default for StandardConstructors {
     fn default() -> Self {
         Self {
+            iterator: StandardConstructor::default(),
             object: StandardConstructor::with_prototype(JsObject::from_object_and_vtable(
                 Object::<OrdinaryObject>::default(),
                 &IMMUTABLE_PROTOTYPE_EXOTIC_INTERNAL_METHODS,
@@ -252,8 +258,10 @@ impl Default for StandardConstructors {
             eval_error: StandardConstructor::default(),
             uri_error: StandardConstructor::default(),
             aggregate_error: StandardConstructor::default(),
+            suppressed_error: StandardConstructor::default(),
             map: StandardConstructor::default(),
             set: StandardConstructor::default(),
+            shadow_realm: StandardConstructor::default(),
             typed_array: StandardConstructor::default(),
             typed_int8_array: StandardConstructor::default(),
             typed_uint8_array: StandardConstructor::default(),
@@ -273,6 +281,7 @@ impl Default for StandardConstructors {
             data_view: StandardConstructor::default(),
             date_time_format: StandardConstructor::default(),
             promise: StandardConstructor::default(),
+            finalization_registry: StandardConstructor::default(),
             weak_ref: StandardConstructor::default(),
             weak_map: StandardConstructor::default(),
             weak_set: StandardConstructor::default(),
@@ -319,6 +328,13 @@ impl Default for StandardConstructors {
 }
 
 impl StandardConstructors {
+    /// Returns the `Iterator` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn iterator(&self) -> &StandardConstructor {
+        &self.iterator
+    }
+
     /// Returns the `AsyncGeneratorFunction` constructor.
     ///
     /// More information:
@@ -604,6 +620,13 @@ impl StandardConstructors {
         &self.aggregate_error
     }
 
+    /// Returns the `SuppressedError` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn suppressed_error(&self) -> &StandardConstructor {
+        &self.suppressed_error
+    }
+
     /// Returns the `Map` constructor.
     ///
     /// More information:
@@ -626,6 +649,13 @@ impl StandardConstructors {
     #[must_use]
     pub const fn set(&self) -> &StandardConstructor {
         &self.set
+    }
+
+    /// Returns the `ShadowRealm` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn shadow_realm(&self) -> &StandardConstructor {
+        &self.shadow_realm
     }
 
     /// Returns the `TypedArray` constructor.
@@ -843,6 +873,13 @@ impl StandardConstructors {
     #[must_use]
     pub const fn promise(&self) -> &StandardConstructor {
         &self.promise
+    }
+
+    /// Returns `FinalizationRegistry` constructor.
+    #[inline]
+    #[must_use]
+    pub const fn finalization_registry(&self) -> &StandardConstructor {
+        &self.finalization_registry
     }
 
     /// Returns the `WeakRef` constructor.
@@ -1203,7 +1240,7 @@ impl IntrinsicObjects {
     ///
     /// [`Realm::initialize`]: crate::realm::Realm::initialize
     #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn uninit() -> Option<Self> {
+    pub(crate) fn uninit(constructors: &StandardConstructors) -> Option<Self> {
         Some(Self {
             reflect: JsObject::with_null_proto(),
             math: JsObject::with_null_proto(),
@@ -1211,7 +1248,7 @@ impl IntrinsicObjects {
             throw_type_error: JsFunction::empty_intrinsic_function(false),
             array_prototype_values: JsFunction::empty_intrinsic_function(false),
             array_prototype_to_string: JsFunction::empty_intrinsic_function(false),
-            iterator_prototypes: IteratorPrototypes::default(),
+            iterator_prototypes: IteratorPrototypes::new(constructors.iterator().prototype()),
             generator: JsObject::with_null_proto(),
             async_generator: JsObject::with_null_proto(),
             atomics: JsObject::with_null_proto(),

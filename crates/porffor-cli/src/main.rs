@@ -9,7 +9,8 @@ fn usage() -> &'static str {
     "porf <command> [args]
 
 Commands:
-  run <file>                            compile and run a script through the Rust engine path
+  run [--execution-backend spec|wasm] <file>
+                                        compile and run a script through Rust engine path
   repl                                  reserved for the Rust REPL shell
   build wasm <file>                     compile JavaScript directly to Wasm
   build c <file>                        emit C from shared IR
@@ -59,9 +60,23 @@ fn real_main() -> Result<(), String> {
     let engine = Engine::new(RealmBuilder::new().build());
     match command.as_str() {
         "run" => {
-            let path = args
-                .next()
-                .ok_or_else(|| "run needs a source file".to_string())?;
+            let mut backend = ExecutionBackend::SpecExec;
+            let mut path = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--execution-backend" => {
+                        let value = args
+                            .next()
+                            .ok_or_else(|| "--execution-backend needs a value".to_string())?;
+                        backend = parse_execution_backend(&value)?;
+                    }
+                    value if !value.starts_with('-') && path.is_none() => {
+                        path = Some(value.to_string());
+                    }
+                    value => return Err(format!("unknown run arg: {value}")),
+                }
+            }
+            let path = path.ok_or_else(|| "run needs a source file".to_string())?;
             let source = read_source(&path)?;
             engine
                 .run_script(
@@ -70,7 +85,10 @@ fn real_main() -> Result<(), String> {
                         filename: Some(path),
                         ..CompileOptions::default()
                     },
-                    RunOptions::default(),
+                    RunOptions {
+                        backend,
+                        ..RunOptions::default()
+                    },
                 )
                 .map(|outcome| println!("run outcome: {:?}", outcome))
                 .map_err(|err| err.to_string())
@@ -158,6 +176,13 @@ fn real_main() -> Result<(), String> {
             println!("source_len: {}", report.source_len);
             println!("stages: {}", report.stages.join(", "));
             println!("invariants: {}", report.invariants.join(", "));
+            println!("ir: {}", report.ir_summary);
+            if !report.diagnostics.is_empty() {
+                println!("diagnostics:");
+                for diagnostic in report.diagnostics {
+                    println!("  {diagnostic}");
+                }
+            }
             Ok(())
         }
         _ => Err(format!("unknown command: {command}\n\n{}", usage())),

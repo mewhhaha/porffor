@@ -532,11 +532,20 @@ impl Context {
     pub fn create_realm(&mut self) -> JsResult<Realm> {
         let realm = Realm::create(self.host_hooks.as_ref(), &self.root_shape)?;
 
-        let old_realm = self.enter_realm(realm);
+        let mut old_realm = realm.clone();
+        let old_global = self.vm.environments.global().clone();
+        self.swap_realm(&mut old_realm);
+        self.vm
+            .environments
+            .replace_global(self.vm.realm.environment().clone());
 
-        builtins::set_default_global_bindings(self)?;
+        let result = builtins::set_default_global_bindings(self);
 
-        Ok(self.enter_realm(old_realm))
+        self.swap_realm(&mut old_realm);
+        self.vm.environments.replace_global(old_global);
+
+        result?;
+        Ok(realm)
     }
 
     /// Get the [`RootShape`].

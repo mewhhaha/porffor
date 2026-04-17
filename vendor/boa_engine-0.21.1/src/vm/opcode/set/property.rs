@@ -1,14 +1,15 @@
 use boa_macros::js_str;
 
-use crate::value::JsVariant;
 use crate::vm::opcode::VaryingOperand;
 use crate::{
-    Context, JsNativeError, JsResult,
+    Context, JsNativeError, JsResult, JsVariant,
     builtins::function::set_function_name,
-    object::{internal_methods::InternalMethodPropertyContext, shape::slot::SlotAttributes},
+    object::internal_methods::InternalMethodPropertyContext,
     property::{PropertyDescriptor, PropertyKey},
     vm::opcode::Operation,
 };
+
+const STRICT_PROPERTY_FLAG: u32 = 1 << 31;
 
 /// `SetPropertyByName` implements the Opcode Operation for `Opcode::SetPropertyByName`
 ///
@@ -19,13 +20,14 @@ pub(crate) struct SetPropertyByName;
 
 impl SetPropertyByName {
     #[inline(always)]
-    pub(crate) fn operation(
+    fn operation_impl(
         (value, receiver, object, index): (
             VaryingOperand,
             VaryingOperand,
             VaryingOperand,
             VaryingOperand,
         ),
+        strict: bool,
         context: &mut Context,
     ) -> JsResult<()> {
         let value = context.vm.get_register(value.into()).clone();
@@ -33,49 +35,14 @@ impl SetPropertyByName {
         let object = context.vm.get_register(object.into()).clone();
         let object = object.to_object(context)?;
 
-        let ic = &context.vm.frame().code_block().ic[usize::from(index)];
-
-        let object_borrowed = object.borrow();
-        if let Some((shape, slot)) = ic.match_or_reset(object_borrowed.shape()) {
-            let slot_index = slot.index as usize;
-
-            if slot.attributes.is_accessor_descriptor() {
-                let result = if slot.attributes.contains(SlotAttributes::PROTOTYPE) {
-                    let prototype = shape.prototype().expect("prototype should have value");
-                    let prototype = prototype.borrow();
-
-                    prototype.properties().storage[slot_index + 1].clone()
-                } else {
-                    object_borrowed.properties().storage[slot_index + 1].clone()
-                };
-
-                drop(object_borrowed);
-                if slot.attributes.has_set() && result.is_object() {
-                    result.as_object().expect("should contain getter").call(
-                        &receiver,
-                        std::slice::from_ref(&value),
-                        context,
-                    )?;
-                }
-            } else if slot.attributes.contains(SlotAttributes::PROTOTYPE) {
-                let prototype = shape.prototype().expect("prototype should have value");
-                let mut prototype = prototype.borrow_mut();
-
-                prototype.properties_mut().storage[slot_index] = value.clone();
-            } else {
-                drop(object_borrowed);
-                let mut object_borrowed = object.borrow_mut();
-                object_borrowed.properties_mut().storage[slot_index] = value.clone();
-            }
-            return Ok(());
-        }
-        drop(object_borrowed);
-
+        let index = u32::from(index);
+        let strict = strict || index & STRICT_PROPERTY_FLAG != 0;
+        let ic = &context.vm.frame().code_block().ic[(index & !STRICT_PROPERTY_FLAG) as usize];
         let name: PropertyKey = ic.name.clone().into();
 
         let context = &mut InternalMethodPropertyContext::new(context);
         let succeeded = object.__set__(name.clone(), value.clone(), receiver.clone(), context)?;
-        if !succeeded && context.vm.frame().code_block.strict() {
+        if !succeeded && strict {
             return Err(JsNativeError::typ()
                 .with_message(format!("cannot set non-writable property: {name}"))
                 .into());
@@ -84,13 +51,22 @@ impl SetPropertyByName {
         // Cache the property.
         let slot = *context.slot();
         if succeeded && slot.is_cachable() {
-            let ic = &context.vm.frame().code_block.ic[usize::from(index)];
+            let ic =
+                &context.vm.frame().code_block.ic[(index & !STRICT_PROPERTY_FLAG) as usize];
             let object_borrowed = object.borrow();
             let shape = object_borrowed.shape();
             ic.set(shape, slot);
         }
 
         Ok(())
+    }
+
+    #[inline(always)]
+    pub(crate) fn operation(
+        operands: (VaryingOperand, VaryingOperand, VaryingOperand, VaryingOperand),
+        context: &mut Context,
+    ) -> JsResult<()> {
+        Self::operation_impl(operands, context.vm.frame().code_block.strict(), context)
     }
 }
 
@@ -109,13 +85,14 @@ pub(crate) struct SetPropertyByValue;
 
 impl SetPropertyByValue {
     #[inline(always)]
-    pub(crate) fn operation(
+    fn operation_impl(
         (value, key, receiver, object): (
             VaryingOperand,
             VaryingOperand,
             VaryingOperand,
             VaryingOperand,
         ),
+        strict: bool,
         context: &mut Context,
     ) -> JsResult<()> {
         let value = context.vm.get_register(value.into()).clone();
@@ -126,27 +103,6 @@ impl SetPropertyByValue {
 
         let key = key.to_property_key(context)?;
 
-        // Fast Path:
-        'fast_path: {
-            if object.is_array()
-                && let PropertyKey::Index(index) = &key
-            {
-                let mut object_borrowed = object.borrow_mut();
-
-                // Cannot modify if not extensible.
-                if !object_borrowed.extensible {
-                    break 'fast_path;
-                }
-
-                if object_borrowed
-                    .properties_mut()
-                    .set_dense_property(index.get(), &value)
-                {
-                    return Ok(());
-                }
-            }
-        }
-
         // Slow path:
         let succeeded = object.__set__(
             key.clone(),
@@ -154,13 +110,21 @@ impl SetPropertyByValue {
             receiver.clone(),
             &mut context.into(),
         )?;
-        if !succeeded && context.vm.frame().code_block.strict() {
+        if !succeeded && strict {
             return Err(JsNativeError::typ()
                 .with_message(format!("cannot set non-writable property: {key}"))
                 .into());
         }
 
         Ok(())
+    }
+
+    #[inline(always)]
+    pub(crate) fn operation(
+        operands: (VaryingOperand, VaryingOperand, VaryingOperand, VaryingOperand),
+        context: &mut Context,
+    ) -> JsResult<()> {
+        Self::operation_impl(operands, context.vm.frame().code_block.strict(), context)
     }
 }
 
@@ -169,6 +133,7 @@ impl Operation for SetPropertyByValue {
     const INSTRUCTION: &'static str = "INST - SetPropertyByValue";
     const COST: u8 = 4;
 }
+
 
 /// `SetPropertyGetterByName` implements the Opcode Operation for `Opcode::SetPropertyGetterByName`
 ///

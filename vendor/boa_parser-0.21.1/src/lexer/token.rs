@@ -98,6 +98,12 @@ pub enum Numeric {
     /// An integer.
     Integer(i32),
 
+    /// A legacy implicit-octal integer literal like `0755`.
+    ///
+    /// This may be tokenized before a later `"use strict"` directive is discovered,
+    /// so the parser must still reject it when consumed in strict mode.
+    LegacyOctal(i32),
+
     /// A `BigInt`.
     BigInt(Box<BigInt>),
 }
@@ -301,6 +307,7 @@ impl TokenKind {
             Self::NullLiteral(_) => "null".to_owned(),
             Self::NumericLiteral(Numeric::Rational(num)) => num.to_string(),
             Self::NumericLiteral(Numeric::Integer(num)) => num.to_string(),
+            Self::NumericLiteral(Numeric::LegacyOctal(num)) => num.to_string(),
             Self::NumericLiteral(Numeric::BigInt(ref num)) => format!("{num}n"),
             Self::Punctuator(punc) => punc.to_string(),
             Self::StringLiteral((lit, _)) => interner.resolve_expect(lit).to_string(),

@@ -15,6 +15,8 @@ mod switch;
 mod r#try;
 mod with;
 
+pub(crate) use block::{shift_statement_list_scopes, statement_list_needs_block_environment};
+
 impl ByteCompiler<'_> {
     /// Compiles a [`Statement`] `boa_ast` node.
     pub fn compile_stmt(&mut self, node: &Statement, use_expr: bool, root_statement: bool) {
@@ -73,7 +75,7 @@ impl ByteCompiler<'_> {
             }
             Statement::Return(ret) => {
                 if let Some(expr) = ret.target() {
-                    let return_actions = self.return_jump_record_actions();
+                        let return_actions = self.return_jump_record_actions(true);
                     if self.strict()
                         && !self.is_async()
                         && !self.is_generator()
@@ -133,7 +135,7 @@ impl ByteCompiler<'_> {
     }
 
     pub(crate) fn r#return(&mut self, return_value_on_stack: bool) {
-        let actions = self.return_jump_record_actions();
+        let actions = self.return_jump_record_actions(return_value_on_stack);
 
         JumpRecord::new(
             JumpRecordKind::Return {
@@ -144,19 +146,22 @@ impl ByteCompiler<'_> {
         .perform_actions(Self::DUMMY_ADDRESS, self);
     }
 
-    fn return_jump_record_actions(&self) -> Vec<JumpRecordAction> {
+    fn return_jump_record_actions(&self, return_value_on_stack: bool) -> Vec<JumpRecordAction> {
         let mut actions = Vec::default();
         for (i, info) in self.jump_info.iter().enumerate().rev() {
             let count = self.jump_info_open_environment_count(i);
             actions.push(JumpRecordAction::PopEnvironments { count });
 
             if !info.in_finally()
-                && let Some((finally_throw_flag, finally_throw_index)) = info.finally_throw
+                && let Some((finally_throw_flag, finally_throw_index, finally_return_flag)) =
+                    info.finally_throw
             {
                 actions.push(JumpRecordAction::HandleFinally {
                     index: info.jumps.len() as u32,
                     finally_throw_flag,
                     finally_throw_index,
+                    finally_return_flag,
+                    return_value_on_stack,
                 });
                 actions.push(JumpRecordAction::Transfer { index: i as u32 });
             }

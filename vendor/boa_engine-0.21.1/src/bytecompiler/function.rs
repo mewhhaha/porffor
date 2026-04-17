@@ -3,6 +3,7 @@ use crate::{
     builtins::function::ThisMode,
     bytecompiler::ByteCompiler,
     js_string,
+    bytecompiler::statement::{shift_statement_list_scopes, statement_list_needs_block_environment},
     vm::{CodeBlock, CodeBlockFlags, source_info::SourcePath},
 };
 use boa_ast::{
@@ -25,6 +26,7 @@ pub(crate) struct FunctionCompiler {
     method: bool,
     in_with: bool,
     force_function_scope: bool,
+    in_class_field_initializer: bool,
     name_scope: Option<Scope>,
     runtime_deletable_binding_names: FxHashSet<JsString>,
     runtime_deletable_binding_overrides: FxHashMap<JsString, IdentifierReference>,
@@ -44,6 +46,7 @@ impl FunctionCompiler {
             method: false,
             in_with: false,
             force_function_scope: false,
+            in_class_field_initializer: false,
             name_scope: None,
             runtime_deletable_binding_names: FxHashSet::default(),
             runtime_deletable_binding_overrides: FxHashMap::default(),
@@ -121,6 +124,15 @@ impl FunctionCompiler {
         self
     }
 
+    /// Indicate if function is created inside class field initializer code.
+    pub(crate) const fn in_class_field_initializer(
+        mut self,
+        in_class_field_initializer: bool,
+    ) -> Self {
+        self.in_class_field_initializer = in_class_field_initializer;
+        self
+    }
+
     /// Set source map file path.
     pub(crate) fn source_path(mut self, source_path: SourcePath) -> Self {
         self.source_path = source_path;
@@ -164,6 +176,10 @@ impl FunctionCompiler {
             CodeBlockFlags::HAS_PROTOTYPE_PROPERTY,
             !self.arrow && !self.method && !self.r#async && !self.generator,
         );
+        compiler.code_block_flags.set(
+            CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER,
+            self.in_class_field_initializer,
+        );
 
         if self.arrow {
             compiler.this_mode = ThisMode::Lexical;
@@ -190,6 +206,23 @@ impl FunctionCompiler {
         } else {
             compiler.variable_scope = scopes.function_scope().clone();
             compiler.lexical_scope = scopes.function_scope().clone();
+        }
+
+        let body_scope = scopes
+            .lexical_scope()
+            .cloned()
+            .or_else(|| scopes.parameters_scope().cloned())
+            .or_else(|| scopes.parameters_eval_scope().cloned())
+            .unwrap_or_else(|| scopes.function_scope().clone());
+
+        if statement_list_needs_block_environment(body.statement_list()) {
+            let scope = &body_scope;
+            if scope.scope_index() <= compiler.lexical_scope.scope_index() {
+                let delta = compiler.lexical_scope.scope_index() + 1 - scope.scope_index();
+                scope.set_index(scope.scope_index() + delta);
+                shift_statement_list_scopes(body.statement_list(), delta);
+            }
+            scope.set_needs_environment();
         }
 
         // Taken from:

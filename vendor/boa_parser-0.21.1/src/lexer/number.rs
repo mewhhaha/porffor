@@ -414,12 +414,20 @@ impl<R> Tokenizer<R> for NumberLiteral {
                     Numeric::Rational(val)
                 }
             },
-            NumericKind::Integer(base) => {
-                i32::from_str_radix(num_str, base).map_or_else(|_| {
-                    let num = BigInt::parse_bytes(num_str.as_bytes(), base).expect("Failed to parse integer after checks");
+            NumericKind::Integer(base) => i32::from_str_radix(num_str, base).map_or_else(
+                |_| {
+                    let num = BigInt::parse_bytes(num_str.as_bytes(), base)
+                        .expect("Failed to parse integer after checks");
                     Numeric::Rational(num.to_f64().unwrap_or(f64::INFINITY))
-                }, Numeric::Integer)
-            }
+                },
+                |num| {
+                    if legacy_octal && base == 8 {
+                        Numeric::LegacyOctal(num)
+                    } else {
+                        Numeric::Integer(num)
+                    }
+                },
+            ),
         };
 
         Ok(Token::new_by_position_group(

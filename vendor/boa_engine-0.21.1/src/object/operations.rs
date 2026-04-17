@@ -1,10 +1,12 @@
 use super::internal_methods::InternalMethodPropertyContext;
+use std::sync::atomic::Ordering;
 use crate::value::JsVariant;
 use crate::{
     Context, JsResult, JsSymbol, JsValue,
     builtins::{
         Array, Proxy,
         function::{BoundFunction, ClassFieldDefinition, OrdinaryFunction, set_function_name},
+        typed_array::TypedArray,
     },
     context::intrinsics::{StandardConstructor, StandardConstructors},
     error::JsNativeError,
@@ -502,6 +504,26 @@ impl JsObject {
         // 4. If status is false, return false.
         if !status {
             return Ok(false);
+        }
+
+        if level.is_frozen()
+            && let Some(typed_array) = self.downcast_ref::<TypedArray>()
+        {
+            let buffer = typed_array.viewed_array_buffer().as_buffer();
+            if !buffer.is_fixed_len() {
+                return Ok(false);
+            }
+
+            let Some(buf) = buffer
+                .bytes(Ordering::SeqCst)
+                .filter(|buf| !typed_array.is_out_of_bounds(buf.len()))
+            else {
+                return Ok(false);
+            };
+
+            if typed_array.array_length(buf.len()) != 0 {
+                return Ok(false);
+            }
         }
 
         // 5. Let keys be ? O.[[OwnPropertyKeys]]().

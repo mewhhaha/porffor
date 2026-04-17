@@ -173,6 +173,33 @@ where
     type Output = PropertyDefinitionNode;
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
+        if cursor.json_parse() {
+            let token = cursor.peek(0, interner).or_abrupt()?;
+            if !matches!(token.kind(), TokenKind::StringLiteral(_)) {
+                return Err(Error::expected(
+                    vec!["JSON string literal property name".to_owned()],
+                    token.to_string(interner),
+                    token.span(),
+                    "JSON object literal",
+                ));
+            }
+
+            let property_name =
+                PropertyName::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
+            cursor.expect(Punctuator::Colon, "JSON object literal", interner)?;
+
+            let mut value = AssignmentExpression::new(true, self.allow_yield, self.allow_await)
+                .parse(cursor, interner)?;
+
+            if let Some(name) = property_name.literal()
+                && name != Sym::__PROTO__
+            {
+                value.set_anonymous_function_definition_name(&name);
+            }
+
+            return Ok(PropertyDefinitionNode::Property(property_name, value));
+        }
+
         match cursor.peek(1, interner).or_abrupt()?.kind() {
             TokenKind::Punctuator(Punctuator::CloseBlock | Punctuator::Comma) => {
                 let ident = IdentifierReference::new(self.allow_yield, self.allow_await)
@@ -584,6 +611,9 @@ where
                     Expression::Literal(Literal::new(*num, token.span())).into()
                 }
                 Numeric::Integer(num) => {
+                    Expression::Literal(Literal::new(*num, token.span())).into()
+                }
+                Numeric::LegacyOctal(num) => {
                     Expression::Literal(Literal::new(*num, token.span())).into()
                 }
                 Numeric::BigInt(num) => {

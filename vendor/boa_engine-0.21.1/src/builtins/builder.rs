@@ -104,6 +104,7 @@ impl<S: ApplyToObject + IsConstructor> ApplyToObject for Callable<S> {
                 .downcast_mut::<NativeFunctionObject>()
                 .expect("Builtin must be a function object");
             function.f = NativeFunction::from_fn_ptr(self.function);
+            function.name = self.name.clone();
             function.constructor = S::IS_CONSTRUCTOR.then_some(ConstructorKind::Base);
             function.realm = Some(self.realm);
         }

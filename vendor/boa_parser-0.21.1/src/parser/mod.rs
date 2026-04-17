@@ -29,6 +29,7 @@ use boa_ast::{
         contains_invalid_object_literal, lexically_declared_names, var_declared_names,
     },
     scope::Scope,
+    Spanned,
 };
 use boa_interner::{Interner, Sym};
 use rustc_hash::FxHashSet;
@@ -286,7 +287,18 @@ impl<'a, R: ReadChar> Parser<'a, R> {
         allow_yield: bool,
         allow_await: bool,
     ) -> ParseResult<FormalParameterList> {
-        FormalParameters::new(allow_yield, allow_await).parse(&mut self.cursor, interner)
+        let params =
+            FormalParameters::new(allow_yield, allow_await).parse(&mut self.cursor, interner)?;
+
+        if let Some(next) = self.cursor.peek(0, interner)? {
+            return Err(Error::unexpected(
+                next.to_string(interner),
+                next.span(),
+                "formal parameters",
+            ));
+        }
+
+        Ok(params)
     }
 }
 

@@ -28,6 +28,7 @@ pub mod proxy;
 pub mod reflect;
 pub mod regexp;
 pub mod set;
+pub mod shadow_realm;
 pub mod string;
 pub mod symbol;
 pub mod typed_array;
@@ -67,7 +68,8 @@ pub(crate) use self::{
     dataview::DataView,
     date::Date,
     error::{
-        AggregateError, EvalError, RangeError, ReferenceError, SyntaxError, TypeError, UriError,
+        AggregateError, EvalError, RangeError, ReferenceError, SuppressedError, SyntaxError,
+        TypeError, UriError,
     },
     eval::Eval,
     function::BuiltInFunctionObject,
@@ -81,6 +83,7 @@ pub(crate) use self::{
     reflect::Reflect,
     regexp::RegExp,
     set::Set,
+    shadow_realm::ShadowRealm,
     string::String,
     symbol::Symbol,
     typed_array::{
@@ -111,7 +114,7 @@ use crate::{
         string::StringIterator,
         typed_array::BuiltinTypedArray,
         uri::{DecodeUri, DecodeUriComponent, EncodeUri, EncodeUriComponent},
-        weak::WeakRef,
+        weak::{FinalizationRegistry, WeakRef},
         weak_map::WeakMap,
         weak_set::WeakSet,
     },
@@ -258,6 +261,7 @@ impl Realm {
         Array::init(self);
         AsyncDisposableStack::init(self);
         DisposableStack::init(self);
+        ShadowRealm::init(self);
         ArrayIterator::init(self);
         Proxy::init(self);
         ArrayBuffer::init(self);
@@ -304,6 +308,7 @@ impl Realm {
         EvalError::init(self);
         UriError::init(self);
         AggregateError::init(self);
+        SuppressedError::init(self);
         Reflect::init(self);
         Generator::init(self);
         GeneratorFunction::init(self);
@@ -315,6 +320,7 @@ impl Realm {
         EncodeUriComponent::init(self);
         DecodeUri::init(self);
         DecodeUriComponent::init(self);
+        FinalizationRegistry::init(self);
         WeakRef::init(self);
         WeakMap::init(self);
         WeakSet::init(self);
@@ -397,11 +403,13 @@ pub(crate) fn set_default_global_bindings(context: &mut Context) -> JsResult<()>
 
     global_binding::<BuiltInFunctionObject>(context)?;
     global_binding::<OrdinaryObject>(context)?;
+    global_binding::<Iterator>(context)?;
     global_binding::<Math>(context)?;
     global_binding::<Json>(context)?;
     global_binding::<Array>(context)?;
     global_binding::<AsyncDisposableStack>(context)?;
     global_binding::<DisposableStack>(context)?;
+    global_binding::<ShadowRealm>(context)?;
     global_binding::<Proxy>(context)?;
     global_binding::<ArrayBuffer>(context)?;
     global_binding::<SharedArrayBuffer>(context)?;
@@ -442,12 +450,14 @@ pub(crate) fn set_default_global_bindings(context: &mut Context) -> JsResult<()>
     global_binding::<EvalError>(context)?;
     global_binding::<UriError>(context)?;
     global_binding::<AggregateError>(context)?;
+    global_binding::<SuppressedError>(context)?;
     global_binding::<Reflect>(context)?;
     global_binding::<Promise>(context)?;
     global_binding::<EncodeUri>(context)?;
     global_binding::<EncodeUriComponent>(context)?;
     global_binding::<DecodeUri>(context)?;
     global_binding::<DecodeUriComponent>(context)?;
+    global_binding::<FinalizationRegistry>(context)?;
     global_binding::<WeakRef>(context)?;
     global_binding::<WeakMap>(context)?;
     global_binding::<WeakSet>(context)?;

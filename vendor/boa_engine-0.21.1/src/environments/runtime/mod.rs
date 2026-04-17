@@ -195,6 +195,7 @@ impl EnvironmentStack {
 
     /// Push a function environment on the environments stack.
     pub(crate) fn push_function(&mut self, scope: Scope, function_slots: FunctionSlots) {
+        let scope = scope.clone_for_runtime();
         let num_bindings = scope.num_bindings_non_local();
 
         let (poisoned, with) = {
@@ -245,6 +246,17 @@ impl EnvironmentStack {
         } else {
             Some(self.global())
         }
+    }
+
+    /// Get nearest declarative environment walking outwards from current stack top.
+    pub(crate) fn nearest_declarative_ref(&self) -> Option<&Gc<DeclarativeEnvironment>> {
+        for env in self.stack.iter().rev() {
+            if let Some(env) = env.as_declarative() {
+                return Some(env);
+            }
+        }
+
+        Some(self.global())
     }
 
     /// Mark that there may be added bindings from the current environment to the next function
@@ -617,7 +629,23 @@ impl Context {
             && !env.with()
             && !env.poisoned()
         {
-            return Ok(());
+            let top_index = self
+                .vm
+                .environments
+                .stack
+                .len()
+                .checked_sub(1)
+                .map(|index| index as u32);
+            let matches_current_env = match locator.scope() {
+                BindingLocatorScope::GlobalObject | BindingLocatorScope::GlobalDeclarative => {
+                    top_index.is_none()
+                }
+                BindingLocatorScope::Stack(index) => top_index == Some(index),
+            };
+
+            if matches_current_env {
+                return Ok(());
+            }
         }
 
         let (global, min_index) = match locator.scope() {

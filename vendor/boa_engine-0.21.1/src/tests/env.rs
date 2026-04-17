@@ -47,3 +47,23 @@ fn with_env_not_panic() {
         "k is not defined",
     )]);
 }
+
+#[test]
+fn direct_eval_bindings_do_not_leak_between_function_invocations() {
+    run_test_actions([TestAction::assert_eq(
+        indoc! {r#"
+            function returns(value) {
+                return function(code) {
+                    return eval(code) === value;
+                };
+            }
+
+            [
+                returns("number")("eval('var x = 2;'); typeof x"),
+                returns("number")("eval('var x = 2;'); typeof x"),
+                returns(false)("var r = /foo/; delete r.lastIndex"),
+            ].join(",");
+        "#},
+        js_str!("true,true,true"),
+    )]);
+}

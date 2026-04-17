@@ -930,10 +930,46 @@ fn f64_to_exponential(n: f64) -> JsString {
 // because in cases like (0.999).toExponential(0) the result will be 1e0.
 // Instead we get the index of 'e', and if the next character is not '-' we insert the plus sign
 fn f64_to_exponential_with_precision(n: f64, prec: usize) -> JsString {
-    let mut res = format!("{n:.prec$e}");
-    let idx = res.find('e').expect("'e' not found in exponential string");
-    if res.as_bytes()[idx + 1] != b'-' {
-        res.insert(idx + 1, '+');
+    debug_assert!(n.is_finite());
+
+    if n < 0.0 {
+        let mut formatted = String::from("-");
+        formatted.push_str(&f64_to_exponential_with_precision(-n, prec).to_std_string_escaped());
+        return js_string!(formatted);
     }
-    js_string!(res)
+
+    if n == 0.0 {
+        let mut result = String::from("0");
+        if prec > 0 {
+            result.push('.');
+            result.push_str(&"0".repeat(prec));
+        }
+        result.push_str("e+0");
+        return js_string!(result);
+    }
+
+    let mut digits = format!("{n:.100}");
+    let mut exponent = Number::flt_str_to_exp(&digits);
+
+    if exponent < 0 {
+        digits = digits.split_off((1 - exponent) as usize);
+    } else if let Some(dot) = digits.find('.') {
+        digits.remove(dot);
+    }
+
+    if Number::round_to_precision(&mut digits, prec + 1) {
+        exponent += 1;
+    }
+
+    if prec > 0 {
+        digits.insert(1, '.');
+    }
+
+    digits.push('e');
+    if exponent >= 0 {
+        digits.push('+');
+    }
+    digits.push_str(&exponent.to_string());
+
+    js_string!(digits)
 }

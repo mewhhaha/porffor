@@ -29,6 +29,7 @@ pub struct ClassDeclaration {
     pub(crate) constructor: Option<FunctionExpression>,
     pub(crate) elements: Box<[ClassElement]>,
     pub(crate) decorators: Box<[Expression]>,
+    linear_span: LinearSpanIgnoreEq,
 
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) name_scope: Scope,
@@ -63,6 +64,7 @@ impl ClassDeclaration {
             constructor,
             elements,
             decorators,
+            linear_span: LinearSpan::default().into(),
             name_scope: Scope::default(),
         }
     }
@@ -100,6 +102,19 @@ impl ClassDeclaration {
     #[must_use]
     pub const fn decorators(&self) -> &[Expression] {
         &self.decorators
+    }
+
+    /// Gets the linear span of the full class declaration source.
+    #[inline]
+    #[must_use]
+    pub const fn linear_span(&self) -> LinearSpan {
+        self.linear_span.0
+    }
+
+    /// Sets the linear span of the full class declaration source.
+    #[inline]
+    pub fn set_linear_span(&mut self, linear_span: LinearSpan) {
+        self.linear_span = linear_span.into();
     }
 
     /// Gets the scope containing the class name binding.
@@ -205,6 +220,7 @@ pub struct ClassExpression {
     pub(crate) decorators: Box<[Expression]>,
 
     span: Span,
+    linear_span: LinearSpanIgnoreEq,
 
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) name_scope: Option<Scope>,
@@ -257,6 +273,7 @@ impl ClassExpression {
             elements,
             decorators,
             span,
+            linear_span: LinearSpan::default().into(),
             name_scope,
         }
     }
@@ -294,6 +311,19 @@ impl ClassExpression {
     #[must_use]
     pub const fn decorators(&self) -> &[Expression] {
         &self.decorators
+    }
+
+    /// Gets the linear span of the full class expression source.
+    #[inline]
+    #[must_use]
+    pub const fn linear_span(&self) -> LinearSpan {
+        self.linear_span.0
+    }
+
+    /// Sets the linear span of the full class expression source.
+    #[inline]
+    pub fn set_linear_span(&mut self, linear_span: LinearSpan) {
+        self.linear_span = linear_span.into();
     }
 
     /// Gets the scope containing the class name binding if it exists.

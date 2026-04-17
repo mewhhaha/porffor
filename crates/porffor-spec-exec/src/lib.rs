@@ -2,17 +2,25 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration as StdDuration, Instant as StdInstant};
 
+use boa_engine::builtins::array_buffer::SharedArrayBuffer as RawSharedArrayBuffer;
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::SimpleJobExecutor;
-use boa_engine::module::{
-    Module, ModuleLoader, ModuleRequest, Referrer,
-};
+use boa_engine::module::{Module, ModuleLoader, ModuleRequest, Referrer};
 use boa_engine::native_function::NativeFunction;
-use boa_engine::object::builtins::{AlignedVec, JsArrayBuffer, JsUint8Array};
+use boa_engine::object::builtins::{
+    AlignedVec, JsArrayBuffer, JsPromise, JsSharedArrayBuffer, JsUint8Array,
+};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::{Attribute, PropertyDescriptor};
-use boa_engine::{js_string, Context, JsNativeError, JsResult, JsString, JsValue, Source};
+use boa_engine::value::TryFromJs;
+use boa_engine::{
+    js_string, Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, Source,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleHostConfig {
@@ -52,6 +60,8 @@ impl std::error::Error for ExecutionError {}
 
 thread_local! {
     static HOST_REALMS: RefCell<HostRealmStore> = RefCell::new(HostRealmStore::default());
+    static CURRENT_HOST_SESSION: RefCell<Option<Arc<HostSession>>> = const { RefCell::new(None) };
+    static CURRENT_AGENT_STATE: RefCell<Option<AgentThreadState>> = const { RefCell::new(None) };
 }
 
 #[derive(Default)]
@@ -60,18 +70,146 @@ struct HostRealmStore {
     realms: BTreeMap<u64, Context>,
 }
 
-struct HostRealmScope;
+struct HostRealmScope {
+    host_session: Arc<HostSession>,
+}
+
+struct HostSession {
+    can_block: bool,
+    started_at: StdInstant,
+    reports_tx: Sender<String>,
+    reports_rx: Mutex<Receiver<String>>,
+    agents: Mutex<Vec<AgentHandle>>,
+}
+
+struct AgentHandle {
+    command_tx: Sender<AgentCommand>,
+    join: JoinHandle<()>,
+}
+
+#[derive(Clone)]
+enum AgentCommand {
+    Broadcast(RawSharedArrayBuffer),
+    Shutdown,
+}
+
+struct AgentThreadState {
+    callback: Option<boa_engine::JsObject>,
+    report_tx: Sender<String>,
+    started_at: StdInstant,
+    leaving: bool,
+}
 
 impl HostRealmScope {
-    fn new() -> Self {
+    fn new(can_block: bool) -> Self {
         reset_host_realms();
-        Self
+        let (reports_tx, reports_rx) = mpsc::channel();
+        let host_session = Arc::new(HostSession {
+            can_block,
+            started_at: StdInstant::now(),
+            reports_tx,
+            reports_rx: Mutex::new(reports_rx),
+            agents: Mutex::new(Vec::new()),
+        });
+        CURRENT_HOST_SESSION.with(|session| {
+            *session.borrow_mut() = Some(host_session.clone());
+        });
+        Self { host_session }
     }
 }
 
 impl Drop for HostRealmScope {
     fn drop(&mut self) {
+        self.host_session.shutdown();
+        CURRENT_HOST_SESSION.with(|session| {
+            *session.borrow_mut() = None;
+        });
+        CURRENT_AGENT_STATE.with(|state| {
+            *state.borrow_mut() = None;
+        });
         reset_host_realms();
+    }
+}
+
+impl HostSession {
+    fn start_agent(self: &Arc<Self>, source: String) -> Result<(), ExecutionError> {
+        let (command_tx, command_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let session = self.clone();
+        let join = thread::Builder::new()
+            .name("porffor-test262-agent".to_string())
+            .spawn(move || run_agent_thread(session, source, command_rx, ready_tx))
+            .map_err(|err| ExecutionError::new(format!("failed to spawn agent thread: {err}")))?;
+
+        match ready_rx.recv() {
+            Ok(Ok(())) => {
+                self.agents
+                    .lock()
+                    .expect("agent list mutex poisoned")
+                    .push(AgentHandle { command_tx, join });
+                Ok(())
+            }
+            Ok(Err(message)) => {
+                let _ = join.join();
+                self.reports_tx.send(message.clone()).map_err(|err| {
+                    ExecutionError::new(format!("failed to queue agent error: {err}"))
+                })?;
+                Ok(())
+            }
+            Err(err) => {
+                let _ = join.join();
+                Err(ExecutionError::new(format!(
+                    "failed to initialize agent thread: {err}"
+                )))
+            }
+        }
+    }
+
+    fn broadcast(&self, buffer: RawSharedArrayBuffer) -> usize {
+        let mut sent = 0;
+        let mut agents = self.agents.lock().expect("agent list mutex poisoned");
+        let mut survivors = Vec::with_capacity(agents.len());
+
+        for handle in agents.drain(..) {
+            if handle
+                .command_tx
+                .send(AgentCommand::Broadcast(buffer.clone()))
+                .is_ok()
+            {
+                sent += 1;
+                survivors.push(handle);
+            } else {
+                let _ = handle.join.join();
+            }
+        }
+
+        *agents = survivors;
+        sent
+    }
+
+    fn next_report(&self) -> Result<Option<String>, ExecutionError> {
+        let receiver = self
+            .reports_rx
+            .lock()
+            .map_err(|_| ExecutionError::new("report queue mutex poisoned"))?;
+        match receiver.try_recv() {
+            Ok(report) => Ok(Some(report)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Ok(None),
+        }
+    }
+
+    fn shutdown(&self) {
+        let mut agents = self.agents.lock().expect("agent list mutex poisoned");
+        let handles = std::mem::take(&mut *agents);
+        drop(agents);
+
+        for handle in &handles {
+            let _ = handle.command_tx.send(AgentCommand::Shutdown);
+        }
+        for handle in handles {
+            let _ = handle.join.join();
+        }
     }
 }
 
@@ -83,14 +221,150 @@ fn reset_host_realms() {
     });
 }
 
+fn current_host_session() -> JsResult<Arc<HostSession>> {
+    CURRENT_HOST_SESSION.with(|session| {
+        session.borrow().clone().ok_or_else(|| {
+            JsError::from(JsNativeError::typ().with_message("host session is not initialized"))
+        })
+    })
+}
+
+fn with_agent_state_mut<R>(
+    action: impl FnOnce(&mut AgentThreadState) -> JsResult<R>,
+) -> JsResult<R> {
+    CURRENT_AGENT_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let state = state.as_mut().ok_or_else(|| {
+            JsError::from(
+                JsNativeError::typ().with_message("agent thread state is not initialized"),
+            )
+        })?;
+        action(state)
+    })
+}
+
+fn with_agent_state<R>(action: impl FnOnce(&AgentThreadState) -> R) -> Option<R> {
+    CURRENT_AGENT_STATE.with(|state| state.borrow().as_ref().map(action))
+}
+
+fn run_agent_thread(
+    session: Arc<HostSession>,
+    source: String,
+    command_rx: Receiver<AgentCommand>,
+    ready_tx: Sender<Result<(), String>>,
+) {
+    CURRENT_HOST_SESSION.with(|host| {
+        *host.borrow_mut() = Some(session.clone());
+    });
+    CURRENT_AGENT_STATE.with(|state| {
+        *state.borrow_mut() = Some(AgentThreadState {
+            callback: None,
+            report_tx: session.reports_tx.clone(),
+            started_at: StdInstant::now(),
+            leaving: false,
+        });
+    });
+
+    let mut context = match Context::builder()
+        .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .can_block(true)
+        .build()
+    {
+        Ok(context) => context,
+        Err(err) => {
+            let _ = ready_tx.send(Err(err.to_string()));
+            CURRENT_AGENT_STATE.with(|state| {
+                *state.borrow_mut() = None;
+            });
+            CURRENT_HOST_SESSION.with(|host| {
+                *host.borrow_mut() = None;
+            });
+            return;
+        }
+    };
+
+    let init_result = (|| -> Result<(), String> {
+        install_host_globals(&mut context, &[]).map_err(|err| err.to_string())?;
+        context
+            .eval(Source::from_bytes(source.as_bytes()))
+            .map_err(|err| format_js_error(err, &mut context).to_string())?;
+        context
+            .run_jobs()
+            .map_err(|err| format_js_error(err, &mut context).to_string())?;
+        Ok(())
+    })();
+
+    let _ = ready_tx.send(init_result.clone());
+
+    if init_result.is_ok() {
+        loop {
+            if with_agent_state(|state| state.leaving).unwrap_or(true) {
+                break;
+            }
+
+            match command_rx.recv() {
+                Ok(AgentCommand::Broadcast(buffer)) => {
+                    if let Err(message) = invoke_agent_callback(buffer, &mut context) {
+                        let _ = session.reports_tx.send(message);
+                        break;
+                    }
+                }
+                Ok(AgentCommand::Shutdown) | Err(_) => break,
+            }
+        }
+    }
+
+    CURRENT_AGENT_STATE.with(|state| {
+        *state.borrow_mut() = None;
+    });
+    CURRENT_HOST_SESSION.with(|host| {
+        *host.borrow_mut() = None;
+    });
+}
+
+fn invoke_agent_callback(
+    buffer: RawSharedArrayBuffer,
+    context: &mut Context,
+) -> Result<(), String> {
+    let callback = with_agent_state(|state| state.callback.clone());
+    let Some(callback) = callback.flatten() else {
+        return Ok(());
+    };
+
+    let shared = JsSharedArrayBuffer::from_buffer(buffer, context);
+    let result = callback
+        .call(&JsValue::undefined(), &[shared.into()], context)
+        .map_err(|err| format_js_error(err, context).to_string())?;
+
+    if let Some(object) = result.as_object() {
+        if let Ok(promise) = JsPromise::from_object(object.clone()) {
+            promise
+                .await_blocking(context)
+                .map_err(|err| format_js_error(err, context).to_string())?;
+        } else {
+            context
+                .run_jobs()
+                .map_err(|err| format_js_error(err, context).to_string())?;
+        }
+    } else {
+        context
+            .run_jobs()
+            .map_err(|err| format_js_error(err, context).to_string())?;
+    }
+
+    Ok(())
+}
+
 pub fn execute_script(
     source: &str,
     filename: Option<&str>,
     argv: &[String],
+    can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::new();
+    let _host_realms = HostRealmScope::new(can_block);
     let mut context = Context::builder()
         .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .can_block(can_block)
         .build()
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
@@ -110,8 +384,9 @@ pub fn execute_module(
     filename: Option<&str>,
     host: ModuleHostConfig,
     argv: &[String],
+    can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::new();
+    let _host_realms = HostRealmScope::new(can_block);
     let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
     let loader = Rc::new(Test262ModuleLoader::new(
         host.module_root.as_deref(),
@@ -120,6 +395,7 @@ pub fn execute_module(
     let mut context = Context::builder()
         .job_executor(Rc::new(SimpleJobExecutor::new()))
         .module_loader(loader.clone())
+        .can_block(can_block)
         .build()
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
@@ -1575,1076 +1851,6 @@ const DATE_TIME_FORMAT_SHIM: &str = r#"
 })();
 "#;
 
-const ITERATOR_HELPERS_SHIM: &str = r#"
-(function () {
-  "use strict";
-  const IteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
-  if (typeof globalThis.Iterator === "function" && typeof globalThis.Iterator.from === "function" &&
-      typeof IteratorPrototype.map === "function" && typeof IteratorPrototype.drop === "function") {
-    return;
-  }
-
-  if (typeof Symbol.dispose !== "symbol") {
-    Object.defineProperty(Symbol, "dispose", {
-      value: Symbol("Symbol.dispose"),
-      writable: false,
-      enumerable: false,
-      configurable: false
-    });
-  }
-
-  if (typeof Symbol.asyncDispose !== "symbol") {
-    Object.defineProperty(Symbol, "asyncDispose", {
-      value: Symbol("Symbol.asyncDispose"),
-      writable: false,
-      enumerable: false,
-      configurable: false
-    });
-  }
-
-  if (typeof globalThis.SuppressedError !== "function") {
-    function SuppressedError(error, suppressed, message) {
-      if (!new.target) {
-        throw new TypeError("SuppressedError must be called with new");
-      }
-      const self = new Error(message === undefined ? "" : String(message));
-      Object.setPrototypeOf(self, new.target.prototype);
-      Object.defineProperty(self, "error", {
-        value: error,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      });
-      Object.defineProperty(self, "suppressed", {
-        value: suppressed,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      });
-      return self;
-    }
-
-    SuppressedError.prototype = Object.create(Error.prototype, {
-      constructor: {
-        value: SuppressedError,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      },
-      name: {
-        value: "SuppressedError",
-        writable: true,
-        enumerable: false,
-        configurable: true
-      }
-    });
-    Object.setPrototypeOf(SuppressedError, Error);
-
-    Object.defineProperty(globalThis, "SuppressedError", {
-      value: SuppressedError,
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-  }
-
-  function isObjectLike(value) {
-    return (typeof value === "object" && value !== null) || typeof value === "function";
-  }
-
-  function getMethod(value, key) {
-    const method = value[key];
-    if (method == null) {
-      return undefined;
-    }
-    if (typeof method !== "function") {
-      throw new TypeError(String(key) + " is not callable");
-    }
-    return method;
-  }
-
-  function assertObjectResult(result) {
-    if (!isObjectLike(result)) {
-      throw new TypeError("iterator result must be an object");
-    }
-    return result;
-  }
-
-  function normalizeResult(result) {
-    result = assertObjectResult(result);
-    return {
-      value: result.value,
-      done: Boolean(result.done)
-    };
-  }
-
-  function toOptionsObject(options) {
-    if (options === undefined) {
-      return undefined;
-    }
-    if (!isObjectLike(options)) {
-      throw new TypeError("options must be an object");
-    }
-    return options;
-  }
-
-  function getIteratorDirect(value) {
-    if (!isObjectLike(value)) {
-      throw new TypeError("iterator helper receiver must be an object");
-    }
-    const next = value.next;
-    return {
-      iterator: value,
-      next
-    };
-  }
-
-  function iteratorStep(record) {
-    if (typeof record.next !== "function") {
-      throw new TypeError("iterator helper receiver must have a callable next");
-    }
-    const result = assertObjectResult(record.next.call(record.iterator));
-    if (Boolean(result.done)) {
-      return {
-        value: undefined,
-        done: true
-      };
-    }
-    return {
-      value: result.value,
-      done: false
-    };
-  }
-
-  function iteratorReturn(record) {
-    const method = getMethod(record.iterator, "return");
-    if (method === undefined) {
-      return { value: undefined, done: true };
-    }
-    assertObjectResult(method.call(record.iterator));
-    return { value: undefined, done: true };
-  }
-
-  function iteratorReturnResult(record) {
-    const method = getMethod(record.iterator, "return");
-    if (method === undefined) {
-      return { value: undefined, done: true };
-    }
-    return normalizeResult(method.call(record.iterator));
-  }
-
-  function iteratorClose(record, error) {
-    try {
-      iteratorReturn(record);
-    } catch (closeError) {
-      if (error === undefined) {
-        throw closeError;
-      }
-    }
-    if (error !== undefined) {
-      throw error;
-    }
-    return { value: undefined, done: true };
-  }
-
-  function closeIteratorsReverse(records, finished, error, skipIndex) {
-    let thrown = error;
-    for (let index = records.length - 1; index >= 0; index -= 1) {
-      if (index === skipIndex) {
-        continue;
-      }
-      if (finished[index]) {
-        continue;
-      }
-      try {
-        iteratorReturn(records[index]);
-      } catch (closeError) {
-        if (thrown === undefined) {
-          thrown = closeError;
-        }
-      }
-    }
-    if (thrown !== undefined) {
-      throw thrown;
-    }
-    return { value: undefined, done: true };
-  }
-
-  function collectZipPadding(count, paddingOption) {
-    if (paddingOption === undefined) {
-      return new Array(count).fill(undefined);
-    }
-    if (!isObjectLike(paddingOption)) {
-      throw new TypeError("padding must be an object");
-    }
-    const iterator = getIteratorDirect(iteratorFrom(paddingOption));
-    const paddingValues = new Array(count);
-    for (let index = 0; index < count; index += 1) {
-      const step = iteratorStep(iterator);
-      if (step.done) {
-        paddingValues[index] = undefined;
-      } else {
-        paddingValues[index] = step.value;
-      }
-    }
-    return paddingValues;
-  }
-
-  function collectZipKeyedEntries(iterables) {
-    const records = [];
-    const keys = [];
-    const iterators = [];
-    const allKeys = Reflect.ownKeys(iterables);
-    for (let keyIndex = 0; keyIndex < allKeys.length; keyIndex += 1) {
-      const key = allKeys[keyIndex];
-      let descriptor;
-      try {
-        descriptor = Object.getOwnPropertyDescriptor(iterables, key);
-      } catch (error) {
-        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
-      }
-      if (!descriptor || descriptor.enumerable !== true) {
-        continue;
-      }
-      let value;
-      try {
-        value = iterables[key];
-      } catch (error) {
-        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
-      }
-      if (value === undefined) {
-        continue;
-      }
-      try {
-        keys.push(key);
-        records.push(value);
-        iterators.push(getFlattenableIterator(value, true));
-      } catch (error) {
-        closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
-      }
-    }
-    return { keys, iterators };
-  }
-
-  function collectZipKeyedPadding(keys, paddingOption) {
-    if (paddingOption === undefined) {
-      return Object.create(null);
-    }
-    if (!isObjectLike(paddingOption)) {
-      throw new TypeError("padding must be an object");
-    }
-    const values = Object.create(null);
-    for (let index = 0; index < keys.length; index += 1) {
-      const key = keys[index];
-      values[key] = paddingOption[key];
-    }
-    return values;
-  }
-
-  function closeIfPossible(value) {
-    if (!isObjectLike(value)) {
-      return;
-    }
-    const method = getMethod(value, "return");
-    if (method !== undefined) {
-      assertObjectResult(method.call(value));
-    }
-  }
-
-  function toPositiveIntegerOrInfinity(value) {
-    const number = Number(value);
-    if (number === Infinity) {
-      return Infinity;
-    }
-    if (Number.isNaN(number)) {
-      throw new RangeError("limit must be a non-negative integer");
-    }
-    const integer = number < 0 ? Math.ceil(number) : Math.floor(number);
-    if (!Number.isFinite(integer) || integer < 0) {
-      throw new RangeError("limit must be a non-negative integer");
-    }
-    return integer;
-  }
-
-  function sameIteratorPrototype(value) {
-    return isObjectLike(value) && IteratorPrototype.isPrototypeOf(value);
-  }
-
-  const IteratorHelperPrototype = Object.create(IteratorPrototype);
-
-  function createIteratorHelper(nextImpl, returnImpl) {
-    let done = false;
-    let executing = false;
-    const helper = Object.create(IteratorHelperPrototype);
-    Object.defineProperty(helper, "next", {
-      value: function next() {
-        if (done) {
-          return { value: undefined, done: true };
-        }
-        if (executing) {
-          throw new TypeError("generator is already running");
-        }
-        executing = true;
-        try {
-          const result = normalizeResult(nextImpl());
-          if (result.done) {
-            done = true;
-          }
-          return result;
-        } finally {
-          executing = false;
-        }
-      },
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-    Object.defineProperty(helper, "return", {
-      value: function return_() {
-        if (executing) {
-          throw new TypeError("generator is already running");
-        }
-        if (done) {
-          return { value: undefined, done: true };
-        }
-        done = true;
-        executing = true;
-        try {
-          if (typeof returnImpl === "function") {
-            return assertObjectResult(returnImpl());
-          }
-          return { value: undefined, done: true };
-        } finally {
-          executing = false;
-        }
-      },
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-    return helper;
-  }
-
-  function wrapIterator(value) {
-    if (sameIteratorPrototype(value)) {
-      return value;
-    }
-    const record = getIteratorDirect(value);
-    return createIteratorHelper(
-      function nextImpl() {
-        return iteratorStep(record);
-      },
-      function returnImpl() {
-        return iteratorReturnResult(record);
-      }
-    );
-  }
-
-  function iteratorFrom(value) {
-    if (!isObjectLike(value) && typeof value !== "string") {
-      throw new TypeError("Iterator.from requires an iterable or iterator object");
-    }
-
-    const iteratorMethod = getMethod(value, Symbol.iterator);
-    if (iteratorMethod !== undefined) {
-      const iterator = iteratorMethod.call(value);
-      if (!isObjectLike(iterator)) {
-        throw new TypeError("Iterator.from iterable must produce an object");
-      }
-      return sameIteratorPrototype(iterator) ? iterator : wrapIterator(iterator);
-    }
-
-    return wrapIterator(value);
-  }
-
-  function getFlattenableIterator(value, allowPrimitiveStrings) {
-    if (!isObjectLike(value)) {
-      if (!(allowPrimitiveStrings && typeof value === "string")) {
-        throw new TypeError("Iterator helper requires an iterable or iterator object");
-      }
-    }
-
-    const iteratorMethod = getMethod(value, Symbol.iterator);
-    if (iteratorMethod !== undefined) {
-      const iterator = iteratorMethod.call(value);
-      if (!isObjectLike(iterator)) {
-        throw new TypeError("iterator helper iterable must produce an object");
-      }
-      return getIteratorDirect(iterator);
-    }
-
-    return getIteratorDirect(value);
-  }
-
-  const iteratorPrototypeMethods = {
-    map(mapper) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.map requires an object receiver");
-      }
-      if (typeof mapper !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("mapper must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      return createIteratorHelper(
-        function nextImpl() {
-          const step = iteratorStep(record);
-          if (step.done) {
-            return step;
-          }
-          try {
-            return { value: mapper(step.value, index++), done: false };
-          } catch (error) {
-            return iteratorClose(record, error);
-          }
-        },
-        function returnImpl() {
-          return iteratorReturnResult(record);
-        }
-      );
-    },
-    filter(predicate) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.filter requires an object receiver");
-      }
-      if (typeof predicate !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("predicate must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      return createIteratorHelper(
-        function nextImpl() {
-          while (true) {
-            const step = iteratorStep(record);
-            if (step.done) {
-              return step;
-            }
-            let keep;
-            try {
-              keep = predicate(step.value, index++);
-            } catch (error) {
-              return iteratorClose(record, error);
-            }
-            if (keep) {
-              return { value: step.value, done: false };
-            }
-          }
-        },
-        function returnImpl() {
-          return iteratorReturn(record);
-        }
-      );
-    },
-    take(limit) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.take requires an object receiver");
-      }
-      let remainingStart;
-      try {
-        remainingStart = toPositiveIntegerOrInfinity(limit);
-      } catch (error) {
-        try {
-          closeIfPossible(this);
-        } catch (_) {}
-        throw error;
-      }
-      const record = getIteratorDirect(this);
-      let remaining = remainingStart;
-      let closed = false;
-      return createIteratorHelper(
-        function nextImpl() {
-          if (closed) {
-            return { value: undefined, done: true };
-          }
-          if (remaining <= 0) {
-            closed = true;
-            return iteratorClose(record);
-          }
-          const step = iteratorStep(record);
-          if (step.done) {
-            closed = true;
-            return step;
-          }
-          remaining -= 1;
-          return { value: step.value, done: false };
-        },
-        function returnImpl() {
-          closed = true;
-          return iteratorReturnResult(record);
-        }
-      );
-    },
-    drop(limit) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.drop requires an object receiver");
-      }
-      let initial;
-      try {
-        initial = toPositiveIntegerOrInfinity(limit);
-      } catch (error) {
-        try {
-          closeIfPossible(this);
-        } catch (_) {}
-        throw error;
-      }
-      const record = getIteratorDirect(this);
-      let remaining = initial;
-      let advanced = false;
-      return createIteratorHelper(
-        function nextImpl() {
-          if (!advanced) {
-            advanced = true;
-            while (remaining > 0) {
-              const skipped = iteratorStep(record);
-              if (skipped.done) {
-                return skipped;
-              }
-              remaining -= 1;
-            }
-          }
-          return iteratorStep(record);
-        },
-        function returnImpl() {
-          return iteratorReturnResult(record);
-        }
-      );
-    },
-    flatMap(mapper) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.flatMap requires an object receiver");
-      }
-      if (typeof mapper !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("mapper must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      let inner = null;
-      return createIteratorHelper(
-        function nextImpl() {
-          while (true) {
-            if (inner !== null) {
-              const innerStep = iteratorStep(inner);
-              if (!innerStep.done) {
-                return innerStep;
-              }
-              inner = null;
-            }
-            const outerStep = iteratorStep(record);
-            if (outerStep.done) {
-              return outerStep;
-            }
-            let mapped;
-            try {
-              mapped = mapper(outerStep.value, index++);
-            } catch (error) {
-              return iteratorClose(record, error);
-            }
-            try {
-              inner = getFlattenableIterator(mapped, false);
-            } catch (error) {
-              return iteratorClose(record, error);
-            }
-          }
-        },
-        function returnImpl() {
-          if (inner !== null) {
-            iteratorReturn(inner);
-          }
-          return iteratorReturnResult(record);
-        }
-      );
-    },
-    reduce(reducer, initialValue) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.reduce requires an object receiver");
-      }
-      if (typeof reducer !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("reducer must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      let accumulator;
-      let initialized = arguments.length > 1;
-      if (initialized) {
-        accumulator = initialValue;
-      }
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          if (!initialized) {
-            throw new TypeError("Reduce of empty iterator with no initial value");
-          }
-          return accumulator;
-        }
-        if (!initialized) {
-          initialized = true;
-          accumulator = step.value;
-          index += 1;
-          continue;
-        }
-        try {
-          accumulator = reducer(accumulator, step.value, index++);
-        } catch (error) {
-          return iteratorClose(record, error);
-        }
-      }
-    },
-    toArray() {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.toArray requires an object receiver");
-      }
-      const record = getIteratorDirect(this);
-      const values = [];
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          return values;
-        }
-        values.push(step.value);
-      }
-    },
-    forEach(fn) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.forEach requires an object receiver");
-      }
-      if (typeof fn !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("callback must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          return undefined;
-        }
-        try {
-          fn(step.value, index++);
-        } catch (error) {
-          return iteratorClose(record, error);
-        }
-      }
-    },
-    some(predicate) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.some requires an object receiver");
-      }
-      if (typeof predicate !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("predicate must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          return false;
-        }
-        let result;
-        try {
-          result = predicate(step.value, index++);
-        } catch (error) {
-          return iteratorClose(record, error);
-        }
-        if (result) {
-          iteratorReturn(record);
-          return true;
-        }
-      }
-    },
-    every(predicate) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.every requires an object receiver");
-      }
-      if (typeof predicate !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("predicate must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          return true;
-        }
-        let result;
-        try {
-          result = predicate(step.value, index++);
-        } catch (error) {
-          return iteratorClose(record, error);
-        }
-        if (!result) {
-          iteratorReturn(record);
-          return false;
-        }
-      }
-    },
-    find(predicate) {
-      if (!isObjectLike(this)) {
-        throw new TypeError("Iterator.prototype.find requires an object receiver");
-      }
-      if (typeof predicate !== "function") {
-        closeIfPossible(this);
-        throw new TypeError("predicate must be callable");
-      }
-      const record = getIteratorDirect(this);
-      let index = 0;
-      while (true) {
-        const step = iteratorStep(record);
-        if (step.done) {
-          return undefined;
-        }
-        let result;
-        try {
-          result = predicate(step.value, index++);
-        } catch (error) {
-          return iteratorClose(record, error);
-        }
-        if (result) {
-          iteratorReturn(record);
-          return step.value;
-        }
-      }
-    }
-  };
-
-  const iteratorSymbolMethods = {
-    [Symbol.iterator]() {
-      return this;
-    }
-  };
-
-  const disposeMethod = function () {
-    if (!isObjectLike(this)) {
-      throw new TypeError("Iterator.prototype[Symbol.dispose] requires an object receiver");
-    }
-    const method = getMethod(this, "return");
-    if (method !== undefined) {
-      method.call(this);
-    }
-    return undefined;
-  };
-
-  Object.defineProperty(disposeMethod, "name", {
-    value: "[Symbol.dispose]",
-    writable: false,
-    enumerable: false,
-    configurable: true
-  });
-  Object.defineProperty(disposeMethod, "length", {
-    value: 0,
-    writable: false,
-    enumerable: false,
-    configurable: true
-  });
-
-  function Iterator() {
-    if (new.target === undefined || new.target === Iterator) {
-      throw new TypeError("Iterator is abstract");
-    }
-  }
-
-  Object.defineProperty(Iterator, "prototype", {
-    value: IteratorPrototype,
-    writable: false,
-    enumerable: false,
-    configurable: false
-  });
-
-  const iteratorStaticMethods = {
-    from(value) {
-      return iteratorFrom(value);
-    },
-    concat() {
-      const sources = [];
-      for (let index = 0; index < arguments.length; index += 1) {
-        const item = arguments[index];
-        if (!isObjectLike(item)) {
-          throw new TypeError("Iterator.concat arguments must be iterable objects");
-        }
-        const method = getMethod(item, Symbol.iterator);
-        if (method === undefined) {
-          throw new TypeError("Iterator.concat arguments must be iterable objects");
-        }
-        sources.push({ item, method, iterator: null });
-      }
-
-      let current = null;
-      return createIteratorHelper(
-        function nextImpl() {
-          while (true) {
-            if (current === null) {
-              if (!sources.length) {
-                return { value: undefined, done: true };
-              }
-              const source = sources.shift();
-              const iterator = source.method.call(source.item);
-              if (!isObjectLike(iterator)) {
-                throw new TypeError("Iterator.concat iterable produced a non-object iterator");
-              }
-              current = getIteratorDirect(iterator);
-            }
-
-            const step = iteratorStep(current);
-            if (!step.done) {
-              return step;
-            }
-            current = null;
-          }
-        },
-        function returnImpl() {
-          if (current !== null) {
-            return iteratorReturnResult(current);
-          }
-          return { value: undefined, done: true };
-        }
-      );
-    },
-    zip(iterables, options) {
-      if (!isObjectLike(iterables)) {
-        throw new TypeError("Iterator.zip requires an iterable object");
-      }
-      const outerMethod = getMethod(iterables, Symbol.iterator);
-      if (outerMethod === undefined) {
-        throw new TypeError("Iterator.zip requires an iterable object");
-      }
-      const optionsObject = toOptionsObject(options);
-      const modeOption = optionsObject === undefined ? undefined : optionsObject.mode;
-      const mode = modeOption === undefined ? "shortest" : modeOption;
-      if (mode !== "shortest" && mode !== "longest" && mode !== "strict") {
-        throw new TypeError("Iterator.zip mode must be shortest, longest, or strict");
-      }
-      const paddingOption = mode === "longest" && optionsObject !== undefined ? optionsObject.padding : undefined;
-      const values = [];
-      const outer = getIteratorDirect(iteratorFrom(iterables));
-      while (true) {
-        const outerStep = iteratorStep(outer);
-        if (outerStep.done) {
-          break;
-        }
-        values.push(outerStep.value);
-      }
-      const iterators = [];
-      for (let index = 0; index < values.length; index += 1) {
-        try {
-          iterators.push(getFlattenableIterator(values[index], true));
-        } catch (error) {
-          closeIteratorsReverse(iterators, new Array(iterators.length).fill(false), error, -1);
-        }
-      }
-      const padding = mode === "longest" ? collectZipPadding(iterators.length, paddingOption) : [];
-      const finished = new Array(iterators.length).fill(false);
-      return createIteratorHelper(
-        function nextImpl() {
-          if (!iterators.length) {
-            return { value: undefined, done: true };
-          }
-          const results = new Array(iterators.length);
-          let doneCount = 0;
-          for (let index = 0; index < iterators.length; index += 1) {
-            if (finished[index]) {
-              doneCount += 1;
-              results[index] = padding[index];
-              continue;
-            }
-            let step;
-            try {
-              step = iteratorStep(iterators[index]);
-            } catch (error) {
-              return closeIteratorsReverse(iterators, finished, error, -1);
-            }
-            if (step.done) {
-              finished[index] = true;
-              doneCount += 1;
-              if (mode === "shortest") {
-                return closeIteratorsReverse(iterators, finished, undefined, index);
-              }
-              results[index] = padding[index];
-            } else {
-              results[index] = step.value;
-            }
-          }
-          if (mode === "strict" && doneCount !== 0 && doneCount !== iterators.length) {
-            return closeIteratorsReverse(
-              iterators,
-              finished,
-              new TypeError("Iterator.zip strict mode requires equal lengths"),
-              -1
-            );
-          }
-          if (doneCount === iterators.length) {
-            return { value: undefined, done: true };
-          }
-          return { value: results, done: false };
-        },
-        function returnImpl() {
-          return closeIteratorsReverse(iterators, finished, undefined, -1);
-        }
-      );
-    },
-    zipKeyed(iterables, options) {
-      if (!isObjectLike(iterables)) {
-        throw new TypeError("Iterator.zipKeyed requires an object");
-      }
-      const optionsObject = toOptionsObject(options);
-      const modeOption = optionsObject === undefined ? undefined : optionsObject.mode;
-      const mode = modeOption === undefined ? "shortest" : modeOption;
-      if (mode !== "shortest" && mode !== "longest" && mode !== "strict") {
-        throw new TypeError("Iterator.zipKeyed mode must be shortest, longest, or strict");
-      }
-      const paddingOption = mode === "longest" && optionsObject !== undefined ? optionsObject.padding : undefined;
-      const { keys, iterators } = collectZipKeyedEntries(iterables);
-      const padding = mode === "longest" ? collectZipKeyedPadding(keys, paddingOption) : Object.create(null);
-      const finished = new Array(iterators.length).fill(false);
-      return createIteratorHelper(
-        function nextImpl() {
-          if (!iterators.length) {
-            return { value: undefined, done: true };
-          }
-          const results = Object.create(null);
-          let doneCount = 0;
-          for (let index = 0; index < iterators.length; index += 1) {
-            const key = keys[index];
-            if (finished[index]) {
-              doneCount += 1;
-              results[key] = padding[key];
-              continue;
-            }
-            let step;
-            try {
-              step = iteratorStep(iterators[index]);
-            } catch (error) {
-              return closeIteratorsReverse(iterators, finished, error, -1);
-            }
-            if (step.done) {
-              finished[index] = true;
-              doneCount += 1;
-              if (mode === "shortest") {
-                return closeIteratorsReverse(iterators, finished, undefined, index);
-              }
-              results[key] = padding[key];
-            } else {
-              results[key] = step.value;
-            }
-          }
-          if (mode === "strict" && doneCount !== 0 && doneCount !== iterators.length) {
-            return closeIteratorsReverse(
-              iterators,
-              finished,
-              new TypeError("Iterator.zipKeyed strict mode requires equal lengths"),
-              -1
-            );
-          }
-          if (doneCount === iterators.length) {
-            return { value: undefined, done: true };
-          }
-          return { value: results, done: false };
-        },
-        function returnImpl() {
-          return closeIteratorsReverse(iterators, finished, undefined, -1);
-        }
-      );
-    }
-  };
-
-  Object.defineProperty(globalThis, "Iterator", {
-    value: Iterator,
-    writable: true,
-    enumerable: false,
-    configurable: true
-  });
-
-  Object.defineProperty(IteratorPrototype, "constructor", {
-    get() {
-      return Iterator;
-    },
-    set(value) {
-      Object.defineProperty(this, "constructor", {
-        value,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      });
-    },
-    enumerable: false,
-    configurable: true
-  });
-
-  Object.defineProperty(IteratorPrototype, Symbol.toStringTag, {
-    get() {
-      return "Iterator";
-    },
-    set(value) {
-      Object.defineProperty(this, Symbol.toStringTag, {
-        value,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      });
-    },
-    enumerable: false,
-    configurable: true
-  });
-
-  Object.defineProperty(IteratorPrototype, Symbol.iterator, {
-    value: iteratorSymbolMethods[Symbol.iterator],
-    writable: true,
-    enumerable: false,
-    configurable: true
-  });
-
-  Object.defineProperty(IteratorPrototype, Symbol.dispose, {
-    value: disposeMethod,
-    writable: true,
-    enumerable: false,
-    configurable: true
-  });
-
-  for (const key of Object.keys(iteratorPrototypeMethods)) {
-    Object.defineProperty(IteratorPrototype, key, {
-      value: iteratorPrototypeMethods[key],
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-  }
-
-  Object.defineProperty(IteratorPrototype.reduce, "length", {
-    value: 1,
-    writable: false,
-    enumerable: false,
-    configurable: true
-  });
-
-  for (const key of Object.keys(iteratorStaticMethods)) {
-    Object.defineProperty(Iterator, key, {
-      value: iteratorStaticMethods[key],
-      writable: true,
-      enumerable: false,
-      configurable: true
-    });
-  }
-
-  Object.defineProperty(Iterator.zip, "length", {
-    value: 1,
-    writable: false,
-    enumerable: false,
-    configurable: true
-  });
-
-  Object.defineProperty(Iterator.zipKeyed, "length", {
-    value: 1,
-    writable: false,
-    enumerable: false,
-    configurable: true
-  });
-})();
-"#;
-
 const TEST262_STA_GLOBAL: &str = include_str!("../../../test262/vendor/test262/harness/sta.js");
 const TEST262_ASSERT_GLOBAL: &str =
     include_str!("../../../test262/vendor/test262/harness/assert.js");
@@ -2688,6 +1894,62 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
             NativeFunction::from_fn_ptr(host_eval_script),
         )
         .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentStart"),
+            1,
+            NativeFunction::from_fn_ptr(host_agent_start),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentBroadcast"),
+            1,
+            NativeFunction::from_fn_ptr(host_agent_broadcast),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentReceiveBroadcast"),
+            1,
+            NativeFunction::from_fn_ptr(host_agent_receive_broadcast),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentReport"),
+            1,
+            NativeFunction::from_fn_ptr(host_agent_report),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentGetReport"),
+            0,
+            NativeFunction::from_fn_ptr(host_agent_get_report),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentSleep"),
+            1,
+            NativeFunction::from_fn_ptr(host_agent_sleep),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentMonotonicNow"),
+            0,
+            NativeFunction::from_fn_ptr(host_agent_monotonic_now),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
+        .register_global_builtin_callable(
+            js_string!("__porfAgentLeaving"),
+            0,
+            NativeFunction::from_fn_ptr(host_agent_leaving),
+        )
+        .map_err(|err| format_js_error(err, context))?;
     let argv_literal = json_string_array(argv);
     let bootstrap = format!(
         r#"
@@ -2725,23 +1987,29 @@ globalThis.$262 = {{
   destroy() {{}},
   agent: {{
     start() {{
-      throw new Test262Error('agent threads are not supported in porffor-spec-exec');
+      return __porfAgentStart.apply(this, arguments);
     }},
     broadcast() {{
-      throw new Test262Error('agent threads are not supported in porffor-spec-exec');
+      return __porfAgentBroadcast.apply(this, arguments);
     }},
     receiveBroadcast() {{
-      throw new Test262Error('agent threads are not supported in porffor-spec-exec');
+      return __porfAgentReceiveBroadcast.apply(this, arguments);
     }},
-    report() {{}},
+    report() {{
+      return __porfAgentReport.apply(this, arguments);
+    }},
     getReport() {{
-      return null;
+      return __porfAgentGetReport.apply(this, arguments);
     }},
-    sleep() {{}},
+    sleep() {{
+      return __porfAgentSleep.apply(this, arguments);
+    }},
     monotonicNow() {{
-      return Date.now();
+      return __porfAgentMonotonicNow.apply(this, arguments);
     }},
-    leaving() {{}}
+    leaving() {{
+      return __porfAgentLeaving.apply(this, arguments);
+    }}
   }}
 }};
 "#,
@@ -2752,9 +2020,6 @@ globalThis.$262 = {{
         .map_err(|err| format_js_error(err, context))?;
     install_abstract_module_source_host_hook(context)?;
     install_html_dda_host_hook(context)?;
-    context
-        .eval(Source::from_bytes(ITERATOR_HELPERS_SHIM.as_bytes()))
-        .map_err(|err| format_js_error(err, context))?;
     context
         .run_jobs()
         .map_err(|err| format_js_error(err, context))?;
@@ -2852,6 +2117,154 @@ fn host_detach_array_buffer(
     Ok(JsValue::undefined())
 }
 
+fn host_agent_start(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    if with_agent_state(|_| ()).is_some() {
+        return Err(JsNativeError::typ()
+            .with_message("nested agent.start is not supported")
+            .into());
+    }
+
+    let source = args
+        .first()
+        .cloned()
+        .unwrap_or_else(JsValue::undefined)
+        .to_string(context)?
+        .to_std_string_escaped();
+    current_host_session()?
+        .start_agent(source)
+        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
+    Ok(JsValue::undefined())
+}
+
+fn host_agent_broadcast(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    if with_agent_state(|_| ()).is_some() {
+        return Err(JsNativeError::typ()
+            .with_message("nested agent.broadcast is not supported")
+            .into());
+    }
+
+    let buffer = JsSharedArrayBuffer::try_from_js(args.get_or_undefined(0), context)?;
+    let sent = current_host_session()?.broadcast(buffer.inner());
+    Ok((sent as i32).into())
+}
+
+fn host_agent_receive_broadcast(
+    _this: &JsValue,
+    args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
+        JsError::from(
+            JsNativeError::typ().with_message("receiveBroadcast expects a callable callback"),
+        )
+    })?;
+
+    with_agent_state_mut(|state| {
+        state.callback = Some(callback.clone());
+        Ok(JsValue::undefined())
+    })
+}
+
+fn host_agent_report(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let value = args
+        .first()
+        .cloned()
+        .unwrap_or_else(JsValue::undefined)
+        .to_string(context)?
+        .to_std_string_escaped();
+
+    if with_agent_state_mut(|state| {
+        state.report_tx.send(value.clone()).map_err(|err| {
+            JsError::from(
+                JsNativeError::error().with_message(format!("failed to queue agent report: {err}")),
+            )
+        })?;
+        Ok(JsValue::undefined())
+    })
+    .is_ok()
+    {
+        return Ok(JsValue::undefined());
+    }
+
+    current_host_session()?
+        .reports_tx
+        .send(value)
+        .map_err(|err| {
+            JsNativeError::error().with_message(format!("failed to queue report: {err}"))
+        })?;
+    Ok(JsValue::undefined())
+}
+
+fn host_agent_get_report(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    if with_agent_state(|_| ()).is_some() {
+        return Ok(JsValue::null());
+    }
+
+    match current_host_session()?
+        .next_report()
+        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?
+    {
+        Some(report) => Ok(js_string!(report).into()),
+        None => Ok(JsValue::null()),
+    }
+}
+
+fn host_agent_sleep(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let millis = args
+        .first()
+        .cloned()
+        .unwrap_or_else(JsValue::undefined)
+        .to_number(context)?
+        .max(0.0);
+    if millis.is_finite() && millis > 0.0 {
+        thread::sleep(StdDuration::from_millis(millis as u64));
+    }
+    Ok(JsValue::undefined())
+}
+
+fn host_agent_monotonic_now(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    let millis = if let Some(millis) =
+        with_agent_state(|state| state.started_at.elapsed().as_secs_f64() * 1000.0)
+    {
+        millis
+    } else {
+        current_host_session()?.started_at.elapsed().as_secs_f64() * 1000.0
+    };
+    Ok(millis.into())
+}
+
+fn host_agent_leaving(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    if with_agent_state_mut(|state| {
+        state.leaving = true;
+        Ok(JsValue::undefined())
+    })
+    .is_ok()
+    {
+        return Ok(JsValue::undefined());
+    }
+    Ok(JsValue::undefined())
+}
+
 fn host_create_realm(
     _this: &JsValue,
     _args: &[JsValue],
@@ -2906,8 +2319,16 @@ fn host_eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
 }
 
 fn create_host_realm() -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
+    let can_block = CURRENT_HOST_SESSION.with(|session| {
+        session
+            .borrow()
+            .as_ref()
+            .map(|session| session.can_block)
+            .unwrap_or(false)
+    });
     let mut context = Context::builder()
         .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .can_block(can_block)
         .build()?;
     install_host_globals(&mut context, &[])
         .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
@@ -3010,6 +2431,23 @@ fn json_escape(value: &str) -> String {
 mod tests {
     use super::*;
     use boa_engine::Script;
+
+    fn execute_script(
+        source: &str,
+        filename: Option<&str>,
+        argv: &[String],
+    ) -> Result<ExecutionOutcome, ExecutionError> {
+        super::execute_script(source, filename, argv, false)
+    }
+
+    fn execute_module(
+        source: &str,
+        filename: Option<&str>,
+        host: ModuleHostConfig,
+        argv: &[String],
+    ) -> Result<ExecutionOutcome, ExecutionError> {
+        super::execute_module(source, filename, host, argv, false)
+    }
 
     #[test]
     fn executes_simple_script() {
@@ -3706,7 +3144,7 @@ mod tests {
     }
 
     #[test]
-    fn installs_iterator_helpers_shim() {
+    fn supports_native_iterator_helpers() {
         execute_script(
             r#"
             const iterator = Iterator.from([1, 2, 3]).map(x => x * 2).drop(1);
@@ -3724,7 +3162,7 @@ mod tests {
             Some("iterator-helpers.js"),
             &[],
         )
-        .expect("Iterator helper shim should be installed");
+        .expect("native Iterator helpers should be available");
     }
 
     #[test]

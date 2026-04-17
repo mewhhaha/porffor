@@ -30,7 +30,7 @@ use crate::{
     Error,
     lexer::{
         InputElement, Token, TokenKind,
-        token::{ContainsEscapeSequence, Numeric},
+        token::{ContainsEscapeSequence, EscapeSequence, Numeric},
     },
     parser::{
         AllowAwait, AllowYield, Cursor, OrAbrupt, ParseResult, TokenParser,
@@ -96,6 +96,7 @@ where
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         // TODO: tok currently consumes the token instead of peeking, so the token
         // isn't passed and consumed by parsers according to spec (EX: GeneratorExpression)
+        let strict_mode = cursor.strict();
         let tok = cursor.peek(0, interner).or_abrupt()?;
         let tok_position = tok.span().start();
 
@@ -200,7 +201,21 @@ where
             )) => IdentifierReference::new(self.allow_yield, self.allow_await)
                 .parse(cursor, interner)
                 .map(Into::into),
-            TokenKind::StringLiteral((lit, _)) => {
+            TokenKind::StringLiteral((lit, escape)) => {
+                if strict_mode {
+                    if escape.contains(EscapeSequence::LEGACY_OCTAL) {
+                        return Err(Error::general(
+                            "legacy octal escape sequences are not allowed in strict mode",
+                            tok.span().start(),
+                        ));
+                    }
+                    if escape.contains(EscapeSequence::NON_OCTAL_DECIMAL) {
+                        return Err(Error::general(
+                            "decimal escape sequences are not allowed in strict mode",
+                            tok.span().start(),
+                        ));
+                    }
+                }
                 let node = Literal::new(*lit, tok.span());
                 cursor.advance(interner);
                 Ok(node.into())
@@ -220,6 +235,17 @@ where
                 Ok(temp.into())
             }
             TokenKind::NumericLiteral(Numeric::Integer(num)) => {
+                let node = Literal::new(*num, tok.span());
+                cursor.advance(interner);
+                Ok(node.into())
+            }
+            TokenKind::NumericLiteral(Numeric::LegacyOctal(_)) if strict_mode => Err(
+                Error::general(
+                    "implicit octal literals are not allowed in strict mode",
+                    tok.span().start(),
+                ),
+            ),
+            TokenKind::NumericLiteral(Numeric::LegacyOctal(num)) => {
                 let node = Literal::new(*num, tok.span());
                 cursor.advance(interner);
                 Ok(node.into())

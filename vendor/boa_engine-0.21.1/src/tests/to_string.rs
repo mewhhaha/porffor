@@ -458,3 +458,29 @@ where
     let res = T::try_from_js(&js, context).unwrap();
     assert_eq!(expected, res);
 }
+
+#[test]
+fn class_declaration_preserves_full_source_text() {
+    assert_helper(
+        r#"
+        /* before */class /* a */ A /* b */ extends /* c */ class /* d */ B /* e */ { /* f */ } /* g */ { /* h */ }/* after */
+        ({ a: A.toString() })
+        "#,
+        ExpectedOne {
+            a: "class /* a */ A /* b */ extends /* c */ class /* d */ B /* e */ { /* f */ } /* g */ { /* h */ }".into(),
+        },
+    );
+}
+
+#[test]
+fn class_expression_preserves_full_source_text() {
+    assert_helper(
+        r#"
+        const C = (class /* a */ A /* b */ extends /* c */ B /* d */ { /* e */ constructor /* f */ ( /* g */ ) /* h */ { /* i */ ; /* j */ } /* k */ m /* l */ ( /* m */ ) /* n */ { /* o */ } /* p */ });
+        ({ a: C.toString() })
+        "#,
+        ExpectedOne {
+            a: "class /* a */ A /* b */ extends /* c */ B /* d */ { /* e */ constructor /* f */ ( /* g */ ) /* h */ { /* i */ ; /* j */ } /* k */ m /* l */ ( /* m */ ) /* n */ { /* o */ } /* p */ }".into(),
+        },
+    );
+}

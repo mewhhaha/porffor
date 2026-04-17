@@ -24,23 +24,27 @@ impl ByteCompiler<'_> {
     ///
     /// Returns the outer scope.
     #[must_use]
-    pub(crate) fn push_declarative_scope(&mut self, scope: Option<&Scope>) -> Option<Scope> {
+    pub(crate) fn push_declarative_scope(
+        &mut self,
+        scope: Option<&Scope>,
+    ) -> Option<(Scope, bool)> {
         let mut scope = scope?.clone();
-        if !scope.all_bindings_local() {
+        let pushed = !scope.all_bindings_local();
+        if pushed {
             self.current_open_environments_count += 1;
             let index = self.constants.len() as u32;
             self.constants.push(Constant::Scope(scope.clone()));
             self.bytecode.emit_push_scope(index.into());
         }
         std::mem::swap(&mut self.lexical_scope, &mut scope);
-        Some(scope)
+        Some((scope, pushed))
     }
 
     /// Pop a declarative scope.
-    pub(crate) fn pop_declarative_scope(&mut self, scope: Option<Scope>) {
-        if let Some(mut scope) = scope {
+    pub(crate) fn pop_declarative_scope(&mut self, scope: Option<(Scope, bool)>) {
+        if let Some((mut scope, pushed)) = scope {
             std::mem::swap(&mut self.lexical_scope, &mut scope);
-            if !scope.all_bindings_local() {
+            if pushed {
                 self.current_open_environments_count -= 1;
                 self.bytecode.emit_pop_environment();
             }

@@ -6,6 +6,11 @@ license.workspace = true
 
 [dependencies]
 porffor-ir = { path = "../porffor-ir" }
+wasm-encoder = "0.245.1"
+
+[dev-dependencies]
+porffor-front = { path = "../porffor-front" }
+wasmparser = "0.245.1"
 
 [lib]
 path = "src/lib.rs"

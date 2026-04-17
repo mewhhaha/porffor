@@ -1217,9 +1217,6 @@ impl JsNativeError {
     /// )
     /// ```
     ///
-    /// # Panics
-    ///
-    /// If converting a [`JsNativeErrorKind::RuntimeLimit`] to an opaque object.
     #[inline]
     pub fn to_opaque(&self, context: &mut Context) -> JsObject {
         let Self {
@@ -1256,9 +1253,7 @@ impl JsNativeError {
                     "The NoInstructionsRemain native error cannot be converted to an opaque type."
                 )
             }
-            JsNativeErrorKind::RuntimeLimit => {
-                panic!("The RuntimeLimit native error cannot be converted to an opaque type.")
-            }
+            JsNativeErrorKind::RuntimeLimit => (constructors.error().prototype(), ErrorKind::Error),
         };
 
         let o = JsObject::from_proto_and_data_with_shared_shape(
@@ -1451,8 +1446,8 @@ impl JsNativeErrorKind {
             | Self::Reference
             | Self::Syntax
             | Self::Type
-            | Self::Uri => true,
-            Self::RuntimeLimit => false,
+            | Self::Uri
+            | Self::RuntimeLimit => true,
             #[cfg(feature = "fuzz")]
             Self::NoInstructionsRemain => false,
         }

@@ -52,6 +52,7 @@ fn error_names() {
         TestAction::assert_eq("URIError.name", js_str!("URIError")),
         TestAction::assert_eq("TypeError.name", js_str!("TypeError")),
         TestAction::assert_eq("AggregateError.name", js_str!("AggregateError")),
+        TestAction::assert_eq("SuppressedError.name", js_str!("SuppressedError")),
     ]);
 }
 
@@ -66,5 +67,6 @@ fn error_lengths() {
         TestAction::assert_eq("URIError.length", 1),
         TestAction::assert_eq("TypeError.length", 1),
         TestAction::assert_eq("AggregateError.length", 2),
+        TestAction::assert_eq("SuppressedError.length", 3),
     ]);
 }

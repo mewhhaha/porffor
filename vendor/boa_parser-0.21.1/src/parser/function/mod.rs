@@ -387,10 +387,11 @@ where
                         .peek(0, interner)?
                         .is_some_and(|tok| tok.kind() == &TokenKind::Punctuator(Punctuator::Assign))
                     {
-                        Some(
+                        let mut init =
                             Initializer::new(true, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?,
-                        )
+                                .parse(cursor, interner)?;
+                        init.set_anonymous_function_definition_name(&ident);
+                        Some(init)
                     } else {
                         None
                     };
@@ -480,11 +481,17 @@ where
                 .start()
         };
 
+        let break_tokens = if self.parse_full_input {
+            &[] as &[TokenKind]
+        } else {
+            &FUNCTION_BREAK_TOKENS
+        };
+
         let (body, end) = StatementList::new(
             self.allow_yield,
             self.allow_await,
             true,
-            &FUNCTION_BREAK_TOKENS,
+            break_tokens,
             true,
             false,
         )
@@ -505,6 +512,13 @@ where
         }
 
         let end = if self.parse_full_input {
+            if let Some(token) = cursor.peek(0, interner)? {
+                return Err(Error::unexpected(
+                    token.to_string(interner),
+                    token.span(),
+                    "function statement list",
+                ));
+            }
             end.unwrap_or(start)
         } else {
             cursor

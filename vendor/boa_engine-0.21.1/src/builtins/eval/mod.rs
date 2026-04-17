@@ -241,8 +241,23 @@ impl Eval {
                 )
             };
 
-        let lexical_scope = lexical_scope.unwrap_or(context.realm().scope().clone());
-        let lexical_scope = Scope::new(lexical_scope, strict);
+        let lexical_scope = if direct && flags.contains(Flags::IN_CLASS_FIELD_INITIALIZER) {
+            let mut scope = lexical_scope.unwrap_or_else(|| context.realm().scope().clone());
+            while scope.num_bindings() == 0 {
+                let Some(outer) = scope.outer() else {
+                    break;
+                };
+                scope = outer;
+            }
+            scope.clone_for_runtime()
+        } else {
+            lexical_scope.unwrap_or(context.realm().scope().clone())
+        };
+        let lexical_scope = if direct && flags.contains(Flags::IN_CLASS_FIELD_INITIALIZER) {
+            lexical_scope
+        } else {
+            Scope::new(lexical_scope, strict)
+        };
 
         let mut annex_b_function_names = Vec::new();
 

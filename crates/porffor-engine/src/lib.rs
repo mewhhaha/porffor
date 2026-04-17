@@ -1,5 +1,6 @@
 use porffor_front::{parse, ParseGoal, ParseOptions, SourceUnit};
-use porffor_ir::{lower, ProgramIr};
+use porffor_ir::{lower, ProgramIr, ValueKind};
+use wasmi::{Engine as WasmiEngine, Linker, Module as WasmiModule, Store};
 
 pub use porffor_runtime::{HostHooks, NullHostHooks, Realm, RealmBuilder};
 
@@ -56,6 +57,7 @@ pub struct RunOptions {
     pub argv: Vec<String>,
     pub module_root: Option<String>,
     pub test_path: Option<String>,
+    pub can_block: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +78,8 @@ pub struct InspectionReport {
     pub source_len: usize,
     pub stages: Vec<&'static str>,
     pub invariants: Vec<&'static str>,
+    pub ir_summary: String,
+    pub diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,13 +222,22 @@ impl Engine {
                 .iter()
                 .map(|stage| match stage {
                     porffor_ir::LoweringStage::ParsedSource => "parsed-source",
-                    porffor_ir::LoweringStage::EarlyErrorsPending => "early-errors-pending",
-                    porffor_ir::LoweringStage::SpecIrPending => "spec-ir-pending",
-                    porffor_ir::LoweringStage::BackendIrPending => "backend-ir-pending",
-                    porffor_ir::LoweringStage::WasmCodegenPending => "wasm-codegen-pending",
+                    porffor_ir::LoweringStage::AstReparsed => "ast-reparsed",
+                    porffor_ir::LoweringStage::ScriptIrBuilt => "script-ir-built",
+                    porffor_ir::LoweringStage::UnsupportedFeaturesRecorded => {
+                        "unsupported-features-recorded"
+                    }
+                    porffor_ir::LoweringStage::WasmReady => "wasm-ready",
                 })
                 .collect(),
             invariants: unit.ir.invariants.clone(),
+            ir_summary: unit.ir.ir_summary(),
+            diagnostics: unit
+                .ir
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone())
+                .collect(),
         }
     }
 
@@ -263,12 +276,14 @@ impl Engine {
                             test_path: run.test_path.clone().map(Into::into),
                         },
                         &run.argv,
+                        run.can_block,
                     )
                 } else {
                     porffor_spec_exec::execute_script(
                         source,
                         unit.source.filename.as_deref(),
                         &run.argv,
+                        run.can_block,
                     )
                 }
                 .map_err(|err| EngineError::new(err.to_string()))?;
@@ -278,9 +293,7 @@ impl Engine {
                     note: outcome.note,
                 })
             }
-            ExecutionBackend::WasmAot => Err(EngineError::new(
-                "runtime execution for wasm is not implemented yet; shipped path must stay direct JS->Wasm, not interpreter-in-Wasm",
-            )),
+            ExecutionBackend::WasmAot => self.run_with_wasm_aot(unit),
         }
     }
 
@@ -300,8 +313,11 @@ impl Engine {
                     test_path: run.test_path.clone().map(Into::into),
                 },
                 &run.argv,
+                run.can_block,
             ),
-            ParseGoal::Script => porffor_spec_exec::execute_script(source, filename, &run.argv),
+            ParseGoal::Script => {
+                porffor_spec_exec::execute_script(source, filename, &run.argv, run.can_block)
+            }
         }
         .map_err(|err| EngineError::new(err.to_string()))?;
 
@@ -310,6 +326,87 @@ impl Engine {
             note: outcome.note,
         })
     }
+
+    fn run_with_wasm_aot(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
+        let artifact = porffor_aot_wasm::emit(&unit.ir).map_err(|err| {
+            EngineError::new(format!(
+                "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+                err
+            ))
+        })?;
+
+        let engine = WasmiEngine::default();
+        let module = WasmiModule::new(&engine, &artifact.bytes[..])
+            .map_err(|err| EngineError::new(format!("wasmi module validation failed: {err}")))?;
+        let mut store = Store::new(&engine, ());
+        let linker = Linker::new(&engine);
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .and_then(|pre| pre.start(&mut store))
+            .map_err(|err| EngineError::new(format!("wasmi instantiate failed: {err}")))?;
+        let main = instance
+            .get_typed_func::<(), i64>(&store, "main")
+            .map_err(|err| EngineError::new(format!("wasmi export lookup failed: {err}")))?;
+        let payload = main
+            .call(&mut store, ())
+            .map_err(|err| EngineError::new(format!("wasmi execution trapped: {err}")))?;
+
+        let result_kind = unit
+            .ir
+            .script
+            .as_ref()
+            .map(|script| script.result_kind)
+            .ok_or_else(|| EngineError::new("missing script ir for wasm-aot execution"))?;
+        let note = render_wasm_completion(
+            result_kind,
+            payload,
+            instance.get_memory(&store, "memory"),
+            &store,
+        )?;
+
+        Ok(RunOutcome {
+            backend_used: ExecutionBackend::WasmAot,
+            note,
+        })
+    }
+}
+
+fn render_wasm_completion(
+    kind: ValueKind,
+    payload: i64,
+    memory: Option<wasmi::Memory>,
+    store: &Store<()>,
+) -> Result<String, EngineError> {
+    let rendered = match kind {
+        ValueKind::Undefined => "undefined".to_string(),
+        ValueKind::Null => "null".to_string(),
+        ValueKind::Boolean => {
+            if payload == 0 {
+                "false".to_string()
+            } else {
+                "true".to_string()
+            }
+        }
+        ValueKind::Number => format!("{}", f64::from_bits(payload as u64)),
+        ValueKind::String => {
+            let offset = ((payload as u64) >> 32) as usize;
+            let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+            let memory = memory.ok_or_else(|| {
+                EngineError::new("wasm string result needs exported memory, but none exists")
+            })?;
+            let mut bytes = vec![0; len];
+            memory
+                .read(store, offset, &mut bytes)
+                .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}")))?;
+            String::from_utf8(bytes).map_err(|err| {
+                EngineError::new(format!("wasm string result is not utf-8: {err}"))
+            })?
+        }
+    };
+    Ok(format!(
+        "wasm-aot completion: {}({rendered})",
+        kind.as_str()
+    ))
 }
 
 #[cfg(test)]
@@ -338,16 +435,26 @@ mod tests {
     }
 
     #[test]
-    fn wasm_emit_error_mentions_product_rule() {
+    fn wasm_emit_succeeds_for_supported_script() {
         let unit = engine()
             .compile_script("1 + 1;", CompileOptions::default())
-            .expect("script compile stub should succeed");
+            .expect("script compile should succeed");
+        let artifact = engine().emit_wasm(&unit).expect("wasm emit should succeed");
+        assert_eq!(artifact.kind, ArtifactKind::Wasm);
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn wasm_emit_reports_unsupported_slice_precisely() {
+        let unit = engine()
+            .compile_script("var x = 1;", CompileOptions::default())
+            .expect("script compile should succeed");
         let err = engine()
             .emit_wasm(&unit)
-            .expect_err("wasm backend should still be stubbed");
+            .expect_err("unsupported slice should fail");
         assert!(err
             .message()
-            .contains("compile JavaScript directly to Wasm"));
+            .contains("unsupported in porffor wasm-aot first slice"));
     }
 
     #[test]
@@ -356,5 +463,36 @@ mod tests {
             .run_script("1 + 1;", CompileOptions::default(), RunOptions::default())
             .expect("spec exec should run a simple script");
         assert_eq!(outcome.backend_used, ExecutionBackend::SpecExec);
+    }
+
+    #[test]
+    fn wasm_backend_runs_supported_script() {
+        let outcome = engine()
+            .run_script(
+                "let x = 40; const y = 2; x + y;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should run supported script");
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+        assert!(outcome.note.contains("number(42"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_remainder() {
+        let outcome = engine()
+            .run_script(
+                "7 % 3;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should run remainder");
+        assert!(outcome.note.contains("number(1"));
     }
 }

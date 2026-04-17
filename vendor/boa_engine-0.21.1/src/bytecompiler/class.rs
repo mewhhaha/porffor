@@ -10,6 +10,7 @@ use boa_ast::{
         ClassDeclaration, ClassElement, ClassElementName, ClassExpression, FormalParameterList,
         FunctionExpression,
     },
+    operations::{ContainsSymbol, contains},
     property::{MethodDefinitionKind, PropertyName},
     scope::Scope,
 };
@@ -36,6 +37,39 @@ enum StaticFieldName {
     Register(Register),
 }
 
+fn contains_direct_eval_expr(expr: &Expression) -> bool {
+    match expr {
+        Expression::ArrowFunction(function) => function.contains_direct_eval(),
+        Expression::AsyncArrowFunction(function) => function.contains_direct_eval(),
+        Expression::FunctionExpression(function) => function.contains_direct_eval(),
+        Expression::GeneratorExpression(function) => function.contains_direct_eval(),
+        Expression::AsyncFunctionExpression(function) => function.contains_direct_eval(),
+        Expression::AsyncGeneratorExpression(function) => function.contains_direct_eval(),
+        Expression::ClassExpression(class) => class
+            .elements()
+            .iter()
+            .any(class_element_contains_direct_eval),
+        Expression::Parenthesized(expr) => contains_direct_eval_expr(expr.expression()),
+        _ => contains(expr, ContainsSymbol::DirectEval),
+    }
+}
+
+fn class_element_contains_direct_eval(element: &ClassElement) -> bool {
+    match element {
+        ClassElement::FieldDefinition(field)
+        | ClassElement::AccessorFieldDefinition(field)
+        | ClassElement::StaticFieldDefinition(field)
+        | ClassElement::StaticAccessorFieldDefinition(field) => field
+            .initializer()
+            .is_some_and(contains_direct_eval_expr),
+        ClassElement::PrivateFieldDefinition(field)
+        | ClassElement::PrivateStaticFieldDefinition(field) => field
+            .initializer()
+            .is_some_and(contains_direct_eval_expr),
+        _ => false,
+    }
+}
+
 /// Describes the complete specification of a class.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ClassSpec<'a> {
@@ -45,6 +79,7 @@ pub(crate) struct ClassSpec<'a> {
     elements: &'a [ClassElement],
     has_binding_identifier: bool,
     name_scope: Option<&'a Scope>,
+    span: Option<boa_ast::LinearSpan>,
 }
 
 impl<'a> From<&'a ClassDeclaration> for ClassSpec<'a> {
@@ -56,6 +91,7 @@ impl<'a> From<&'a ClassDeclaration> for ClassSpec<'a> {
             elements: class.elements(),
             has_binding_identifier: true,
             name_scope: Some(class.name_scope()),
+            span: Some(class.linear_span()),
         }
     }
 }
@@ -69,6 +105,7 @@ impl<'a> From<&'a ClassExpression> for ClassSpec<'a> {
             elements: class.elements(),
             has_binding_identifier: class.name().is_some(),
             name_scope: class.name_scope(),
+            span: Some(class.linear_span()),
         }
     }
 }
@@ -84,16 +121,26 @@ impl ByteCompiler<'_> {
         //  - All parts of a ClassDeclaration or a ClassExpression are strict mode code.
         let strict = self.strict();
         self.code_block_flags |= CodeBlockFlags::STRICT;
-
         let class_name = class
             .name
             .map_or(Sym::EMPTY_STRING, Identifier::sym)
             .to_js_string(self.interner());
 
+        if class
+            .elements
+            .iter()
+            .any(class_element_contains_direct_eval)
+        {
+            self.lexical_scope.set_needs_environment();
+            if let Some(scope) = class.name_scope {
+                scope.set_needs_environment();
+            }
+        }
+
         let outer_scope = self.push_declarative_scope(class.name_scope);
 
-        // The new span is not the same as the parent `ByteCompiler` have.
-        let spanned_source_text = self.spanned_source_text.clone_only_source();
+        let spanned_source_text =
+            crate::SpannedSourceText::new(self.source_text(), class.span);
         let mut compiler = ByteCompiler::new(
             class_name.clone(),
             true,
@@ -206,16 +253,6 @@ impl ByteCompiler<'_> {
             .emit_push_private_environment(class_register.variable(), name_indices);
 
         let mut static_elements = Vec::new();
-
-        if class.name_scope.is_some() {
-            let binding = self.lexical_scope.get_identifier_reference(class_name.clone());
-            let index = self.insert_binding(binding);
-            self.emit_binding_access(
-                BindingAccessOpcode::PutLexicalValue,
-                &index,
-                &class_register,
-            );
-        }
 
         for element in class.elements {
             match element {
@@ -422,7 +459,9 @@ impl ByteCompiler<'_> {
 
                     // Function environment
                     field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
-                    let _ = field_compiler.push_scope(field.scope());
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
                     let value = field_compiler.register_allocator.alloc();
                     let is_anonymous_function = if let Some(node) = &field.initializer() {
                         field_compiler.compile_expr(node, &value);
@@ -438,9 +477,6 @@ impl ByteCompiler<'_> {
                         .bytecode
                         .emit_set_accumulator(value.variable());
                     field_compiler.register_allocator.dealloc(value);
-
-                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
-
                     let code = Gc::new(field_compiler.finish());
                     let index = self.push_function_to_constants(code);
 
@@ -471,7 +507,9 @@ impl ByteCompiler<'_> {
                         self.source_path.clone(),
                     );
                     field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
-                    let _ = field_compiler.push_scope(field.scope());
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
                     let value = field_compiler.register_allocator.alloc();
                     if let Some(node) = field.initializer() {
                         field_compiler.compile_expr(node, &value);
@@ -484,9 +522,6 @@ impl ByteCompiler<'_> {
                         .bytecode
                         .emit_set_accumulator(value.variable());
                     field_compiler.register_allocator.dealloc(value);
-
-                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
-
                     let code = Gc::new(field_compiler.finish());
                     let index = self.push_function_to_constants(code);
                     let dst = self.register_allocator.alloc();
@@ -524,7 +559,9 @@ impl ByteCompiler<'_> {
                         self.source_path.clone(),
                     );
                     field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
-                    let _ = field_compiler.push_scope(field.scope());
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
                     let value = field_compiler.register_allocator.alloc();
                     let is_anonymous_function = if let Some(node) = &field.initializer() {
                         field_compiler.compile_expr(node, &value);
@@ -540,9 +577,6 @@ impl ByteCompiler<'_> {
                         .bytecode
                         .emit_set_accumulator(value.variable());
                     field_compiler.register_allocator.dealloc(value);
-
-                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
-
                     let code = field_compiler.finish();
                     let code = Gc::new(code);
 
@@ -568,7 +602,9 @@ impl ByteCompiler<'_> {
                         self.source_path.clone(),
                     );
                     field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
-                    let _ = field_compiler.push_scope(field.scope());
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
                     let value = field_compiler.register_allocator.alloc();
                     let is_anonymous_function = if let Some(node) = &field.initializer() {
                         field_compiler.compile_expr(node, &value);
@@ -584,9 +620,6 @@ impl ByteCompiler<'_> {
                         .bytecode
                         .emit_set_accumulator(value.variable());
                     field_compiler.register_allocator.dealloc(value);
-
-                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
-
                     let code = field_compiler.finish();
                     let code = Gc::new(code);
 
@@ -635,6 +668,16 @@ impl ByteCompiler<'_> {
                     static_elements.push(StaticElement::StaticBlock(code));
                 }
             }
+        }
+
+        if class.name_scope.is_some() {
+            let binding = self.lexical_scope.get_identifier_reference(class_name.clone());
+            let index = self.insert_binding(binding);
+            self.emit_binding_access(
+                BindingAccessOpcode::PutLexicalValue,
+                &index,
+                &class_register,
+            );
         }
 
         for element in static_elements {

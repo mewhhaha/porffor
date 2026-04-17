@@ -145,6 +145,28 @@ impl Scope {
         }
     }
 
+    /// Creates a detached clone of this scope for runtime-only mutation.
+    ///
+    /// This keeps binding layout and indices stable while preventing eval-created
+    /// bindings from leaking into later invocations that share the same compiled scope.
+    #[must_use]
+    pub fn clone_for_runtime(&self) -> Self {
+        Self {
+            inner: Rc::new(Inner {
+                unique_id: self.inner.unique_id,
+                outer: self.inner.outer.clone(),
+                index: Cell::new(self.inner.index.get()),
+                bindings: RefCell::new(self.inner.bindings.borrow().clone()),
+                function: self.inner.function,
+                catch_parameter_environment: Cell::new(
+                    self.inner.catch_parameter_environment.get(),
+                ),
+                needs_environment: Cell::new(self.inner.needs_environment.get()),
+                this_escaped: Cell::new(self.inner.this_escaped.get()),
+            }),
+        }
+    }
+
     /// Checks if the scope has only local bindings.
     #[must_use]
     pub fn all_bindings_local(&self) -> bool {
@@ -167,7 +189,9 @@ impl Scope {
 
     /// Marks the scope as requiring a runtime environment even if all bindings stay local.
     pub fn set_needs_environment(&self) {
-        self.inner.needs_environment.set(true);
+        if !self.inner.needs_environment.replace(true) {
+            self.reorder_binding_indices();
+        }
     }
 
     /// Returns whether this scope requires a runtime environment.
@@ -265,8 +289,14 @@ impl Scope {
     }
 
     /// Set the index of this scope.
-    pub(crate) fn set_index(&self, index: u32) {
+    pub fn set_index(&self, index: u32) {
         self.inner.index.set(index);
+    }
+
+    /// Returns unique scope identifier stable across cloned runtime scopes.
+    #[must_use]
+    pub fn unique_id(&self) -> u32 {
+        self.inner.unique_id
     }
 
     /// Check if the scope is a function scope.

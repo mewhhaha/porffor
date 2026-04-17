@@ -449,11 +449,31 @@ impl Atomics {
             Some(Duration::from_nanos(timeout as u64))
         };
 
-        // 10. If mode is sync and AgentCanSuspend() is false, throw a TypeError exception.
-        if !ASYNC && !context.can_block() {
-            return Err(JsNativeError::typ()
-                .with_message("agent cannot be suspended")
-                .into());
+        // Fast-path the non-equal case before checking `[[CanBlock]]`, since a synchronous
+        // wait that never suspends must still return `"not-equal"`.
+        if !ASYNC {
+            let matches = unsafe {
+                if access.kind == TypedArrayKind::BigInt64 {
+                    futex::value_matches(buffer.borrow().data(), buf_len, access.byte_offset, value)
+                } else {
+                    futex::value_matches(
+                        buffer.borrow().data(),
+                        buf_len,
+                        access.byte_offset,
+                        value as i32,
+                    )
+                }
+            };
+
+            // 10. If mode is sync and AgentCanSuspend() is false, throw a TypeError exception.
+            if !matches {
+                return Ok(js_string!("not-equal").into());
+            }
+            if !context.can_block() {
+                return Err(JsNativeError::typ()
+                    .with_message("agent cannot be suspended")
+                    .into());
+            }
         }
 
         // SAFETY: the validity of `addr` is verified by our call to `validate_atomic_access`.

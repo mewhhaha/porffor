@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+boa_ast = "0.21.1"
+boa_interner = "0.21.1"
+boa_parser = "0.21.1"
 porffor-front = { path = "../porffor-front" }
 
 [lib]

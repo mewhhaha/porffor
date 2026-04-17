@@ -25,7 +25,7 @@ impl CreateMappedArgumentsObject {
         let env = context
             .vm
             .environments
-            .current_declarative_ref()
+            .nearest_declarative_ref()
             .expect("must be declarative");
         let arguments = MappedArguments::new(
             &function_object,

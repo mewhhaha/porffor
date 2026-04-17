@@ -1116,6 +1116,7 @@ generate_opcodes! {
         ic_index: VaryingOperand
     },
 
+
     /// Sets the name of a function object.
     ///
     /// This operation is corresponds to the `SetFunctionName` abstract operation in the [spec].
@@ -1175,6 +1176,7 @@ generate_opcodes! {
         receiver: VaryingOperand,
         object: VaryingOperand
     },
+
 
     /// Defines a own property of an object by value.
     ///

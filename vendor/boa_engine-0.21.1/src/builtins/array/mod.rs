@@ -316,6 +316,20 @@ impl Array {
         Ok(())
     }
 
+    fn prototype_chain_has_no_indexed_properties(
+        mut prototype: crate::object::JsPrototype,
+    ) -> bool {
+        while let Some(object) = prototype {
+            let borrowed = object.borrow();
+            if borrowed.properties().index_property_keys().next().is_some() {
+                return false;
+            }
+            prototype = borrowed.prototype();
+        }
+
+        true
+    }
+
     /// Utility for constructing `Array` objects.
     ///
     /// More information:
@@ -1488,6 +1502,21 @@ impl Array {
         }
 
         let search_element = args.get_or_undefined(0);
+
+        if o.is_array() {
+            let borrowed = o.borrow();
+            if let Some(dense) = borrowed.properties().to_dense_indexed_properties()
+                && dense.len() == len as usize
+                && Self::prototype_chain_has_no_indexed_properties(borrowed.prototype())
+            {
+                for (index, element) in dense.iter().enumerate().skip(k as usize) {
+                    if search_element.strict_equals(element) {
+                        return Ok(JsValue::new(index as i64));
+                    }
+                }
+                return Ok(JsValue::new(-1));
+            }
+        }
 
         // 10. Repeat, while k < len,
         while k < len {

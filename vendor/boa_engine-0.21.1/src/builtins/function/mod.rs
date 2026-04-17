@@ -25,8 +25,9 @@ use crate::{
     object::{
         JsData, JsFunction, JsObject, PrivateElement, PrivateName,
         internal_methods::{
-            CallValue, InternalMethodCallContext, InternalObjectMethods, ORDINARY_INTERNAL_METHODS,
-            get_prototype_from_constructor,
+            CallValue, InternalMethodCallContext, InternalMethodPropertyContext,
+            InternalObjectMethods, ORDINARY_INTERNAL_METHODS, get_prototype_from_constructor,
+            ordinary_get, ordinary_try_get,
         },
     },
     property::{Attribute, PropertyDescriptor, PropertyKey},
@@ -34,7 +35,7 @@ use crate::{
     string::StaticJsStrings,
     symbol::JsSymbol,
     value::IntegerOrInfinity,
-    vm::{ActiveRunnable, CallFrame, CallFrameFlags, CodeBlock},
+    vm::{ActiveRunnable, CallFrame, CallFrameFlags, CodeBlock, SourcePath},
 };
 use boa_ast::{
     Position, Span, Spanned, StatementList,
@@ -190,11 +191,15 @@ pub struct OrdinaryFunction {
 impl JsData for OrdinaryFunction {
     fn internal_methods(&self) -> &'static InternalObjectMethods {
         static FUNCTION_METHODS: InternalObjectMethods = InternalObjectMethods {
+            __get__: function_get,
+            __try_get__: function_try_get,
             __call__: function_call,
             ..ORDINARY_INTERNAL_METHODS
         };
 
         static CONSTRUCTOR_METHODS: InternalObjectMethods = InternalObjectMethods {
+            __get__: function_get,
+            __try_get__: function_try_get,
             __call__: function_call,
             __construct__: function_construct,
             ..ORDINARY_INTERNAL_METHODS
@@ -312,10 +317,6 @@ impl IntrinsicObject for BuiltInFunctionObject {
             .build();
 
         let throw_type_error = realm.intrinsics().objects().throw_type_error();
-        let caller_getter = BuiltInBuilder::callable(realm, Self::legacy_caller_getter)
-            .name(js_string!("get caller"))
-            .length(0)
-            .build();
 
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .method(Self::apply, js_string!("apply"), 2)
@@ -325,7 +326,7 @@ impl IntrinsicObject for BuiltInFunctionObject {
             .property(JsSymbol::has_instance(), has_instance, Attribute::default())
             .accessor(
                 js_string!("caller"),
-                Some(caller_getter),
+                Some(throw_type_error.clone()),
                 Some(throw_type_error.clone()),
                 Attribute::CONFIGURABLE,
             )
@@ -446,9 +447,6 @@ impl BuiltInFunctionObject {
             //     e. Let fallbackProto be "%Function.prototype%".
             StandardConstructors::function
         };
-
-        // 22. Let proto be ? GetPrototypeFromConstructor(newTarget, fallbackProto).
-        let prototype = get_prototype_from_constructor(&new_target, default, context)?;
 
         // 6. Let argCount be the number of elements in parameterArgs.
         let (body, param_list) = if let Some((body, params)) = args.split_last() {
@@ -639,8 +637,6 @@ impl BuiltInFunctionObject {
             body
         };
 
-        // TODO: create SourceText : "anonymous(" parameters \n ") {" body_parse "}"
-
         let function_span_start = Position::new(1, 1);
         let function_span_end = body.span().end();
         let mut function = boa_ast::function::FunctionExpression::new(
@@ -675,6 +671,9 @@ impl BuiltInFunctionObject {
                 function.contains_direct_eval(),
                 context.interner_mut(),
             );
+
+        // 22. Let proto be ? GetPrototypeFromConstructor(newTarget, fallbackProto).
+        let prototype = get_prototype_from_constructor(&new_target, default, context)?;
 
         let environments = context.vm.environments.pop_to_global();
         let function_object = crate::vm::create_function_object(code, prototype, context);
@@ -864,17 +863,18 @@ impl BuiltInFunctionObject {
             return Err(JsNativeError::typ().with_message("not a function").into());
         };
 
-        if object.is::<NativeFunctionObject>() {
-            let name = {
-                // Is there a case here where if there is no name field on a value
-                // name should default to None? Do all functions have names set?
-                let value = object.get(js_string!("name"), &mut *context)?;
-                if value.is_null_or_undefined() {
-                    js_string!()
-                } else {
-                    value.to_string(context)?
+        if let Some(native) = object.downcast_ref::<NativeFunctionObject>() {
+            let mut name = native.name.clone();
+            if name.is_empty() {
+                let key = js_string!("name").into();
+                let mut context = InternalMethodPropertyContext::new(context);
+                if let Some(desc) = object.__get_own_property__(&key, &mut context)?
+                    && let Some(value) = desc.value()
+                    && let Some(string) = value.as_string()
+                {
+                    name = string.clone();
                 }
-            };
+            }
             return Ok(
                 js_string!(js_str!("function "), &name, js_str!("() { [native code] }")).into(),
             );
@@ -889,6 +889,14 @@ impl BuiltInFunctionObject {
         let code = function.codeblock();
         if let Some(code_points) = code.source_info().text_spanned().to_code_points() {
             return Ok(JsString::from(code_points).into());
+        }
+
+        if code.flags.get().contains(crate::vm::CodeBlockFlags::IS_CLASS_CONSTRUCTOR) {
+            let name = code.name();
+            if name.is_empty() {
+                return Ok(js_string!("class {}").into());
+            }
+            return Ok(js_string!(js_str!("class "), name, js_str!(" {}")).into());
         }
 
         Ok(js_string!(
@@ -916,34 +924,6 @@ impl BuiltInFunctionObject {
         Ok(JsValue::undefined())
     }
 
-    fn legacy_caller_getter(
-        this: &JsValue,
-        _: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
-        let Some(function) = this.as_callable() else {
-            return Err(JsNativeError::typ().with_message("not a function").into());
-        };
-
-        let Some(function) = function.downcast_ref::<OrdinaryFunction>() else {
-            return Err(JsNativeError::typ()
-                .with_message(
-                    "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them",
-                )
-                .into());
-        };
-
-        if function.code.strict() || function.code.this_mode.is_lexical() || !function.code.is_ordinary() {
-            return Err(JsNativeError::typ()
-                .with_message(
-                    "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them",
-                )
-                .into());
-        }
-
-        let _ = context;
-        Ok(JsValue::undefined())
-    }
 }
 
 /// Abstract operation `SetFunctionName`
@@ -1003,6 +983,105 @@ pub(crate) fn set_function_name(
             context,
         )
         .expect("defining the `name` property must not fail per the spec");
+}
+
+#[derive(Debug)]
+struct ActiveFunctionFrameData {
+    function: JsObject,
+    strict: bool,
+    is_eval: bool,
+    arguments: Vec<JsValue>,
+}
+
+fn function_is_legacy_introspection_target(function: &JsObject) -> bool {
+    function.downcast_ref::<OrdinaryFunction>().is_some_and(|function| {
+        function.code.is_ordinary()
+            && !function.code.strict()
+            && function.code.has_prototype_property()
+    })
+}
+
+fn collect_active_function_frames(context: &Context) -> Vec<ActiveFunctionFrameData> {
+    context
+        .stack_trace()
+        .filter_map(|frame| {
+            let function = context.vm.stack.get_function(frame)?;
+            Some(ActiveFunctionFrameData {
+                function,
+                strict: frame.code_block().strict(),
+                is_eval: matches!(frame.code_block().path(), SourcePath::Eval),
+                arguments: context.vm.stack.get_arguments(frame).to_vec(),
+            })
+        })
+        .collect()
+}
+
+fn legacy_function_property_value(
+    function: &JsObject,
+    key: &PropertyKey,
+    context: &mut Context,
+) -> Option<JsResult<JsValue>> {
+    let property = match key {
+        PropertyKey::String(string) if *string == js_str!("caller") => "caller",
+        PropertyKey::String(string) if *string == js_str!("arguments") => "arguments",
+        _ => return None,
+    };
+
+    if !function_is_legacy_introspection_target(function) {
+        return None;
+    }
+
+    let frames = collect_active_function_frames(context);
+    let Some(index) = frames.iter().position(|frame| frame.function == *function) else {
+        return Some(Ok(JsValue::null()));
+    };
+
+    if property == "caller" {
+        let caller = frames.iter().skip(index + 1).find(|frame| !frame.is_eval);
+        return Some(Ok(match caller {
+            Some(frame) if function_is_legacy_introspection_target(&frame.function) => {
+                frame.function.clone().into()
+            }
+            _ => JsValue::null(),
+        }));
+    }
+
+    let env = context
+        .vm
+        .environments
+        .nearest_declarative_ref()
+        .cloned()
+        .unwrap_or_else(|| context.vm.environments.global().clone());
+    Some(Ok(
+        arguments::MappedArguments::new(function, &[], &frames[index].arguments, &env, context)
+            .into(),
+    ))
+}
+
+fn function_get(
+    function: &JsObject,
+    key: &PropertyKey,
+    receiver: JsValue,
+    context: &mut InternalMethodPropertyContext<'_>,
+) -> JsResult<JsValue> {
+    if let Some(result) = legacy_function_property_value(function, key, context) {
+        return result;
+    }
+
+    ordinary_get(function, key, receiver, context)
+}
+
+fn function_try_get(
+    function: &JsObject,
+    key: &PropertyKey,
+    receiver: JsValue,
+    context: &mut InternalMethodPropertyContext<'_>,
+) -> JsResult<Option<JsValue>> {
+    if let Some(result) = legacy_function_property_value(function, key, context) {
+        return result.map(Some);
+    }
+
+    ordinary_try_get(function, key, receiver, context)
 }
 
 /// Call this object.

@@ -7,7 +7,9 @@ use crate::{
     },
     source::ReadChar,
 };
-use boa_ast::{Keyword, Punctuator, Span, Spanned, function::ClassExpression as ClassExpressionNode};
+use boa_ast::{
+    Keyword, Punctuator, Span, Spanned, function::ClassExpression as ClassExpressionNode,
+};
 use boa_interner::Interner;
 
 /// Class expression parsing.
@@ -54,14 +56,13 @@ where
                     .parse(cursor, interner)?,
             );
         }
-        let class_span_start = cursor
-            .expect(
-                TokenKind::Keyword((Keyword::Class, false)),
-                "class expression",
-                interner,
-            )?
-            .span()
-            .start();
+        let class_token = cursor.expect(
+            TokenKind::Keyword((Keyword::Class, false)),
+            "class expression",
+            interner,
+        )?;
+        let class_span_start = class_token.span().start();
+        let start_linear_span = class_token.linear_span();
 
         let strict = cursor.strict();
         cursor.set_strict(true);
@@ -78,10 +79,10 @@ where
         };
         cursor.set_strict(strict);
 
-        let (super_ref, constructor, elements, end) =
+        let (super_ref, constructor, elements, end, linear_end) =
             ClassTail::new(name, self.allow_yield, self.allow_await).parse(cursor, interner)?;
 
-        Ok(ClassExpressionNode::new_with_decorators(
+        let mut expression = ClassExpressionNode::new_with_decorators(
             name,
             super_ref,
             constructor,
@@ -89,6 +90,9 @@ where
             decorators.into_boxed_slice(),
             name.is_some(),
             Span::new(class_span_start, end),
-        ))
+        );
+        expression.set_linear_span(start_linear_span.union(linear_end));
+
+        Ok(expression)
     }
 }

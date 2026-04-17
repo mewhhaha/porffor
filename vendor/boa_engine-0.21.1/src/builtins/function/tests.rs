@@ -194,3 +194,51 @@ fn function_constructor_early_errors_super() {
         ),
     ]);
 }
+
+#[test]
+fn dynamic_function_parses_before_getting_new_target_prototype() {
+    run_test_actions([TestAction::assert(indoc! {r#"
+        let getProtoCalled = false;
+        let newTarget = Object.defineProperty(function(){}.bind(), "prototype", {
+            get() {
+                getProtoCalled = true;
+                return null;
+            }
+        });
+
+        try {
+            Reflect.construct(Function, ["@error"], newTarget);
+            false;
+        } catch (error) {
+            error instanceof SyntaxError && getProtoCalled === false;
+        }
+    "#})]);
+}
+
+#[test]
+fn legacy_function_caller_and_arguments_are_exposed_for_active_nonstrict_functions() {
+    run_test_actions([TestAction::assert(indoc! {r#"
+        function outer(a, b) {
+            return inner();
+        }
+
+        function inner() {
+            return inner.caller === outer
+                && inner.arguments !== null
+                && inner.arguments.length === 0;
+        }
+
+        outer(1, 2);
+    "#})]);
+}
+
+#[test]
+fn legacy_function_caller_skips_eval_frames() {
+    run_test_actions([TestAction::assert(indoc! {r#"
+        function innermost() { return arguments.callee.caller; }
+        function middle() { return eval("innermost();"); }
+        function outer() { return middle(); }
+
+        outer() === middle;
+    "#})]);
+}

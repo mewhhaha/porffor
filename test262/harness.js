@@ -58,7 +58,7 @@ var $262 = {
     };
   },
   destroy() {},
-  agent: {
+  agent: __porfHost262 && __porfHost262.agent ? __porfHost262.agent : {
     _agents: [],
     _reports: [],
     _pendingWaiters: [],
@@ -478,6 +478,7 @@ var $262 = {
   }
 };
 
+if (!(__porfHost262 && __porfHost262.agent)) {
 (function installAtomicsHostShim() {
   if (typeof Atomics !== "object" || Atomics === null) {
     return;
@@ -585,3 +586,4 @@ var $262 = {
     globalThis.Atomics = wrappedAtomics;
   }
 })();
+}

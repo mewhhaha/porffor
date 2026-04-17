@@ -234,6 +234,10 @@ impl BuiltInConstructor for Symbol {
 }
 
 impl Symbol {
+    pub(crate) fn registered_key(sym: &JsSymbol) -> Option<JsString> {
+        GLOBAL_SYMBOL_REGISTRY.get_key(sym)
+    }
+
     fn this_symbol_value(value: &JsValue) -> JsResult<JsSymbol> {
         value
             .as_symbol()

@@ -10,15 +10,16 @@ use boa_ast::{
 
 enum TryVariant<'a> {
     Catch(&'a Catch),
-    Finally((&'a Finally, Register, Register)),
-    CatchFinally((&'a Catch, &'a Finally, Register, Register)),
+    Finally((&'a Finally, Register, Register, Register)),
+    CatchFinally((&'a Catch, &'a Finally, Register, Register, Register)),
 }
 
 impl TryVariant<'_> {
-    fn finaly_re_throw_register(&self) -> Option<(&Register, &Register)> {
+    fn finaly_re_throw_register(&self) -> Option<(&Register, &Register, &Register)> {
         match self {
             TryVariant::Catch(_) => None,
-            TryVariant::Finally((_, f, i)) | TryVariant::CatchFinally((_, _, f, i)) => Some((f, i)),
+            TryVariant::Finally((_, f, i, r))
+            | TryVariant::CatchFinally((_, _, f, i, r)) => Some((f, i, r)),
         }
     }
 }
@@ -30,31 +31,48 @@ impl ByteCompiler<'_> {
             (Some(catch), Some(finally)) => {
                 let finally_re_throw = self.register_allocator.alloc();
                 let finally_jump_index = self.register_allocator.alloc();
+                let finally_return_flag = self.register_allocator.alloc();
 
                 self.bytecode.emit_push_true(finally_re_throw.variable());
                 self.bytecode.emit_push_zero(finally_jump_index.variable());
+                self.bytecode.emit_push_false(finally_return_flag.variable());
 
                 self.push_try_with_finally_control_info(
                     &finally_re_throw,
                     &finally_jump_index,
+                    &finally_return_flag,
                     use_expr,
                 );
-                TryVariant::CatchFinally((catch, finally, finally_re_throw, finally_jump_index))
+                TryVariant::CatchFinally((
+                    catch,
+                    finally,
+                    finally_re_throw,
+                    finally_jump_index,
+                    finally_return_flag,
+                ))
             }
             (Some(catch), None) => TryVariant::Catch(catch),
             (None, Some(finally)) => {
                 let finally_re_throw = self.register_allocator.alloc();
                 let finally_jump_index = self.register_allocator.alloc();
+                let finally_return_flag = self.register_allocator.alloc();
 
                 self.bytecode.emit_push_true(finally_re_throw.variable());
                 self.bytecode.emit_push_zero(finally_jump_index.variable());
+                self.bytecode.emit_push_false(finally_return_flag.variable());
 
                 self.push_try_with_finally_control_info(
                     &finally_re_throw,
                     &finally_jump_index,
+                    &finally_return_flag,
                     use_expr,
                 );
-                TryVariant::Finally((finally, finally_re_throw, finally_jump_index))
+                TryVariant::Finally((
+                    finally,
+                    finally_re_throw,
+                    finally_jump_index,
+                    finally_return_flag,
+                ))
             }
             (None, None) => unreachable!("try statement must have either catch or finally"),
         };
@@ -64,8 +82,10 @@ impl ByteCompiler<'_> {
         // Compile try block
         self.compile_block(t.block(), use_expr);
 
-        if let Some((finally_re_throw, _)) = variant.finaly_re_throw_register() {
+        if let Some((finally_re_throw, _, finally_return_flag)) = variant.finaly_re_throw_register()
+        {
             self.bytecode.emit_push_false(finally_re_throw.variable());
+            self.bytecode.emit_push_false(finally_return_flag.variable());
         }
 
         let finally = self.jump();
@@ -80,9 +100,16 @@ impl ByteCompiler<'_> {
                 self.register_allocator.dealloc(error);
                 self.patch_jump(finally);
             }
-            TryVariant::CatchFinally((c, f, finally_re_throw, finally_jump_index)) => {
+            TryVariant::CatchFinally((
+                c,
+                f,
+                finally_re_throw,
+                finally_jump_index,
+                finally_return_flag,
+            )) => {
                 let catch_handler = self.push_handler();
                 let error = self.register_allocator.alloc();
+                let saved_return_value = self.register_allocator.alloc();
                 self.bytecode.emit_exception(error.variable());
                 self.compile_catch_stmt(c, &error, use_expr);
                 self.bytecode.emit_push_false(finally_re_throw.variable());
@@ -100,20 +127,29 @@ impl ByteCompiler<'_> {
                     .last_mut()
                     .expect("there should be a try block")
                     .flags |= JumpControlInfoFlags::IN_FINALLY;
+                let skip_save = self.jump_if_false(&finally_return_flag);
+                self.pop_into_register(&saved_return_value);
+                self.patch_jump(skip_save);
                 self.compile_finally_stmt(f);
+                let skip_restore = self.jump_if_false(&finally_return_flag);
+                self.push_from_register(&saved_return_value);
+                self.patch_jump(skip_restore);
                 let do_not_throw_exit = self.jump_if_false(&finally_re_throw);
                 self.bytecode.emit_throw(error.variable());
                 self.patch_jump(do_not_throw_exit);
                 self.register_allocator.dealloc(error);
+                self.register_allocator.dealloc(saved_return_value);
                 self.pop_try_with_finally_control_info(finally_start);
                 self.register_allocator.dealloc(finally_re_throw);
                 self.register_allocator.dealloc(finally_jump_index);
+                self.register_allocator.dealloc(finally_return_flag);
             }
-            TryVariant::Finally((f, finally_re_throw, finally_jump_index))
+            TryVariant::Finally((f, finally_re_throw, finally_jump_index, finally_return_flag))
                 if self.is_generator() =>
             {
                 let catch_handler = self.push_handler();
                 let error = self.register_allocator.alloc();
+                let saved_return_value = self.register_allocator.alloc();
                 self.bytecode.emit_exception(error.variable());
                 // Is this a generator `return()` empty exception?
                 //
@@ -138,11 +174,18 @@ impl ByteCompiler<'_> {
                     .last_mut()
                     .expect("there should be a try block")
                     .flags |= JumpControlInfoFlags::IN_FINALLY;
+                let skip_save = self.jump_if_false(&finally_return_flag);
+                self.pop_into_register(&saved_return_value);
+                self.patch_jump(skip_save);
                 self.compile_finally_stmt(f);
+                let skip_restore = self.jump_if_false(&finally_return_flag);
+                self.push_from_register(&saved_return_value);
+                self.patch_jump(skip_restore);
                 let do_not_throw_exit = self.jump_if_false(&finally_re_throw);
                 let is_generator_exit = self.jump_if_true(&re_throw_generator);
                 self.bytecode.emit_throw(error.variable());
                 self.register_allocator.dealloc(error);
+                self.register_allocator.dealloc(saved_return_value);
                 self.patch_jump(is_generator_exit);
                 self.bytecode.emit_re_throw();
                 self.patch_jump(do_not_throw_exit);
@@ -150,10 +193,12 @@ impl ByteCompiler<'_> {
                 self.pop_try_with_finally_control_info(finally_start);
                 self.register_allocator.dealloc(finally_re_throw);
                 self.register_allocator.dealloc(finally_jump_index);
+                self.register_allocator.dealloc(finally_return_flag);
             }
-            TryVariant::Finally((f, finally_re_throw, finally_jump_index)) => {
+            TryVariant::Finally((f, finally_re_throw, finally_jump_index, finally_return_flag)) => {
                 let catch_handler = self.push_handler();
                 let error = self.register_allocator.alloc();
+                let saved_return_value = self.register_allocator.alloc();
                 self.bytecode.emit_exception(error.variable());
                 self.bytecode.emit_push_true(finally_re_throw.variable());
 
@@ -168,14 +213,22 @@ impl ByteCompiler<'_> {
                     .last_mut()
                     .expect("there should be a try block")
                     .flags |= JumpControlInfoFlags::IN_FINALLY;
+                let skip_save = self.jump_if_false(&finally_return_flag);
+                self.pop_into_register(&saved_return_value);
+                self.patch_jump(skip_save);
                 self.compile_finally_stmt(f);
+                let skip_restore = self.jump_if_false(&finally_return_flag);
+                self.push_from_register(&saved_return_value);
+                self.patch_jump(skip_restore);
                 let do_not_throw_exit = self.jump_if_false(&finally_re_throw);
                 self.bytecode.emit_throw(error.variable());
                 self.register_allocator.dealloc(error);
+                self.register_allocator.dealloc(saved_return_value);
                 self.patch_jump(do_not_throw_exit);
                 self.pop_try_with_finally_control_info(finally_start);
                 self.register_allocator.dealloc(finally_re_throw);
                 self.register_allocator.dealloc(finally_jump_index);
+                self.register_allocator.dealloc(finally_return_flag);
             }
         }
     }

@@ -44,10 +44,11 @@ fn inspect_reports_pipeline_invariants() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("goal: Script"));
     assert!(stdout.contains("direct-js-to-wasm-only"));
+    assert!(stdout.contains("diagnostics:"));
 }
 
 #[test]
-fn build_wasm_failure_repeats_product_rule() {
+fn build_wasm_failure_reports_unsupported_slice() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("build")
         .arg("wasm")
@@ -57,8 +58,37 @@ fn build_wasm_failure_repeats_product_rule() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("compile JavaScript directly to Wasm"));
-    assert!(stderr.contains("interpreter-in-Wasm"));
+    assert!(stderr.contains("unsupported in porffor wasm-aot first slice"));
+}
+
+#[test]
+fn build_wasm_succeeds_for_supported_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("build")
+        .arg("wasm")
+        .arg(fixture_path("wasm_slice.js"))
+        .output()
+        .expect("build command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("built Wasm artifact"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_slice.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(42"));
 }
 
 #[test]
@@ -73,7 +103,7 @@ fn test262_list_works_with_fixture_suite() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("count: 3"));
+    assert!(stdout.contains("count: 6"));
 }
 
 #[test]
@@ -93,8 +123,8 @@ fn test262_run_writes_summary() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("total: 3"));
-    assert!(stdout.contains("passed: 3"));
+    assert!(stdout.contains("total: 6"));
+    assert!(stdout.contains("passed: 6"));
     assert!(stdout.contains("Unsupported: 0"));
 }
 
@@ -115,7 +145,7 @@ fn test262_report_groups_failures_by_bucket() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("passed: 3"));
+    assert!(stdout.contains("passed: 6"));
     assert!(stdout.contains("failed: 0"));
 }
 
@@ -136,7 +166,31 @@ fn test262_report_all_aggregates_fixture_suite() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
+    assert!(stdout.contains("total: 6"));
+    assert!(stdout.contains("passed: 6"));
+    assert!(stdout.contains("targets:"));
+}
+
+#[test]
+fn test262_wasm_backend_runs_supported_fixture_subset() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("run")
+        .arg("language/wasm/pass")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(snapshot_dir())
+        .arg("--snapshot-name")
+        .arg("cli-wasm-fixture")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .output()
+        .expect("test262 wasm run should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("execution_backend: wasm-aot"));
     assert!(stdout.contains("total: 3"));
     assert!(stdout.contains("passed: 3"));
-    assert!(stdout.contains("targets:"));
 }

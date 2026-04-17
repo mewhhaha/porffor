@@ -382,6 +382,65 @@ fn recursion_runtime_limit() {
 }
 
 #[test]
+fn recursion_runtime_limit_is_catchable_in_javascript() {
+    run_test_actions([
+        TestAction::run(
+            indoc! {r#"
+                var caught = false;
+                var constructor_name = "";
+                var message = "";
+
+                try {
+                    (function f() {
+                        f();
+                    })();
+                } catch (e) {
+                    caught = e instanceof Error;
+                    constructor_name = e.constructor.name;
+                    message = e.message;
+                }
+            "#},
+        ),
+        TestAction::assert_eq("caught", true),
+        TestAction::assert_eq("constructor_name", js_str!("Error")),
+        TestAction::assert_eq("message", js_str!("exceeded maximum number of recursive calls")),
+    ]);
+}
+
+#[test]
+fn recursion_runtime_limit_generator_unwinds_through_catch() {
+    run_test_actions([TestAction::assert_eq(
+        indoc! {r#"
+            let caught = false;
+            let message = "";
+
+            var r;
+            function* f() {
+              r = arguments;
+              test();
+              yield 170;
+            }
+
+            function test() {
+              function foopy() {
+                try {
+                  for (var i of f());
+                } catch (e) {
+                  caught = e instanceof Error;
+                  message = e.message;
+                }
+              }
+              foopy();
+            }
+
+            test();
+            caught && message;
+        "#},
+        js_str!("exceeded maximum number of recursive calls"),
+    )]);
+}
+
+#[test]
 fn arguments_object_constructor_valid_index() {
     run_test_actions([TestAction::assert_eq(
         indoc! {r#"

@@ -887,8 +887,14 @@ impl ByteCompiler<'_> {
                 // iii. Else,
                 if *binding_exists {
                     // 1. Perform ! varEnv.SetMutableBinding(fn, fo, false).
+                    //
+                    // The surrounding function/loop freshening paths can leave the mutable binding
+                    // present but not yet initialized in the current runtime environment. Using the
+                    // init opcode here matches the "set mutable binding" result for existing mutable
+                    // vars, while still allowing direct eval function declarations to initialize the
+                    // fresh binding instead of tripping the uninitialized-binder check in `SetName`.
                     let index = self.insert_binding(binding.clone());
-                    self.emit_binding_access(BindingAccessOpcode::SetName, &index, &dst);
+                    self.emit_binding_access(BindingAccessOpcode::DefInitVar, &index, &dst);
                 } else {
                     // 1. NOTE: The following invocation cannot return an abrupt completion because of the validation preceding step 14.
                     // 2. Perform ! varEnv.CreateMutableBinding(fn, true).
@@ -1040,14 +1046,10 @@ impl ByteCompiler<'_> {
             }
         }
 
-        if arguments_object_needed {
-            arguments_object_needed = scopes.arguments_object_accessed();
-        }
-
         // 19-20
         drop(self.push_declarative_scope(scopes.parameters_eval_scope()));
 
-        let scope = self.lexical_scope.clone();
+        let parameter_env = self.lexical_scope.clone();
 
         // 22. If argumentsObjectNeeded is true, then
         //
@@ -1138,13 +1140,13 @@ impl ByteCompiler<'_> {
         // 28. Else,
         #[allow(unused_variables, unused_mut)]
         let (mut instantiated_var_names, mut variable_scope) =
-            if let Some(scope) = scopes.parameters_scope() {
+            if let Some(parameters_scope) = scopes.parameters_scope() {
                 // a. NOTE: A separate Environment Record is needed to ensure that closures created by
                 //          expressions in the formal parameter list do not have
                 //          visibility of declarations in the function body.
                 // b. Let varEnv be NewDeclarativeEnvironment(env).
                 // c. Set the VariableEnvironment of calleeContext to varEnv.
-                drop(self.push_declarative_scope(Some(scope)));
+                drop(self.push_declarative_scope(Some(parameters_scope)));
 
                 let mut variable_scope = self.lexical_scope.clone();
 
@@ -1174,18 +1176,16 @@ impl ByteCompiler<'_> {
                         // 4. Else,
                         else {
                             // a. Let initialValue be ! env.GetBindingValue(n, false).
-                            let binding = scope
+                            let binding = parameter_env
                                 .get_binding_reference(&n_string)
                                 .expect("must have binding");
-                            let index = self.get_binding(&binding);
+                            let index = self.insert_binding(binding);
                             self.emit_binding_access(BindingAccessOpcode::GetName, &index, &value);
                         }
 
                         // 5. Perform ! varEnv.InitializeBinding(n, initialValue).
                         let index = self.insert_binding(binding);
 
-                        // TODO: What?
-                        self.bytecode.emit_push_undefined(value.variable());
                         self.emit_binding_access(BindingAccessOpcode::DefInitVar, &index, &value);
                         self.register_allocator.dealloc(value);
 
@@ -1211,7 +1211,9 @@ impl ByteCompiler<'_> {
 
                         // 2. Perform ! env.CreateMutableBinding(n, false).
                         // 3. Perform ! env.InitializeBinding(n, undefined).
-                        let binding = scope.get_binding_reference(&n).expect("binding must exist");
+                        let binding = parameter_env
+                            .get_binding_reference(&n)
+                            .expect("binding must exist");
                         let index = self.insert_binding(binding);
                         let value = self.register_allocator.alloc();
                         self.bytecode.emit_push_undefined(value.variable());
@@ -1221,7 +1223,7 @@ impl ByteCompiler<'_> {
                 }
 
                 // d. Let varEnv be env.
-                (instantiated_var_names, scope)
+                (instantiated_var_names, parameter_env)
             };
 
         // 29. NOTE: Annex B.3.2.1 adds additional steps at this point.

@@ -125,7 +125,10 @@ impl Default for SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
             snapshot_dir: root.join("snapshots"),
-            timeout_ms: 15_000,
+            // Conformance buckets now include a few correctness-green but still slow
+            // intrinsic graph traversals, so the default timeout must not classify them
+            // as harness failures after they complete successfully.
+            timeout_ms: 180_000,
             worker_count: thread::available_parallelism()
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
@@ -1300,6 +1303,7 @@ fn run_one_case(
                         .parent()
                         .map(|path| path.display().to_string()),
                     test_path: Some(case.source_path.display().to_string()),
+                    can_block: case.flags.contains("CanBlockIsTrue"),
                 },
             )
         } else {
@@ -1311,6 +1315,7 @@ fn run_one_case(
                     argv: Vec::new(),
                     module_root: None,
                     test_path: Some(case.source_path.display().to_string()),
+                    can_block: case.flags.contains("CanBlockIsTrue"),
                 },
             )
         };
@@ -2247,10 +2252,11 @@ fn parse_frontmatter_block(source: &str) -> BTreeMap<String, String> {
         return out;
     };
     let body = &source[start + 5..start + 5 + end];
+    let normalized_body = body.replace("\r\n", "\n").replace('\r', "\n");
     let mut current_key = None::<String>;
     let mut current_value = String::new();
 
-    for line in body.lines() {
+    for line in normalized_body.lines() {
         let trimmed = line.trim_end();
         if trimmed.is_empty() {
             continue;
@@ -2516,6 +2522,20 @@ mod tests {
         assert!(materialized.source.starts_with("\"use strict\";"));
         assert!(materialized.source.contains("local assert"));
         assert!(materialized.source.contains("vendored helper"));
+    }
+
+    #[test]
+    fn parse_frontmatter_block_handles_cr_line_endings() {
+        let source =
+            "/*---\resid: test\rincludes: [nativeFunctionMatcher.js]\rflags: [raw]\r---*/\r0;";
+        let frontmatter = parse_frontmatter_block(source);
+
+        assert_eq!(frontmatter.get("esid"), Some(&"test".to_string()));
+        assert_eq!(
+            frontmatter.get("includes"),
+            Some(&"[nativeFunctionMatcher.js]".to_string())
+        );
+        assert_eq!(frontmatter.get("flags"), Some(&"[raw]".to_string()));
     }
 
     #[test]

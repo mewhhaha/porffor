@@ -183,6 +183,24 @@ impl AtomicsWaitResult {
     }
 }
 
+/// Checks whether the current value at `buffer[offset..]` matches `check`.
+///
+/// # Safety
+///
+/// - `offset` must point to a valid, aligned `E` inside `buffer`.
+pub(super) unsafe fn value_matches<E: Element + PartialEq>(
+    buffer: &SharedArrayBuffer,
+    buf_len: usize,
+    offset: usize,
+    check: E,
+) -> bool {
+    let buffer = &buffer.bytes_with_len(buf_len)[offset..];
+
+    // SAFETY: The caller guarantees the underlying atomic read is aligned and in-bounds.
+    let value = unsafe { E::read(SliceRef::AtomicSlice(buffer)).load(Ordering::SeqCst) };
+    value == check
+}
+
 /// Data used by async waiters.
 #[derive(Debug)]
 struct AsyncWaiterData {

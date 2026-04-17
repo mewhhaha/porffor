@@ -55,6 +55,8 @@ use boa_macros::js_str;
 use rustc_hash::{FxHashMap, FxHashSet};
 use thin_vec::ThinVec;
 
+const STRICT_SET_PROPERTY_FLAG: u32 = 1 << 31;
+
 pub(crate) use declarations::{
     eval_declaration_instantiation_context, global_declaration_instantiation_context,
 };
@@ -840,7 +842,7 @@ impl<'ctx> ByteCompiler<'ctx> {
         name: JsString,
     ) -> PreparedDeclarationBinding {
         match opcode {
-            BindingOpcode::InitVar | BindingOpcode::SetName => {
+            BindingOpcode::SetName => {
                 let binding = self.get_identifier_reference(name.clone());
                 let is_lexical = binding.is_lexical();
                 let index = self.get_binding(&binding);
@@ -852,7 +854,7 @@ impl<'ctx> ByteCompiler<'ctx> {
                     return PreparedDeclarationBinding::SetByLocator(index);
                 }
             }
-            BindingOpcode::Var | BindingOpcode::InitLexical => {}
+            BindingOpcode::Var | BindingOpcode::InitVar | BindingOpcode::InitLexical => {}
         }
 
         PreparedDeclarationBinding::Late { opcode, name }
@@ -1052,6 +1054,12 @@ impl<'ctx> ByteCompiler<'ctx> {
         };
         self.ic.push(InlineCache::new(name.clone()));
 
+        let ic_index = if self.code_block_flags.contains(CodeBlockFlags::STRICT) {
+            ic_index | STRICT_SET_PROPERTY_FLAG
+        } else {
+            ic_index
+        };
+
         self.bytecode.emit_set_property_by_name(
             value.variable(),
             receiver.variable(),
@@ -1247,17 +1255,23 @@ impl<'ctx> ByteCompiler<'ctx> {
                 PropertyAccess::Super(access) => {
                     let mut compiler = self.position_guard(access.field());
 
-                    let value = compiler.register_allocator.alloc();
-                    let receiver = compiler.register_allocator.alloc();
-                    compiler.bytecode.emit_super(value.variable());
-                    compiler.bytecode.emit_this(receiver.variable());
                     match access.field() {
                         PropertyAccessField::Const(ident) => {
+                            let value = compiler.register_allocator.alloc();
+                            let receiver = compiler.register_allocator.alloc();
+                            compiler.bytecode.emit_super(value.variable());
+                            compiler.bytecode.emit_this(receiver.variable());
                             compiler.emit_get_property_by_name(dst, &receiver, &value, ident.sym());
+                            compiler.register_allocator.dealloc(receiver);
+                            compiler.register_allocator.dealloc(value);
                         }
                         PropertyAccessField::Expr(expr) => {
                             let key = compiler.register_allocator.alloc();
                             compiler.compile_expr(expr, &key);
+                            let value = compiler.register_allocator.alloc();
+                            let receiver = compiler.register_allocator.alloc();
+                            compiler.bytecode.emit_super(value.variable());
+                            compiler.bytecode.emit_this(receiver.variable());
                             compiler.bytecode.emit_get_property_by_value(
                                 dst.variable(),
                                 key.variable(),
@@ -1265,10 +1279,10 @@ impl<'ctx> ByteCompiler<'ctx> {
                                 value.variable(),
                             );
                             compiler.register_allocator.dealloc(key);
+                            compiler.register_allocator.dealloc(receiver);
+                            compiler.register_allocator.dealloc(value);
                         }
                     }
-                    compiler.register_allocator.dealloc(receiver);
-                    compiler.register_allocator.dealloc(value);
                 }
             },
             Access::This => {
@@ -1373,14 +1387,14 @@ impl<'ctx> ByteCompiler<'ctx> {
                         self.register_allocator.dealloc(object);
                     }
                     PropertyAccessField::Expr(expr) => {
+                        let key = self.register_allocator.alloc();
+                        self.compile_expr(expr, &key);
+
                         let object = self.register_allocator.alloc();
                         self.bytecode.emit_super(object.variable());
 
                         let receiver = self.register_allocator.alloc();
                         self.bytecode.emit_this(receiver.variable());
-
-                        let key = self.register_allocator.alloc();
-                        self.compile_expr(expr, &key);
 
                         let value = expr_fn(self);
 
@@ -1420,7 +1434,14 @@ impl<'ctx> ByteCompiler<'ctx> {
                         self.register_allocator.dealloc(key);
                     }
                 },
-                PropertyAccess::Super(_) => self.bytecode.emit_delete_super_throw(),
+                PropertyAccess::Super(access) => {
+                    if let PropertyAccessField::Expr(expr) = access.field() {
+                        let key = self.register_allocator.alloc();
+                        self.compile_expr(expr, &key);
+                        self.register_allocator.dealloc(key);
+                    }
+                    self.bytecode.emit_delete_super_throw();
+                }
                 PropertyAccess::Private(_) => {
                     unreachable!("deleting private properties should always throw early errors.")
                 }
@@ -1512,17 +1533,20 @@ impl<'ctx> ByteCompiler<'ctx> {
                     .emit_get_private_field(dst.variable(), this.variable(), index.into());
             }
             PropertyAccess::Super(access) => {
-                let object = self.register_allocator.alloc();
-                self.bytecode.emit_this(this.variable());
-                self.bytecode.emit_super(object.variable());
-
                 match access.field() {
                     PropertyAccessField::Const(ident) => {
+                        let object = self.register_allocator.alloc();
+                        self.bytecode.emit_this(this.variable());
+                        self.bytecode.emit_super(object.variable());
                         self.emit_get_property_by_name(dst, this, &object, ident.sym());
+                        self.register_allocator.dealloc(object);
                     }
                     PropertyAccessField::Expr(expr) => {
                         let key = self.register_allocator.alloc();
                         self.compile_expr(expr, &key);
+                        let object = self.register_allocator.alloc();
+                        self.bytecode.emit_this(this.variable());
+                        self.bytecode.emit_super(object.variable());
                         self.bytecode.emit_get_property_by_value(
                             dst.variable(),
                             key.variable(),
@@ -1530,9 +1554,9 @@ impl<'ctx> ByteCompiler<'ctx> {
                             object.variable(),
                         );
                         self.register_allocator.dealloc(key);
+                        self.register_allocator.dealloc(object);
                     }
                 }
-                self.register_allocator.dealloc(object);
             }
         }
     }
@@ -1696,20 +1720,15 @@ impl<'ctx> ByteCompiler<'ctx> {
         for variable in decl.0.as_ref() {
             match variable.binding() {
                 Binding::Identifier(ident) => {
-                    let ident = ident.to_js_string(self.interner());
                     if let Some(expr) = variable.init() {
-                        let binding = self.get_identifier_reference(ident.clone());
-                        let index = self.insert_binding(binding);
                         let value = self.register_allocator.alloc();
-                        self.emit_binding_access(BindingAccessOpcode::GetLocator, &index, &value);
-                        self.compile_expr(expr, &value);
-                        self.emit_binding_access(
-                            BindingAccessOpcode::SetNameByLocator,
-                            &index,
-                            &value,
-                        );
+                        self.access_set(Access::Variable { name: *ident }, |compiler| {
+                            compiler.compile_expr(expr, &value);
+                            &value
+                        });
                         self.register_allocator.dealloc(value);
                     } else {
+                        let ident = ident.to_js_string(self.interner());
                         let value = self.register_allocator.alloc();
                         self.emit_binding(BindingOpcode::Var, ident, &value);
                         self.register_allocator.dealloc(value);
@@ -1930,6 +1949,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .strict(self.strict())
             .arrow(arrow)
             .in_with(self.in_with)
+            .in_class_field_initializer(
+                self.code_block_flags
+                    .contains(CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER),
+            )
             .name_scope(name_scope.cloned())
             .runtime_deletable_bindings(
                 self.runtime_deletable_binding_names.clone(),
@@ -2015,6 +2038,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .arrow(arrow)
             .method(true)
             .in_with(self.in_with)
+            .in_class_field_initializer(
+                self.code_block_flags
+                    .contains(CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER),
+            )
             .name_scope(name_scope.cloned())
             .runtime_deletable_bindings(
                 self.runtime_deletable_binding_names.clone(),
@@ -2069,6 +2096,10 @@ impl<'ctx> ByteCompiler<'ctx> {
             .arrow(arrow)
             .method(true)
             .in_with(self.in_with)
+            .in_class_field_initializer(
+                self.code_block_flags
+                    .contains(CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER),
+            )
             .name_scope(function.name_scope.cloned())
             .runtime_deletable_bindings(
                 self.runtime_deletable_binding_names.clone(),
@@ -2227,7 +2258,18 @@ impl<'ctx> ByteCompiler<'ctx> {
         match kind {
             CallKind::CallEval => {
                 let scope_index = compiler.constants.len() as u32;
-                let lexical_scope = compiler.lexical_scope.clone();
+                let lexical_scope = if compiler
+                    .code_block_flags
+                    .contains(CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER)
+                    && compiler.lexical_scope.num_bindings() == 0
+                {
+                    compiler
+                        .lexical_scope
+                        .outer()
+                        .unwrap_or_else(|| compiler.lexical_scope.clone())
+                } else {
+                    compiler.lexical_scope.clone()
+                };
                 compiler.constants.push(Constant::Scope(lexical_scope));
                 if tail && contains_spread {
                     compiler.emit_tail_call_actions(tail_actions);

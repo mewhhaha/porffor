@@ -12,6 +12,7 @@ porffor-front = { path = "../porffor-front" }
 porffor-ir = { path = "../porffor-ir" }
 porffor-runtime = { path = "../porffor-runtime" }
 porffor-spec-exec = { path = "../porffor-spec-exec" }
+wasmi = "0.31.2"
 
 [lib]
 path = "src/lib.rs"

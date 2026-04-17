@@ -42,7 +42,7 @@ impl ByteCompiler<'_> {
                         self.lexical_scope = decl.scope().clone();
                         None
                     } else {
-                        outer_scope = Some(self.lexical_scope.clone());
+                        outer_scope = Some((self.lexical_scope.clone(), true));
                         let scope_index = self.push_scope(decl.scope());
                         self.bytecode.emit_push_scope(scope_index.into());
                         Some(scope_index)

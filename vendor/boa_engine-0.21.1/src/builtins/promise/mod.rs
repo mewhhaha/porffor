@@ -17,7 +17,7 @@ use crate::{
     native_function::NativeFunction,
     object::{
         CONSTRUCTOR, FunctionObjectBuilder, JsFunction, JsObject,
-        internal_methods::get_prototype_from_constructor,
+        internal_methods::{InternalMethodPropertyContext, get_prototype_from_constructor},
     },
     property::Attribute,
     realm::Realm,
@@ -340,7 +340,9 @@ impl IntrinsicObject for Promise {
 
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .static_method(Self::all, js_string!("all"), 1)
+            .static_method(Self::all_keyed, js_string!("allKeyed"), 1)
             .static_method(Self::all_settled, js_string!("allSettled"), 1)
+            .static_method(Self::all_settled_keyed, js_string!("allSettledKeyed"), 1)
             .static_method(Self::any, js_string!("any"), 1)
             .static_method(Self::race, js_string!("race"), 1)
             .static_method(Self::reject, js_string!("reject"), 1)
@@ -377,7 +379,7 @@ impl BuiltInObject for Promise {
 impl BuiltInConstructor for Promise {
     const CONSTRUCTOR_ARGUMENTS: usize = 1;
     const PROTOTYPE_STORAGE_SLOTS: usize = 4;
-    const CONSTRUCTOR_STORAGE_SLOTS: usize = 10;
+    const CONSTRUCTOR_STORAGE_SLOTS: usize = 12;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
         StandardConstructors::promise;
@@ -448,6 +450,56 @@ impl BuiltInConstructor for Promise {
 }
 
 impl Promise {
+    fn create_keyed_result_object(
+        keys: &[JsValue],
+        values: &[JsValue],
+        context: &mut Context,
+    ) -> JsObject {
+        let object = JsObject::with_object_proto(context.intrinsics());
+
+        for (key, value) in keys.iter().zip(values) {
+            let property_key = key
+                .clone()
+                .to_property_key(context)
+                .expect("collected own property key must stay a property key");
+            object
+                .create_data_property_or_throw(property_key, value.clone(), context)
+                .expect("fresh ordinary object must accept keyed combinator result properties");
+        }
+
+        object
+    }
+
+    fn collect_keyed_entries(
+        value: &JsValue,
+        context: &mut Context,
+    ) -> JsResult<(Vec<JsValue>, Vec<JsValue>)> {
+        let object = value.to_object(context)?;
+        let keys = object.__own_property_keys__(&mut InternalMethodPropertyContext::new(context))?;
+
+        let mut collected_keys = Vec::new();
+        let mut collected_values = Vec::new();
+
+        for key in keys {
+            let descriptor = object.__get_own_property__(
+                &key,
+                &mut InternalMethodPropertyContext::new(context),
+            )?;
+
+            if let Some(descriptor) = descriptor {
+                if descriptor.enumerable() != Some(true) {
+                    continue;
+                }
+
+                let property_value = object.get(key.clone(), context)?;
+                collected_keys.push(JsValue::from(key));
+                collected_values.push(property_value);
+            }
+        }
+
+        Ok((collected_keys, collected_values))
+    }
+
     /// Creates a new, pending `Promise`.
     pub(crate) fn new() -> Self {
         Self {
@@ -617,6 +669,42 @@ impl Promise {
         result
     }
 
+    /// `Promise.allKeyed ( object )`
+    pub(crate) fn all_keyed(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let c = this.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message("Promise.allKeyed() called on a non-object")
+        })?;
+
+        let promise_capability = PromiseCapability::new(&c, context)?;
+        let promise_resolve = Self::get_promise_resolve(&c, context);
+        let promise_resolve =
+            if_abrupt_reject_promise!(promise_resolve, promise_capability, context);
+
+        let keyed_entries = Self::collect_keyed_entries(args.get_or_undefined(0), context);
+        let (keys, values) = if_abrupt_reject_promise!(keyed_entries, promise_capability, context);
+
+        let result = Self::perform_promise_all_keyed(
+            keys,
+            values,
+            &c,
+            &promise_capability,
+            &promise_resolve,
+            context,
+        )
+        .map(JsValue::from);
+
+        if result.is_err() {
+            let result = if_abrupt_reject_promise!(result, promise_capability, context);
+            return Ok(result);
+        }
+
+        result
+    }
+
     /// `PerformPromiseAll ( iteratorRecord, constructor, resultCapability, promiseResolve )`
     ///
     /// More information:
@@ -768,6 +856,110 @@ impl Promise {
         Ok(result_capability.promise.clone())
     }
 
+    fn perform_promise_all_keyed(
+        keys: Vec<JsValue>,
+        entries: Vec<JsValue>,
+        constructor: &JsObject,
+        result_capability: &PromiseCapability,
+        promise_resolve: &JsObject,
+        context: &mut Context,
+    ) -> JsResult<JsObject> {
+        #[derive(Debug, Trace, Finalize)]
+        struct ResolveElementCaptures {
+            #[unsafe_ignore_trace]
+            already_called: Rc<Cell<bool>>,
+            index: usize,
+            keys: Gc<GcRefCell<Vec<JsValue>>>,
+            values: Gc<GcRefCell<Vec<JsValue>>>,
+            capability_resolve: JsFunction,
+            #[unsafe_ignore_trace]
+            remaining_elements_count: Rc<Cell<i32>>,
+        }
+
+        let keys = Gc::new(GcRefCell::new(keys));
+        let values = Gc::new(GcRefCell::new(
+            std::iter::repeat_n(JsValue::undefined(), entries.len()).collect(),
+        ));
+        let remaining_elements_count = Rc::new(Cell::new(1));
+
+        for (index, next) in entries.into_iter().enumerate() {
+            let next_promise =
+                promise_resolve.call(&constructor.clone().into(), &[next], context)?;
+
+            let on_fulfilled = FunctionObjectBuilder::new(
+                context.realm(),
+                NativeFunction::from_copy_closure_with_captures(
+                    |_, args, captures, context| {
+                        if captures.already_called.get() {
+                            return Ok(JsValue::undefined());
+                        }
+
+                        captures.already_called.set(true);
+                        captures.values.borrow_mut()[captures.index] =
+                            args.get_or_undefined(0).clone();
+                        captures
+                            .remaining_elements_count
+                            .set(captures.remaining_elements_count.get() - 1);
+
+                        if captures.remaining_elements_count.get() == 0 {
+                            let result = Self::create_keyed_result_object(
+                                &captures.keys.borrow(),
+                                &captures.values.borrow(),
+                                context,
+                            );
+
+                            return captures.capability_resolve.call(
+                                &JsValue::undefined(),
+                                &[result.into()],
+                                context,
+                            );
+                        }
+
+                        Ok(JsValue::undefined())
+                    },
+                    ResolveElementCaptures {
+                        already_called: Rc::new(Cell::new(false)),
+                        index,
+                        keys: keys.clone(),
+                        values: values.clone(),
+                        capability_resolve: result_capability.functions.resolve.clone(),
+                        remaining_elements_count: remaining_elements_count.clone(),
+                    },
+                ),
+            )
+            .name("")
+            .length(1)
+            .constructor(false)
+            .build();
+
+            remaining_elements_count.set(remaining_elements_count.get() + 1);
+
+            next_promise.invoke(
+                js_string!("then"),
+                &[
+                    on_fulfilled.into(),
+                    result_capability.functions.reject.clone().into(),
+                ],
+                context,
+            )?;
+        }
+
+        remaining_elements_count.set(remaining_elements_count.get() - 1);
+
+        if remaining_elements_count.get() == 0 {
+            let result =
+                Self::create_keyed_result_object(&keys.borrow(), &values.borrow(), context);
+
+            result_capability.functions.resolve.call(
+                &JsValue::undefined(),
+                &[result.into()],
+                context,
+            )?;
+        }
+
+        Ok(result_capability.promise.clone())
+    }
+
     /// `Promise.allSettled ( iterable )`
     ///
     /// More information:
@@ -829,6 +1021,42 @@ impl Promise {
         }
 
         // 9. Return ? result.
+        result
+    }
+
+    /// `Promise.allSettledKeyed ( object )`
+    pub(crate) fn all_settled_keyed(
+        this: &JsValue,
+        args: &[JsValue],
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let c = this.as_object().ok_or_else(|| {
+            JsNativeError::typ().with_message("Promise.allSettledKeyed() called on a non-object")
+        })?;
+
+        let promise_capability = PromiseCapability::new(&c, context)?;
+        let promise_resolve = Self::get_promise_resolve(&c, context);
+        let promise_resolve =
+            if_abrupt_reject_promise!(promise_resolve, promise_capability, context);
+
+        let keyed_entries = Self::collect_keyed_entries(args.get_or_undefined(0), context);
+        let (keys, values) = if_abrupt_reject_promise!(keyed_entries, promise_capability, context);
+
+        let result = Self::perform_promise_all_settled_keyed(
+            keys,
+            values,
+            &c,
+            &promise_capability,
+            &promise_resolve,
+            context,
+        )
+        .map(JsValue::from);
+
+        if result.is_err() {
+            let result = if_abrupt_reject_promise!(result, promise_capability, context);
+            return Ok(result);
+        }
+
         result
     }
 
@@ -1088,6 +1316,181 @@ impl Promise {
         }
 
         //     iii. Return resultCapability.[[Promise]].
+        Ok(result_capability.promise.clone())
+    }
+
+    fn perform_promise_all_settled_keyed(
+        keys: Vec<JsValue>,
+        entries: Vec<JsValue>,
+        constructor: &JsObject,
+        result_capability: &PromiseCapability,
+        promise_resolve: &JsObject,
+        context: &mut Context,
+    ) -> JsResult<JsObject> {
+        #[derive(Debug, Trace, Finalize)]
+        struct ResolveRejectElementCaptures {
+            #[unsafe_ignore_trace]
+            already_called: Rc<Cell<bool>>,
+            index: usize,
+            keys: Gc<GcRefCell<Vec<JsValue>>>,
+            values: Gc<GcRefCell<Vec<JsValue>>>,
+            capability: JsFunction,
+            #[unsafe_ignore_trace]
+            remaining_elements: Rc<Cell<i32>>,
+        }
+
+        let keys = Gc::new(GcRefCell::new(keys));
+        let values = Gc::new(GcRefCell::new(
+            std::iter::repeat_n(JsValue::undefined(), entries.len()).collect(),
+        ));
+        let remaining_elements_count = Rc::new(Cell::new(1));
+
+        for (index, next) in entries.into_iter().enumerate() {
+            let next_promise =
+                promise_resolve.call(&constructor.clone().into(), &[next], context)?;
+
+            let on_fulfilled = FunctionObjectBuilder::new(
+                context.realm(),
+                NativeFunction::from_copy_closure_with_captures(
+                    |_, args, captures, context| {
+                        if captures.already_called.get() {
+                            return Ok(JsValue::undefined());
+                        }
+
+                        captures.already_called.set(true);
+
+                        let obj = JsObject::with_object_proto(context.intrinsics());
+                        obj.create_data_property_or_throw(
+                            js_string!("status"),
+                            js_string!("fulfilled"),
+                            context,
+                        )
+                        .expect("cannot fail per spec");
+                        obj.create_data_property_or_throw(
+                            js_string!("value"),
+                            args.get_or_undefined(0).clone(),
+                            context,
+                        )
+                        .expect("cannot fail per spec");
+
+                        captures.values.borrow_mut()[captures.index] = obj.into();
+                        captures
+                            .remaining_elements
+                            .set(captures.remaining_elements.get() - 1);
+
+                        if captures.remaining_elements.get() == 0 {
+                            let result = Self::create_keyed_result_object(
+                                &captures.keys.borrow(),
+                                &captures.values.borrow(),
+                                context,
+                            );
+
+                            return captures.capability.call(
+                                &JsValue::undefined(),
+                                &[result.into()],
+                                context,
+                            );
+                        }
+
+                        Ok(JsValue::undefined())
+                    },
+                    ResolveRejectElementCaptures {
+                        already_called: Rc::new(Cell::new(false)),
+                        index,
+                        keys: keys.clone(),
+                        values: values.clone(),
+                        capability: result_capability.functions.resolve.clone(),
+                        remaining_elements: remaining_elements_count.clone(),
+                    },
+                ),
+            )
+            .name("")
+            .length(1)
+            .constructor(false)
+            .build();
+
+            let on_rejected = FunctionObjectBuilder::new(
+                context.realm(),
+                NativeFunction::from_copy_closure_with_captures(
+                    |_, args, captures, context| {
+                        if captures.already_called.get() {
+                            return Ok(JsValue::undefined());
+                        }
+
+                        captures.already_called.set(true);
+
+                        let obj = JsObject::with_object_proto(context.intrinsics());
+                        obj.create_data_property_or_throw(
+                            js_string!("status"),
+                            js_string!("rejected"),
+                            context,
+                        )
+                        .expect("cannot fail per spec");
+                        obj.create_data_property_or_throw(
+                            js_string!("reason"),
+                            args.get_or_undefined(0).clone(),
+                            context,
+                        )
+                        .expect("cannot fail per spec");
+
+                        captures.values.borrow_mut()[captures.index] = obj.into();
+                        captures
+                            .remaining_elements
+                            .set(captures.remaining_elements.get() - 1);
+
+                        if captures.remaining_elements.get() == 0 {
+                            let result = Self::create_keyed_result_object(
+                                &captures.keys.borrow(),
+                                &captures.values.borrow(),
+                                context,
+                            );
+
+                            return captures.capability.call(
+                                &JsValue::undefined(),
+                                &[result.into()],
+                                context,
+                            );
+                        }
+
+                        Ok(JsValue::undefined())
+                    },
+                    ResolveRejectElementCaptures {
+                        already_called: Rc::new(Cell::new(false)),
+                        index,
+                        keys: keys.clone(),
+                        values: values.clone(),
+                        capability: result_capability.functions.resolve.clone(),
+                        remaining_elements: remaining_elements_count.clone(),
+                    },
+                ),
+            )
+            .name("")
+            .length(1)
+            .constructor(false)
+            .build();
+
+            remaining_elements_count.set(remaining_elements_count.get() + 1);
+
+            next_promise.invoke(
+                js_string!("then"),
+                &[on_fulfilled.into(), on_rejected.into()],
+                context,
+            )?;
+        }
+
+        remaining_elements_count.set(remaining_elements_count.get() - 1);
+
+        if remaining_elements_count.get() == 0 {
+            let result =
+                Self::create_keyed_result_object(&keys.borrow(), &values.borrow(), context);
+
+            result_capability.functions.resolve.call(
+                &JsValue::undefined(),
+                &[result.into()],
+                context,
+            )?;
+        }
+
         Ok(result_capability.promise.clone())
     }
 

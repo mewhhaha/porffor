@@ -657,7 +657,7 @@ impl CodeBlock {
                 object,
                 ic_index,
             } => {
-                let ic = &self.ic[u32::from(*ic_index) as usize];
+                let ic = &self.ic[(u32::from(*ic_index) & !(1 << 31)) as usize];
                 format!(
                     "object:{object}, receiver:{receiver}, value:{value}, ic:shape:0x{:x}",
                     ic.shape.borrow().to_addr_usize(),

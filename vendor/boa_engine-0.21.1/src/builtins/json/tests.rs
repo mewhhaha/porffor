@@ -315,3 +315,74 @@ fn json_parse_with_no_args_throws_syntax_error() {
         "expected value at line 1 column 1",
     )]);
 }
+
+#[test]
+fn json_parse_rejects_js_object_member_syntax() {
+    run_test_actions([
+        TestAction::assert_native_error(
+            r#"JSON.parse("{ notJson: 0 }");"#,
+            JsNativeErrorKind::Syntax,
+            "expected JSON string literal property name",
+        ),
+        TestAction::assert_eq(
+            r#"JSON.parse("{\"json\":0}").json"#,
+            JsValue::new(0),
+        ),
+    ]);
+}
+
+#[test]
+fn json_raw_json_has_brand_and_is_frozen() {
+    run_test_actions([
+        TestAction::assert(indoc! {r#"
+            const value = JSON.rawJSON('"hi"');
+            JSON.isRawJSON(value)
+                && !JSON.isRawJSON({ rawJSON: '"hi"' })
+                && Object.getPrototypeOf(value) === null
+                && Object.isFrozen(value)
+                && Object.keys(value).length === 1
+                && Object.keys(value)[0] === "rawJSON"
+                && value.rawJSON === '"hi"'
+        "#}),
+    ]);
+}
+
+#[test]
+fn json_stringify_splices_raw_json() {
+    run_test_actions([
+        TestAction::assert_eq(
+            r#"JSON.stringify({ value: 1n }, (_, value) => typeof value === "bigint" ? JSON.rawJSON(value) : value)"#,
+            js_string!(r#"{"value":1}"#),
+        ),
+        TestAction::assert_eq(
+            r#"JSON.stringify([JSON.rawJSON(1), JSON.rawJSON(true), JSON.rawJSON('"x"')])"#,
+            js_string!(r#"[1,true,"x"]"#),
+        ),
+    ]);
+}
+
+#[test]
+fn json_parse_reviver_context_source_and_forward_mutation() {
+    run_test_actions([
+        TestAction::run_harness(),
+        TestAction::assert(indoc! {r#"
+            const seen = [];
+            const parsed = JSON.parse('{"a":1,"b":[2]}', function (key, value, { source }) {
+                seen.push(`${key}:${JSON.stringify(value)}:${String(source)}`);
+                if (key === "a") {
+                    this.b.push("x");
+                }
+                return value;
+            });
+
+            seen.length === 5
+                && seen[0] === 'a:1:1'
+                && seen[1] === '0:2:2'
+                && seen[2] === '1:"x":undefined'
+                && seen[3] === 'b:[2,"x"]:undefined'
+                && seen[4] === ':{"a":1,"b":[2,"x"]}:undefined'
+                && parsed.a === 1
+                && arrayEquals(parsed.b, [2, "x"])
+        "#}),
+    ]);
+}

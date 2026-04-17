@@ -122,6 +122,26 @@ fn check_construct_call_precedence() {
 }
 
 #[test]
+fn deferred_strict_legacy_octal_is_rejected() {
+    check_invalid_script(
+        r#"
+        "use strict";
+        0755;
+    "#,
+    );
+}
+
+#[test]
+fn deferred_strict_decimal_escape_is_rejected() {
+    check_invalid_script(
+        r#"
+        "use strict";
+        "\8";
+    "#,
+    );
+}
+
+#[test]
 fn assign_operator_precedence() {
     let interner = &mut Interner::default();
     check_script_parser(

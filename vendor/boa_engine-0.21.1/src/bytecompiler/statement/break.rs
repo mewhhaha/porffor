@@ -19,12 +19,15 @@ impl ByteCompiler<'_> {
             actions.push(JumpRecordAction::PopEnvironments { count });
 
             if !info.in_finally()
-                && let Some((finally_throw_flag, finally_throw_index)) = info.finally_throw
+                && let Some((finally_throw_flag, finally_throw_index, finally_return_flag)) =
+                    info.finally_throw
             {
                 actions.push(JumpRecordAction::HandleFinally {
                     index: info.jumps.len() as u32,
                     finally_throw_flag,
                     finally_throw_index,
+                    finally_return_flag,
+                    return_value_on_stack: false,
                 });
                 actions.push(JumpRecordAction::Transfer { index: i as u32 });
             }
