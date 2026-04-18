@@ -1,0 +1,11 @@
+/*---
+flags: [raw]
+---*/
+
+let a = 1;
+let b = 2;
+if (a < b) {
+  a === 1;
+} else {
+  false;
+}
