@@ -2,8 +2,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use porffor_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
+use porffor_engine::{CompileOptions, Engine, ExecutionBackend, HostHooks, RealmBuilder, RunOptions};
 use porffor_test262::{try_compare_with_js_oracle, ConformanceRunner, RunConfig, SuiteConfig};
+
+#[derive(Debug)]
+struct StdoutHostHooks;
+
+impl HostHooks for StdoutHostHooks {
+    fn print_line(&self, text: &str) {
+        println!("{text}");
+    }
+}
 
 fn usage() -> &'static str {
     "porf <command> [args]
@@ -57,7 +66,11 @@ fn real_main() -> Result<(), String> {
         return Ok(());
     }
 
-    let engine = Engine::new(RealmBuilder::new().build());
+    let engine = Engine::new(
+        RealmBuilder::new()
+            .with_host_hooks(Box::new(StdoutHostHooks))
+            .build(),
+    );
     match command.as_str() {
         "run" => {
             let mut backend = ExecutionBackend::SpecExec;

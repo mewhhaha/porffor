@@ -14,4 +14,10 @@ let g = inc;
 let o = { x: 3, f: getX, inc: inc };
 let a = [inc];
 
-g(2) + o.inc(2) + o["inc"](2) + a[0](2) + pick()(2) + o.f();
+g(2);
+o.inc(2);
+o["inc"](2);
+a[0](2);
+pick()(2);
+o.f();
+18;

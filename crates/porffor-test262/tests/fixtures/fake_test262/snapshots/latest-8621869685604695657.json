@@ -1,0 +1,163 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "819651af002d22bbca33df60e10fa846e870ec64"
+  },
+  "manifest_hash": 8621869685604695657,
+  "run_kind": "full",
+  "total": 83,
+  "passed": 83,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/wasm/pass/heap-growth.js",
+      "duration_ms": 17
+    },
+    {
+      "path": "language/wasm/pass/array-function-call.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/arrow-lexical-arguments.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/arrow-lexical-this.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/bracket-method-call.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/break-continue.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/call-result-property.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/closure-mutation.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/function-cross-call.js",
+      "duration_ms": 1
+    },
+    {
+      "path": "language/wasm/pass/function-dynamic-pick.js",
+      "duration_ms": 1
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/wasm/pass/alias-indirect-call.js",
+    "language/wasm/pass/anonymous-function-expression.js",
+    "language/wasm/pass/arguments-length.js",
+    "language/wasm/pass/arguments-mapped-alias.js",
+    "language/wasm/pass/arithmetic.js",
+    "language/wasm/pass/array-function-call.js",
+    "language/wasm/pass/array-index-read.js",
+    "language/wasm/pass/array-length.js",
+    "language/wasm/pass/array-write-grow.js",
+    "language/wasm/pass/arrow-basic.js",
+    "language/wasm/pass/arrow-block-body.js",
+    "language/wasm/pass/arrow-closure.js",
+    "language/wasm/pass/arrow-lexical-arguments.js",
+    "language/wasm/pass/arrow-lexical-this.js",
+    "language/wasm/pass/bindings.js",
+    "language/wasm/pass/block-completion.js",
+    "language/wasm/pass/bracket-method-call.js",
+    "language/wasm/pass/branching.js",
+    "language/wasm/pass/break-continue.js",
+    "language/wasm/pass/call-result-property.js",
+    "language/wasm/pass/chained-object-read.js",
+    "language/wasm/pass/closure-mutation.js",
+    "language/wasm/pass/comparison.js",
+    "language/wasm/pass/compound-add.js",
+    "language/wasm/pass/compound-remainder.js",
+    "language/wasm/pass/default-param-basic.js",
+    "language/wasm/pass/default-param-earlier.js",
+    "language/wasm/pass/do-while.js",
+    "language/wasm/pass/for-lexical.js",
+    "language/wasm/pass/for-omitted.js",
+    "language/wasm/pass/for-updates.js",
+    "language/wasm/pass/for-var.js",
+    "language/wasm/pass/function-cross-call.js",
+    "language/wasm/pass/function-dynamic-pick.js",
+    "language/wasm/pass/function-hoisted-call.js",
+    "language/wasm/pass/function-implicit-undefined.js",
+    "language/wasm/pass/function-local-var.js",
+    "language/wasm/pass/function-object-return.js",
+    "language/wasm/pass/function-recursion.js",
+    "language/wasm/pass/function-return-then-call.js",
+    "language/wasm/pass/heap-growth.js",
+    "language/wasm/pass/labelled-block-break.js",
+    "language/wasm/pass/labelled-loop-continue.js",
+    "language/wasm/pass/logical-mixed-or.js",
+    "language/wasm/pass/method-this-read.js",
+    "language/wasm/pass/missing-property-read.js",
+    "language/wasm/pass/named-function-expression-recursion.js",
+    "language/wasm/pass/nested-array-object-read.js",
+    "language/wasm/pass/nested-function-declaration.js",
+    "language/wasm/pass/nullish-basic.js",
+    "language/wasm/pass/object-closure-method.js",
+    "language/wasm/pass/object-concise-method.js",
+    "language/wasm/pass/object-getter-setter-pair.js",
+    "language/wasm/pass/object-getter.js",
+    "language/wasm/pass/object-literal-read.js",
+    "language/wasm/pass/object-method-call.js",
+    "language/wasm/pass/object-overwrite.js",
+    "language/wasm/pass/object-returned-accessor.js",
+    "language/wasm/pass/object-setter.js",
+    "language/wasm/pass/object-shorthand.js",
+    "language/wasm/pass/postfix-update.js",
+    "language/wasm/pass/prefix-update.js",
+    "language/wasm/pass/reassignment.js",
+    "language/wasm/pass/rest-param-length.js",
+    "language/wasm/pass/returned-arrow-closure.js",
+    "language/wasm/pass/returned-closure-call.js",
+    "language/wasm/pass/script-closure-read.js",
+    "language/wasm/pass/string-concat-basic.js",
+    "language/wasm/pass/string-concat-number.js",
+    "language/wasm/pass/string-equality-by-value.js",
+    "language/wasm/pass/string.js",
+    "language/wasm/pass/switch-basic.js",
+    "language/wasm/pass/switch-default-middle.js",
+    "language/wasm/pass/switch-fallthrough.js",
+    "language/wasm/pass/switch-mixed-kind.js",
+    "language/wasm/pass/switch-var.js",
+    "language/wasm/pass/typeof-unresolved.js",
+    "language/wasm/pass/var-block.js",
+    "language/wasm/pass/var-branch-merge-agree.js",
+    "language/wasm/pass/var-duplicate.js",
+    "language/wasm/pass/var-hoisted-read.js",
+    "language/wasm/pass/var-multi-binding.js",
+    "language/wasm/pass/while.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

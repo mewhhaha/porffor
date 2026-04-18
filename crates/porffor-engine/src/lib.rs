@@ -1,8 +1,14 @@
 use porffor_front::{parse, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{lower, ProgramIr, ValueKind};
-use wasmi::{Engine as WasmiEngine, Linker, Module as WasmiModule, Store, Value as WasmiValue};
+use wasmi::{
+    core::Trap,
+    Caller, Engine as WasmiEngine, Extern, Linker, Module as WasmiModule, Store,
+    Value as WasmiValue,
+};
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
+const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
+const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
 
 pub use porffor_runtime::{HostHooks, NullHostHooks, Realm, RealmBuilder};
 
@@ -110,6 +116,11 @@ impl core::fmt::Display for EngineError {
 impl std::error::Error for EngineError {}
 
 pub struct Engine {
+    realm: Realm,
+}
+
+#[derive(Clone)]
+struct WasmHostState {
     realm: Realm,
 }
 
@@ -340,8 +351,45 @@ impl Engine {
         let engine = WasmiEngine::default();
         let module = WasmiModule::new(&engine, &artifact.bytes[..])
             .map_err(|err| EngineError::new(format!("wasmi module validation failed: {err}")))?;
-        let mut store = Store::new(&engine, ());
-        let linker = Linker::new(&engine);
+        let mut store = Store::new(
+            &engine,
+            WasmHostState {
+                realm: self.realm.clone(),
+            },
+        );
+        let mut linker = Linker::new(&engine);
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_PRINT_LINE_UTF8,
+                |caller: Caller<'_, WasmHostState>, ptr: i32, len: i32| -> Result<(), Trap> {
+                    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+                        return Err(Trap::new(
+                            "wasmi host import failed: missing exported memory",
+                        ));
+                    };
+                    let ptr = usize::try_from(ptr).map_err(|_| {
+                        Trap::new("wasmi host import failed: negative utf-8 pointer")
+                    })?;
+                    let len = usize::try_from(len).map_err(|_| {
+                        Trap::new("wasmi host import failed: negative utf-8 length")
+                    })?;
+                    let mut bytes = vec![0; len];
+                    memory.read(&caller, ptr, &mut bytes).map_err(|err| {
+                        Trap::new(format!(
+                            "wasmi host import failed: unable to read memory: {err}"
+                        ))
+                    })?;
+                    let text = String::from_utf8(bytes).map_err(|err| {
+                        Trap::new(format!(
+                            "wasmi host import failed: invalid utf-8: {err}"
+                        ))
+                    })?;
+                    caller.data().realm.host_hooks().print_line(&text);
+                    Ok(())
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmi linker setup failed: {err}")))?;
         let instance = linker
             .instantiate(&mut store, &module)
             .and_then(|pre| pre.start(&mut store))
@@ -381,7 +429,7 @@ fn render_wasm_completion(
     kind: ValueKind,
     payload: i64,
     memory: Option<wasmi::Memory>,
-    store: &Store<()>,
+    store: &Store<WasmHostState>,
 ) -> Result<String, EngineError> {
     let rendered = match kind {
         ValueKind::Undefined => "undefined".to_string(),
@@ -425,11 +473,31 @@ fn render_wasm_completion(
 }
 
 #[cfg(test)]
-mod tests {
+    mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug)]
+    struct CapturingHostHooks {
+        lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl HostHooks for CapturingHostHooks {
+        fn print_line(&self, text: &str) {
+            self.lines.lock().expect("capture mutex poisoned").push(text.to_string());
+        }
+    }
 
     fn engine() -> Engine {
         Engine::new(RealmBuilder::new().build())
+    }
+
+    fn engine_with_captured_prints(lines: Arc<Mutex<Vec<String>>>) -> Engine {
+        Engine::new(
+            RealmBuilder::new()
+                .with_host_hooks(Box::new(CapturingHostHooks { lines }))
+                .build(),
+        )
     }
 
     #[test]
@@ -462,10 +530,7 @@ mod tests {
     #[test]
     fn wasm_emit_reports_unsupported_slice_precisely() {
         let unit = engine()
-            .compile_script(
-                "function f({ x }) { return x; }",
-                CompileOptions::default(),
-            )
+            .compile_script("function f({ x }) { return x; }", CompileOptions::default())
             .expect("script compile should succeed");
         let err = engine()
             .emit_wasm(&unit)
@@ -787,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn wasm_backend_supports_array_function_calls_and_undefined_this() {
+    fn wasm_backend_supports_array_function_calls_and_global_default_this() {
         let array_outcome = engine()
             .run_script(
                 "function inc(x) { return x + 1; } let a = [inc]; a[0](2);",
@@ -809,8 +874,8 @@ mod tests {
                     ..RunOptions::default()
                 },
             )
-            .expect("wasm backend should keep bare-call this undefined");
-        assert!(bare_this_outcome.note.contains("undefined("));
+            .expect("wasm backend should default bare-call this to global object");
+        assert!(bare_this_outcome.note.contains("object(handle@"));
     }
 
     #[test]
@@ -1178,6 +1243,81 @@ mod tests {
     }
 
     #[test]
+    fn wasm_backend_supports_script_global_object_core() {
+        let top_level_this = engine()
+            .run_script(
+                "this === globalThis;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("top-level this should run");
+        assert!(top_level_this.note.contains("boolean(true"));
+
+        let global_var = engine()
+            .run_script(
+                "{ var x = 1; } globalThis.x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("global var alias should run");
+        assert!(global_var.note.contains("number(1"));
+
+        let lexical_not_global = engine()
+            .run_script(
+                "let x = 1; globalThis.x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("top-level lexical should stay off global object");
+        assert!(lexical_not_global.note.contains("undefined(undefined"));
+
+        let default_this = engine()
+            .run_script(
+                "function f() { return this; } f() === globalThis;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("bare call default this should run");
+        assert!(default_this.note.contains("boolean(true"));
+
+        let lexical_this = engine()
+            .run_script(
+                "let f = () => this; f() === globalThis;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("top-level arrow lexical this should run");
+        assert!(lexical_this.note.contains("boolean(true"));
+
+        let global_function = engine()
+            .run_script(
+                "function f() {} globalThis.f;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("global function property should run");
+        assert!(global_function.note.contains("function(handle@"));
+    }
+
+    #[test]
     fn wasm_backend_supports_default_rest_and_arguments_core() {
         for (source, expected, label) in [
             (
@@ -1289,20 +1429,135 @@ mod tests {
                 .expect_err("unsupported param or arguments form should stay unsupported");
             assert!(!err.message().trim().is_empty());
         }
+    }
 
-        let top_level_this_err = engine()
+    #[test]
+    fn wasm_backend_supports_host_print_global() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        for source in [
+            "print(\"grug\")",
+            "globalThis.print(\"grug\")",
+            "let p = print; p(\"grug\")",
+            "let o = { f: print }; o.f(\"grug\")",
+            "function f() { print(\"x\"); } f()",
+        ] {
+            let outcome = engine_with_captured_prints(Arc::clone(&lines))
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("host print should run");
+            assert!(outcome.note.contains("undefined"), "source: {source}, note: {}", outcome.note);
+        }
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "grug".to_string(),
+                "grug".to_string(),
+                "grug".to_string(),
+                "grug".to_string(),
+                "x".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_rejects_remaining_global_object_tails() {
+        let err = engine()
             .run_script(
-                "let f = () => this;",
+                "arguments",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
                 },
             )
-            .expect_err("top-level arrow this should stay unsupported");
-        assert!(top_level_this_err
+            .expect_err("unsupported global seam should stay unsupported");
+        assert!(err
             .message()
             .contains("unsupported in porffor wasm-aot first slice"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_sloppy_global_name_resolution() {
+        for (source, expected, label) in [
+            ("globalThis.x = 1; x;", "number(1", "read after globalThis write"),
+            (
+                "missing = 1; globalThis.missing;",
+                "number(1",
+                "implicit global create",
+            ),
+            (
+                "function f() { return x; } globalThis.x = 2; f();",
+                "number(2",
+                "function global read",
+            ),
+            (
+                "function f() { y = 3; } f(); globalThis.y;",
+                "number(3",
+                "function implicit global write",
+            ),
+            (
+                "let x = 1; globalThis.x = 2; x;",
+                "number(1",
+                "lexical shadows global",
+            ),
+            (
+                "function f() { return () => z; } z = 4; f()();",
+                "number(4",
+                "closure global read",
+            ),
+            ("x = 1; x++; x;", "number(2", "global numeric update"),
+            (
+                "globalThis.x = 1; x += 2; x;",
+                "number(3",
+                "global compound assign",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|_| panic!("{label} should run"));
+            assert!(
+                outcome.note.contains(expected),
+                "{label} produced unexpected note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_remaining_sloppy_global_tails() {
+        for source in [
+            "x",
+            "function f() { return q; } f()",
+            "if (true) { globalThis.x = 1; } else {} x",
+            "topLevel = arguments",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("unsupported sloppy global seam should stay unsupported");
+            assert!(err
+                .message()
+                .contains("unsupported in porffor wasm-aot first slice"));
+        }
     }
 
     #[test]
@@ -1530,5 +1785,260 @@ mod tests {
         assert!(err
             .message()
             .contains("unsupported in porffor wasm-aot first slice"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_dynamic_primitive_string_concat_and_equality() {
+        for (source, expected) in [
+            ("\"a\" + \"b\";", "string(ab)"),
+            ("\"x\" + 1;", "string(x1)"),
+            ("function f(x) { return \"v=\" + x; } f(3);", "string(v=3)"),
+            ("(\"a\" + \"b\") === \"ab\";", "boolean(true)"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("string concat or equality should run");
+            assert!(outcome.note.contains(expected));
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_mixed_logical_and_nullish() {
+        for (source, expected) in [
+            ("let x = 0; x || \"fallback\";", "string(fallback)"),
+            ("let x = 1; x || \"fallback\";", "number(1"),
+            ("let x = null; x ?? 3;", "number(3"),
+            ("let x = 0; x ?? 3;", "number(0"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("logical or nullish op should run");
+            assert!(outcome.note.contains(expected));
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_typeof_core() {
+        for (source, expected) in [
+            ("typeof 1;", "string(number)"),
+            ("typeof \"x\";", "string(string)"),
+            ("typeof undefined;", "string(undefined)"),
+            ("function f() {} typeof f;", "string(function)"),
+            ("typeof missingName;", "string(undefined)"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("typeof should run");
+            assert!(outcome.note.contains(expected));
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_primitive_coercion_core() {
+        for (source, expected) in [
+            ("1 == \"1\";", "boolean(true)"),
+            ("0 == false;", "boolean(true)"),
+            ("null == undefined;", "boolean(true)"),
+            ("1 != \"2\";", "boolean(true)"),
+            ("\"2\" - 1;", "number(1"),
+            ("true + 2;", "number(3"),
+            ("null + 1;", "number(1"),
+            ("\"6\" / \"2\";", "number(3"),
+            ("\"10\" > \"2\";", "boolean(false)"),
+            ("\"2\" < 3;", "boolean(true)"),
+            ("void 1;", "undefined"),
+            ("let x = 1; void (x = 3); x;", "number(3"),
+            ("(1, 2);", "number(2"),
+            ("let x = 0; (x = 1, x + 2);", "number(3"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("primitive coercion core should run");
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_heap_coercion_core() {
+        for (source, expected) in [
+            ("\"a\" + {};", "string(a[object Object])"),
+            ("let o = {}; o + \"x\";", "string([object Object]x)"),
+            ("let o = { valueOf() { return 2; } }; o + 1;", "number(3"),
+            ("let o = { toString() { return \"x\"; } }; o + 1;", "string(x1)"),
+            ("[] + 1;", "string(1)"),
+            ("[1, 2] + 3;", "string(1,23)"),
+            ("let o = {}; o == \"[object Object]\";", "boolean(true)"),
+            ("let o = { valueOf() { return 2; } }; o == \"2\";", "boolean(true)"),
+            ("let o = {}; o == o;", "boolean(true)"),
+            ("[2] < 3;", "boolean(true)"),
+            ("function f() { return arguments + \"\"; } f(1, 2);", "string([object Arguments])"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("heap coercion should run");
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_remaining_out_of_slice_heap_coercions() {
+        for source in [
+            "let f = function() {}; f == 1;",
+            "let f = function() {}; \"x\" + f;",
+            "let o = { valueOf() { return {}; } }; o + 1;",
+            "let o = { toString() { return function() {}; } }; \"\" + o;",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("out-of-slice dynamic primitive op should stay unsupported");
+            assert!(err
+                .message()
+                .contains("unsupported in porffor wasm-aot first slice"));
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_new_and_instanceof_core() {
+        for (source, expected) in [
+            (
+                "function F() {} let x = new F(); x instanceof F;",
+                "boolean(true)",
+            ),
+            (
+                "function F() { this.x = 3; } let x = new F(); x.x;",
+                "number(3)",
+            ),
+            (
+                "function F() {} F.prototype.getX = function () { return this.x; }; let x = new F(); x.x = 4; x.getX();",
+                "number(4)",
+            ),
+            (
+                "function F() {} F.prototype = { x: 7 }; let x = new F(); x.x;",
+                "number(7)",
+            ),
+            (
+                "function F() { this.x = 1; return 2; } let x = new F(); x.x;",
+                "number(1)",
+            ),
+            (
+                "function F() { this.x = 1; return { y: 2 }; } let x = new F(); x.y;",
+                "number(2)",
+            ),
+            (
+                "function make(v) { return function F() { this.x = v; }; } let F = make(5); let x = new F(); x.x;",
+                "number(5)",
+            ),
+            (
+                "function F() {} function G() {} let x = new F(); x instanceof G;",
+                "boolean(false)",
+            ),
+            (
+                "class C { constructor() { this.x = 1; } } let c = new C(); c.x;",
+                "number(1)",
+            ),
+            (
+                "let C = class { constructor(v) { this.x = v; } }; new C(2).x;",
+                "number(2)",
+            ),
+            (
+                "class C { x = 1; static y = 2; } let c = new C(); c.x + C.y;",
+                "number(3)",
+            ),
+            (
+                "class C { static x = 1; static { this.y = this.x + 1; } } C.y;",
+                "number(2)",
+            ),
+            (
+                "class C { m() { return 1; } } new C().m();",
+                "number(1)",
+            ),
+            (
+                "class C { get x() { return 3; } } new C().x;",
+                "number(3)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("constructor core should run");
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_non_constructable_new_and_instanceof_tails() {
+        for source in [
+            "new (() => 1)();",
+            "let o = { f() {} }; new o.f();",
+            "let o = { get x() { return 1; } }; new o.x();",
+            "new print();",
+            "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
+            "new.target;",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("unsupported constructor edge should stay unsupported");
+            let message = err.message();
+            assert!(
+                message.contains("unsupported in porffor wasm-aot first slice")
+                    || message.contains("parse error"),
+                "source: {source}, err: {message}"
+            );
+        }
     }
 }
