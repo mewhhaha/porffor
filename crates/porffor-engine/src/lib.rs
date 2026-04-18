@@ -2008,7 +2008,7 @@ fn render_wasm_completion(
                         ..RunOptions::default()
                     },
                 )
-                .expect("constructor core should run");
+                .unwrap_or_else(|err| panic!("constructor core should run for `{source}`: {err:?}"));
             assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
         }
     }
@@ -2033,6 +2033,88 @@ fn render_wasm_completion(
                     },
                 )
                 .expect_err("unsupported constructor edge should stay unsupported");
+            let message = err.message();
+            assert!(
+                message.contains("unsupported in porffor wasm-aot first slice")
+                    || message.contains("parse error"),
+                "source: {source}, err: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_class_inheritance_and_private_core() {
+        for (source, expected) in [
+            (
+                "class A { constructor(v) { this.x = v; } } class B extends A { constructor() { super(3); } } new B().x;",
+                "number(3)",
+            ),
+            (
+                "class C { #x = 1; getX() { return this.#x; } } new C().getX();",
+                "number(1)",
+            ),
+            (
+                "class C { #m() { return 2; } getX() { return this.#m(); } } new C().getX();",
+                "number(2)",
+            ),
+            (
+                "class C { get #x() { return 3; } read() { return this.#x; } } new C().read();",
+                "number(3)",
+            ),
+            (
+                "class C { static #x = 4; static read() { return C.#x; } } C.read();",
+                "number(4)",
+            ),
+            (
+                "class C { #x; static has(obj) { return #x in obj; } } let c = new C(); C.has(c);",
+                "boolean(true)",
+            ),
+            (
+                "class A { m() { return 1; } } class B extends A { m() { return super.m() + 1; } } new B().m();",
+                "number(2)",
+            ),
+            (
+                "let C = class Self { static make() { return new Self(); } }; C.make() instanceof C;",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("phase 22B class case should run for `{source}`: {err:?}"));
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_class_22b_unsupported_edges() {
+        for source in [
+            "class C {} C();",
+            "class A {} class B extends A { constructor() { this.x = 1; super(); } } new B();",
+            "class A {} class B extends A { constructor() {} } new B();",
+            "class C { #x = 1; read(obj) { return obj.#x; } } new C().read({});",
+            "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {}",
+            "new.target;",
+            "class C extends null {}",
+            "class C { async m() {} }",
+            "class C { *m() {} }",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("unsupported class edge should stay unsupported");
             let message = err.message();
             assert!(
                 message.contains("unsupported in porffor wasm-aot first slice")

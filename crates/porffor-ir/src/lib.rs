@@ -3,18 +3,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use boa_ast::property::{MethodDefinitionKind, PropertyName};
 use boa_ast::{
     declaration::{Binding, LexicalDeclaration, VarDeclaration},
-    expression::access::{PropertyAccess, PropertyAccessField},
+    expression::access::{
+        PrivatePropertyAccess, PropertyAccess, PropertyAccessField, SuperPropertyAccess,
+    },
     expression::literal::{
         ArrayLiteral, LiteralKind, ObjectLiteral, ObjectMethodDefinition, PropertyDefinition,
     },
     expression::New,
     expression::operator::{
         assign::{AssignOp, AssignTarget},
-        binary::{ArithmeticOp, BinaryOp, LogicalOp, RelationalOp},
+        binary::{ArithmeticOp, BinaryInPrivate, BinaryOp, LogicalOp, RelationalOp},
         unary::UnaryOp,
         update::{UpdateOp, UpdateTarget},
     },
-    expression::Expression,
+    expression::{Expression, SuperCall},
     function::{
         ArrowFunction, ClassDeclaration, ClassElement, ClassElementName, ClassExpression,
         ClassMethodDefinition, FormalParameter, FormalParameterList, FunctionBody,
@@ -432,6 +434,20 @@ pub struct ArrayShape {
     pub elements: Vec<ValueInfo>,
 }
 
+fn read_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
+    match shape {
+        HeapShape::Object(object) => object
+            .properties
+            .get(key)
+            .cloned()
+            .or_else(|| object.prototype.as_deref().and_then(|proto| read_heap_shape_property(proto, key))),
+        HeapShape::Array(array) => array
+            .prototype
+            .as_deref()
+            .and_then(|proto| read_heap_shape_property(proto, key)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PropertyKeyIr {
     StaticString(String),
@@ -761,6 +777,8 @@ pub struct FunctionIr {
     pub callable: bool,
     pub constructable: bool,
     pub class_kind: ClassFunctionKind,
+    pub is_static_class_member: bool,
+    pub is_derived_constructor: bool,
     pub uses_super: bool,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
     pub is_nested: bool,
@@ -1657,6 +1675,7 @@ struct ClassLoweringContext {
     name: Option<String>,
     private_name_ids: BTreeMap<String, PrivateNameId>,
     private_bindings: BTreeMap<String, PrivateElementBinding>,
+    super_base_shape: Option<Box<HeapShape>>,
     is_static: bool,
     is_derived_constructor: bool,
     map_self_name_to_this: bool,
@@ -2747,6 +2766,224 @@ fn class_method_key(method: &ClassMethodDefinition) -> String {
     format!("class-method:{}:{}", span.start().pos(), span.end().pos())
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct DerivedConstructorValidation {
+    super_calls: usize,
+    saw_super: bool,
+    this_before_super: bool,
+    return_before_super: bool,
+}
+
+fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstructorValidation) {
+    if state.saw_super {
+        return;
+    }
+    match &expr.expr {
+        ExprIr::This => state.this_before_super = true,
+        ExprIr::SuperConstruct { .. } => {
+            state.super_calls += 1;
+            state.saw_super = true;
+        }
+        ExprIr::UnaryNumber { expr: operand, .. }
+        | ExprIr::TypeOf { expr: operand }
+        | ExprIr::Void { expr: operand }
+        | ExprIr::LogicalNot { expr: operand }
+        | ExprIr::PropertyRead { target: operand, .. } => {
+            expr_contains_this_before_super(operand, state);
+        }
+        ExprIr::BinaryNumber { lhs, rhs, .. }
+        | ExprIr::CoerciveAdd { lhs, rhs }
+        | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
+        | ExprIr::StringConcat { lhs, rhs }
+        | ExprIr::CompareNumber { lhs, rhs, .. }
+        | ExprIr::CompareValue { lhs, rhs, .. }
+        | ExprIr::StrictEquality { lhs, rhs, .. }
+        | ExprIr::LooseEquality { lhs, rhs, .. }
+        | ExprIr::Comma { lhs, rhs } => {
+            expr_contains_this_before_super(lhs, state);
+            expr_contains_this_before_super(rhs, state);
+        }
+        ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
+            expr_contains_this_before_super(lhs, state);
+            expr_contains_this_before_super(rhs, state);
+        }
+        ExprIr::CallIndirect { callee, this_arg, args } => {
+            expr_contains_this_before_super(callee, state);
+            if let Some(this_arg) = this_arg {
+                expr_contains_this_before_super(this_arg, state);
+            }
+            for arg in args {
+                expr_contains_this_before_super(arg, state);
+            }
+        }
+        ExprIr::Construct { callee, args } => {
+            expr_contains_this_before_super(callee, state);
+            for arg in args {
+                expr_contains_this_before_super(arg, state);
+            }
+        }
+        ExprIr::CallMethod { receiver, args, .. } => {
+            expr_contains_this_before_super(receiver, state);
+            for arg in args {
+                expr_contains_this_before_super(arg, state);
+            }
+        }
+        ExprIr::PropertyWrite { target, value, .. }
+        | ExprIr::PrivateWrite { target, value, .. } => {
+            expr_contains_this_before_super(target, state);
+            expr_contains_this_before_super(value, state);
+        }
+        ExprIr::ArrayLiteral(elements) => {
+            for element in elements {
+                expr_contains_this_before_super(element, state);
+            }
+        }
+        ExprIr::ObjectLiteral(properties) => {
+            for property in properties {
+                match property {
+                    ObjectPropertyIr::Data { value, .. }
+                    | ObjectPropertyIr::Method { function: value, .. }
+                    | ObjectPropertyIr::Getter { function: value, .. }
+                    | ObjectPropertyIr::Setter { function: value, .. } => {
+                        expr_contains_this_before_super(value, state);
+                    }
+                }
+            }
+        }
+        ExprIr::FunctionValue(_)
+        | ExprIr::ClassDefinition(_)
+        | ExprIr::String(_)
+        | ExprIr::Number(_)
+        | ExprIr::Boolean(_)
+        | ExprIr::Null
+        | ExprIr::Undefined
+        | ExprIr::Arguments
+        | ExprIr::Identifier(_)
+        | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::AssignIdentifier { .. }
+        | ExprIr::GlobalPropertyWrite { .. }
+        | ExprIr::UpdateIdentifier { .. }
+        | ExprIr::GlobalPropertyUpdate { .. }
+        | ExprIr::CompoundAssignIdentifier { .. }
+        | ExprIr::GlobalPropertyCompoundAssign { .. }
+        | ExprIr::TypeOfUnresolvedIdentifier { .. }
+        | ExprIr::SuperPropertyRead { .. }
+        | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::PrivateRead { .. }
+        | ExprIr::PrivateIn { .. }
+        | ExprIr::InstanceOf { .. }
+        | ExprIr::CallNamed { .. } => {}
+    }
+}
+
+fn statement_contains_this_before_super(
+    statement: &StatementIr,
+    state: &mut DerivedConstructorValidation,
+) {
+    if state.saw_super {
+        return;
+    }
+    match statement {
+        StatementIr::Empty
+        | StatementIr::Debugger
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. } => {}
+        StatementIr::Lexical { init, .. } | StatementIr::Expression(init) | StatementIr::Return(init) => {
+            if matches!(statement, StatementIr::Return(_)) && !state.saw_super {
+                state.return_before_super = true;
+            }
+            expr_contains_this_before_super(init, state);
+        }
+        StatementIr::Var(decls) => {
+            for decl in decls {
+                if let Some(init) = &decl.init {
+                    expr_contains_this_before_super(init, state);
+                }
+            }
+        }
+        StatementIr::Block(block) => {
+            for statement in &block.statements {
+                statement_contains_this_before_super(statement, state);
+                if state.saw_super {
+                    break;
+                }
+            }
+        }
+        StatementIr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_contains_this_before_super(condition, state);
+            statement_contains_this_before_super(then_branch, state);
+            if let Some(else_branch) = else_branch {
+                statement_contains_this_before_super(else_branch, state);
+            }
+        }
+        StatementIr::While { condition, body } => {
+            expr_contains_this_before_super(condition, state);
+            statement_contains_this_before_super(body, state);
+        }
+        StatementIr::DoWhile { body, condition } => {
+            statement_contains_this_before_super(body, state);
+            expr_contains_this_before_super(condition, state);
+        }
+        StatementIr::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            if let Some(init) = init {
+                match init {
+                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+                        expr_contains_this_before_super(init, state);
+                    }
+                    ForInitIr::Var(decls) => {
+                        for decl in decls {
+                            if let Some(init) = &decl.init {
+                                expr_contains_this_before_super(init, state);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(test) = test {
+                expr_contains_this_before_super(test, state);
+            }
+            if let Some(update) = update {
+                expr_contains_this_before_super(update, state);
+            }
+            statement_contains_this_before_super(body, state);
+        }
+        StatementIr::Switch { discriminant, cases } => {
+            expr_contains_this_before_super(discriminant, state);
+            for case in cases {
+                if let Some(condition) = &case.condition {
+                    expr_contains_this_before_super(condition, state);
+                }
+                for statement in &case.body.statements {
+                    statement_contains_this_before_super(statement, state);
+                    if state.saw_super {
+                        break;
+                    }
+                }
+            }
+        }
+        StatementIr::Labelled { statement, .. } => {
+            statement_contains_this_before_super(statement, state);
+        }
+    }
+}
+
+fn validate_derived_constructor_body(block: &BlockIr) -> DerivedConstructorValidation {
+    let mut state = DerivedConstructorValidation::default();
+    for statement in &block.statements {
+        statement_contains_this_before_super(statement, &mut state);
+    }
+    state
+}
+
 fn private_name_key(interner: &Interner, name: PrivateName) -> String {
     interner.resolve_expect(name.description()).to_string()
 }
@@ -2775,6 +3012,7 @@ struct ScriptLowerer<'a> {
     host_builtin_calls: usize,
     generated_functions: Vec<FunctionIr>,
     next_generated_function_index: usize,
+    next_private_name_id: PrivateNameId,
     is_prepass: bool,
     class_context: Option<ClassLoweringContext>,
 }
@@ -2865,6 +3103,24 @@ impl<'a> ScriptLowerer<'a> {
         info
     }
 
+    fn current_private_binding(&self, name: PrivateName) -> Option<PrivateElementBinding> {
+        let key = private_name_key(self.interner, name);
+        self.class_context
+            .as_ref()
+            .and_then(|context| context.private_bindings.get(&key).copied())
+    }
+
+    fn target_has_private_brand(
+        &self,
+        target: &TypedExpr,
+        private_name_id: PrivateNameId,
+    ) -> Option<bool> {
+        let HeapShape::Object(object) = target.heap_shape.as_deref()? else {
+            return Some(false);
+        };
+        Some(object.private_brands.contains(&private_name_id))
+    }
+
     fn alloc_generated_function_id(&mut self, prefix: &str) -> FunctionId {
         let id = format!(
             "${prefix}.{}.{}",
@@ -2873,6 +3129,28 @@ impl<'a> ScriptLowerer<'a> {
         );
         self.next_generated_function_index += 1;
         id
+    }
+
+    fn alloc_private_name_id(&mut self) -> PrivateNameId {
+        let id = self.next_private_name_id;
+        self.next_private_name_id += 1;
+        id
+    }
+
+    fn ensure_private_name_id(
+        &mut self,
+        private_name_ids: &mut BTreeMap<String, PrivateNameId>,
+        name: PrivateName,
+    ) -> (String, PrivateNameId) {
+        let key = private_name_key(self.interner, name);
+        let private_name_id = if let Some(private_name_id) = private_name_ids.get(&key).copied() {
+            private_name_id
+        } else {
+            let private_name_id = self.alloc_private_name_id();
+            private_name_ids.insert(key.clone(), private_name_id);
+            private_name_id
+        };
+        (key, private_name_id)
     }
 
     fn new(interner: &'a Interner, analysis: &'a Analysis<'a>, current_owner_id: String) -> Self {
@@ -2903,6 +3181,7 @@ impl<'a> ScriptLowerer<'a> {
             host_builtin_calls: 0,
             generated_functions: Vec::new(),
             next_generated_function_index: 0,
+            next_private_name_id: 0,
             is_prepass: false,
             class_context: None,
         }
@@ -3609,6 +3888,8 @@ impl<'a> ScriptLowerer<'a> {
                 callable: true,
                 constructable: function.constructable,
                 class_kind: ClassFunctionKind::None,
+                is_static_class_member: false,
+                is_derived_constructor: false,
                 uses_super: false,
                 private_name_ids: BTreeMap::new(),
                 is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
@@ -3703,6 +3984,8 @@ impl<'a> ScriptLowerer<'a> {
                         callable: true,
                         constructable: function.constructable,
                         class_kind: ClassFunctionKind::None,
+                        is_static_class_member: false,
+                        is_derived_constructor: false,
                         uses_super: false,
                         private_name_ids: BTreeMap::new(),
                         is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
@@ -3811,6 +4094,8 @@ impl<'a> ScriptLowerer<'a> {
             callable: true,
             constructable: function.constructable,
             class_kind: ClassFunctionKind::None,
+            is_static_class_member: false,
+            is_derived_constructor: false,
             uses_super: false,
             private_name_ids: BTreeMap::new(),
             is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
@@ -4207,6 +4492,7 @@ impl<'a> ScriptLowerer<'a> {
             Expression::ArrowFunction(function) => self.lower_arrow_function(function),
             Expression::ClassExpression(class) => self.lower_class_expression(class),
             Expression::PropertyAccess(access) => self.lower_property_access(access),
+            Expression::SuperCall(call) => self.lower_super_call(call),
             Expression::This(_) => {
                 if !self.is_function_body {
                     self.top_level_this_uses += 1;
@@ -4221,18 +4507,17 @@ impl<'a> ScriptLowerer<'a> {
             | Expression::AsyncFunctionExpression(_)
             | Expression::AsyncGeneratorExpression(_)
             | Expression::TemplateLiteral(_)
-            | Expression::SuperCall(_)
             | Expression::ImportCall(_)
             | Expression::Optional(_)
             | Expression::TaggedTemplate(_)
             | Expression::NewTarget(_)
             | Expression::ImportMeta(_)
-            | Expression::BinaryInPrivate(_)
             | Expression::Conditional(_)
             | Expression::Await(_)
             | Expression::Yield(_)
             | Expression::FormalParameterList(_)
             | Expression::Debugger => self.unsupported_expr("unsupported expression form"),
+            Expression::BinaryInPrivate(binary) => self.lower_private_in(binary),
             Expression::Update(update) => self.lower_update(update.op(), update.target()),
         }
     }
@@ -4305,8 +4590,20 @@ impl<'a> ScriptLowerer<'a> {
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
     ) -> TypedExpr {
-        if heritage.is_some() {
-            return self.unsupported_expr("class extends");
+        let heritage = heritage.map(|expr| self.lower_expression(expr));
+        if let Some(heritage) = heritage.as_ref() {
+            if heritage.kind != ValueKind::Function {
+                return self.unsupported_expr("class extends");
+            }
+            let Some(function_id) = self.resolve_single_function_target(heritage) else {
+                return self.unsupported_expr("class extends");
+            };
+            let Some(signature) = self.function_signatures.get(&function_id) else {
+                return self.unsupported_expr("class extends");
+            };
+            if !signature.constructable {
+                return self.unsupported_expr("class extends");
+            }
         }
 
         let constructor_id = self.alloc_generated_function_id("class.ctor");
@@ -4328,20 +4625,36 @@ impl<'a> ScriptLowerer<'a> {
             placement: ClassMethodPlacementIr,
         }
 
+        #[derive(Clone)]
+        struct PrivateMethodPlan<'b> {
+            private_name_id: PrivateNameId,
+            function_id: FunctionId,
+            method: &'b ClassMethodDefinition,
+            placement: ClassMethodPlacementIr,
+            kind: ClassFunctionKind,
+        }
+
+        #[derive(Clone)]
+        struct PrivateFieldPlan<'b> {
+            private_name_id: PrivateNameId,
+            init_function_id: Option<FunctionId>,
+            initializer: Option<&'b Expression>,
+            placement: ClassMethodPlacementIr,
+        }
+
         let mut public_methods = Vec::<PublicMethodPlan<'_>>::new();
+        let mut private_methods = Vec::<PrivateMethodPlan<'_>>::new();
         let mut fields = Vec::<FieldPlan<'_>>::new();
+        let mut private_fields = Vec::<PrivateFieldPlan<'_>>::new();
         let mut static_blocks = Vec::<(FunctionId, &StaticBlockBody)>::new();
+        let mut private_name_ids = BTreeMap::<String, PrivateNameId>::new();
+        let mut private_bindings = BTreeMap::<String, PrivateElementBinding>::new();
+        let mut instance_private_brands = BTreeSet::<PrivateNameId>::new();
+        let mut static_private_brands = BTreeSet::<PrivateNameId>::new();
 
         for element in elements {
             match element {
                 ClassElement::MethodDefinition(method) => {
-                    let Some(PropertyName::Literal(name)) = (match method.name() {
-                        ClassElementName::PropertyName(name) => Some(name),
-                        ClassElementName::PrivateName(_) => None,
-                    }) else {
-                        return self.unsupported_expr("private class element");
-                    };
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
                     let kind = match method.kind() {
                         MethodDefinitionKind::Ordinary => ClassFunctionKind::Method,
                         MethodDefinitionKind::Get => ClassFunctionKind::Getter,
@@ -4352,17 +4665,55 @@ impl<'a> ScriptLowerer<'a> {
                             return self.unsupported_expr("async or generator class element");
                         }
                     };
-                    public_methods.push(PublicMethodPlan {
-                        key,
-                        function_id: self.alloc_generated_function_id("class.method"),
-                        method,
-                        placement: if method.is_static() {
-                            ClassMethodPlacementIr::Static
-                        } else {
-                            ClassMethodPlacementIr::Instance
-                        },
-                        kind,
-                    });
+                    let placement = if method.is_static() {
+                        ClassMethodPlacementIr::Static
+                    } else {
+                        ClassMethodPlacementIr::Instance
+                    };
+                    match method.name() {
+                        ClassElementName::PropertyName(PropertyName::Literal(name)) => {
+                            let key = self.interner.resolve_expect(name.sym()).to_string();
+                            public_methods.push(PublicMethodPlan {
+                                key,
+                                function_id: self.alloc_generated_function_id("class.method"),
+                                method,
+                                placement,
+                                kind,
+                            });
+                        }
+                        ClassElementName::PrivateName(name) => {
+                            let (key, private_name_id) =
+                                self.ensure_private_name_id(&mut private_name_ids, *name);
+                            private_bindings.insert(
+                                key,
+                                PrivateElementBinding {
+                                    private_name_id,
+                                    placement,
+                                    storage: match kind {
+                                        ClassFunctionKind::Method => PrivateStorageKind::Method,
+                                        ClassFunctionKind::Getter => PrivateStorageKind::Getter,
+                                        ClassFunctionKind::Setter => PrivateStorageKind::Setter,
+                                        ClassFunctionKind::None | ClassFunctionKind::Constructor => {
+                                            PrivateStorageKind::Method
+                                        }
+                                    },
+                                },
+                            );
+                            if placement == ClassMethodPlacementIr::Static {
+                                static_private_brands.insert(private_name_id);
+                            } else {
+                                instance_private_brands.insert(private_name_id);
+                            }
+                            private_methods.push(PrivateMethodPlan {
+                                private_name_id,
+                                function_id: self.alloc_generated_function_id("class.method"),
+                                method,
+                                placement,
+                                kind,
+                            });
+                        }
+                        _ => return self.unsupported_expr("computed class method"),
+                    }
                 }
                 ClassElement::FieldDefinition(field) | ClassElement::StaticFieldDefinition(field) => {
                     let Some(name) = field.name().prop_name() else {
@@ -4382,6 +4733,38 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     });
                 }
+                ClassElement::PrivateFieldDefinition(field)
+                | ClassElement::PrivateStaticFieldDefinition(field) => {
+                    let (key, private_name_id) =
+                        self.ensure_private_name_id(&mut private_name_ids, *field.name());
+                    let placement =
+                        if matches!(element, ClassElement::PrivateStaticFieldDefinition(_)) {
+                            ClassMethodPlacementIr::Static
+                        } else {
+                            ClassMethodPlacementIr::Instance
+                        };
+                    private_bindings.insert(
+                        key,
+                        PrivateElementBinding {
+                            private_name_id,
+                            placement,
+                            storage: PrivateStorageKind::Field,
+                        },
+                    );
+                    if placement == ClassMethodPlacementIr::Static {
+                        static_private_brands.insert(private_name_id);
+                    } else {
+                        instance_private_brands.insert(private_name_id);
+                    }
+                    private_fields.push(PrivateFieldPlan {
+                        private_name_id,
+                        init_function_id: field
+                            .initializer()
+                            .map(|_| self.alloc_generated_function_id("class.field")),
+                        initializer: field.initializer(),
+                        placement,
+                    });
+                }
                 ClassElement::StaticBlock(block) => {
                     static_blocks.push((self.alloc_generated_function_id("class.static"), block));
                 }
@@ -4389,14 +4772,18 @@ impl<'a> ScriptLowerer<'a> {
                 | ClassElement::StaticAccessorFieldDefinition(_) => {
                     return self.unsupported_expr("auto-accessor class field");
                 }
-                ClassElement::PrivateFieldDefinition(_)
-                | ClassElement::PrivateStaticFieldDefinition(_) => {
-                    return self.unsupported_expr("private class element");
-                }
             }
         }
 
-        let mut prototype_shape = ObjectShape::default();
+        let heritage_prototype = heritage
+            .as_ref()
+            .and_then(|heritage| self.read_object_shape(heritage, "prototype"))
+            .and_then(|info| info.heap_shape);
+        let mut prototype_shape = ObjectShape {
+            prototype: heritage_prototype.clone(),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+        };
         for method in &public_methods {
             if method.placement != ClassMethodPlacementIr::Instance {
                 continue;
@@ -4436,10 +4823,50 @@ impl<'a> ScriptLowerer<'a> {
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
             }
         }
+        for method in &private_methods {
+            if method.placement != ClassMethodPlacementIr::Instance {
+                continue;
+            }
+            let key = private_data_key(method.private_name_id);
+            match method.kind {
+                ClassFunctionKind::Method => {
+                    prototype_shape.properties.insert(
+                        key,
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            method.function_id.clone(),
+                            false,
+                        )),
+                    );
+                }
+                ClassFunctionKind::Getter => {
+                    prototype_shape.properties.insert(
+                        key,
+                        ObjectShapeProperty::Accessor {
+                            getter: Some(ObjectAccessorShape {
+                                function_id: method.function_id.clone(),
+                            }),
+                            setter: None,
+                        },
+                    );
+                }
+                ClassFunctionKind::Setter => {
+                    prototype_shape.properties.insert(
+                        key,
+                        ObjectShapeProperty::Accessor {
+                            getter: None,
+                            setter: Some(ObjectAccessorShape {
+                                function_id: method.function_id.clone(),
+                            }),
+                        },
+                    );
+                }
+                ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
+            }
+        }
 
         let prototype_heap = Some(Box::new(HeapShape::Object(prototype_shape.clone())));
         let mut instance_info = Self::with_instance_prototype(
-            Self::fresh_constructed_instance_info(),
+            Self::fresh_constructed_instance_with_private_brands(instance_private_brands.clone()),
             prototype_heap.clone(),
         );
 
@@ -4487,17 +4914,65 @@ impl<'a> ScriptLowerer<'a> {
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
             }
         }
+        for method in &private_methods {
+            if method.placement != ClassMethodPlacementIr::Static {
+                continue;
+            }
+            let key = private_data_key(method.private_name_id);
+            match method.kind {
+                ClassFunctionKind::Method => {
+                    class_properties.insert(
+                        key,
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            method.function_id.clone(),
+                            false,
+                        )),
+                    );
+                }
+                ClassFunctionKind::Getter => {
+                    class_properties.insert(
+                        key,
+                        ObjectShapeProperty::Accessor {
+                            getter: Some(ObjectAccessorShape {
+                                function_id: method.function_id.clone(),
+                            }),
+                            setter: None,
+                        },
+                    );
+                }
+                ClassFunctionKind::Setter => {
+                    class_properties.insert(
+                        key,
+                        ObjectShapeProperty::Accessor {
+                            getter: None,
+                            setter: Some(ObjectAccessorShape {
+                                function_id: method.function_id.clone(),
+                            }),
+                        },
+                    );
+                }
+                ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
+            }
+        }
 
         let mut class_info = ValueInfo {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
-                prototype: None,
+                prototype: heritage.as_ref().and_then(|info| info.heap_shape.clone()),
                 properties: class_properties,
-                private_brands: BTreeSet::new(),
+                private_brands: static_private_brands.clone(),
             }))),
             function_targets: BTreeSet::from([constructor_id.clone()]),
         };
+
+        let heritage_prototype_shape = heritage
+            .as_ref()
+            .and_then(|info| read_heap_shape_property(info.heap_shape.as_deref()?, "prototype"))
+            .and_then(|property| match property {
+                ObjectShapeProperty::Data(info) => info.heap_shape,
+                ObjectShapeProperty::Accessor { .. } => None,
+            });
 
         for field in &fields {
             if let Some(init_function_id) = &field.init_function_id {
@@ -4516,8 +4991,9 @@ impl<'a> ScriptLowerer<'a> {
                     },
                     ClassLoweringContext {
                         name: class_name.clone(),
-                        private_name_ids: BTreeMap::new(),
-                        private_bindings: BTreeMap::new(),
+                        private_name_ids: private_name_ids.clone(),
+                        private_bindings: private_bindings.clone(),
+                        super_base_shape: None,
                         is_static: field.placement == ClassMethodPlacementIr::Static,
                         is_derived_constructor: false,
                         map_self_name_to_this: field.placement == ClassMethodPlacementIr::Static,
@@ -4555,6 +5031,64 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        for field in &private_fields {
+            let hidden_key = private_data_key(field.private_name_id);
+            if let Some(init_function_id) = &field.init_function_id {
+                let output = self.lower_generated_expr_function(
+                    init_function_id.clone(),
+                    format!(
+                        "{}.field.{}",
+                        class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                        hidden_key
+                    ),
+                    field.initializer.expect("field initializer should exist"),
+                    if field.placement == ClassMethodPlacementIr::Static {
+                        class_info.clone()
+                    } else {
+                        instance_info.clone()
+                    },
+                    ClassLoweringContext {
+                        name: class_name.clone(),
+                        private_name_ids: private_name_ids.clone(),
+                        private_bindings: private_bindings.clone(),
+                        super_base_shape: None,
+                        is_static: field.placement == ClassMethodPlacementIr::Static,
+                        is_derived_constructor: false,
+                        map_self_name_to_this: field.placement == ClassMethodPlacementIr::Static,
+                    },
+                );
+                if field.placement == ClassMethodPlacementIr::Static {
+                    if let Some(HeapShape::Object(shape)) = class_info.heap_shape.as_mut().map(Box::as_mut) {
+                        shape.properties.insert(
+                            hidden_key,
+                            ObjectShapeProperty::Data(output.return_info.clone()),
+                        );
+                    }
+                } else if let Some(HeapShape::Object(shape)) =
+                    instance_info.heap_shape.as_mut().map(Box::as_mut)
+                {
+                    shape.properties.insert(
+                        hidden_key,
+                        ObjectShapeProperty::Data(output.return_info.clone()),
+                    );
+                }
+            } else if field.placement == ClassMethodPlacementIr::Static {
+                if let Some(HeapShape::Object(shape)) = class_info.heap_shape.as_mut().map(Box::as_mut) {
+                    shape.properties.insert(
+                        hidden_key,
+                        ObjectShapeProperty::Data(ValueInfo::undefined()),
+                    );
+                }
+            } else if let Some(HeapShape::Object(shape)) =
+                instance_info.heap_shape.as_mut().map(Box::as_mut)
+            {
+                shape.properties.insert(
+                    hidden_key,
+                    ObjectShapeProperty::Data(ValueInfo::undefined()),
+                );
+            }
+        }
+
         if let Some(HeapShape::Object(shape)) = class_info.heap_shape.as_mut().map(Box::as_mut) {
             shape.properties.insert(
                 "prototype".to_string(),
@@ -4585,11 +5119,57 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 None,
                 false,
-                BTreeMap::new(),
+                private_name_ids.clone(),
                 ClassLoweringContext {
                     name: class_name.clone(),
-                    private_name_ids: BTreeMap::new(),
-                    private_bindings: BTreeMap::new(),
+                    private_name_ids: private_name_ids.clone(),
+                    private_bindings: private_bindings.clone(),
+                    super_base_shape: if is_static {
+                        heritage.as_ref().and_then(|info| info.heap_shape.clone())
+                    } else {
+                        heritage_prototype_shape.clone()
+                    },
+                    is_static,
+                    is_derived_constructor: false,
+                    map_self_name_to_this: is_static,
+                },
+                Vec::new(),
+            );
+        }
+
+        for method in &private_methods {
+            let is_static = method.placement == ClassMethodPlacementIr::Static;
+            let this_info = if is_static {
+                class_info.clone()
+            } else {
+                instance_info.clone()
+            };
+            self.lower_generated_ast_function(
+                method.function_id.clone(),
+                format!(
+                    "{}.#{}",
+                    class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                    method.private_name_id
+                ),
+                method.method.parameters(),
+                method.method.body(),
+                method.kind == ClassFunctionKind::Method,
+                false,
+                method.kind,
+                this_info,
+                None,
+                None,
+                heritage.is_some(),
+                private_name_ids.clone(),
+                ClassLoweringContext {
+                    name: class_name.clone(),
+                    private_name_ids: private_name_ids.clone(),
+                    private_bindings: private_bindings.clone(),
+                    super_base_shape: if is_static {
+                        heritage.as_ref().and_then(|info| info.heap_shape.clone())
+                    } else {
+                        heritage_prototype_shape.clone()
+                    },
                     is_static,
                     is_derived_constructor: false,
                     map_self_name_to_this: is_static,
@@ -4599,6 +5179,20 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         let mut constructor_prefix = Vec::new();
+        for private_name_id in &instance_private_brands {
+            let brand_value = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::Boolean(true),
+            );
+            constructor_prefix.push(StatementIr::Expression(TypedExpr::from_info(
+                brand_value.value_info(),
+                ExprIr::PropertyWrite {
+                    target: Box::new(TypedExpr::from_info(instance_info.clone(), ExprIr::This)),
+                    key: PropertyKeyIr::StaticString(private_brand_key(*private_name_id)),
+                    value: Box::new(brand_value),
+                },
+            )));
+        }
         for field in &fields {
             if field.placement != ClassMethodPlacementIr::Instance {
                 continue;
@@ -4651,6 +5245,58 @@ impl<'a> ScriptLowerer<'a> {
                 },
             )));
         }
+        for field in &private_fields {
+            if field.placement != ClassMethodPlacementIr::Instance {
+                continue;
+            }
+            let value = if let Some(init_function_id) = &field.init_function_id {
+                let signature = self
+                    .function_signatures
+                    .get(init_function_id)
+                    .cloned()
+                    .unwrap_or(FunctionSignature {
+                        id: init_function_id.clone(),
+                        flavor: FunctionFlavor::Ordinary,
+                        callable: true,
+                        constructable: false,
+                        class_kind: ClassFunctionKind::None,
+                        params: Vec::new(),
+                        return_kind: ValueKind::Undefined,
+                        return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
+                        return_shape: None,
+                        return_targets: BTreeSet::new(),
+                        constructor_instance: ValueInfo::undefined(),
+                        this_info: instance_info.clone(),
+                        this_observed: true,
+                    });
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: signature.return_kind,
+                        possible_kinds: signature.return_possible_kinds,
+                        heap_shape: signature.return_shape,
+                        function_targets: signature.return_targets,
+                    },
+                    ExprIr::CallIndirect {
+                        callee: Box::new(self.function_value_expr(init_function_id.clone())),
+                        this_arg: Some(Box::new(TypedExpr::from_info(
+                            instance_info.clone(),
+                            ExprIr::This,
+                        ))),
+                        args: Vec::new(),
+                    },
+                )
+            } else {
+                TypedExpr::undefined()
+            };
+            constructor_prefix.push(StatementIr::Expression(TypedExpr::from_info(
+                value.value_info(),
+                ExprIr::PropertyWrite {
+                    target: Box::new(TypedExpr::from_info(instance_info.clone(), ExprIr::This)),
+                    key: PropertyKeyIr::StaticString(private_data_key(field.private_name_id)),
+                    value: Box::new(value),
+                },
+            )));
+        }
 
         let constructor_output = if let Some(constructor) = constructor {
             self.lower_generated_ast_function(
@@ -4667,13 +5313,14 @@ impl<'a> ScriptLowerer<'a> {
                 Some(instance_info.clone()),
                 None,
                 false,
-                BTreeMap::new(),
+                private_name_ids.clone(),
                 ClassLoweringContext {
                     name: class_name.clone(),
-                    private_name_ids: BTreeMap::new(),
-                    private_bindings: BTreeMap::new(),
+                    private_name_ids: private_name_ids.clone(),
+                    private_bindings: private_bindings.clone(),
+                    super_base_shape: heritage_prototype_shape.clone(),
                     is_static: false,
-                    is_derived_constructor: false,
+                    is_derived_constructor: heritage.is_some(),
                     map_self_name_to_this: false,
                 },
                 constructor_prefix,
@@ -4691,10 +5338,11 @@ impl<'a> ScriptLowerer<'a> {
                 Some(instance_info.clone()),
                 ClassLoweringContext {
                     name: class_name.clone(),
-                    private_name_ids: BTreeMap::new(),
-                    private_bindings: BTreeMap::new(),
+                    private_name_ids: private_name_ids.clone(),
+                    private_bindings: private_bindings.clone(),
+                    super_base_shape: heritage_prototype_shape.clone(),
                     is_static: false,
-                    is_derived_constructor: false,
+                    is_derived_constructor: heritage.is_some(),
                     map_self_name_to_this: false,
                 },
                 constructor_prefix,
@@ -4729,11 +5377,12 @@ impl<'a> ScriptLowerer<'a> {
                 Some(class_info.clone()),
                 None,
                 false,
-                BTreeMap::new(),
+                private_name_ids.clone(),
                 ClassLoweringContext {
                     name: class_name.clone(),
-                    private_name_ids: BTreeMap::new(),
-                    private_bindings: BTreeMap::new(),
+                    private_name_ids: private_name_ids.clone(),
+                    private_bindings: private_bindings.clone(),
+                    super_base_shape: heritage.as_ref().and_then(|info| info.heap_shape.clone()),
                     is_static: true,
                     is_derived_constructor: false,
                     map_self_name_to_this: true,
@@ -4751,7 +5400,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: class_name,
                 constructor_function_id: constructor_id,
                 explicit_constructor: constructor.is_some(),
-                heritage: None,
+                heritage: heritage.map(Box::new),
                 public_methods: public_methods
                     .iter()
                     .map(|method| ClassPublicMethodIr {
@@ -4761,7 +5410,15 @@ impl<'a> ScriptLowerer<'a> {
                         kind: method.kind,
                     })
                     .collect(),
-                private_methods: Vec::new(),
+                private_methods: private_methods
+                    .iter()
+                    .map(|method| ClassPrivateMethodIr {
+                        private_name_id: method.private_name_id,
+                        function_id: method.function_id.clone(),
+                        placement: method.placement,
+                        kind: method.kind,
+                    })
+                    .collect(),
                 fields: fields
                     .iter()
                     .map(|field| ClassFieldInitIr {
@@ -4771,6 +5428,13 @@ impl<'a> ScriptLowerer<'a> {
                         placement: field.placement,
                         is_private: false,
                     })
+                    .chain(private_fields.iter().map(|field| ClassFieldInitIr {
+                        key: None,
+                        private_name_id: Some(field.private_name_id),
+                        init_function_id: field.init_function_id.clone(),
+                        placement: field.placement,
+                        is_private: true,
+                    }))
                     .collect(),
                 static_blocks: static_blocks
                     .iter()
@@ -4778,7 +5442,7 @@ impl<'a> ScriptLowerer<'a> {
                         function_id: function_id.clone(),
                     })
                     .collect(),
-                private_name_ids: BTreeMap::new(),
+                private_name_ids,
             })),
         )
     }
@@ -4850,7 +5514,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.current_owner_id = function_id.clone();
         lowerer.current_this_info = current_this_info.clone();
         lowerer.current_construct_this_info = current_construct_this_info.clone();
-        lowerer.class_context = Some(class_context);
+        lowerer.class_context = Some(class_context.clone());
         lowerer.push_scope();
 
         if let Some(self_binding_name) = self_binding_name.as_ref() {
@@ -4943,6 +5607,9 @@ impl<'a> ScriptLowerer<'a> {
 
         lowerer.hoist_statement_items(body.statements());
         let lowered_body = lowerer.lower_root_statement_items(body.statements(), &[]);
+        let derived_validation = class_context
+            .is_derived_constructor
+            .then(|| validate_derived_constructor_body(&lowered_body));
         let mut statements = prefix_statements;
         statements.extend(lowered_body.statements);
         let body_ir = BlockIr {
@@ -4950,6 +5617,33 @@ impl<'a> ScriptLowerer<'a> {
             statements,
         };
         lowerer.pop_scope();
+
+        if let Some(validation) = derived_validation {
+            if validation.this_before_super {
+                lowerer.unsupported_with_message(
+                    "unsupported in porffor wasm-aot first slice: derived constructor `this` before `super()`"
+                        .to_string(),
+                );
+            }
+            if validation.return_before_super {
+                lowerer.unsupported_with_message(
+                    "unsupported in porffor wasm-aot first slice: derived constructor return before `super()`"
+                        .to_string(),
+                );
+            }
+            if validation.super_calls == 0 {
+                lowerer.unsupported_with_message(
+                    "unsupported in porffor wasm-aot first slice: derived constructor missing `super()`"
+                        .to_string(),
+                );
+            }
+            if validation.super_calls > 1 {
+                lowerer.unsupported_with_message(
+                    "unsupported in porffor wasm-aot first slice: derived constructor double `super()`"
+                        .to_string(),
+                );
+            }
+        }
 
         let mut return_info = lowerer
             .current_return_info
@@ -4972,6 +5666,8 @@ impl<'a> ScriptLowerer<'a> {
             callable,
             constructable,
             class_kind,
+            is_static_class_member: class_context.is_static,
+            is_derived_constructor: class_context.is_derived_constructor,
             uses_super,
             private_name_ids,
             is_nested: true,
@@ -5036,7 +5732,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.current_function_id = Some(function_id.clone());
         lowerer.current_owner_id = function_id.clone();
         lowerer.current_this_info = current_this_info.clone();
-        lowerer.class_context = Some(class_context);
+        lowerer.class_context = Some(class_context.clone());
         lowerer.push_scope();
         lowerer.declare_binding(
             LEXICAL_ARGUMENTS_NAME.to_string(),
@@ -5070,6 +5766,8 @@ impl<'a> ScriptLowerer<'a> {
             callable: true,
             constructable: false,
             class_kind: ClassFunctionKind::None,
+            is_static_class_member: class_context.is_static,
+            is_derived_constructor: class_context.is_derived_constructor,
             uses_super: false,
             private_name_ids: BTreeMap::new(),
             is_nested: true,
@@ -5142,6 +5840,8 @@ impl<'a> ScriptLowerer<'a> {
             callable,
             constructable,
             class_kind,
+            is_static_class_member: _class_context.is_static,
+            is_derived_constructor: _class_context.is_derived_constructor,
             uses_super: false,
             private_name_ids: BTreeMap::new(),
             is_nested: true,
@@ -5169,52 +5869,135 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_call(&mut self, callee: &Expression, args: &[Expression]) -> TypedExpr {
-        if let Expression::PropertyAccess(PropertyAccess::Simple(access)) = callee {
-            let receiver = self.lower_property_target(access.target());
-            let callee = match receiver.kind {
-                ValueKind::Object | ValueKind::Function => {
-                    self.lower_object_property_key(receiver.clone(), access.field())
-                }
-                ValueKind::Array => self.lower_array_index_key(receiver.clone(), access.field()),
-                ValueKind::Arguments => {
-                    self.lower_arguments_index_key(receiver.clone(), access.field())
-                }
-                ValueKind::Dynamic => return self.unsupported_expr("indirect call"),
-                _ => return self.unsupported_expr("indirect call"),
-            };
-            if callee.kind != ValueKind::Function {
-                return self.unsupported_expr("indirect call");
+        let unsupported_call = |this: &mut Self, class_kind: ClassFunctionKind| {
+            if class_kind == ClassFunctionKind::Constructor {
+                this.unsupported_expr("class call without `new`")
+            } else {
+                this.unsupported_expr("indirect call")
             }
-            let Some(function_id) = self.resolve_single_function_target(&callee) else {
-                return self.unsupported_expr("indirect call");
-            };
-            let Some(signature) = self.function_signatures.get(&function_id) else {
-                return self.unsupported_expr("indirect call");
-            };
-            if !signature.callable {
-                return self.unsupported_expr("indirect call");
-            }
-            self.mark_host_builtin_from_function_id(&function_id);
-            self.host_builtin_calls += usize::from(
-                HostBuiltinId::from_function_id(&function_id).is_some(),
-            );
-            self.merge_function_this_info(&function_id, receiver.value_info());
-            let (args, info) = self.lower_call_args(&function_id, args);
-            let key = match callee.expr {
-                ExprIr::PropertyRead { key, .. } => key,
-                ExprIr::GlobalPropertyRead { name } => PropertyKeyIr::StaticString(name),
-                _ => return self.unsupported_expr("indirect call"),
-            };
-            return TypedExpr::from_info(
-                info,
-                ExprIr::CallMethod {
-                    receiver: Box::new(receiver),
-                    key,
-                    args,
-                },
-            );
-        }
+        };
 
+        if let Expression::PropertyAccess(access) = callee {
+            match access {
+                PropertyAccess::Simple(access) => {
+                    let receiver = self.lower_property_target(access.target());
+                    let callee = match receiver.kind {
+                        ValueKind::Object | ValueKind::Function => {
+                            self.lower_object_property_key(receiver.clone(), access.field())
+                        }
+                        ValueKind::Array => self.lower_array_index_key(receiver.clone(), access.field()),
+                        ValueKind::Arguments => {
+                            self.lower_arguments_index_key(receiver.clone(), access.field())
+                        }
+                        ValueKind::Dynamic => return self.unsupported_expr("indirect call"),
+                        _ => return self.unsupported_expr("indirect call"),
+                    };
+                    if callee.kind != ValueKind::Function {
+                        return self.unsupported_expr("indirect call");
+                    }
+                    let Some(function_id) = self.resolve_single_function_target(&callee) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    let Some(signature) = self.function_signatures.get(&function_id) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    if !signature.callable {
+                        return unsupported_call(self, signature.class_kind);
+                    }
+                    self.mark_host_builtin_from_function_id(&function_id);
+                    self.host_builtin_calls += usize::from(
+                        HostBuiltinId::from_function_id(&function_id).is_some(),
+                    );
+                    self.merge_function_this_info(&function_id, receiver.value_info());
+                    let (args, info) = self.lower_call_args(&function_id, args);
+                    let key = match callee.expr {
+                        ExprIr::PropertyRead { key, .. } => key,
+                        ExprIr::GlobalPropertyRead { name } => PropertyKeyIr::StaticString(name),
+                        _ => return self.unsupported_expr("indirect call"),
+                    };
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::CallMethod {
+                            receiver: Box::new(receiver),
+                            key,
+                            args,
+                        },
+                    );
+                }
+                PropertyAccess::Private(access) => {
+                    let Some(binding) = self.current_private_binding(access.field()) else {
+                        return self.unsupported_expr("private class element");
+                    };
+                    let receiver = self.lower_property_target(access.target());
+                    match self.target_has_private_brand(&receiver, binding.private_name_id) {
+                        Some(true) => {}
+                        Some(false) | None => return self.unsupported_expr("private brand access"),
+                    };
+                    let key_name = private_data_key(binding.private_name_id);
+                    let callee = TypedExpr::from_info(
+                        self.read_object_shape(&receiver, &key_name).unwrap_or(ValueInfo {
+                            kind: ValueKind::Dynamic,
+                            possible_kinds: KindSet::all_runtime_tags(),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        }),
+                        ExprIr::PropertyRead {
+                            target: Box::new(receiver.clone()),
+                            key: PropertyKeyIr::StaticString(key_name.clone()),
+                        },
+                    );
+                    if callee.kind != ValueKind::Function {
+                        return self.unsupported_expr("indirect call");
+                    }
+                    let Some(function_id) = self.resolve_single_function_target(&callee) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    let Some(signature) = self.function_signatures.get(&function_id) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    if !signature.callable {
+                        return unsupported_call(self, signature.class_kind);
+                    }
+                    self.merge_function_this_info(&function_id, receiver.value_info());
+                    let (args, info) = self.lower_call_args(&function_id, args);
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::CallMethod {
+                            receiver: Box::new(receiver),
+                            key: PropertyKeyIr::StaticString(key_name),
+                            args,
+                        },
+                    );
+                }
+                PropertyAccess::Super(access) => {
+                    let callee = self.lower_super_property_access(access);
+                    if callee.kind != ValueKind::Function {
+                        return self.unsupported_expr("indirect call");
+                    }
+                    let Some(function_id) = self.resolve_single_function_target(&callee) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    let Some(signature) = self.function_signatures.get(&function_id) else {
+                        return self.unsupported_expr("indirect call");
+                    };
+                    if !signature.callable {
+                        return unsupported_call(self, signature.class_kind);
+                    }
+                    let (args, info) = self.lower_call_args(&function_id, args);
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::CallIndirect {
+                            callee: Box::new(callee),
+                            this_arg: Some(Box::new(TypedExpr::from_info(
+                                self.current_this_info.clone(),
+                                ExprIr::This,
+                            ))),
+                            args,
+                        },
+                    );
+                }
+            }
+        }
         let callee = self.lower_expression(callee);
         if callee.kind != ValueKind::Function {
             return self.unsupported_expr("indirect call");
@@ -5226,7 +6009,7 @@ impl<'a> ScriptLowerer<'a> {
             return self.unsupported_expr("indirect call");
         };
         if !signature.callable {
-            return self.unsupported_expr("indirect call");
+            return unsupported_call(self, signature.class_kind);
         }
         self.mark_host_builtin_from_function_id(&function_id);
         self.host_builtin_calls += usize::from(
@@ -5596,20 +6379,148 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_property_access(&mut self, access: &PropertyAccess) -> TypedExpr {
-        let PropertyAccess::Simple(access) = access else {
-            return self.unsupported_expr("unsupported property access");
-        };
-
-        let target = self.lower_property_target(access.target());
-        match target.kind {
-            ValueKind::Object | ValueKind::Function => {
-                self.lower_object_property_key(target, access.field())
+        match access {
+            PropertyAccess::Simple(access) => {
+                let target = self.lower_property_target(access.target());
+                match target.kind {
+                    ValueKind::Object | ValueKind::Function => {
+                        self.lower_object_property_key(target, access.field())
+                    }
+                    ValueKind::Array => self.lower_array_index_key(target, access.field()),
+                    ValueKind::Arguments => self.lower_arguments_index_key(target, access.field()),
+                    ValueKind::Dynamic => self.unsupported_expr("property access on dynamic target"),
+                    _ => self.unsupported_expr("property access on non-object target"),
+                }
             }
-            ValueKind::Array => self.lower_array_index_key(target, access.field()),
-            ValueKind::Arguments => self.lower_arguments_index_key(target, access.field()),
-            ValueKind::Dynamic => self.unsupported_expr("property access on dynamic target"),
-            _ => self.unsupported_expr("property access on non-object target"),
+            PropertyAccess::Private(access) => self.lower_private_property_access(access),
+            PropertyAccess::Super(access) => self.lower_super_property_access(access),
         }
+    }
+
+    fn lower_super_call(&mut self, call: &SuperCall) -> TypedExpr {
+        if !self
+            .class_context
+            .as_ref()
+            .is_some_and(|context| context.is_derived_constructor)
+        {
+            return self.unsupported_expr("unsupported expression form");
+        }
+        let args = call
+            .arguments()
+            .iter()
+            .map(|arg| self.lower_expression(arg))
+            .collect::<Vec<_>>();
+        let info = self
+            .current_construct_this_info
+            .clone()
+            .unwrap_or_else(|| self.current_this_info.clone());
+        TypedExpr::from_info(info, ExprIr::SuperConstruct { args })
+    }
+
+    fn lower_super_property_key(&mut self, field: &PropertyAccessField) -> Option<PropertyKeyIr> {
+        Some(match field {
+            PropertyAccessField::Const(name) => {
+                PropertyKeyIr::StaticString(self.interner.resolve_expect(name.sym()).to_string())
+            }
+            PropertyAccessField::Expr(expr) => {
+                if let Some(key) = self.try_static_string_key(expr) {
+                    PropertyKeyIr::StaticString(key)
+                } else {
+                    let lowered = self.lower_expression(expr);
+                    if lowered.kind != ValueKind::String {
+                        self.unsupported_expr("object property key must be string");
+                        return None;
+                    }
+                    PropertyKeyIr::StringExpr(Box::new(lowered))
+                }
+            }
+        })
+    }
+
+    fn lower_super_property_access(&mut self, access: &SuperPropertyAccess) -> TypedExpr {
+        let Some(key) = self.lower_super_property_key(access.field()) else {
+            return TypedExpr::undefined();
+        };
+        let info = match &key {
+            PropertyKeyIr::StaticString(key_name) => self
+                .class_context
+                .as_ref()
+                .and_then(|context| context.super_base_shape.as_deref())
+                .and_then(|shape| read_heap_shape_property(shape, key_name))
+                .map(|property| match property {
+                    ObjectShapeProperty::Data(info) => info,
+                    ObjectShapeProperty::Accessor {
+                        getter: Some(getter),
+                        ..
+                    } => self.accessor_return_info(&getter.function_id),
+                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
+                })
+                .unwrap_or(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                }),
+            PropertyKeyIr::StringExpr(_) => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+        };
+        TypedExpr::from_info(
+            info,
+            ExprIr::SuperPropertyRead { key },
+        )
+    }
+
+    fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
+        let Some(binding) = self.current_private_binding(access.field()) else {
+            return self.unsupported_expr("private class element");
+        };
+        let target = self.lower_property_target(access.target());
+        match self.target_has_private_brand(&target, binding.private_name_id) {
+            Some(true) => {}
+            Some(false) | None => {
+                return self.unsupported_expr("private brand access");
+            }
+        }
+        let key = PropertyKeyIr::StaticString(private_data_key(binding.private_name_id));
+        let info = self
+            .read_object_shape(&target, &private_data_key(binding.private_name_id))
+            .unwrap_or(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            });
+        TypedExpr::from_info(
+            info,
+            ExprIr::PropertyRead {
+                target: Box::new(target),
+                key,
+            },
+        )
+    }
+
+    fn lower_private_in(&mut self, binary: &BinaryInPrivate) -> TypedExpr {
+        let Some(binding) = self.current_private_binding(*binary.lhs()) else {
+            return self.unsupported_expr("private class element");
+        };
+        let rhs = self.lower_expression(binary.rhs());
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::PrivateIn {
+                private_name_id: binding.private_name_id,
+                rhs: Box::new(rhs),
+            },
+        )
     }
 
     fn lower_property_target(&mut self, target: &Expression) -> TypedExpr {
@@ -5894,94 +6805,126 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_property_assign(&mut self, access: &PropertyAccess, rhs: &Expression) -> TypedExpr {
-        let PropertyAccess::Simple(access) = access else {
-            return self.unsupported_expr("unsupported property access");
-        };
+        match access {
+            PropertyAccess::Simple(access) => {
+                let target = self.lower_property_target(access.target());
 
-        let target = self.lower_property_target(access.target());
-
-        match target.kind {
-            ValueKind::Object | ValueKind::Function => {
-                let key = match access.field() {
-                    PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                        self.interner.resolve_expect(name.sym()).to_string(),
-                    ),
-                    PropertyAccessField::Expr(expr) => {
-                        if let Some(key) = self.try_static_string_key(expr) {
-                            PropertyKeyIr::StaticString(key)
-                        } else {
-                            let lowered = self.lower_expression(expr);
-                            if lowered.kind != ValueKind::String {
-                                return self.unsupported_expr("object property key must be string");
+                match target.kind {
+                    ValueKind::Object | ValueKind::Function => {
+                        let key = match access.field() {
+                            PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                                self.interner.resolve_expect(name.sym()).to_string(),
+                            ),
+                            PropertyAccessField::Expr(expr) => {
+                                if let Some(key) = self.try_static_string_key(expr) {
+                                    PropertyKeyIr::StaticString(key)
+                                } else {
+                                    let lowered = self.lower_expression(expr);
+                                    if lowered.kind != ValueKind::String {
+                                        return self.unsupported_expr("object property key must be string");
+                                    }
+                                    PropertyKeyIr::StringExpr(Box::new(lowered))
+                                }
                             }
-                            PropertyKeyIr::StringExpr(Box::new(lowered))
+                        };
+                        let value = self.lower_expression(rhs);
+                        if let PropertyKeyIr::StaticString(key_name) = &key {
+                            if self.is_global_this_expr(access.target()) {
+                                self.set_global_property_value_info(key_name.clone(), value.value_info());
+                            }
+                            if let Some(ObjectShapeProperty::Accessor {
+                                setter: Some(setter),
+                                ..
+                            }) = self.read_object_shape_property(&target, key_name)
+                            {
+                                self.merge_function_this_info(&setter.function_id, target.value_info());
+                            }
                         }
+                        self.update_written_shape(access.target(), &key, &value.value_info());
+                        TypedExpr::from_info(
+                            value.value_info(),
+                            ExprIr::PropertyWrite {
+                                target: Box::new(target),
+                                key,
+                                value: Box::new(value),
+                            },
+                        )
                     }
+                    ValueKind::Array => {
+                        let PropertyAccessField::Expr(expr) = access.field() else {
+                            return self.unsupported_expr("unsupported array dot access");
+                        };
+                        let index = self.lower_expression(expr);
+                        if index.kind != ValueKind::Number {
+                            return self.unsupported_expr("array index must be number");
+                        }
+                        let value = self.lower_expression(rhs);
+                        let key = PropertyKeyIr::ArrayIndex(Box::new(index));
+                        self.update_written_shape(access.target(), &key, &value.value_info());
+                        TypedExpr::from_info(
+                            value.value_info(),
+                            ExprIr::PropertyWrite {
+                                target: Box::new(target),
+                                key,
+                                value: Box::new(value),
+                            },
+                        )
+                    }
+                    ValueKind::Arguments => {
+                        let PropertyAccessField::Expr(expr) = access.field() else {
+                            return self.unsupported_expr("unsupported arguments dot access");
+                        };
+                        let index = self.lower_expression(expr);
+                        if index.kind != ValueKind::Number {
+                            return self.unsupported_expr("arguments index must be number");
+                        }
+                        let value = self.lower_expression(rhs);
+                        let key = PropertyKeyIr::ArrayIndex(Box::new(index));
+                        TypedExpr::from_info(
+                            value.value_info(),
+                            ExprIr::PropertyWrite {
+                                target: Box::new(target),
+                                key,
+                                value: Box::new(value),
+                            },
+                        )
+                    }
+                    ValueKind::Dynamic => self.unsupported_expr("property access on dynamic target"),
+                    _ => self.unsupported_expr("property access on non-object target"),
+                }
+            }
+            PropertyAccess::Private(access) => {
+                let Some(binding) = self.current_private_binding(access.field()) else {
+                    return self.unsupported_expr("private class element");
+                };
+                let target = self.lower_property_target(access.target());
+                match self.target_has_private_brand(&target, binding.private_name_id) {
+                    Some(true) => {}
+                    Some(false) | None => return self.unsupported_expr("private brand access"),
                 };
                 let value = self.lower_expression(rhs);
-                if let PropertyKeyIr::StaticString(key_name) = &key {
-                    if self.is_global_this_expr(access.target()) {
-                        self.set_global_property_value_info(key_name.clone(), value.value_info());
-                    }
-                    if let Some(ObjectShapeProperty::Accessor {
-                        setter: Some(setter),
-                        ..
-                    }) = self.read_object_shape_property(&target, key_name)
-                    {
-                        self.merge_function_this_info(&setter.function_id, target.value_info());
-                    }
-                }
-                self.update_written_shape(access.target(), &key, &value.value_info());
                 TypedExpr::from_info(
                     value.value_info(),
                     ExprIr::PropertyWrite {
                         target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(private_data_key(binding.private_name_id)),
+                        value: Box::new(value),
+                    },
+                )
+            }
+            PropertyAccess::Super(access) => {
+                let Some(key) = self.lower_super_property_key(access.field()) else {
+                    return TypedExpr::undefined();
+                };
+                let value = self.lower_expression(rhs);
+                TypedExpr::from_info(
+                    value.value_info(),
+                    ExprIr::SuperPropertyWrite {
                         key,
                         value: Box::new(value),
                     },
                 )
             }
-            ValueKind::Array => {
-                let PropertyAccessField::Expr(expr) = access.field() else {
-                    return self.unsupported_expr("unsupported array dot access");
-                };
-                let index = self.lower_expression(expr);
-                if index.kind != ValueKind::Number {
-                    return self.unsupported_expr("array index must be number");
-                }
-                let value = self.lower_expression(rhs);
-                let key = PropertyKeyIr::ArrayIndex(Box::new(index));
-                self.update_written_shape(access.target(), &key, &value.value_info());
-                TypedExpr::from_info(
-                    value.value_info(),
-                    ExprIr::PropertyWrite {
-                        target: Box::new(target),
-                        key,
-                        value: Box::new(value),
-                    },
-                )
-            }
-            ValueKind::Arguments => {
-                let PropertyAccessField::Expr(expr) = access.field() else {
-                    return self.unsupported_expr("unsupported arguments dot access");
-                };
-                let index = self.lower_expression(expr);
-                if index.kind != ValueKind::Number {
-                    return self.unsupported_expr("arguments index must be number");
-                }
-                let value = self.lower_expression(rhs);
-                let key = PropertyKeyIr::ArrayIndex(Box::new(index));
-                TypedExpr::from_info(
-                    value.value_info(),
-                    ExprIr::PropertyWrite {
-                        target: Box::new(target),
-                        key,
-                        value: Box::new(value),
-                    },
-                )
-            }
-            ValueKind::Dynamic => self.unsupported_expr("property access on dynamic target"),
-            _ => self.unsupported_expr("property access on non-object target"),
         }
     }
 
@@ -6656,21 +7599,7 @@ impl<'a> ScriptLowerer<'a> {
         target: &TypedExpr,
         key: &str,
     ) -> Option<ObjectShapeProperty> {
-        fn read_shape(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
-            match shape {
-                HeapShape::Object(object) => object
-                    .properties
-                    .get(key)
-                    .cloned()
-                    .or_else(|| object.prototype.as_deref().and_then(|proto| read_shape(proto, key))),
-                HeapShape::Array(array) => array
-                    .prototype
-                    .as_deref()
-                    .and_then(|proto| read_shape(proto, key)),
-            }
-        }
-
-        read_shape(target.heap_shape.as_deref()?, key)
+        read_heap_shape_property(target.heap_shape.as_deref()?, key)
     }
 
     fn read_array_shape(&self, target: &TypedExpr, index: &TypedExpr) -> Option<ValueInfo> {
