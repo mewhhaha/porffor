@@ -579,7 +579,7 @@ impl Context {
     }
 
     pub(crate) fn pop_environment_with_dispose(&mut self) -> JsResult<()> {
-        let mut current = None;
+        let mut current = self.vm.pending_exception.take().map(|error| error.to_opaque(self));
         if let Some(env) = self
             .vm
             .environments

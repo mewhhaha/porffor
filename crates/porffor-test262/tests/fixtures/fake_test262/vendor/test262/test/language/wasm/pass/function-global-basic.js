@@ -1,0 +1,5 @@
+/*---
+flags: [raw]
+---*/
+
+typeof Function;

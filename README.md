@@ -3,6 +3,24 @@ A from-scratch experimental **AOT** optimizing JS/TS -> Wasm/C engine/compiler/r
 
 <img src="https://github.com/CanadaHonk/porffor/assets/19228318/de8ad753-8ce3-4dcd-838e-f4d49452f8f8" alt="Screenshot of terminal showing Porffor running and compiling a hello world" width="60%">
 
+## Current Status
+Rust rewrite status must be read in layers, not one vanity number:
+- Fake wasm-safe Test262 subset: `179/179` green
+- Fake full Rust rewrite suite: `182/182` green
+- Full pinned real Test262 for Rust rewrite: **not green / not yet published here as 100%**
+
+As of `2026-04-19`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned Test262 run is green for Rust path.
+
+Status refresh commands:
+- `cargo test -p porffor-engine --quiet`
+- `cargo test -p porffor-cli --quiet`
+- `./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
+- `./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262`
+- `./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real`
+- `./target/debug/porf test262 publish-status --execution-backend spec-exec --snapshot-name codex-published-real`
+
+When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
+
 ## Design
 Porffor is a very unique JS engine, due many wildly different approaches. It is seriously limited, but what it can do, it does pretty well. Key differences:
 - 100% AOT compiled (no JIT or interpreter)

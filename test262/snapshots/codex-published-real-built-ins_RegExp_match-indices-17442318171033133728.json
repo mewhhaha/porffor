@@ -1,0 +1,98 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 17442318171033133728,
+  "run_kind": "matrix-filter-leaf",
+  "total": 14,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-element.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-matched.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-non-unicode-match.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-properties.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-unicode-match.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-unicode-property-names.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array-unmatched.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-array.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-groups-object-undefined.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/match-indices/indices-groups-object-unmatched.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/RegExp/match-indices/indices-array-element.js",
+    "built-ins/RegExp/match-indices/indices-array-matched.js",
+    "built-ins/RegExp/match-indices/indices-array-non-unicode-match.js",
+    "built-ins/RegExp/match-indices/indices-array-properties.js",
+    "built-ins/RegExp/match-indices/indices-array-unicode-match.js",
+    "built-ins/RegExp/match-indices/indices-array-unicode-property-names.js",
+    "built-ins/RegExp/match-indices/indices-array-unmatched.js",
+    "built-ins/RegExp/match-indices/indices-array.js",
+    "built-ins/RegExp/match-indices/indices-groups-object-undefined.js",
+    "built-ins/RegExp/match-indices/indices-groups-object-unmatched.js",
+    "built-ins/RegExp/match-indices/indices-groups-object.js",
+    "built-ins/RegExp/match-indices/indices-groups-properties.js",
+    "built-ins/RegExp/match-indices/indices-property.js",
+    "built-ins/RegExp/match-indices/no-indices-array.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExp",
+    "match-indices"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

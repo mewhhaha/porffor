@@ -1,0 +1,98 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 3714748188203877706,
+  "run_kind": "matrix-filter-leaf",
+  "total": 15,
+  "passed": 15,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/isNaN/S15.1.2.4_A2.6.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/S15.1.2.4_A2.7.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/not-a-constructor.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/prop-desc.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/return-abrupt-from-tonumber-number-symbol.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/return-abrupt-from-tonumber-number.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/return-false-not-nan-numbers.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/return-true-nan.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/tonumber-operations.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/isNaN/toprimitive-call-abrupt.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/isNaN/S15.1.2.4_A2.6.js",
+    "built-ins/isNaN/S15.1.2.4_A2.7.js",
+    "built-ins/isNaN/not-a-constructor.js",
+    "built-ins/isNaN/prop-desc.js",
+    "built-ins/isNaN/return-abrupt-from-tonumber-number-symbol.js",
+    "built-ins/isNaN/return-abrupt-from-tonumber-number.js",
+    "built-ins/isNaN/return-false-not-nan-numbers.js",
+    "built-ins/isNaN/return-true-nan.js",
+    "built-ins/isNaN/tonumber-operations.js",
+    "built-ins/isNaN/toprimitive-call-abrupt.js",
+    "built-ins/isNaN/toprimitive-get-abrupt.js",
+    "built-ins/isNaN/toprimitive-not-callable-throws.js",
+    "built-ins/isNaN/toprimitive-result-is-object-throws.js",
+    "built-ins/isNaN/toprimitive-result-is-symbol-throws.js",
+    "built-ins/isNaN/toprimitive-valid-result.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "isNaN"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

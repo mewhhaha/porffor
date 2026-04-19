@@ -4,15 +4,21 @@ use crate::{
     vm::{CodeBlock, CodeBlockFlags, opcode::BindingOpcode},
 };
 use boa_ast::{
-    Expression,
-    expression::Identifier,
+    Expression, LinearPosition, Span, Spanned, StatementList, StatementListItem,
+    declaration::Variable,
+    expression::{
+        Identifier, This,
+        access::{PrivatePropertyAccess, PropertyAccess},
+        operator::assign::{Assign, AssignOp, AssignTarget},
+    },
     function::{
-        ClassDeclaration, ClassElement, ClassElementName, ClassExpression, FormalParameterList,
-        FunctionExpression,
+        ClassDeclaration, ClassElement, ClassElementName, ClassExpression, FormalParameter,
+        FormalParameterList, FunctionBody, FunctionExpression, PrivateName,
     },
     operations::{ContainsSymbol, contains},
     property::{MethodDefinitionKind, PropertyName},
     scope::Scope,
+    statement::{Return, Statement},
 };
 use boa_gc::Gc;
 use boa_interner::Sym;
@@ -70,6 +76,13 @@ fn class_element_contains_direct_eval(element: &ClassElement) -> bool {
     }
 }
 
+fn property_name_span(name: &PropertyName) -> Span {
+    match name {
+        PropertyName::Literal(identifier) => identifier.span(),
+        PropertyName::Computed(expr) => expr.span(),
+    }
+}
+
 /// Describes the complete specification of a class.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ClassSpec<'a> {
@@ -111,6 +124,80 @@ impl<'a> From<&'a ClassExpression> for ClassSpec<'a> {
 }
 
 impl ByteCompiler<'_> {
+    fn synthetic_auto_accessor_name(&mut self, index: usize, span: Span) -> PrivateName {
+        let generated = format!("__boa_auto_accessor_{index}");
+        let name = self.interner.get_or_intern(generated.as_str());
+        PrivateName::new(name, span)
+    }
+
+    fn compile_auto_accessor_getter(&mut self, private_name: PrivateName, span: Span) -> Register {
+        let body = FunctionBody::new(
+            StatementList::new(
+                vec![StatementListItem::from(Statement::from(Return::new(Some(
+                    Expression::from(PropertyAccess::from(PrivatePropertyAccess::new(
+                        This::new(span).into(),
+                        private_name,
+                        span,
+                    ))),
+                ))))],
+                LinearPosition::new(0),
+                false,
+            ),
+            span,
+        );
+
+        let mut function = FunctionExpression::new(
+            None,
+            FormalParameterList::new(),
+            body,
+            None,
+            false,
+            span,
+        );
+        function
+            .analyze_scope(true, &self.lexical_scope, self.interner())
+            .expect("synthetic auto-accessor getter must analyze");
+        let index = self.function((&function).into());
+        let dst = self.register_allocator.alloc();
+        self.emit_get_function(&dst, index);
+        dst
+    }
+
+    fn compile_auto_accessor_setter(&mut self, private_name: PrivateName, span: Span) -> Register {
+        let value = Identifier::new(self.interner.get_or_intern("value"), span);
+        let body = FunctionBody::new(
+            StatementList::new(
+                vec![StatementListItem::from(Statement::Expression(Expression::from(
+                    Assign::new(
+                        AssignOp::Assign,
+                        AssignTarget::Access(PropertyAccess::from(PrivatePropertyAccess::new(
+                            This::new(span).into(),
+                            private_name,
+                            span,
+                        ))),
+                        value.into(),
+                    ),
+                )))],
+                LinearPosition::new(0),
+                false,
+            ),
+            span,
+        );
+
+        let params = FormalParameterList::from_parameters(vec![FormalParameter::new(
+            Variable::from_identifier(value, None),
+            false,
+        )]);
+        let mut function = FunctionExpression::new(None, params, body, None, false, span);
+        function
+            .analyze_scope(true, &self.lexical_scope, self.interner())
+            .expect("synthetic auto-accessor setter must analyze");
+        let index = self.function((&function).into());
+        let dst = self.register_allocator.alloc();
+        self.emit_get_function(&dst, index);
+        dst
+    }
+
     /// This function compiles a class declaration or expression.
     ///
     /// The compilation of a class declaration and expression is mostly equal.
@@ -233,7 +320,19 @@ impl ByteCompiler<'_> {
         self.register_allocator.dealloc(prototype_register);
 
         let mut name_indices = ThinVec::new();
-        for element in class.elements {
+        let mut public_accessor_backing_names = Vec::with_capacity(class.elements.len());
+        for (index, element) in class.elements.iter().enumerate() {
+            public_accessor_backing_names.push(match element {
+                ClassElement::AccessorFieldDefinition(field)
+                | ClassElement::StaticAccessorFieldDefinition(field) => {
+                    let name = self.synthetic_auto_accessor_name(index, property_name_span(field.name()));
+                    let index = self.get_or_insert_private_name(name);
+                    name_indices.push(index);
+                    Some((name, index))
+                }
+                _ => None,
+            });
+
             match element {
                 ClassElement::MethodDefinition(m) => {
                     if let ClassElementName::PrivateName(name) = m.name() {
@@ -254,7 +353,7 @@ impl ByteCompiler<'_> {
 
         let mut static_elements = Vec::new();
 
-        for element in class.elements {
+        for (element_index, element) in class.elements.iter().enumerate() {
             match element {
                 ClassElement::MethodDefinition(m) => match m.name() {
                     ClassElementName::PropertyName(PropertyName::Literal(name)) => {
@@ -425,8 +524,7 @@ impl ByteCompiler<'_> {
                         self.register_allocator.dealloc(method);
                     }
                 },
-                ClassElement::FieldDefinition(field)
-                | ClassElement::AccessorFieldDefinition(field) => {
+                ClassElement::FieldDefinition(field) => {
                     let name = self.register_allocator.alloc();
                     match field.name() {
                         PropertyName::Literal(ident) => {
@@ -491,6 +589,88 @@ impl ByteCompiler<'_> {
                     self.register_allocator.dealloc(name);
                     self.register_allocator.dealloc(dst);
                 }
+                ClassElement::AccessorFieldDefinition(field) => {
+                    let (private_name, name_index) = public_accessor_backing_names[element_index]
+                        .expect("public auto-accessor must have synthetic private backing name");
+                    let mut field_compiler = ByteCompiler::new(
+                        class_name.clone(),
+                        true,
+                        self.json_parse,
+                        self.variable_scope.clone(),
+                        self.lexical_scope.clone(),
+                        false,
+                        false,
+                        self.interner,
+                        self.in_with,
+                        self.spanned_source_text.clone_only_source(),
+                        self.source_path.clone(),
+                    );
+                    field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
+                    let value = field_compiler.register_allocator.alloc();
+                    if let Some(node) = field.initializer() {
+                        field_compiler.compile_expr(node, &value);
+                    } else {
+                        field_compiler
+                            .bytecode
+                            .emit_push_undefined(value.variable());
+                    }
+                    field_compiler
+                        .bytecode
+                        .emit_set_accumulator(value.variable());
+                    field_compiler.register_allocator.dealloc(value);
+                    let code = Gc::new(field_compiler.finish());
+                    let index = self.push_function_to_constants(code);
+                    let initializer = self.register_allocator.alloc();
+                    self.emit_get_function(&initializer, index);
+                    self.bytecode.emit_push_class_field_private(
+                        class_register.variable(),
+                        initializer.variable(),
+                        name_index.into(),
+                    );
+                    self.register_allocator.dealloc(initializer);
+
+                    let getter =
+                        self.compile_auto_accessor_getter(private_name, property_name_span(field.name()));
+                    let setter =
+                        self.compile_auto_accessor_setter(private_name, property_name_span(field.name()));
+                    match field.name() {
+                        PropertyName::Literal(name) => {
+                            let index = self.get_or_insert_name(name.sym());
+                            self.bytecode.emit_define_class_getter_by_name(
+                                getter.variable(),
+                                proto_register.variable(),
+                                index.into(),
+                            );
+                            self.bytecode.emit_define_class_setter_by_name(
+                                setter.variable(),
+                                proto_register.variable(),
+                                index.into(),
+                            );
+                        }
+                        PropertyName::Computed(name) => {
+                            let key = self.register_allocator.alloc();
+                            self.compile_expr(name, &key);
+                            self.bytecode
+                                .emit_to_property_key(key.variable(), key.variable());
+                            self.bytecode.emit_define_class_getter_by_value(
+                                getter.variable(),
+                                key.variable(),
+                                proto_register.variable(),
+                            );
+                            self.bytecode.emit_define_class_setter_by_value(
+                                setter.variable(),
+                                key.variable(),
+                                proto_register.variable(),
+                            );
+                            self.register_allocator.dealloc(key);
+                        }
+                    }
+                    self.register_allocator.dealloc(getter);
+                    self.register_allocator.dealloc(setter);
+                }
                 ClassElement::PrivateFieldDefinition(field) => {
                     let name_index = self.get_or_insert_private_name(*field.name());
                     let mut field_compiler = ByteCompiler::new(
@@ -533,8 +713,7 @@ impl ByteCompiler<'_> {
                     );
                     self.register_allocator.dealloc(dst);
                 }
-                ClassElement::StaticFieldDefinition(field)
-                | ClassElement::StaticAccessorFieldDefinition(field) => {
+                ClassElement::StaticFieldDefinition(field) => {
                     let name_index = match field.name() {
                         PropertyName::Literal(name) => {
                             StaticFieldName::Index(self.get_or_insert_name(name.sym()))
@@ -585,6 +764,85 @@ impl ByteCompiler<'_> {
                         name_index,
                         is_anonymous_function,
                     });
+                }
+                ClassElement::StaticAccessorFieldDefinition(field) => {
+                    let (private_name, name_index) = public_accessor_backing_names[element_index]
+                        .expect("public auto-accessor must have synthetic private backing name");
+                    let mut field_compiler = ByteCompiler::new(
+                        class_name.clone(),
+                        true,
+                        self.json_parse,
+                        self.variable_scope.clone(),
+                        self.lexical_scope.clone(),
+                        false,
+                        false,
+                        self.interner,
+                        self.in_with,
+                        self.spanned_source_text.clone_only_source(),
+                        self.source_path.clone(),
+                    );
+                    field_compiler.code_block_flags |= CodeBlockFlags::HAS_FUNCTION_SCOPE;
+                    field_compiler.code_block_flags |= CodeBlockFlags::IN_CLASS_FIELD_INITIALIZER;
+                    let initializer_scope = Scope::new(self.lexical_scope.clone(), true);
+                    let _ = field_compiler.push_scope(&initializer_scope);
+                    let value = field_compiler.register_allocator.alloc();
+                    if let Some(node) = field.initializer() {
+                        field_compiler.compile_expr(node, &value);
+                    } else {
+                        field_compiler
+                            .bytecode
+                            .emit_push_undefined(value.variable());
+                    }
+                    field_compiler
+                        .bytecode
+                        .emit_set_accumulator(value.variable());
+                    field_compiler.register_allocator.dealloc(value);
+                    let code = Gc::new(field_compiler.finish());
+
+                    static_elements.push(StaticElement::StaticField {
+                        code,
+                        name_index: StaticFieldName::PrivateName(name_index),
+                        is_anonymous_function: false,
+                    });
+
+                    let getter =
+                        self.compile_auto_accessor_getter(private_name, property_name_span(field.name()));
+                    let setter =
+                        self.compile_auto_accessor_setter(private_name, property_name_span(field.name()));
+                    match field.name() {
+                        PropertyName::Literal(name) => {
+                            let index = self.get_or_insert_name(name.sym());
+                            self.bytecode.emit_define_class_static_getter_by_name(
+                                getter.variable(),
+                                class_register.variable(),
+                                index.into(),
+                            );
+                            self.bytecode.emit_define_class_static_setter_by_name(
+                                setter.variable(),
+                                class_register.variable(),
+                                index.into(),
+                            );
+                        }
+                        PropertyName::Computed(name) => {
+                            let key = self.register_allocator.alloc();
+                            self.compile_expr(name, &key);
+                            self.bytecode
+                                .emit_to_property_key(key.variable(), key.variable());
+                            self.bytecode.emit_define_class_static_getter_by_value(
+                                getter.variable(),
+                                key.variable(),
+                                class_register.variable(),
+                            );
+                            self.bytecode.emit_define_class_static_setter_by_value(
+                                setter.variable(),
+                                key.variable(),
+                                class_register.variable(),
+                            );
+                            self.register_allocator.dealloc(key);
+                        }
+                    }
+                    self.register_allocator.dealloc(getter);
+                    self.register_allocator.dealloc(setter);
                 }
                 ClassElement::PrivateStaticFieldDefinition(field) => {
                     let name_index = self.get_or_insert_private_name(*field.name());

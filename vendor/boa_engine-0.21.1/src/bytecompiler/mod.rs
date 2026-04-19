@@ -854,7 +854,22 @@ impl<'ctx> ByteCompiler<'ctx> {
                     return PreparedDeclarationBinding::SetByLocator(index);
                 }
             }
-            BindingOpcode::Var | BindingOpcode::InitVar | BindingOpcode::InitLexical => {}
+            BindingOpcode::Var => {
+                let binding = self.get_identifier_reference(name.clone());
+                let index = self.get_binding(&binding);
+                let value = self.register_allocator.alloc();
+                self.emit_binding_access(BindingAccessOpcode::GetLocator, &index, &value);
+                self.register_allocator.dealloc(value);
+            }
+            BindingOpcode::InitVar => {
+                let binding = self.get_identifier_reference(name.clone());
+                let index = self.get_binding(&binding);
+                let value = self.register_allocator.alloc();
+                self.emit_binding_access(BindingAccessOpcode::GetLocator, &index, &value);
+                self.register_allocator.dealloc(value);
+                return PreparedDeclarationBinding::SetByLocator(index);
+            }
+            BindingOpcode::InitLexical => {}
         }
 
         PreparedDeclarationBinding::Late { opcode, name }
@@ -1266,12 +1281,12 @@ impl<'ctx> ByteCompiler<'ctx> {
                             compiler.register_allocator.dealloc(value);
                         }
                         PropertyAccessField::Expr(expr) => {
+                            let receiver = compiler.register_allocator.alloc();
+                            compiler.bytecode.emit_this(receiver.variable());
                             let key = compiler.register_allocator.alloc();
                             compiler.compile_expr(expr, &key);
                             let value = compiler.register_allocator.alloc();
-                            let receiver = compiler.register_allocator.alloc();
                             compiler.bytecode.emit_super(value.variable());
-                            compiler.bytecode.emit_this(receiver.variable());
                             compiler.bytecode.emit_get_property_by_value(
                                 dst.variable(),
                                 key.variable(),
@@ -1387,14 +1402,12 @@ impl<'ctx> ByteCompiler<'ctx> {
                         self.register_allocator.dealloc(object);
                     }
                     PropertyAccessField::Expr(expr) => {
-                        let key = self.register_allocator.alloc();
-                        self.compile_expr(expr, &key);
-
-                        let object = self.register_allocator.alloc();
-                        self.bytecode.emit_super(object.variable());
-
                         let receiver = self.register_allocator.alloc();
                         self.bytecode.emit_this(receiver.variable());
+                        let key = self.register_allocator.alloc();
+                        self.compile_expr(expr, &key);
+                        let object = self.register_allocator.alloc();
+                        self.bytecode.emit_super(object.variable());
 
                         let value = expr_fn(self);
 
@@ -1435,11 +1448,14 @@ impl<'ctx> ByteCompiler<'ctx> {
                     }
                 },
                 PropertyAccess::Super(access) => {
+                    let receiver = self.register_allocator.alloc();
+                    self.bytecode.emit_this(receiver.variable());
                     if let PropertyAccessField::Expr(expr) = access.field() {
                         let key = self.register_allocator.alloc();
                         self.compile_expr(expr, &key);
                         self.register_allocator.dealloc(key);
                     }
+                    self.register_allocator.dealloc(receiver);
                     self.bytecode.emit_delete_super_throw();
                 }
                 PropertyAccess::Private(_) => {

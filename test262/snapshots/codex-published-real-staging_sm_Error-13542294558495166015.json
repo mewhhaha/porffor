@@ -1,0 +1,74 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 13542294558495166015,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "staging/sm/Error/AggregateError.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/Error/constructor-ordering.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/Error/constructor-proto.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/Error/isError.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/Error/prototype-properties.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/Error/prototype.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "staging/sm/Error/AggregateError.js",
+    "staging/sm/Error/constructor-ordering.js",
+    "staging/sm/Error/constructor-proto.js",
+    "staging/sm/Error/isError.js",
+    "staging/sm/Error/prototype-properties.js",
+    "staging/sm/Error/prototype.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Error"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

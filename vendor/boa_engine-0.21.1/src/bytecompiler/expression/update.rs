@@ -215,13 +215,12 @@ impl ByteCompiler<'_> {
                         compiler.register_allocator.dealloc(value);
                     }
                     PropertyAccessField::Expr(expr) => {
-                        let key = compiler.register_allocator.alloc();
-                        compiler.compile_expr(expr, &key);
-
                         let object = compiler.register_allocator.alloc();
                         let receiver = compiler.register_allocator.alloc();
-                        compiler.bytecode.emit_super(object.variable());
                         compiler.bytecode.emit_this(receiver.variable());
+                        let key = compiler.register_allocator.alloc();
+                        compiler.compile_expr(expr, &key);
+                        compiler.bytecode.emit_super(object.variable());
 
                         compiler.bytecode.emit_get_property_by_value(
                             dst.variable(),

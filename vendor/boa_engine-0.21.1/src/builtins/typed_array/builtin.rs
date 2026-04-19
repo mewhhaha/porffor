@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     cmp::{self, min},
     sync::atomic::Ordering,
 };
@@ -2276,15 +2277,29 @@ impl BuiltinTypedArray {
 
         // 5. NOTE: The following closure performs a numeric comparison rather than the string comparison used in 23.1.3.30.
         // 6. Let SortCompare be a new Abstract Closure with parameters (x, y) that captures comparefn and performs the following steps when called:
+        let buffer = ta.borrow().data().viewed_array_buffer().clone();
+        let detached_during_compare = Cell::new(false);
         let sort_compare =
             |x: &JsValue, y: &JsValue, context: &mut Context| -> JsResult<cmp::Ordering> {
+                if detached_during_compare.get() {
+                    return Ok(cmp::Ordering::Equal);
+                }
+
                 // a. Return ? CompareTypedArrayElements(x, y, comparefn).
-                compare_typed_array_elements(x, y, compare_fn.as_ref(), context)
+                let order = compare_typed_array_elements(x, y, compare_fn.as_ref(), context)?;
+                if compare_fn.is_some() && buffer.as_buffer().bytes(Ordering::SeqCst).is_none() {
+                    detached_during_compare.set(true);
+                    return Ok(cmp::Ordering::Equal);
+                }
+                Ok(order)
             };
 
         let ta = ta.upcast();
         // 7. Let sortedList be ? SortIndexedProperties(obj, len, SortCompare, read-through-holes).
         let sorted = Array::sort_indexed_properties(&ta, len, sort_compare, false, context)?;
+        if detached_during_compare.get() {
+            return Ok(ta.into());
+        }
 
         // 8. Let j be 0.
         // 9. Repeat, while j < len,

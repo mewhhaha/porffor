@@ -1,0 +1,112 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 1196606056565532000,
+  "run_kind": "matrix-filter-leaf",
+  "total": 29,
+  "passed": 29,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/WeakRef/constructor.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/instance-extensible.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/is-a-constructor.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/length.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/name.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/newtarget-prototype-is-not-object.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/prop-desc.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/proto-from-ctor-realm.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/proto.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/WeakRef/constructor.js",
+    "built-ins/WeakRef/instance-extensible.js",
+    "built-ins/WeakRef/is-a-constructor.js",
+    "built-ins/WeakRef/length.js",
+    "built-ins/WeakRef/name.js",
+    "built-ins/WeakRef/newtarget-prototype-is-not-object.js",
+    "built-ins/WeakRef/prop-desc.js",
+    "built-ins/WeakRef/proto-from-ctor-realm.js",
+    "built-ins/WeakRef/proto.js",
+    "built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+    "built-ins/WeakRef/prototype-from-newtarget-custom.js",
+    "built-ins/WeakRef/prototype-from-newtarget.js",
+    "built-ins/WeakRef/prototype/Symbol.toStringTag.js",
+    "built-ins/WeakRef/prototype/constructor.js",
+    "built-ins/WeakRef/prototype/deref/custom-this.js",
+    "built-ins/WeakRef/prototype/deref/length.js",
+    "built-ins/WeakRef/prototype/deref/name.js",
+    "built-ins/WeakRef/prototype/deref/not-a-constructor.js",
+    "built-ins/WeakRef/prototype/deref/prop-desc.js",
+    "built-ins/WeakRef/prototype/deref/return-object-target.js",
+    "built-ins/WeakRef/prototype/deref/return-symbol-target.js",
+    "built-ins/WeakRef/prototype/deref/this-does-not-have-internal-target-throws.js",
+    "built-ins/WeakRef/prototype/deref/this-not-object-throws.js",
+    "built-ins/WeakRef/prototype/prop-desc.js",
+    "built-ins/WeakRef/prototype/proto.js",
+    "built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+    "built-ins/WeakRef/returns-new-object-from-constructor-with-symbol-target.js",
+    "built-ins/WeakRef/throws-when-target-cannot-be-held-weakly.js",
+    "built-ins/WeakRef/undefined-newtarget-throws.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "WeakRef"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

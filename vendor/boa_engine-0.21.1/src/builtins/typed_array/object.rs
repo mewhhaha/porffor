@@ -9,8 +9,9 @@ use crate::{
         JsData, JsObject,
         internal_methods::{
             InternalMethodPropertyContext, InternalObjectMethods, ORDINARY_INTERNAL_METHODS,
-            ordinary_define_own_property, ordinary_delete, ordinary_get, ordinary_get_own_property,
-            ordinary_has_property, ordinary_set, ordinary_try_get,
+            ordinary_define_own_property, ordinary_delete, ordinary_get,
+            ordinary_get_own_property, ordinary_has_property, ordinary_prevent_extensions,
+            ordinary_set, ordinary_try_get,
         },
     },
     property::{PropertyDescriptor, PropertyKey},
@@ -46,6 +47,7 @@ impl JsData for TypedArray {
             __get__: typed_array_exotic_get,
             __set__: typed_array_exotic_set,
             __delete__: typed_array_exotic_delete,
+            __prevent_extensions__: typed_array_exotic_prevent_extensions,
             __own_property_keys__: typed_array_exotic_own_property_keys,
             ..ORDINARY_INTERNAL_METHODS
         };
@@ -255,6 +257,27 @@ impl TypedArray {
         // 9. Return true.
         Some(index as u64)
     }
+}
+
+pub(crate) fn typed_array_exotic_prevent_extensions(
+    obj: &JsObject,
+    context: &mut Context,
+) -> JsResult<bool> {
+    let can_prevent_extensions = {
+        let typed_array = obj
+            .downcast_ref::<TypedArray>()
+            .expect("typed array object must contain typed array data");
+        match typed_array.viewed_array_buffer() {
+            BufferObject::Buffer(buffer) => buffer.borrow().data().is_fixed_len(),
+            BufferObject::SharedBuffer(_) => !typed_array.is_auto_length(),
+        }
+    };
+
+    if !can_prevent_extensions {
+        return Ok(false);
+    }
+
+    ordinary_prevent_extensions(obj, context)
 }
 
 /// `CanonicalNumericIndexString ( argument )`

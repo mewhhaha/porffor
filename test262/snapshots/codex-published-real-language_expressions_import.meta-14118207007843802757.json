@@ -1,0 +1,106 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 14118207007843802757,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/import.meta/distinct-for-each-module.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/import-meta-is-an-ordinary-object.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/not-accessible-from-direct-eval.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/same-object-returned.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/escape-sequence-import.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/escape-sequence-meta.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/import.meta/distinct-for-each-module.js",
+    "language/expressions/import.meta/import-meta-is-an-ordinary-object.js",
+    "language/expressions/import.meta/not-accessible-from-direct-eval.js",
+    "language/expressions/import.meta/same-object-returned.js",
+    "language/expressions/import.meta/syntax/escape-sequence-import.js",
+    "language/expressions/import.meta/syntax/escape-sequence-meta.js",
+    "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+    "language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+    "language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+    "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+    "language/expressions/import.meta/syntax/goal-module-nested-function.js",
+    "language/expressions/import.meta/syntax/goal-module.js",
+    "language/expressions/import.meta/syntax/goal-script.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-array-destructuring-expr.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-array-rest-destructuring-expr.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-assignment-expr.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-for-await-of-loop.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-for-in-loop.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-for-of-loop.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-object-destructuring-expr.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-object-rest-destructuring-expr.js",
+    "language/expressions/import.meta/syntax/invalid-assignment-target-update-expr.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "import.meta"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

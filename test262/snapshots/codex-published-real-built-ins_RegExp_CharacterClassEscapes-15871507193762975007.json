@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 15871507193762975007,
+  "run_kind": "matrix-filter-leaf",
+  "total": 12,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-negative-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-positive-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-negative-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-positive-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-negative-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-positive-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-negative-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-positive-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-negative-cases.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-positive-cases.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-positive-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-positive-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-positive-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-positive-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-positive-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-negative-cases.js",
+    "built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-positive-cases.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExp",
+    "CharacterClassEscapes"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

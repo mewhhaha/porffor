@@ -221,6 +221,7 @@ pub struct RunConfig {
     pub resume: bool,
     pub snapshot_name: String,
     pub execution_backend: ExecutionBackend,
+    pub max_matrix_nodes: Option<usize>,
 }
 
 impl Default for RunConfig {
@@ -232,6 +233,7 @@ impl Default for RunConfig {
             resume: false,
             snapshot_name: "latest".to_string(),
             execution_backend: ExecutionBackend::SpecExec,
+            max_matrix_nodes: None,
         }
     }
 }
@@ -358,6 +360,14 @@ pub struct AggregateRunSummary {
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
     pub counts_per_origin: BTreeMap<FailureOrigin, usize>,
     pub entries: Vec<TopLevelRunSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAggregateSummary {
+    pub pinned_revisions: PinnedRevisions,
+    pub manifest_hash: u64,
+    pub snapshot_paths: SnapshotPaths,
+    pub summary: AggregateRunSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,6 +538,14 @@ impl ConformanceRunner {
 
     pub fn aggregate_baseline_report(&self, summary: &AggregateRunSummary) -> AggregateRunSummary {
         aggregate_baseline_report(summary)
+    }
+
+    pub fn load_verified_aggregate_summary(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<VerifiedAggregateSummary, String> {
+        load_verified_aggregate_summary(&self.config, snapshot_name, execution_backend)
     }
 }
 
@@ -730,14 +748,33 @@ pub fn run_top_level_matrix(
             &aggregate_snapshot_name,
             aggregate_manifest_hash,
             run_config.execution_backend,
+            &pinned_revisions,
         )? {
             if snapshot.run_kind == "aggregate-matrix" {
-                completed_nodes.extend(snapshot.completed_nodes.iter().cloned());
-                entries.extend(snapshot.aggregate_entries);
+                let aggregate_entries = snapshot
+                    .aggregate_entries
+                    .iter()
+                    .cloned()
+                    .map(|entry| (entry.node_id.clone(), entry))
+                    .collect::<BTreeMap<_, _>>();
+                for node_id in &snapshot.completed_nodes {
+                    let Some(entry) = aggregate_entries.get(node_id) else {
+                        continue;
+                    };
+                    completed_nodes.insert(node_id.clone());
+                    entries.push(load_resume_matrix_node_summary(
+                        config,
+                        &run_config.snapshot_name,
+                        entry,
+                        run_config.execution_backend,
+                        &pinned_revisions,
+                    )?.unwrap_or_else(|| entry.clone()));
+                }
             }
         }
     }
 
+    let mut processed_nodes = 0usize;
     for node in &nodes {
         if completed_nodes.contains(&node.node_id) {
             continue;
@@ -757,9 +794,109 @@ pub fn run_top_level_matrix(
             completed_nodes.iter().cloned().collect(),
         );
         write_snapshot(config, &aggregate_snapshot, &aggregate_snapshot_name)?;
+
+        processed_nodes += 1;
+        if let Some(limit) = run_config.max_matrix_nodes {
+            if processed_nodes >= limit {
+                break;
+            }
+        }
     }
 
     Ok(aggregate_from_entries(&entries))
+}
+
+fn load_resume_matrix_node_summary(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    entry: &TopLevelRunSummary,
+    expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
+) -> Result<Option<TopLevelRunSummary>, String> {
+    let node_snapshot_name = format!(
+        "{}-{}",
+        snapshot_name,
+        sanitize_filter_for_snapshot(&entry.node_id)
+    );
+    let path = config
+        .snapshot_dir
+        .join(format!("{}-{}.json", node_snapshot_name, entry.manifest_hash));
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let file = read_snapshot_file(&path)?;
+    if file.snapshot_version != SNAPSHOT_VERSION {
+        return Err(format!(
+            "resume node snapshot mismatch for snapshot_version in {}: expected {}, found {}",
+            path.display(),
+            SNAPSHOT_VERSION,
+            file.snapshot_version
+        ));
+    }
+    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
+        return Err(format!(
+            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
+            path.display(),
+            MATRIX_STRATEGY_VERSION,
+            file.matrix_strategy_version
+        ));
+    }
+    if file.execution_backend != expected_backend.as_str() {
+        return Err(format!(
+            "resume node snapshot mismatch for execution_backend in {}: expected {}, found {}",
+            path.display(),
+            expected_backend.as_str(),
+            file.execution_backend
+        ));
+    }
+    if file.manifest_hash != entry.manifest_hash {
+        return Err(format!(
+            "resume node snapshot mismatch for manifest_hash in {}: expected {}, found {}",
+            path.display(),
+            entry.manifest_hash,
+            file.manifest_hash
+        ));
+    }
+    if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
+        return Err(format!(
+            "resume node snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.ecma262,
+            file.pinned_revisions.ecma262
+        ));
+    }
+    if file.pinned_revisions.test262 != expected_pinned.test262 {
+        return Err(format!(
+            "resume node snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.test262,
+            file.pinned_revisions.test262
+        ));
+    }
+    if !file.run_kind.starts_with("matrix-") {
+        return Err(format!(
+            "resume node snapshot mismatch for run_kind in {}: expected matrix-* found {}",
+            path.display(),
+            file.run_kind
+        ));
+    }
+
+    let Some(snapshot) = snapshot_from_file(file) else {
+        return Ok(None);
+    };
+    Ok(Some(TopLevelRunSummary {
+        node_id: entry.node_id.clone(),
+        node_kind: entry.node_kind,
+        filter: entry.filter.clone(),
+        matrix_path: entry.matrix_path.clone(),
+        total: snapshot.total,
+        passed: snapshot.passed,
+        failed: snapshot.total.saturating_sub(snapshot.passed),
+        counts_per_kind: snapshot.counts_per_kind.clone(),
+        counts_per_origin: counts_per_origin(&snapshot.failures),
+        manifest_hash: entry.manifest_hash,
+    }))
 }
 
 pub fn classify_failure(
@@ -1490,6 +1627,7 @@ fn run_matrix_node(
                 sanitize_filter_for_snapshot(&node.node_id)
             ),
             execution_backend: run_config.execution_backend,
+            max_matrix_nodes: None,
         },
     )?);
 
@@ -1937,6 +2075,7 @@ fn load_resume_aggregate_snapshot(
     snapshot_name: &str,
     expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
 ) -> Result<Option<ProgressSnapshot>, String> {
     let exact_path = config
         .snapshot_dir
@@ -1948,6 +2087,7 @@ fn load_resume_aggregate_snapshot(
             &exact_path,
             expected_manifest_hash,
             expected_backend,
+            expected_pinned,
         )?;
         return Ok(snapshot_from_file(file));
     }
@@ -1971,7 +2111,13 @@ fn load_resume_aggregate_snapshot(
         return Ok(None);
     };
     let file = read_snapshot_file(&path)?;
-    validate_resume_aggregate_snapshot(&file, &path, expected_manifest_hash, expected_backend)?;
+    validate_resume_aggregate_snapshot(
+        &file,
+        &path,
+        expected_manifest_hash,
+        expected_backend,
+        expected_pinned,
+    )?;
     Ok(snapshot_from_file(file))
 }
 
@@ -1980,6 +2126,7 @@ fn validate_resume_aggregate_snapshot(
     path: &Path,
     expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
 ) -> Result<(), String> {
     if file.snapshot_version != SNAPSHOT_VERSION {
         return Err(format!(
@@ -2020,6 +2167,22 @@ fn validate_resume_aggregate_snapshot(
             file.run_kind
         ));
     }
+    if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
+        return Err(format!(
+            "resume snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.ecma262,
+            file.pinned_revisions.ecma262
+        ));
+    }
+    if file.pinned_revisions.test262 != expected_pinned.test262 {
+        return Err(format!(
+            "resume snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.test262,
+            file.pinned_revisions.test262
+        ));
+    }
     Ok(())
 }
 
@@ -2040,6 +2203,100 @@ fn load_previous_snapshot(
     };
     snapshot.manifest_hash = manifest_hash;
     Ok(Some(snapshot))
+}
+
+pub fn load_verified_aggregate_summary(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<VerifiedAggregateSummary, String> {
+    let nodes = build_run_matrix(config)?;
+    let expected_node_ids = nodes.iter().map(|node| node.node_id.clone()).collect::<BTreeSet<_>>();
+    let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
+    let aggregate_snapshot_name = format!("{snapshot_name}-aggregate");
+    let snapshot_paths = SnapshotPaths {
+        json_path: config
+            .snapshot_dir
+            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.json")),
+        txt_path: config
+            .snapshot_dir
+            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.txt")),
+    };
+    if !snapshot_paths.json_path.exists() {
+        return Err(format!(
+            "missing aggregate snapshot {}",
+            snapshot_paths.json_path.display()
+        ));
+    }
+
+    let file = read_snapshot_file(&snapshot_paths.json_path)?;
+    let expected_pinned = pinned_revisions(config);
+    validate_resume_aggregate_snapshot(
+        &file,
+        &snapshot_paths.json_path,
+        manifest_hash,
+        execution_backend,
+        &expected_pinned,
+    )?;
+    let snapshot = snapshot_from_file(file).ok_or_else(|| {
+        format!(
+            "unsupported snapshot version in {}",
+            snapshot_paths.json_path.display()
+        )
+    })?;
+    let completed_node_ids = snapshot
+        .completed_nodes
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if completed_node_ids != expected_node_ids {
+        let missing = expected_node_ids
+            .difference(&completed_node_ids)
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>();
+        let extra = completed_node_ids
+            .difference(&expected_node_ids)
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "aggregate snapshot incomplete in {}: completed {} of {} matrix nodes; missing [{}]; extra [{}]",
+            snapshot_paths.json_path.display(),
+            completed_node_ids.len(),
+            expected_node_ids.len(),
+            missing.join(", "),
+            extra.join(", "),
+        ));
+    }
+    Ok(VerifiedAggregateSummary {
+        pinned_revisions: expected_pinned,
+        manifest_hash,
+        snapshot_paths,
+        summary: aggregate_summary_from_snapshot(&snapshot),
+    })
+}
+
+fn aggregate_summary_from_snapshot(snapshot: &ProgressSnapshot) -> AggregateRunSummary {
+    let mut counts_per_origin = BTreeMap::new();
+    for origin in FailureOrigin::ALL {
+        counts_per_origin.insert(origin, 0);
+    }
+    for entry in &snapshot.aggregate_entries {
+        for origin in FailureOrigin::ALL {
+            *counts_per_origin.entry(origin).or_insert(0) +=
+                entry.counts_per_origin.get(&origin).copied().unwrap_or(0);
+        }
+    }
+
+    AggregateRunSummary {
+        total: snapshot.total,
+        passed: snapshot.passed,
+        failed: snapshot.total.saturating_sub(snapshot.passed),
+        counts_per_kind: snapshot.counts_per_kind.clone(),
+        counts_per_origin,
+        entries: snapshot.aggregate_entries.clone(),
+    }
 }
 
 pub fn baseline_report(summary: &RunSummary) -> BaselineReport {
@@ -2485,7 +2742,7 @@ mod tests {
     fn discover_suite_parses_frontmatter() {
         let manifest =
             discover_suite(&fixture_config(), None).expect("fixture suite should discover");
-        assert_eq!(manifest.cases.len(), 3);
+        assert_eq!(manifest.cases.len(), 190);
         let module_case = manifest
             .cases
             .iter()
@@ -2546,8 +2803,8 @@ mod tests {
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
-        assert_eq!(summary.total, 3);
-        assert_eq!(summary.completed_paths.len(), 3);
+        assert_eq!(summary.total, 190);
+        assert_eq!(summary.completed_paths.len(), 190);
         let files = fs::read_dir(config.snapshot_dir)
             .expect("snapshot dir should exist")
             .count();
@@ -2583,8 +2840,8 @@ mod tests {
         };
         let summary = run_full(&config, run_config).expect("run should complete");
         let report = baseline_report(&summary);
-        assert_eq!(report.total, 3);
-        assert_eq!(report.passed, 3);
+        assert_eq!(report.total, 190);
+        assert_eq!(report.passed, 190);
         assert!(report.buckets.iter().all(|bucket| bucket.total == 0));
     }
 
@@ -2599,8 +2856,8 @@ mod tests {
             },
         )
         .expect("aggregate run should complete");
-        assert_eq!(summary.total, 3);
-        assert_eq!(summary.passed, 3);
+        assert_eq!(summary.total, 190);
+        assert_eq!(summary.passed, 190);
         assert_eq!(summary.failed, 0);
         assert!(summary.entries.len() >= TOP_LEVEL_FILTERS.len());
         assert!(summary
@@ -2636,6 +2893,106 @@ mod tests {
         let raw = fs::read_to_string(json_path).expect("aggregate snapshot should exist");
         assert!(raw.contains("\"completed_nodes\""));
         assert!(raw.contains("\"aggregate_entries\""));
+    }
+
+    #[test]
+    fn report_all_resume_reloads_completed_node_snapshot_summaries() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-refresh".to_string(),
+            ..RunConfig::default()
+        };
+        let first =
+            run_top_level_matrix(&config, run_config.clone()).expect("first matrix run should work");
+        assert_eq!(first.failed, 0);
+
+        let entry = first
+            .entries
+            .iter()
+            .find(|entry| entry.node_id == "language/pass")
+            .expect("language/pass entry should exist");
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&entry.node_id),
+            entry.manifest_hash
+        ));
+        let mut file =
+            read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
+        file.passed = file.total.saturating_sub(1);
+        file.counts_per_kind.insert("Runtime".to_string(), 1);
+        file.failures = vec![SnapshotFailureRecord {
+            test_path: "language/pass/runtime-refresh.js".to_string(),
+            kind: "Runtime".to_string(),
+            origin: FailureOrigin::SpecExecHost.as_str().to_string(),
+            detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
+            detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
+        }];
+        fs::write(
+            &node_snapshot_path,
+            serde_json::to_string_pretty(&file).expect("node snapshot json should serialize"),
+        )
+        .expect("mutated node snapshot should write");
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config
+            },
+        )
+        .expect("resume matrix run should work");
+        let resumed_entry = resumed
+            .entries
+            .iter()
+            .find(|entry| entry.node_id == "language/pass")
+            .expect("resumed language/pass entry should exist");
+        assert_eq!(resumed.failed, 1);
+        assert_eq!(resumed_entry.failed, 1);
+        assert_eq!(
+            resumed_entry
+                .counts_per_kind
+                .get(&FailureKind::Runtime)
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+        assert_eq!(
+            resumed_entry
+                .counts_per_origin
+                .get(&FailureOrigin::SpecExecHost)
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+    }
+
+    #[test]
+    fn report_all_can_checkpoint_with_max_matrix_nodes() {
+        let config = fixture_config();
+        let first = run_top_level_matrix(
+            &config,
+            RunConfig {
+                snapshot_name: "aggregate-checkpoint".to_string(),
+                max_matrix_nodes: Some(1),
+                ..RunConfig::default()
+            },
+        )
+        .expect("checkpointed aggregate run should complete");
+        assert!(first.total < 190);
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                snapshot_name: "aggregate-checkpoint".to_string(),
+                resume: true,
+                ..RunConfig::default()
+            },
+        )
+        .expect("resumed aggregate run should complete");
+        assert_eq!(resumed.total, 190);
+        assert_eq!(resumed.passed, 190);
+        assert_eq!(resumed.failed, 0);
     }
 
     #[test]
@@ -2718,6 +3075,91 @@ mod tests {
         )
         .expect_err("stale aggregate snapshot should be rejected");
         assert!(err.contains("matrix_strategy_version"));
+    }
+
+    #[test]
+    fn load_verified_aggregate_summary_reads_written_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "verified-aggregate".to_string(),
+            ..RunConfig::default()
+        };
+        let summary =
+            run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("verified aggregate summary should load");
+        assert_eq!(verified.summary.total, summary.total);
+        assert_eq!(verified.summary.passed, summary.passed);
+        assert!(verified.snapshot_paths.json_path.exists());
+        assert!(verified.snapshot_paths.txt_path.exists());
+    }
+
+    #[test]
+    fn load_verified_aggregate_summary_rejects_stale_pinned_revision() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "stale-pinned".to_string(),
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("verified aggregate summary should load");
+        let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
+            .expect("snapshot file should parse");
+        file.pinned_revisions.test262 = "stale-test262".to_string();
+        fs::write(
+            &verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),
+        )
+        .expect("tampered snapshot should write");
+
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("stale pinned revision should be rejected");
+        assert!(err.contains("test262 revision"));
+    }
+
+    #[test]
+    fn load_verified_aggregate_summary_rejects_incomplete_matrix_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "incomplete-aggregate".to_string(),
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("verified aggregate summary should load");
+        let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
+            .expect("snapshot file should parse");
+        file.completed_nodes.pop();
+        fs::write(
+            &verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),
+        )
+        .expect("tampered snapshot should write");
+
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("incomplete aggregate snapshot should be rejected");
+        assert!(err.contains("aggregate snapshot incomplete"));
     }
 
     #[test]

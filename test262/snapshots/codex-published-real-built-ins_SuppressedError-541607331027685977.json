@@ -1,0 +1,105 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 541607331027685977,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/SuppressedError/is-a-constructor.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/length.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/message-method-prop-cast.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/message-method-prop.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/message-tostring-abrupt-symbol.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/message-tostring-abrupt.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/message-undefined-no-prop.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/name.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/newtarget-is-undefined.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/SuppressedError/newtarget-proto-custom.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/SuppressedError/is-a-constructor.js",
+    "built-ins/SuppressedError/length.js",
+    "built-ins/SuppressedError/message-method-prop-cast.js",
+    "built-ins/SuppressedError/message-method-prop.js",
+    "built-ins/SuppressedError/message-tostring-abrupt-symbol.js",
+    "built-ins/SuppressedError/message-tostring-abrupt.js",
+    "built-ins/SuppressedError/message-undefined-no-prop.js",
+    "built-ins/SuppressedError/name.js",
+    "built-ins/SuppressedError/newtarget-is-undefined.js",
+    "built-ins/SuppressedError/newtarget-proto-custom.js",
+    "built-ins/SuppressedError/newtarget-proto-fallback.js",
+    "built-ins/SuppressedError/newtarget-proto.js",
+    "built-ins/SuppressedError/order-of-args-evaluation.js",
+    "built-ins/SuppressedError/prop-desc.js",
+    "built-ins/SuppressedError/proto-from-ctor-realm.js",
+    "built-ins/SuppressedError/proto.js",
+    "built-ins/SuppressedError/prototype/constructor.js",
+    "built-ins/SuppressedError/prototype/errors-absent-on-prototype.js",
+    "built-ins/SuppressedError/prototype/message.js",
+    "built-ins/SuppressedError/prototype/name.js",
+    "built-ins/SuppressedError/prototype/prop-desc.js",
+    "built-ins/SuppressedError/prototype/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "SuppressedError"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

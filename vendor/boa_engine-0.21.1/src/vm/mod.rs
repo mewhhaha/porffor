@@ -834,9 +834,10 @@ impl Context {
                     .pending_exception
                     .take()
                     .expect("Err must exist for a CompletionType::Throw"),
-            ));
+                ));
         }
 
+        self.unwind_environments_to(env_fp as usize);
         let mut frame = self.vm.pop_frame().expect("frame must exist");
 
         loop {

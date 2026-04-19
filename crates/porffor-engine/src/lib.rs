@@ -1,14 +1,16 @@
 use porffor_front::{parse, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{lower, ProgramIr, ValueKind};
 use wasmi::{
-    core::Trap,
-    Caller, Engine as WasmiEngine, Extern, Linker, Module as WasmiModule, Store,
+    core::Trap, Caller, Engine as WasmiEngine, Extern, Linker, Module as WasmiModule, Store,
     Value as WasmiValue,
 };
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
+const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
+#[cfg(test)]
+const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
 pub use porffor_runtime::{HostHooks, NullHostHooks, Realm, RealmBuilder};
 
@@ -381,9 +383,7 @@ impl Engine {
                         ))
                     })?;
                     let text = String::from_utf8(bytes).map_err(|err| {
-                        Trap::new(format!(
-                            "wasmi host import failed: invalid utf-8: {err}"
-                        ))
+                        Trap::new(format!("wasmi host import failed: invalid utf-8: {err}"))
                     })?;
                     caller.data().realm.host_hooks().print_line(&text);
                     Ok(())
@@ -411,12 +411,24 @@ impl Engine {
         };
         let result_kind = ValueKind::from_tag(result_tag)
             .ok_or_else(|| EngineError::new(format!("unknown wasm result tag: {result_tag}")))?;
+        let completion = instance
+            .get_global(&store, WASM_COMPLETION_KIND_EXPORT)
+            .ok_or_else(|| EngineError::new("wasmi export lookup failed: missing completion_kind"))?
+            .get(&store);
+        let WasmiValue::I32(completion_kind) = completion else {
+            return Err(EngineError::new(
+                "wasm completion_kind export had unexpected type",
+            ));
+        };
         let note = render_wasm_completion(
             result_kind,
             payload,
             instance.get_memory(&store, "memory"),
             &store,
         )?;
+        if completion_kind != 0 {
+            return Err(EngineError::new(format!("uncaught throw: {note}")));
+        }
 
         Ok(RunOutcome {
             backend_used: ExecutionBackend::WasmAot,
@@ -473,7 +485,7 @@ fn render_wasm_completion(
 }
 
 #[cfg(test)]
-    mod tests {
+mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
@@ -484,7 +496,10 @@ fn render_wasm_completion(
 
     impl HostHooks for CapturingHostHooks {
         fn print_line(&self, text: &str) {
-            self.lines.lock().expect("capture mutex poisoned").push(text.to_string());
+            self.lines
+                .lock()
+                .expect("capture mutex poisoned")
+                .push(text.to_string());
         }
     }
 
@@ -497,6 +512,97 @@ fn render_wasm_completion(
             RealmBuilder::new()
                 .with_host_hooks(Box::new(CapturingHostHooks { lines }))
                 .build(),
+        )
+    }
+
+    fn run_wasm_raw(
+        source: &str,
+    ) -> (
+        i64,
+        ValueKind,
+        i32,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+    ) {
+        let engine = engine();
+        let unit = engine
+            .compile_script(source, CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+        let wasmi_engine = WasmiEngine::default();
+        let module =
+            WasmiModule::new(&wasmi_engine, &artifact.bytes[..]).expect("module should validate");
+        let mut store = Store::new(
+            &wasmi_engine,
+            WasmHostState {
+                realm: engine.realm.clone(),
+            },
+        );
+        let linker = Linker::new(&wasmi_engine);
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("instance should instantiate")
+            .start(&mut store)
+            .expect("instance should start");
+        let pre_main_bytes = if let Some(memory) = instance.get_memory(&store, "memory") {
+            let mut bytes = vec![0; 32];
+            memory
+                .read(&store, WASM_STATIC_DATA_OFFSET, &mut bytes)
+                .expect("pre-main bytes should read");
+            Some(bytes)
+        } else {
+            None
+        };
+        let main = instance
+            .get_typed_func::<(), i64>(&store, "main")
+            .expect("main export should exist");
+        let payload = main.call(&mut store, ()).expect("main should run");
+        let WasmiValue::I32(result_tag) = instance
+            .get_global(&store, WASM_RESULT_TAG_EXPORT)
+            .expect("result_tag export should exist")
+            .get(&store)
+        else {
+            panic!("result_tag export should be i32");
+        };
+        let WasmiValue::I32(completion_kind) = instance
+            .get_global(&store, WASM_COMPLETION_KIND_EXPORT)
+            .expect("completion_kind export should exist")
+            .get(&store)
+        else {
+            panic!("completion_kind export should be i32");
+        };
+        let kind = ValueKind::from_tag(result_tag).expect("result tag should decode");
+        let post_main_prefix = if let Some(memory) = instance.get_memory(&store, "memory") {
+            let mut bytes = vec![0; 32];
+            memory
+                .read(&store, WASM_STATIC_DATA_OFFSET, &mut bytes)
+                .expect("post-main bytes should read");
+            Some(bytes)
+        } else {
+            None
+        };
+        let bytes = if kind == ValueKind::String {
+            let Some(memory) = instance.get_memory(&store, "memory") else {
+                panic!("string result should export memory");
+            };
+            let offset = ((payload as u64) >> 32) as usize;
+            let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+            let mut bytes = vec![0; len];
+            memory
+                .read(&store, offset, &mut bytes)
+                .expect("string bytes should read");
+            Some(bytes)
+        } else {
+            None
+        };
+        (
+            payload,
+            kind,
+            completion_kind,
+            pre_main_bytes,
+            post_main_prefix,
+            bytes,
         )
     }
 
@@ -525,6 +631,24 @@ fn render_wasm_completion(
         let artifact = engine().emit_wasm(&unit).expect("wasm emit should succeed");
         assert_eq!(artifact.kind, ArtifactKind::Wasm);
         assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn wasm_backend_keeps_raw_string_payloads_stable() {
+        let (payload, kind, completion, pre_main_bytes, post_main_prefix, bytes) =
+            run_wasm_raw("\",\";");
+        assert_eq!(kind, ValueKind::String);
+        assert_eq!(completion, 0);
+        assert_eq!(payload, (((4099u64) << 32) | 1) as i64);
+        assert_eq!(
+            pre_main_bytes.expect("pre-main bytes should exist")[..16].to_vec(),
+            b" : ,undefinednul".to_vec()
+        );
+        assert_eq!(
+            post_main_prefix.expect("post-main bytes should exist")[..16].to_vec(),
+            b" : ,undefinednul".to_vec()
+        );
+        assert_eq!(bytes.expect("string bytes should exist"), b",".to_vec());
     }
 
     #[test]
@@ -1451,7 +1575,11 @@ fn render_wasm_completion(
                     },
                 )
                 .expect("host print should run");
-            assert!(outcome.note.contains("undefined"), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains("undefined"),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
         assert_eq!(
             lines.lock().expect("capture mutex poisoned").as_slice(),
@@ -1485,7 +1613,11 @@ fn render_wasm_completion(
     #[test]
     fn wasm_backend_supports_sloppy_global_name_resolution() {
         for (source, expected, label) in [
-            ("globalThis.x = 1; x;", "number(1", "read after globalThis write"),
+            (
+                "globalThis.x = 1; x;",
+                "number(1",
+                "read after globalThis write",
+            ),
             (
                 "missing = 1; globalThis.missing;",
                 "number(1",
@@ -1882,7 +2014,11 @@ fn render_wasm_completion(
                     },
                 )
                 .expect("primitive coercion core should run");
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -1892,14 +2028,23 @@ fn render_wasm_completion(
             ("\"a\" + {};", "string(a[object Object])"),
             ("let o = {}; o + \"x\";", "string([object Object]x)"),
             ("let o = { valueOf() { return 2; } }; o + 1;", "number(3"),
-            ("let o = { toString() { return \"x\"; } }; o + 1;", "string(x1)"),
+            (
+                "let o = { toString() { return \"x\"; } }; o + 1;",
+                "string(x1)",
+            ),
             ("[] + 1;", "string(1)"),
             ("[1, 2] + 3;", "string(1,23)"),
             ("let o = {}; o == \"[object Object]\";", "boolean(true)"),
-            ("let o = { valueOf() { return 2; } }; o == \"2\";", "boolean(true)"),
+            (
+                "let o = { valueOf() { return 2; } }; o == \"2\";",
+                "boolean(true)",
+            ),
             ("let o = {}; o == o;", "boolean(true)"),
             ("[2] < 3;", "boolean(true)"),
-            ("function f() { return arguments + \"\"; } f(1, 2);", "string([object Arguments])"),
+            (
+                "function f() { return arguments + \"\"; } f(1, 2);",
+                "string([object Arguments])",
+            ),
         ] {
             let outcome = engine()
                 .run_script(
@@ -1911,7 +2056,11 @@ fn render_wasm_completion(
                     },
                 )
                 .expect("heap coercion should run");
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -2093,15 +2242,558 @@ fn render_wasm_completion(
     }
 
     #[test]
-    fn wasm_backend_rejects_class_22b_unsupported_edges() {
+    fn wasm_backend_supports_phase_twenty_three_exception_core() {
+        for (source, expected) in [
+            ("try { throw 1; } catch (e) { e; }", "number(1)"),
+            (
+                "var x; try { throw 1; } catch (e) { x = e; } x;",
+                "number(1)",
+            ),
+            (
+                "try { throw \"x\"; } catch (e) { e === \"x\"; }",
+                "boolean(true)",
+            ),
+            (
+                "try { class C {} C(); } catch (e) { e.name; }",
+                "string(TypeError)",
+            ),
+            (
+                "try { class C { #x = 1; read(obj) { return obj.#x; } } new C().read({}); } catch (e) { e.name; }",
+                "string(TypeError)",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() { this.x = 1; super(); } } new B(); } catch (e) { e.name; }",
+                "string(ReferenceError)",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e.name; }",
+                "string(ReferenceError)",
+            ),
+            (
+                "class A {} class B extends A { constructor() { return { ok: 1 }; } } new B().ok;",
+                "number(1)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("phase 23 case should run for `{source}`: {err:?}"));
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_twenty_four_abrupt_core() {
+        for (source, expected) in [
+            ("try { 1; } finally {}", "number(1)"),
+            ("function f() { try { return 1; } finally {} } f();", "number(1)"),
+            (
+                "var x = 0; try { throw 1; } catch (e) { x = 1; } finally { x = x + 1; } x;",
+                "number(2)",
+            ),
+            (
+                "function f() { let x = 0; while (true) { try { break; } finally { x = 1; } } return x; } f();",
+                "number(1)",
+            ),
+            ("let o = { x: 1 }; delete o.x; \"x\" in o;", "boolean(false)"),
+            ("let a = [1, 2]; delete a[0]; (0 in a);", "boolean(false)"),
+            ("let a = [1, 2]; delete a[0]; a.length;", "number(2)"),
+            ("\"x\" in { x: 1 }", "boolean(true)"),
+            ("function F() {} \"prototype\" in F;", "boolean(true)"),
+            ("function f() { return new.target; } f();", "undefined(undefined)"),
+            (
+                "function F() { this.kind = typeof new.target; this.arrowKind = (() => typeof new.target)(); } let x = new F(); x.kind === \"function\" && x.arrowKind === \"function\";",
+                "boolean(true)",
+            ),
+            (
+                "class A { constructor() { this.kind = typeof new.target; } } class B extends A { constructor() { super(); } } new B().kind;",
+                "string(function)",
+            ),
+            (
+                "var x; try { \"x\" in 1; } catch (e) { x = e.name; } x;",
+                "string(TypeError)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("phase 24 case should run for `{source}`: {err:?}"));
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_thirty_null_heritage_classes() {
+        for (source, expected) in [
+            (
+                "class C extends null { constructor() { return Object.create(new.target.prototype); } } let x = new C(); Object.getPrototypeOf(x) === C.prototype;",
+                "boolean(true)",
+            ),
+            (
+                "class C extends null { constructor() { return Object.create(new.target.prototype); } } new C() instanceof C;",
+                "boolean(true)",
+            ),
+            (
+                "class C extends null { constructor() { return Object.create(new.target.prototype); } } Object.getPrototypeOf(C.prototype) === null;",
+                "boolean(true)",
+            ),
+            (
+                "class C extends null { m() { return 1; } constructor() { return Object.create(new.target.prototype); } } new C().m();",
+                "number(1)",
+            ),
+            (
+                "let C = class extends null { constructor() { return Object.create(new.target.prototype); } }; new C() instanceof C;",
+                "boolean(true)",
+            ),
+            (
+                "class C extends null { x = 1; constructor() { return Object.create(new.target.prototype); } } new C().x;",
+                "undefined(undefined)",
+            ),
+            (
+                "var ok; try { class C extends null {} new C(); } catch (e) { ok = e instanceof TypeError; } ok;",
+                "boolean(true)",
+            ),
+            (
+                "var ok; try { class C extends null { constructor() { super(); } } new C(); } catch (e) { ok = e instanceof TypeError; } ok;",
+                "boolean(true)",
+            ),
+            (
+                "var ok; try { class C extends null { constructor() { return undefined; } } new C(); } catch (e) { ok = e instanceof ReferenceError; } ok;",
+                "boolean(true)",
+            ),
+            (
+                "var ok; try { class C extends null { m() { return super.x; } constructor() { return Object.create(new.target.prototype); } } new C().m(); } catch (e) { ok = e instanceof TypeError; } ok;",
+                "boolean(true)",
+            ),
+            (
+                "var ok; try { class C extends null { #x = 1; read() { return this.#x; } constructor() { return Object.create(new.target.prototype); } } new C().read(); } catch (e) { ok = e instanceof TypeError; } ok;",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("phase 30 case should run for `{source}`: {err:?}"));
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_twenty_six_builtin_globals() {
+        for (source, expected) in [
+            ("typeof Function;", "string(function)"),
+            ("Function === globalThis.Function;", "boolean(true)"),
+            ("function f() {} f instanceof Function;", "boolean(true)"),
+            ("class C {} C instanceof Function;", "boolean(true)"),
+            (
+                "Object.getPrototypeOf(function f(){}) === Function.prototype;",
+                "boolean(true)",
+            ),
+            ("Error(\"x\").message;", "string(x)"),
+            ("new Error(\"x\") instanceof Error;", "boolean(true)"),
+            ("RangeError(\"x\").name;", "string(RangeError)"),
+            ("new RangeError(\"x\") instanceof Error;", "boolean(true)"),
+            ("new SyntaxError(\"x\") instanceof Error;", "boolean(true)"),
+            ("new EvalError(\"x\").name;", "string(EvalError)"),
+            ("new URIError(\"x\").message;", "string(x)"),
+            ("new TypeError(\"x\") instanceof Error;", "boolean(true)"),
+            ("new ReferenceError(\"x\").name;", "string(ReferenceError)"),
+            (
+                "try { \"x\" in 1; } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+            (
+                "try { class C {} C(); } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+            ("Object.create({ x: 1 }).x;", "number(1)"),
+            (
+                "let p = { x: 1 }; let o = Object.create(p); Object.getPrototypeOf(o) === p;",
+                "boolean(true)",
+            ),
+            ("({}) instanceof Object;", "boolean(true)"),
+            ("[] instanceof Array;", "boolean(true)"),
+            ("Array.isArray([]);", "boolean(true)"),
+            ("Array.isArray({});", "boolean(false)"),
+            ("Array(1, 2)[1];", "number(2)"),
+            ("new Array(\"x\")[0];", "string(x)"),
+            ("let o = {}; Object(o) === o;", "boolean(true)"),
+            (
+                "function add(x, y) { return x + y; } add.call(null, 1, 2);",
+                "number(3)",
+            ),
+            (
+                "function f(x) { return this.v + x; } let o = { v: 2 }; f.call(o, 3);",
+                "number(5)",
+            ),
+            (
+                "function add(x, y) { return x + y; } add.apply(null, [1, 2]);",
+                "number(3)",
+            ),
+            (
+                "function pick() { return arguments[1]; } pick.apply(null, [1, 2, 3]);",
+                "number(2)",
+            ),
+            (
+                "function f() { return this.x; } let o = { x: 4 }; f.apply(o, []);",
+                "number(4)",
+            ),
+            (
+                "AggregateError([1, 2], \"x\").name;",
+                "string(AggregateError)",
+            ),
+            (
+                "new AggregateError([1, 2], \"x\") instanceof Error;",
+                "boolean(true)",
+            ),
+            (
+                "new AggregateError([1, 2], \"x\") instanceof AggregateError;",
+                "boolean(true)",
+            ),
+            (
+                "let e = AggregateError([1, undefined, 3], \"x\"); e.errors[1];",
+                "undefined(undefined)",
+            ),
+            (
+                "AggregateError === globalThis.AggregateError;",
+                "boolean(true)",
+            ),
+            ("AggregateError instanceof Function;", "boolean(true)"),
+            (
+                "class C {} try { C.call({}); } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("phase 26 builtin case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_twenty_seven_boxed_builtins() {
+        for (source, expected) in [
+            ("typeof Number;", "string(function)"),
+            ("Number === globalThis.Number;", "boolean(true)"),
+            ("String === globalThis.String;", "boolean(true)"),
+            ("Boolean === globalThis.Boolean;", "boolean(true)"),
+            ("new Number(1) instanceof Number;", "boolean(true)"),
+            ("new String(\"x\") instanceof String;", "boolean(true)"),
+            ("new Boolean(false) instanceof Boolean;", "boolean(true)"),
+            ("Object(1) instanceof Number;", "boolean(true)"),
+            ("new Object(\"x\") instanceof String;", "boolean(true)"),
+            (
+                "Object.getPrototypeOf(Object(true)) === Boolean.prototype;",
+                "boolean(true)",
+            ),
+            (
+                "function f() { return this instanceof Number; } f.call(1);",
+                "boolean(true)",
+            ),
+            (
+                "function f() { return this instanceof String; } f.apply(\"x\", []);",
+                "boolean(true)",
+            ),
+            (
+                "function f() { return this instanceof Boolean; } f.call(false);",
+                "boolean(true)",
+            ),
+            ("new Number(1) + 1;", "number(2)"),
+            ("new String(\"x\") + \"y\";", "string(xy)"),
+            ("new Boolean(false) == false;", "boolean(true)"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("phase 27 boxed builtin case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_twenty_eight_bind_and_error_tostring() {
+        for (source, expected) in [
+            (
+                "function add(x, y) { return x + y; } let inc = add.bind(null, 1); inc(2);",
+                "number(3)",
+            ),
+            (
+                "function f() { return this; } let o = { v: 2 }; let g = f.bind(o, 3); g() === o;",
+                "boolean(true)",
+            ),
+            (
+                "function f() { return this; } let o = { v: 2 }; let g = f.bind(o, 3); g.call({ v: 9 }, 4) === o;",
+                "boolean(true)",
+            ),
+            (
+                "function outer() { return (() => this.x).bind({ x: 9 }); } let o = { x: 3, f: outer }; let g = o.f(); g();",
+                "number(3)",
+            ),
+            (
+                "function F(x) { this.x = x; } let G = F.bind(null, 2); new G().x;",
+                "number(2)",
+            ),
+            (
+                "function F() {} let G = F.bind(null); new G() instanceof F;",
+                "boolean(true)",
+            ),
+            (
+                "class C {} let B = C.bind(null); try { B(); } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+            ("Error(\"x\").toString();", "string(Error: x)"),
+            ("TypeError(\"x\").toString();", "string(TypeError: x)"),
+            ("let e = new Error(); e.toString();", "string(Error)"),
+            (
+                "Error.prototype.toString.call({ name: \"X\", message: \"y\" });",
+                "string(X: y)",
+            ),
+            (
+                "Error.prototype.toString.call({ name: \"\", message: \"y\" });",
+                "string(y)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("phase 28 bind/error-string case should run for `{source}`: {err:?}"));
+            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+        }
+        let outcome = engine()
+            .run_script(
+                "try { \"x\" in 1; } catch (e) { e.toString(); }",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("phase 28 TypeError toString case should run: {err:?}"));
+        assert!(
+            outcome.note.contains("string(TypeError:"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_thirty_one_function_prototype_tostring() {
+        for (source, expected) in [
+            (
+                "function f(x) { return x; } f.toString();",
+                "string(function f(x) { return x; })",
+            ),
+            (
+                "let f = x => x + 1; f.toString();",
+                "string(x => x + 1)",
+            ),
+            (
+                "let o = { m(x) { return x; } }; o.m.toString();",
+                "string(m(x) { return x; })",
+            ),
+            (
+                "class C { constructor(x) { this.x = x; } } C.toString();",
+                "string(class C { constructor(x) { this.x = x; } })",
+            ),
+            (
+                "class C { m() { return 1; } } new C().m.toString();",
+                "string(m() { return 1; })",
+            ),
+            (
+                "let g = function f(x) { return x; }.bind(null, 1); g.toString();",
+                "string(function () { [native code] })",
+            ),
+            (
+                "Function.prototype.toString.call(Function.prototype.call);",
+                "string(function call() { [native code] })",
+            ),
+            (
+                "print.toString();",
+                "string(function print() { [native code] })",
+            ),
+            (
+                "try { Function.prototype.toString.call({}); } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("phase 31 function toString case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_phase_twenty_eight_remaining_builtin_tails() {
         for source in [
-            "class C {} C();",
-            "class A {} class B extends A { constructor() { this.x = 1; super(); } } new B();",
-            "class A {} class B extends A { constructor() {} } new B();",
-            "class C { #x = 1; read(obj) { return obj.#x; } } new C().read({});",
+            "Array(3);",
+            "new Array(3);",
+            "Function(\"return 1\");",
+            "new Function(\"return 1\");",
+            "new Number(Symbol());",
+            "Object(Symbol());",
+            "function f() { return 1; } f.apply(null, { length: 1, 0: 1 });",
+            "AggregateError(\"x\", \"msg\");",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("phase 26 builtin tail should stay unsupported");
+            assert!(
+                err.message()
+                    .contains("unsupported in porffor wasm-aot first slice"),
+                "source: {source}, err: {}",
+                err.message()
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_supports_phase_twenty_nine_identifier_delete_and_globals() {
+        for (source, expected) in [
+            ("delete 1;", "boolean(true)"),
+            ("let x = 1; delete x;", "boolean(false)"),
+            ("const x = 1; delete x;", "boolean(false)"),
+            ("var x = 1; delete x; x;", "number(1)"),
+            ("function f() {} delete f; typeof f;", "string(function)"),
+            (
+                "missing = 1; delete missing; typeof missing;",
+                "string(undefined)",
+            ),
+            ("globalThis.x = 1; delete x; typeof x;", "string(undefined)"),
+            (
+                "globalThis.x = 1; delete globalThis.x; typeof x;",
+                "string(undefined)",
+            ),
+            ("delete missingName;", "boolean(true)"),
+            (
+                "function f() { y = 3; return delete y; } f();",
+                "boolean(true)",
+            ),
+            ("let x = 1; globalThis.x = 2; delete x; x;", "number(1)"),
+            ("delete ({ x: 1 }).x;", "boolean(true)"),
+            ("let a = [1, 2]; delete a[0]; a.length;", "number(2)"),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("phase 29 delete/global case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_surfaces_uncaught_phase_twenty_three_throws() {
+        for source in ["throw 1;", "class C {} C();"] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("uncaught throw should surface as engine error");
+            assert!(
+                err.message().starts_with("uncaught throw: "),
+                "source: {source}, err: {}",
+                err.message()
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_phase_twenty_four_still_unsupported_edges() {
+        for source in [
+            "try {} catch ({ x }) {}",
             "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {}",
+            "let H; if (true) { H = null; } else { H = Object; } class C extends H {}",
             "new.target;",
-            "class C extends null {}",
+            "class C { #x; m(obj) { delete obj.#x; } }",
+            "class C extends Object { m() { delete super.x; } }",
+            "let k = function() {}; k in {};",
             "class C { async m() {} }",
             "class C { *m() {} }",
         ] {
@@ -2120,6 +2812,36 @@ fn render_wasm_completion(
                 message.contains("unsupported in porffor wasm-aot first slice")
                     || message.contains("parse error"),
                 "source: {source}, err: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_rejects_phase_twenty_nine_remaining_delete_edges() {
+        for source in [
+            "x = 1; delete x; x",
+            "class C { #x; m(obj) { delete obj.#x; } }",
+            "class C extends Object { m() { delete super.x; } }",
+            "function f() { return delete arguments[0]; }",
+            "Error.stack",
+            "Function.prototype.toString.call({}); Error.stack;",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("phase 29 delete tail should stay unsupported");
+            assert!(
+                err.message()
+                    .contains("unsupported in porffor wasm-aot first slice")
+                    || err.message().contains("parse error"),
+                "source: {source}, err: {}",
+                err.message()
             );
         }
     }

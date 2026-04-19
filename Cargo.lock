@@ -1267,6 +1267,8 @@ version = "0.1.0"
 dependencies = [
  "porffor-engine",
  "porffor-test262",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

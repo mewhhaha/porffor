@@ -1,0 +1,162 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 1874107763490699609,
+  "run_kind": "matrix-filter-leaf",
+  "total": 79,
+  "passed": 79,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "intl402/Segmenter/constructor/constructor/locales-invalid.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/locales-valid.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/newtarget-undefined.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-getoptionsobject.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-granularity-abrupt-throws.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-granularity-invalid.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-granularity-toString-abrupt-throws.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-granularity-valid.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-invalid.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "intl402/Segmenter/constructor/constructor/options-localeMatcher-abrupt-throws.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "intl402/Segmenter/constructor/constructor/locales-invalid.js",
+    "intl402/Segmenter/constructor/constructor/locales-valid.js",
+    "intl402/Segmenter/constructor/constructor/newtarget-undefined.js",
+    "intl402/Segmenter/constructor/constructor/options-getoptionsobject.js",
+    "intl402/Segmenter/constructor/constructor/options-granularity-abrupt-throws.js",
+    "intl402/Segmenter/constructor/constructor/options-granularity-invalid.js",
+    "intl402/Segmenter/constructor/constructor/options-granularity-toString-abrupt-throws.js",
+    "intl402/Segmenter/constructor/constructor/options-granularity-valid.js",
+    "intl402/Segmenter/constructor/constructor/options-invalid.js",
+    "intl402/Segmenter/constructor/constructor/options-localeMatcher-abrupt-throws.js",
+    "intl402/Segmenter/constructor/constructor/options-localeMatcher-invalid.js",
+    "intl402/Segmenter/constructor/constructor/options-localeMatcher-toString-abrupt-throws.js",
+    "intl402/Segmenter/constructor/constructor/options-localeMatcher-valid.js",
+    "intl402/Segmenter/constructor/constructor/options-null.js",
+    "intl402/Segmenter/constructor/constructor/options-order.js",
+    "intl402/Segmenter/constructor/constructor/options-throwing-getters.js",
+    "intl402/Segmenter/constructor/constructor/options-undefined.js",
+    "intl402/Segmenter/constructor/constructor/options-valid-combinations.js",
+    "intl402/Segmenter/constructor/constructor/proto-from-ctor-realm.js",
+    "intl402/Segmenter/constructor/constructor/subclassing.js",
+    "intl402/Segmenter/constructor/length.js",
+    "intl402/Segmenter/constructor/name.js",
+    "intl402/Segmenter/constructor/prop-desc.js",
+    "intl402/Segmenter/constructor/prototype.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/basic.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/branding.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/length.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/locales-empty.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/locales-invalid.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/locales-specific.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/name.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/options-localeMatcher-invalid.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/options-null.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/options-toobject.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/options-undefined.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/prop-desc.js",
+    "intl402/Segmenter/constructor/supportedLocalesOf/result-type.js",
+    "intl402/Segmenter/ctor-custom-get-prototype-poison-throws.js",
+    "intl402/Segmenter/ctor-custom-prototype.js",
+    "intl402/Segmenter/ctor-default-prototype.js",
+    "intl402/Segmenter/instance/extensibility.js",
+    "intl402/Segmenter/instance/prototype.js",
+    "intl402/Segmenter/proto-from-ctor-realm.js",
+    "intl402/Segmenter/prototype/Symbol.toStringTag.js",
+    "intl402/Segmenter/prototype/constructor/prop-desc.js",
+    "intl402/Segmenter/prototype/prop-desc.js",
+    "intl402/Segmenter/prototype/resolvedOptions/branding.js",
+    "intl402/Segmenter/prototype/resolvedOptions/caching.js",
+    "intl402/Segmenter/prototype/resolvedOptions/length.js",
+    "intl402/Segmenter/prototype/resolvedOptions/name.js",
+    "intl402/Segmenter/prototype/resolvedOptions/order.js",
+    "intl402/Segmenter/prototype/resolvedOptions/prop-desc.js",
+    "intl402/Segmenter/prototype/resolvedOptions/type-without-lbs.js",
+    "intl402/Segmenter/prototype/segment/branding.js",
+    "intl402/Segmenter/prototype/segment/containing/branding.js",
+    "intl402/Segmenter/prototype/segment/containing/breakable-input.js",
+    "intl402/Segmenter/prototype/segment/containing/index-throws.js",
+    "intl402/Segmenter/prototype/segment/containing/iswordlike.js",
+    "intl402/Segmenter/prototype/segment/containing/length.js",
+    "intl402/Segmenter/prototype/segment/containing/name.js",
+    "intl402/Segmenter/prototype/segment/containing/one-index.js",
+    "intl402/Segmenter/prototype/segment/containing/out-of-bound-index.js",
+    "intl402/Segmenter/prototype/segment/containing/prop-desc.js",
+    "intl402/Segmenter/prototype/segment/containing/unbreakable-input.js",
+    "intl402/Segmenter/prototype/segment/containing/word-iswordlike.js",
+    "intl402/Segmenter/prototype/segment/containing/zero-index.js",
+    "intl402/Segmenter/prototype/segment/length.js",
+    "intl402/Segmenter/prototype/segment/name.js",
+    "intl402/Segmenter/prototype/segment/name_of_symbol_iterator.js",
+    "intl402/Segmenter/prototype/segment/nested-next.js",
+    "intl402/Segmenter/prototype/segment/next-inside-next.js",
+    "intl402/Segmenter/prototype/segment/next-mix-with-containing.js",
+    "intl402/Segmenter/prototype/segment/prop-desc.js",
+    "intl402/Segmenter/prototype/segment/segment-grapheme-iterable.js",
+    "intl402/Segmenter/prototype/segment/segment-sentence-iterable.js",
+    "intl402/Segmenter/prototype/segment/segment-tostring.js",
+    "intl402/Segmenter/prototype/segment/segment-word-iterable.js",
+    "intl402/Segmenter/prototype/toStringTag/toString.js",
+    "intl402/Segmenter/prototype/toStringTag/toStringTag.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "Segmenter"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

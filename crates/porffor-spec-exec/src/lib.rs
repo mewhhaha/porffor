@@ -2486,6 +2486,160 @@ mod tests {
     }
 
     #[test]
+    fn installs_uint8array_base64_and_hex_builtins() {
+        execute_script(
+            r#"
+            const base64 = Uint8Array.fromBase64("x+/y");
+            if (!(base64 instanceof Uint8Array) || base64.length !== 3) {
+              throw new Error("fromBase64 should return Uint8Array");
+            }
+            if (base64[0] !== 199 || base64[1] !== 239 || base64[2] !== 242) {
+              throw new Error("fromBase64 bytes mismatch");
+            }
+
+            const hex = Uint8Array.fromHex("666f6f");
+            if (!(hex instanceof Uint8Array) || hex.length !== 3) {
+              throw new Error("fromHex should return Uint8Array");
+            }
+            if (hex[0] !== 102 || hex[1] !== 111 || hex[2] !== 111) {
+              throw new Error("fromHex bytes mismatch");
+            }
+
+            const target = new Uint8Array(6);
+            const result = target.setFromBase64("ZXhhZg", { lastChunkHandling: "stop-before-partial" });
+            if (result.read !== 4 || result.written !== 3) {
+              throw new Error(`setFromBase64 result mismatch: ${result.read}/${result.written}`);
+            }
+            if (target[0] !== 101 || target[1] !== 120 || target[2] !== 97) {
+              throw new Error("setFromBase64 write mismatch");
+            }
+
+            if ((new Uint8Array([199, 239, 242])).toBase64({ alphabet: "base64url" }) !== "x-_y") {
+              throw new Error("toBase64 mismatch");
+            }
+            if ((new Uint8Array([0x66, 0x6f])).toHex() !== "666f") {
+              throw new Error("toHex mismatch");
+            }
+            "#,
+            Some("uint8array-base64-hex.js"),
+            &[],
+        )
+        .expect("Uint8Array base64/hex builtins should work");
+    }
+
+    #[test]
+    fn super_uninitialized_this_paths_throw_before_computed_expression() {
+        execute_script(
+            r#"
+            let getOk = false;
+            try {
+              class A {}
+              class B extends A {
+                constructor() {
+                  super[(function () { throw new Error("computed get should not run"); })()];
+                }
+              }
+              new B();
+            } catch (error) {
+              getOk = error instanceof ReferenceError;
+            }
+
+            let deleteOk = false;
+            try {
+              class A {}
+              class B extends A {
+                constructor() {
+                  delete super[(function () { throw new Error("computed delete should not run"); })()];
+                }
+              }
+              new B();
+            } catch (error) {
+              deleteOk = error instanceof ReferenceError;
+            }
+
+            if (!getOk || !deleteOk) {
+              throw new Error("super uninitialized-this ordering mismatch");
+            }
+            "#,
+            Some("super-uninitialized-order.js"),
+            &[],
+        )
+        .expect("super should read this before computed expression");
+    }
+
+    #[test]
+    fn var_destructuring_resolves_binding_before_source_get() {
+        execute_script(
+            r#"
+            var log = [];
+            var sourceKey = {
+              toString() {
+                log.push("sourceKey");
+                return "p";
+              }
+            };
+            var source = {
+              get p() {
+                log.push("get source");
+                return undefined;
+              }
+            };
+            var env = new Proxy({}, {
+              has(_target, key) {
+                log.push("binding::" + key);
+                return false;
+              }
+            });
+            var defaultValue = 0;
+            var varTarget;
+            with (env) {
+              var { [sourceKey]: varTarget = defaultValue } = source;
+            }
+            const expected = [
+              "binding::source",
+              "binding::sourceKey",
+              "sourceKey",
+              "binding::varTarget",
+              "get source",
+              "binding::defaultValue",
+            ];
+            if (JSON.stringify(log) !== JSON.stringify(expected)) {
+              throw new Error(log.join(","));
+            }
+            "#,
+            Some("destructuring-var-order.js"),
+            &[],
+        )
+        .expect("var destructuring should resolve binding before source get");
+    }
+
+    #[test]
+    fn typed_array_sort_allows_detach_during_compare_tonumber() {
+        execute_script(
+            r#"
+            var ta = new Uint8Array(4);
+            var ab = ta.buffer;
+            var called = false;
+            ta.sort(function(a, b) {
+              __porfDetachArrayBuffer(ab);
+              return {
+                [Symbol.toPrimitive]() {
+                  called = true;
+                  return 0;
+                }
+              };
+            });
+            if (!called) {
+              throw new Error("compareFn result should still go through ToNumber");
+            }
+            "#,
+            Some("typedarray-sort-detach.js"),
+            &[],
+        )
+        .expect("typed array sort should tolerate compare-time detachment");
+    }
+
+    #[test]
     fn create_realm_evaluates_in_a_distinct_global_object() {
         execute_script(
             r#"

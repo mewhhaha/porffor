@@ -983,65 +983,133 @@ where
                     }
                 } else {
                     let start = next_token.span().start();
-                let name = PropertyName::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?;
-                let token = cursor.peek(0, interner).or_abrupt()?;
-                let field = match token.kind() {
-                    TokenKind::Punctuator(Punctuator::Assign) => {
-                        if let Some(name) = name.literal() {
-                            if r#static {
-                                if [Sym::CONSTRUCTOR, Sym::PROTOTYPE].contains(&name.sym()) {
-                                    return Err(Error::general(
-                                        "class may not have static field definitions named 'constructor' or 'prototype'",
-                                        start,
+                    match next_token.kind() {
+                        TokenKind::PrivateIdentifier(Sym::CONSTRUCTOR) => {
+                            return Err(Error::general(
+                                "class constructor may not be a private method",
+                                next_token.span().start(),
+                            ));
+                        }
+                        TokenKind::PrivateIdentifier(name) => {
+                            let name = *name;
+                            let name_span = next_token.span();
+                            cursor.advance(interner);
+                            let token = cursor.peek(0, interner).or_abrupt()?;
+                            match token.kind() {
+                                TokenKind::Punctuator(Punctuator::Assign) => {
+                                    cursor.advance(interner);
+                                    let strict = cursor.strict();
+                                    cursor.set_strict(true);
+                                    let mut rhs = AssignmentExpression::new(
+                                        true,
+                                        self.allow_yield,
+                                        self.allow_await,
+                                    )
+                                    .parse(cursor, interner)?;
+                                    cursor.expect_semicolon("expected semicolon", interner)?;
+                                    cursor.set_strict(strict);
+                                    let function_name = interner.get_or_intern(
+                                        [utf16!("#"), interner.resolve_expect(name).utf16()]
+                                            .concat()
+                                            .as_slice(),
+                                    );
+                                    rhs.set_anonymous_function_definition_name(&Identifier::new(
+                                        function_name,
+                                        Span::new((1234, 1234), (1234, 1234)),
                                     ));
+                                    let field = PrivateFieldDefinition::new(
+                                        PrivateName::new(name, name_span),
+                                        Some(rhs),
+                                    );
+                                    if r#static {
+                                        function::ClassElement::PrivateStaticFieldDefinition(field)
+                                    } else {
+                                        function::ClassElement::PrivateFieldDefinition(field)
+                                    }
                                 }
-                            } else if name == Sym::CONSTRUCTOR {
-                                return Err(Error::general(
-                                    "class may not have field definitions named 'constructor'",
-                                    start,
-                                ));
+                                _ => {
+                                    cursor.expect_semicolon("expected semicolon", interner)?;
+                                    let field = PrivateFieldDefinition::new(
+                                        PrivateName::new(name, name_span),
+                                        None,
+                                    );
+                                    if r#static {
+                                        function::ClassElement::PrivateStaticFieldDefinition(field)
+                                    } else {
+                                        function::ClassElement::PrivateFieldDefinition(field)
+                                    }
+                                }
                             }
                         }
-                        cursor.advance(interner);
-                        let strict = cursor.strict();
-                        cursor.set_strict(true);
-                        let mut rhs =
-                            AssignmentExpression::new(true, self.allow_yield, self.allow_await)
+                        _ => {
+                            let name = PropertyName::new(self.allow_yield, self.allow_await)
                                 .parse(cursor, interner)?;
-                        cursor.expect_semicolon("expected semicolon", interner)?;
-                        cursor.set_strict(strict);
-                        if let Some(name) = name.literal() {
-                            rhs.set_anonymous_function_definition_name(&name);
-                        }
-                        ClassFieldDefinition::new(name, Some(rhs))
-                    }
-                    _ => {
-                        if let Some(name) = name.literal() {
-                            if r#static {
-                                if [Sym::CONSTRUCTOR, Sym::PROTOTYPE].contains(&name.sym()) {
-                                    return Err(Error::general(
-                                        "class may not have static field definitions named 'constructor' or 'prototype'",
-                                        start,
-                                    ));
+                            let token = cursor.peek(0, interner).or_abrupt()?;
+                            let field = match token.kind() {
+                                TokenKind::Punctuator(Punctuator::Assign) => {
+                                    if let Some(name) = name.literal() {
+                                        if r#static {
+                                            if [Sym::CONSTRUCTOR, Sym::PROTOTYPE]
+                                                .contains(&name.sym())
+                                            {
+                                                return Err(Error::general(
+                                                    "class may not have static field definitions named 'constructor' or 'prototype'",
+                                                    start,
+                                                ));
+                                            }
+                                        } else if name == Sym::CONSTRUCTOR {
+                                            return Err(Error::general(
+                                                "class may not have field definitions named 'constructor'",
+                                                start,
+                                            ));
+                                        }
+                                    }
+                                    cursor.advance(interner);
+                                    let strict = cursor.strict();
+                                    cursor.set_strict(true);
+                                    let mut rhs = AssignmentExpression::new(
+                                        true,
+                                        self.allow_yield,
+                                        self.allow_await,
+                                    )
+                                    .parse(cursor, interner)?;
+                                    cursor.expect_semicolon("expected semicolon", interner)?;
+                                    cursor.set_strict(strict);
+                                    if let Some(name) = name.literal() {
+                                        rhs.set_anonymous_function_definition_name(&name);
+                                    }
+                                    ClassFieldDefinition::new(name, Some(rhs))
                                 }
-                            } else if name == Sym::CONSTRUCTOR {
-                                return Err(Error::general(
-                                    "class may not have field definitions named 'constructor'",
-                                    start,
-                                ));
+                                _ => {
+                                    if let Some(name) = name.literal() {
+                                        if r#static {
+                                            if [Sym::CONSTRUCTOR, Sym::PROTOTYPE]
+                                                .contains(&name.sym())
+                                            {
+                                                return Err(Error::general(
+                                                    "class may not have static field definitions named 'constructor' or 'prototype'",
+                                                    start,
+                                                ));
+                                            }
+                                        } else if name == Sym::CONSTRUCTOR {
+                                            return Err(Error::general(
+                                                "class may not have field definitions named 'constructor'",
+                                                start,
+                                            ));
+                                        }
+                                    }
+                                    cursor.expect_semicolon("expected semicolon", interner)?;
+                                    ClassFieldDefinition::new(name, None)
+                                }
+                            };
+
+                            if r#static {
+                                function::ClassElement::StaticAccessorFieldDefinition(field)
+                            } else {
+                                function::ClassElement::AccessorFieldDefinition(field)
                             }
                         }
-                        cursor.expect_semicolon("expected semicolon", interner)?;
-                        ClassFieldDefinition::new(name, None)
                     }
-                };
-
-                if r#static {
-                    function::ClassElement::StaticAccessorFieldDefinition(field)
-                } else {
-                    function::ClassElement::AccessorFieldDefinition(field)
-                }
                 }
             }
             TokenKind::IdentifierName((Sym::GET, ContainsEscapeSequence(false))) if is_keyword => {

@@ -1,0 +1,69 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 12312461698934493951,
+  "run_kind": "matrix-filter-leaf",
+  "total": 5,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "staging/sm/BigInt/Number-conversion-rounding.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/BigInt/decimal.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/BigInt/large-bit-length.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/BigInt/mod.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/BigInt/property-name.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "staging/sm/BigInt/Number-conversion-rounding.js",
+    "staging/sm/BigInt/decimal.js",
+    "staging/sm/BigInt/large-bit-length.js",
+    "staging/sm/BigInt/mod.js",
+    "staging/sm/BigInt/property-name.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "BigInt"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

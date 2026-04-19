@@ -1,0 +1,104 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "54ccfe9cde895b04218fdc43b3d43f42707389c6"
+  },
+  "manifest_hash": 8905885039327340676,
+  "run_kind": "matrix-filter-leaf",
+  "total": 20,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/RegExp/escape/cross-realm.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-control-characters.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-lineterminator.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-otherpunctuators.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-solidus-character-mixed.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-surrogates.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-syntax-characters-mixed.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-syntax-characters-simple.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/RegExp/escape/cross-realm.js",
+    "built-ins/RegExp/escape/escaped-control-characters.js",
+    "built-ins/RegExp/escape/escaped-lineterminator.js",
+    "built-ins/RegExp/escape/escaped-otherpunctuators.js",
+    "built-ins/RegExp/escape/escaped-solidus-character-mixed.js",
+    "built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+    "built-ins/RegExp/escape/escaped-surrogates.js",
+    "built-ins/RegExp/escape/escaped-syntax-characters-mixed.js",
+    "built-ins/RegExp/escape/escaped-syntax-characters-simple.js",
+    "built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+    "built-ins/RegExp/escape/escaped-whitespace.js",
+    "built-ins/RegExp/escape/initial-char-escape.js",
+    "built-ins/RegExp/escape/is-function.js",
+    "built-ins/RegExp/escape/length.js",
+    "built-ins/RegExp/escape/name.js",
+    "built-ins/RegExp/escape/non-string-inputs.js",
+    "built-ins/RegExp/escape/not-a-constructor.js",
+    "built-ins/RegExp/escape/not-escaped-underscore.js",
+    "built-ins/RegExp/escape/not-escaped.js",
+    "built-ins/RegExp/escape/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExp",
+    "escape"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}
