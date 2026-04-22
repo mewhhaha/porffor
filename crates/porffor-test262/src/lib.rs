@@ -4,9 +4,10 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use porffor_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,7 @@ const MATRIX_CHUNK_SIZE: usize = 250;
 // Resume path is used by low-RAM matrix publication. Checkpoint after every
 // completed case so a timed-out process never restarts a whole slow node.
 const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 1;
+const DISABLE_CASE_RUNNER_ENV: &str = "PORFFOR_TEST262_DISABLE_CASE_RUNNER";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FailureKind {
@@ -119,6 +121,7 @@ pub struct SuiteConfig {
     pub snapshot_dir: PathBuf,
     pub timeout_ms: u64,
     pub worker_count: usize,
+    pub case_runner_bin: Option<PathBuf>,
 }
 
 impl Default for SuiteConfig {
@@ -135,6 +138,7 @@ impl Default for SuiteConfig {
             worker_count: thread::available_parallelism()
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
+            case_runner_bin: None,
         }
     }
 }
@@ -1541,23 +1545,7 @@ fn execute_cases(
         let mut all_results = completed.into_values().collect::<Vec<_>>();
         all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
         for (index, case) in remaining.into_iter().enumerate() {
-            let result = panic::catch_unwind(AssertUnwindSafe(|| {
-                run_one_case(
-                    &case,
-                    preludes,
-                    config.timeout_ms,
-                    run_config.execution_backend,
-                )
-            }))
-            .unwrap_or_else(|panic_payload| TestResult {
-                test_path: case.path.clone(),
-                status: TestStatus::Failed(classify_failure(
-                    &case.path,
-                    FailureKind::Runtime,
-                    format!("worker panic: {}", panic_message(&panic_payload)),
-                )),
-                duration_ms: config.timeout_ms.into(),
-            });
+            let result = run_case_entry(config, preludes, &case, run_config);
             all_results.push(result);
             all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
 
@@ -1577,8 +1565,16 @@ fn execute_cases(
             let queue = Arc::clone(&queue);
             let results = Arc::clone(&results);
             let preludes = preludes.clone();
-            let timeout = config.timeout_ms;
-            let execution_backend = run_config.execution_backend;
+            let worker_config = config.clone();
+            let worker_run_config = RunConfig {
+                filter: run_config.filter.clone(),
+                shard_index: 0,
+                shard_count: 1,
+                resume: false,
+                snapshot_name: String::new(),
+                execution_backend: run_config.execution_backend,
+                max_matrix_nodes: None,
+            };
             thread::Builder::new()
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, move || loop {
@@ -1589,18 +1585,8 @@ fn execute_cases(
                     let Some(case) = maybe_case else {
                         break;
                     };
-                    let result = panic::catch_unwind(AssertUnwindSafe(|| {
-                        run_one_case(&case, &preludes, timeout, execution_backend)
-                    }))
-                    .unwrap_or_else(|panic_payload| TestResult {
-                        test_path: case.path.clone(),
-                        status: TestStatus::Failed(classify_failure(
-                            &case.path,
-                            FailureKind::Runtime,
-                            format!("worker panic: {}", panic_message(&panic_payload)),
-                        )),
-                        duration_ms: timeout.into(),
-                    });
+                    let result =
+                        run_case_entry(&worker_config, &preludes, &case, &worker_run_config);
                     results.lock().expect("results mutex poisoned").push(result);
                 })
                 .expect("worker thread should spawn");
@@ -1626,6 +1612,207 @@ fn write_resume_case_checkpoint(
         run_config.execution_backend,
     );
     write_snapshot(config, &snapshot, &run_config.snapshot_name).map(|_| ())
+}
+
+fn snapshot_paths_for_name(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    manifest_hash: u64,
+) -> SnapshotPaths {
+    SnapshotPaths {
+        json_path: config
+            .snapshot_dir
+            .join(format!("{snapshot_name}-{manifest_hash}.json")),
+        txt_path: config
+            .snapshot_dir
+            .join(format!("{snapshot_name}-{manifest_hash}.txt")),
+    }
+}
+
+fn single_case_manifest(config: &SuiteConfig, case: &TestCase) -> SuiteManifest {
+    let cases = vec![case.clone()];
+    let pinned = pinned_revisions(config);
+    SuiteManifest {
+        pinned_revisions: pinned.clone(),
+        manifest_hash: hash_manifest(&pinned, &cases, Some(case.path.as_str())),
+        filter: Some(case.path.clone()),
+        cases,
+    }
+}
+
+fn result_from_single_case_snapshot(
+    case: &TestCase,
+    snapshot: ProgressSnapshot,
+    duration_ms: u128,
+) -> Result<TestResult, String> {
+    if snapshot.total != 1 {
+        return Err(format!(
+            "single-case child snapshot for {} reported total {}",
+            case.path, snapshot.total
+        ));
+    }
+
+    if snapshot.passed == 1 && snapshot.failures.is_empty() {
+        return Ok(TestResult {
+            test_path: case.path.clone(),
+            status: TestStatus::Passed,
+            duration_ms,
+        });
+    }
+
+    if snapshot.failures.len() == 1 {
+        return Ok(TestResult {
+            test_path: case.path.clone(),
+            status: TestStatus::Failed(snapshot.failures[0].clone()),
+            duration_ms,
+        });
+    }
+
+    Err(format!(
+        "single-case child snapshot for {} had inconsistent pass/failure counts",
+        case.path
+    ))
+}
+
+fn run_one_case_in_child_process(
+    config: &SuiteConfig,
+    case: &TestCase,
+    run_config: &RunConfig,
+) -> Result<TestResult, String> {
+    let Some(case_runner_bin) = &config.case_runner_bin else {
+        return Err("child case runner requested without binary path".to_string());
+    };
+
+    let child_manifest = single_case_manifest(config, case);
+    let child_snapshot_name = format!(
+        "{}-case-{}",
+        run_config.snapshot_name,
+        hash_detail(&case.path)
+    );
+    let child_snapshot_paths =
+        snapshot_paths_for_name(config, &child_snapshot_name, child_manifest.manifest_hash);
+    let _ = fs::remove_file(&child_snapshot_paths.json_path);
+    let _ = fs::remove_file(&child_snapshot_paths.txt_path);
+
+    let mut child = Command::new(case_runner_bin);
+    child
+        .arg("test262")
+        .arg("run")
+        .arg(&case.path)
+        .arg("--suite-root")
+        .arg(&config.suite_root)
+        .arg("--snapshot-dir")
+        .arg(&config.snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(&child_snapshot_name)
+        .arg("--threads")
+        .arg("1")
+        .arg("--timeout-ms")
+        .arg(config.timeout_ms.to_string())
+        .arg("--execution-backend")
+        .arg(run_config.execution_backend.as_str())
+        .env(DISABLE_CASE_RUNNER_ENV, "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let start = Instant::now();
+    let mut child = child.spawn().map_err(|err| {
+        format!(
+            "failed to spawn child case runner {} for {}: {err}",
+            case_runner_bin.display(),
+            case.path
+        )
+    })?;
+
+    let timeout = Duration::from_millis(config.timeout_ms);
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|err| {
+            format!(
+                "failed to wait on child case runner for {}: {err}",
+                case.path
+            )
+        })? {
+            break Some(status);
+        }
+        if start.elapsed() >= timeout {
+            child.kill().map_err(|err| {
+                format!(
+                    "failed to kill timed out child case runner for {}: {err}",
+                    case.path
+                )
+            })?;
+            let _ = child.wait();
+            break None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+
+    let duration_ms = start.elapsed().as_millis();
+    if status.is_none() {
+        return Ok(TestResult {
+            test_path: case.path.clone(),
+            status: TestStatus::Failed(classify_failure(
+                &case.path,
+                FailureKind::Runtime,
+                format!("timeout exceeded after {}ms", duration_ms),
+            )),
+            duration_ms,
+        });
+    }
+
+    if let Some(snapshot) =
+        load_previous_snapshot(config, &child_snapshot_name, child_manifest.manifest_hash)?
+    {
+        return result_from_single_case_snapshot(case, snapshot, duration_ms);
+    }
+
+    Err(format!(
+        "child case runner exited for {} without writing snapshot {}",
+        case.path,
+        child_snapshot_paths.json_path.display()
+    ))
+}
+
+fn run_case_entry(
+    config: &SuiteConfig,
+    preludes: &PreludeStore,
+    case: &TestCase,
+    run_config: &RunConfig,
+) -> TestResult {
+    let use_child_runner = config.case_runner_bin.is_some()
+        && (run_config.resume
+            || run_config.filter.as_deref() == Some(case.path.as_str()));
+    if use_child_runner {
+        return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
+            TestResult {
+                test_path: case.path.clone(),
+                status: TestStatus::Failed(classify_failure(
+                    &case.path,
+                    FailureKind::HostHarness,
+                    detail,
+                )),
+                duration_ms: config.timeout_ms.into(),
+            }
+        });
+    }
+
+    panic::catch_unwind(AssertUnwindSafe(|| {
+        run_one_case(
+            case,
+            preludes,
+            config.timeout_ms,
+            run_config.execution_backend,
+        )
+    }))
+    .unwrap_or_else(|panic_payload| TestResult {
+        test_path: case.path.clone(),
+        status: TestStatus::Failed(classify_failure(
+            &case.path,
+            FailureKind::Runtime,
+            format!("worker panic: {}", panic_message(&panic_payload)),
+        )),
+        duration_ms: config.timeout_ms.into(),
+    })
 }
 
 fn run_one_case(
@@ -2356,20 +2543,48 @@ fn load_resume_aggregate_snapshot(
     let exact_path = config
         .snapshot_dir
         .join(format!("{snapshot_name}-{expected_manifest_hash}.json"));
+    let mut candidates = Vec::new();
     if exact_path.exists() {
         let file = read_snapshot_file(&exact_path)?;
-        validate_resume_aggregate_snapshot(
+        if file.snapshot_version != SNAPSHOT_VERSION {
+            return Err(format!(
+                "resume snapshot mismatch for snapshot_version in {}: expected {}, found {}",
+                exact_path.display(),
+                SNAPSHOT_VERSION,
+                file.snapshot_version
+            ));
+        }
+        if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
+            return Err(format!(
+                "resume snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
+                exact_path.display(),
+                MATRIX_STRATEGY_VERSION,
+                file.matrix_strategy_version
+            ));
+        }
+        if file.run_kind != "aggregate-matrix" {
+            return Err(format!(
+                "resume snapshot mismatch for run_kind in {}: expected aggregate-matrix, found {}",
+                exact_path.display(),
+                file.run_kind
+            ));
+        }
+        if validate_resume_aggregate_snapshot(
             &file,
             &exact_path,
             expected_manifest_hash,
             expected_backend,
             expected_pinned,
-        )?;
-        return Ok(snapshot_from_file(file));
+        )
+        .is_ok()
+        {
+            return Ok(snapshot_from_file(file));
+        }
+        candidates.push(exact_path);
     }
 
     let prefix = format!("{snapshot_name}-");
-    let mut candidates = fs::read_dir(&config.snapshot_dir)
+    let mut fallback_candidates = fs::read_dir(&config.snapshot_dir)
         .ok()
         .into_iter()
         .flat_map(|entries| entries.filter_map(Result::ok))
@@ -2382,19 +2597,34 @@ fn load_resume_aggregate_snapshot(
                     .is_some_and(|name| name.starts_with(&prefix))
         })
         .collect::<Vec<_>>();
-    candidates.sort();
-    let Some(path) = candidates.pop() else {
+    fallback_candidates.sort();
+    while let Some(path) = fallback_candidates.pop() {
+        if !candidates.iter().any(|candidate| candidate == &path) {
+            candidates.push(path);
+        }
+    }
+
+    let mut candidates = candidates.into_iter();
+    let Some(path) = candidates.next() else {
         return Ok(None);
     };
-    let file = read_snapshot_file(&path)?;
-    validate_resume_aggregate_snapshot(
-        &file,
-        &path,
-        expected_manifest_hash,
-        expected_backend,
-        expected_pinned,
-    )?;
-    Ok(snapshot_from_file(file))
+    let mut current = Some(path);
+    while let Some(path) = current {
+        let file = read_snapshot_file(&path)?;
+        if validate_resume_aggregate_snapshot(
+            &file,
+            &path,
+            expected_manifest_hash,
+            expected_backend,
+            expected_pinned,
+        )
+        .is_ok()
+        {
+            return Ok(snapshot_from_file(file));
+        }
+        current = candidates.next();
+    }
+    Ok(None)
 }
 
 fn validate_resume_aggregate_snapshot(
@@ -3003,6 +3233,8 @@ fn repo_root_from_suite(suite_root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_root() -> PathBuf {
@@ -3018,6 +3250,7 @@ mod tests {
                 .join(format!("porffor-test262-fixture-{}", std::process::id())),
             timeout_ms: 1_000,
             worker_count: 2,
+            case_runner_bin: None,
         }
     }
 
@@ -3360,6 +3593,7 @@ mod tests {
             snapshot_dir: unique_temp_path("matrix-cache-snapshots"),
             timeout_ms: 1_000,
             worker_count: 2,
+            case_runner_bin: None,
         };
         let first = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
             .expect("matrix cache should build");
@@ -3424,6 +3658,60 @@ mod tests {
             read_snapshot_file(&aggregate_path).expect("repaired aggregate should parse");
         assert_eq!(repaired.completed_nodes.len(), nodes.len());
         assert_eq!(repaired.aggregate_entries.len(), nodes.len());
+    }
+
+    #[test]
+    fn report_all_resume_ignores_stale_fallback_aggregate_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-stale-fallback".to_string(),
+            max_matrix_nodes: Some(1),
+            ..RunConfig::default()
+        };
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let aggregate_hash = hash_matrix_nodes(&nodes, ExecutionBackend::SpecExec);
+        let stale_path = config.snapshot_dir.join(format!(
+            "{}-aggregate-{}.json",
+            run_config.snapshot_name,
+            aggregate_hash.saturating_add(1)
+        ));
+        let mut stale = ProgressSnapshot {
+            snapshot_version: SNAPSHOT_VERSION,
+            matrix_strategy_version: MATRIX_STRATEGY_VERSION,
+            execution_backend: ExecutionBackend::SpecExec,
+            pinned_revisions: pinned_revisions(&config),
+            manifest_hash: aggregate_hash.saturating_add(1),
+            run_kind: "aggregate-matrix".to_string(),
+            total: 0,
+            passed: 0,
+            counts_per_kind: BTreeMap::new(),
+            slowest_tests: Vec::new(),
+            timeout_list: Vec::new(),
+            failures: Vec::new(),
+            completed_paths: Vec::new(),
+            matrix_path: Vec::new(),
+            completed_nodes: Vec::new(),
+            aggregate_counts_so_far: BTreeMap::new(),
+            aggregate_entries: Vec::new(),
+        };
+        stale.pinned_revisions.test262 = "stale-test262".to_string();
+        fs::write(
+            &stale_path,
+            serde_json::to_string_pretty(&snapshot_to_file(&stale))
+                .expect("stale aggregate json should serialize"),
+        )
+        .expect("stale aggregate should write");
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config
+            },
+        )
+        .expect("resume matrix run should ignore stale fallback aggregate");
+        assert_eq!(resumed.entries.len(), 1);
+        assert_eq!(resumed.failed, 0);
     }
 
     #[test]
@@ -3495,7 +3783,9 @@ mod tests {
         .expect("resume node summary load should work");
         assert!(resumed_entry.is_some());
         assert_eq!(
-            resumed_entry.expect("completed checkpoint should load").passed,
+            resumed_entry
+                .expect("completed checkpoint should load")
+                .passed,
             first.entries[0].passed
         );
     }
@@ -3568,6 +3858,74 @@ mod tests {
                 .expect("snapshot load should work")
                 .expect("snapshot should exist");
         assert_eq!(resumed_snapshot.completed_paths.len(), 2);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn execute_cases_resume_child_runner_enforces_preemptive_timeout() {
+        let snapshot_dir = unique_temp_path("child-runner-timeout-snapshots");
+        fs::create_dir_all(&snapshot_dir).expect("snapshot dir should exist");
+
+        let runner_path = unique_temp_path("child-runner-timeout-script");
+        fs::write(&runner_path, "#!/bin/sh\nsleep 2\n")
+            .expect("timeout runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("timeout runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("timeout runner permissions should update");
+
+        let config = SuiteConfig {
+            suite_root: PathBuf::from("unused-suite-root"),
+            local_harness_path: PathBuf::from("unused-harness"),
+            snapshot_dir,
+            timeout_ms: 50,
+            worker_count: 1,
+            case_runner_bin: Some(runner_path),
+        };
+        let case = synthetic_case("staging/sm/JSON/parse-mega-huge-array.js");
+        let pinned = pinned_revisions(&config);
+        let manifest = SuiteManifest {
+            pinned_revisions: pinned.clone(),
+            manifest_hash: hash_manifest(
+                &pinned,
+                std::slice::from_ref(&case),
+                Some(case.path.as_str()),
+            ),
+            filter: Some(case.path.clone()),
+            cases: vec![case.clone()],
+        };
+        let run_config = RunConfig {
+            filter: Some(case.path.clone()),
+            resume: true,
+            snapshot_name: "child-runner-timeout".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &manifest.cases,
+            &run_config,
+        )
+        .expect("resume child-runner execution should work");
+
+        assert_eq!(results.len(), 1);
+        let TestStatus::Failed(failure) = &results[0].status else {
+            panic!("timed out child runner should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::Runtime);
+        assert!(failure.detail.contains("timeout exceeded"));
+
+        let resumed_snapshot =
+            load_previous_snapshot(&config, &run_config.snapshot_name, manifest.manifest_hash)
+                .expect("snapshot load should work")
+                .expect("snapshot should exist");
+        assert_eq!(resumed_snapshot.completed_paths, vec![case.path.clone()]);
+        assert_eq!(resumed_snapshot.failures.len(), 1);
     }
 
     #[test]

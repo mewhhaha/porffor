@@ -310,6 +310,7 @@ fn fake_suite_config() -> SuiteConfig {
         suite_root: root.join("vendor").join("test262"),
         local_harness_path: root.join("harness.js"),
         snapshot_dir: root.join("snapshots"),
+        case_runner_bin: None,
         ..SuiteConfig::default()
     }
 }
@@ -967,6 +968,10 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
         }
     }
 
+    if std::env::var_os("PORFFOR_TEST262_DISABLE_CASE_RUNNER").is_none() {
+        config.case_runner_bin = std::env::current_exe().ok();
+    }
+
     run_config.filter = filter.clone();
 
     Ok(ParsedTest262Args {
@@ -1015,6 +1020,7 @@ mod tests {
         assert_eq!(parsed.run_config.shard_count, 4);
         assert_eq!(parsed.filter.as_deref(), Some("language/expressions"));
         assert_eq!(parsed.config.timeout_ms, 50);
+        assert!(parsed.config.case_runner_bin.is_some());
         assert_eq!(
             parsed.run_config.execution_backend,
             ExecutionBackend::SpecExec
