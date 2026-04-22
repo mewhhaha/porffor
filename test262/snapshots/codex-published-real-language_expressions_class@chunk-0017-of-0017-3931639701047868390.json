@@ -1,0 +1,143 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 3931639701047868390,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 59,
+  "passed": 59,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/class/private-static-setter-multiple-evaluations-of-class-realm.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/restricted-properties.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-gen-meth-paramsbody-var-close.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-gen-meth-paramsbody-var-open.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-meth-paramsbody-var-close.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-meth-paramsbody-var-open.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-name-lex-close.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-name-lex-open-heritage.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-name-lex-open-no-heritage.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/class/scope-setter-paramsbody-var-close.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/class/private-static-setter-multiple-evaluations-of-class-realm.js",
+    "language/expressions/class/restricted-properties.js",
+    "language/expressions/class/scope-gen-meth-paramsbody-var-close.js",
+    "language/expressions/class/scope-gen-meth-paramsbody-var-open.js",
+    "language/expressions/class/scope-meth-paramsbody-var-close.js",
+    "language/expressions/class/scope-meth-paramsbody-var-open.js",
+    "language/expressions/class/scope-name-lex-close.js",
+    "language/expressions/class/scope-name-lex-open-heritage.js",
+    "language/expressions/class/scope-name-lex-open-no-heritage.js",
+    "language/expressions/class/scope-setter-paramsbody-var-close.js",
+    "language/expressions/class/scope-setter-paramsbody-var-open.js",
+    "language/expressions/class/scope-static-gen-meth-paramsbody-var-close.js",
+    "language/expressions/class/scope-static-gen-meth-paramsbody-var-open.js",
+    "language/expressions/class/scope-static-meth-paramsbody-var-close.js",
+    "language/expressions/class/scope-static-meth-paramsbody-var-open.js",
+    "language/expressions/class/scope-static-setter-paramsbody-var-close.js",
+    "language/expressions/class/scope-static-setter-paramsbody-var-open.js",
+    "language/expressions/class/setter-length-dflt.js",
+    "language/expressions/class/static-gen-method-param-dflt-yield.js",
+    "language/expressions/class/static-init-await-binding.js",
+    "language/expressions/class/static-init-await-reference.js",
+    "language/expressions/class/static-method-length-dflt.js",
+    "language/expressions/class/static-method-param-dflt-yield.js",
+    "language/expressions/class/subclass-builtins/subclass-AggregateError.js",
+    "language/expressions/class/subclass-builtins/subclass-Array.js",
+    "language/expressions/class/subclass-builtins/subclass-ArrayBuffer.js",
+    "language/expressions/class/subclass-builtins/subclass-BigInt64Array.js",
+    "language/expressions/class/subclass-builtins/subclass-BigUint64Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Boolean.js",
+    "language/expressions/class/subclass-builtins/subclass-DataView.js",
+    "language/expressions/class/subclass-builtins/subclass-Date.js",
+    "language/expressions/class/subclass-builtins/subclass-Error.js",
+    "language/expressions/class/subclass-builtins/subclass-EvalError.js",
+    "language/expressions/class/subclass-builtins/subclass-Float32Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Float64Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Function.js",
+    "language/expressions/class/subclass-builtins/subclass-Int16Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Int32Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Int8Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Map.js",
+    "language/expressions/class/subclass-builtins/subclass-Number.js",
+    "language/expressions/class/subclass-builtins/subclass-Object.js",
+    "language/expressions/class/subclass-builtins/subclass-Promise.js",
+    "language/expressions/class/subclass-builtins/subclass-RangeError.js",
+    "language/expressions/class/subclass-builtins/subclass-ReferenceError.js",
+    "language/expressions/class/subclass-builtins/subclass-RegExp.js",
+    "language/expressions/class/subclass-builtins/subclass-Set.js",
+    "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js",
+    "language/expressions/class/subclass-builtins/subclass-String.js",
+    "language/expressions/class/subclass-builtins/subclass-SyntaxError.js",
+    "language/expressions/class/subclass-builtins/subclass-TypeError.js",
+    "language/expressions/class/subclass-builtins/subclass-URIError.js",
+    "language/expressions/class/subclass-builtins/subclass-Uint16Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Uint32Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Uint8Array.js",
+    "language/expressions/class/subclass-builtins/subclass-Uint8ClampedArray.js",
+    "language/expressions/class/subclass-builtins/subclass-WeakMap.js",
+    "language/expressions/class/subclass-builtins/subclass-WeakRef.js",
+    "language/expressions/class/subclass-builtins/subclass-WeakSet.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "class"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -776,6 +776,10 @@ pub(super) fn parse_date(date: &JsString, hooks: &dyn HostHooks) -> Option<i64> 
         return Some(dt);
     }
 
+    if let Some(dt) = parse_spidermonkey_space_date(&date, hooks) {
+        return Some(dt);
+    }
+
     // `toString` format: `Thu Jan 01 1970 00:00:00 GMT+0000`
     if let Ok(t) = OffsetDateTime::parse(
         &date,
@@ -798,6 +802,178 @@ pub(super) fn parse_date(date: &JsString, hooks: &dyn HostHooks) -> Option<i64> 
     }
 
     None
+}
+
+fn parse_ascii_int_range(input: &str, min_digits: usize, max_digits: usize) -> Option<(u32, &str)> {
+    let bytes = input.as_bytes();
+    let mut len = 0usize;
+    while len < bytes.len() && len < max_digits && bytes[len].is_ascii_digit() {
+        len += 1;
+    }
+    if len < min_digits {
+        return None;
+    }
+    let value = input[..len].parse().ok()?;
+    Some((value, &input[len..]))
+}
+
+fn parse_spidermonkey_year(input: &str) -> Option<(i32, &str)> {
+    let bytes = input.as_bytes();
+    if bytes.first().is_some_and(|byte| matches!(byte, b'+' | b'-')) {
+        if bytes.len() < 7 {
+            return None;
+        }
+        let negative = bytes[0] == b'-';
+        let digits = &input[1..7];
+        if !digits.as_bytes().iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        let year: i32 = digits.parse().ok()?;
+        if negative && year == 0 {
+            return None;
+        }
+        return Some(((if negative { -year } else { year }), &input[7..]));
+    }
+
+    if input.len() < 4 || !input.as_bytes()[..4].iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    Some((input[..4].parse().ok()?, &input[4..]))
+}
+
+fn parse_spidermonkey_fraction(input: &str) -> Option<(u32, &str)> {
+    let bytes = input.as_bytes();
+    let mut len = 0usize;
+    while len < bytes.len() && len < 3 && bytes[len].is_ascii_digit() {
+        len += 1;
+    }
+    if len == 0 {
+        return None;
+    }
+    let value: u32 = input[..len].parse().ok()?;
+    let scaled = match len {
+        1 => value * 100,
+        2 => value * 10,
+        3 => value,
+        _ => unreachable!(),
+    };
+    Some((scaled, &input[len..]))
+}
+
+fn parse_spidermonkey_offset(input: &str) -> Option<(i64, &str)> {
+    let bytes = input.as_bytes();
+    let sign = match bytes.first().copied()? {
+        b'+' => -1,
+        b'-' => 1,
+        _ => return None,
+    };
+    let rest = &input[1..];
+    let (hour, rest) = parse_ascii_int_range(rest, 2, 2)?;
+    if hour > 23 {
+        return None;
+    }
+    if rest.is_empty() {
+        return Some((sign * i64::from(hour) * 60, rest));
+    }
+    let rest = if let Some(stripped) = rest.strip_prefix(':') {
+        stripped
+    } else {
+        rest
+    };
+    let (minute, rest) = parse_ascii_int_range(rest, 2, 2)?;
+    if minute > 59 {
+        return None;
+    }
+    Some((sign * (i64::from(hour) * 60 + i64::from(minute)), rest))
+}
+
+fn parse_spidermonkey_space_date(date: &str, hooks: &dyn HostHooks) -> Option<i64> {
+    if date.contains('T') {
+        return None;
+    }
+
+    let (date_part, time_part) = date.split_once(' ')?;
+    if date_part.is_empty() || time_part.is_empty() {
+        return None;
+    }
+
+    let (year, rest) = parse_spidermonkey_year(date_part)?;
+    let rest = rest.strip_prefix('-')?;
+    let (month, rest) = parse_ascii_int_range(rest, 1, 2)?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let rest = rest.strip_prefix('-')?;
+    let (day, rest) = parse_ascii_int_range(rest, 1, 2)?;
+    if !(1..=31).contains(&day) || !rest.is_empty() {
+        return None;
+    }
+
+    let (hour, rest) = parse_ascii_int_range(time_part, 1, 2)?;
+    if hour > 24 {
+        return None;
+    }
+    let rest = rest.strip_prefix(':')?;
+    let (minute, rest) = parse_ascii_int_range(rest, 1, 2)?;
+    if minute > 59 {
+        return None;
+    }
+
+    let mut second = 0u32;
+    let mut millisecond = 0u32;
+    let mut offset = None;
+    let mut rest = rest;
+
+    if let Some(stripped) = rest.strip_prefix(':') {
+        let (parsed_second, tail) = parse_ascii_int_range(stripped, 1, 2)?;
+        if parsed_second > 59 {
+            return None;
+        }
+        second = parsed_second;
+        rest = tail;
+        if let Some(stripped) = rest.strip_prefix('.') {
+            let (parsed_millisecond, tail) = parse_spidermonkey_fraction(stripped)?;
+            millisecond = parsed_millisecond;
+            rest = tail;
+        }
+    }
+
+    if !rest.is_empty() {
+        if rest == "Z" {
+            offset = Some(0);
+            rest = "";
+        } else {
+            let (parsed_offset, tail) = parse_spidermonkey_offset(rest)?;
+            offset = Some(parsed_offset);
+            rest = tail;
+        }
+    }
+
+    if !rest.is_empty() {
+        return None;
+    }
+
+    let date = make_date(
+        make_day(f64::from(year), f64::from(month - 1), f64::from(day)),
+        make_time(
+            f64::from(hour),
+            f64::from(minute),
+            f64::from(second),
+            f64::from(millisecond),
+        ),
+    );
+
+    let time = if let Some(offset) = offset {
+        time_clip(date + (offset as f64) * MS_PER_MINUTE)
+    } else {
+        time_clip(utc_t(date, hooks))
+    };
+
+    if time.is_finite() {
+        Some(time as i64)
+    } else {
+        None
+    }
 }
 
 /// Parses a date string according to the [`Date Time String Format`][spec].
@@ -903,6 +1079,33 @@ impl<'a> DateParser<'a> {
                 Some(fast_atoi::process_8(val, N))
             }
         }
+    }
+
+    fn parse_fraction_digits(&mut self) -> Option<u32> {
+        let mut digits = [0u8; 3];
+        let mut len = 0usize;
+        while len < digits.len() {
+            let Some(next) = self.input.peek() else {
+                break;
+            };
+            if !next.is_ascii_digit() {
+                break;
+            }
+            digits[len] = *self.input.next()?;
+            len += 1;
+        }
+        if len == 0 {
+            return None;
+        }
+        let value = digits[..len]
+            .iter()
+            .fold(0u32, |acc, digit| acc * 10 + u32::from(digit & 0xF));
+        Some(match len {
+            1 => value * 100,
+            2 => value * 10,
+            3 => value,
+            _ => unreachable!(),
+        })
     }
 
     fn finish(&mut self) -> Option<i64> {
@@ -1023,7 +1226,7 @@ impl<'a> DateParser<'a> {
                 return self.finish();
             }
         };
-        self.millisecond = self.parse_n_ascii_digits::<3>()? as u32;
+        self.millisecond = self.parse_fraction_digits()?;
         if self.input.peek().is_some() {
             self.parse_timezone()?;
             self.finish()
@@ -1043,9 +1246,6 @@ impl<'a> DateParser<'a> {
                     return None;
                 }
                 self.offset = if neg { offset_hour } else { -offset_hour } * 60;
-                if self.input.peek().is_none() {
-                    return Some(());
-                }
                 self.next_expect(b':')?;
                 let offset_minute = self.parse_n_ascii_digits::<2>()? as i64;
                 if offset_minute > 59 {

@@ -1,0 +1,143 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 7596452291122741419,
+  "run_kind": "matrix-filter-leaf",
+  "total": 59,
+  "passed": 59,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/new/S11.2.2_A1.1.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A1.2.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A2.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A3_T1.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A3_T2.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A3_T3.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A3_T4.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A3_T5.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A4_T1.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/new/S11.2.2_A4_T2.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/new/S11.2.2_A1.1.js",
+    "language/expressions/new/S11.2.2_A1.2.js",
+    "language/expressions/new/S11.2.2_A2.js",
+    "language/expressions/new/S11.2.2_A3_T1.js",
+    "language/expressions/new/S11.2.2_A3_T2.js",
+    "language/expressions/new/S11.2.2_A3_T3.js",
+    "language/expressions/new/S11.2.2_A3_T4.js",
+    "language/expressions/new/S11.2.2_A3_T5.js",
+    "language/expressions/new/S11.2.2_A4_T1.js",
+    "language/expressions/new/S11.2.2_A4_T2.js",
+    "language/expressions/new/S11.2.2_A4_T3.js",
+    "language/expressions/new/S11.2.2_A4_T4.js",
+    "language/expressions/new/S11.2.2_A4_T5.js",
+    "language/expressions/new/ctorExpr-fn-ref-before-args-eval-fn-wrapup.js",
+    "language/expressions/new/ctorExpr-fn-ref-before-args-eval.js",
+    "language/expressions/new/ctorExpr-isCtor-after-args-eval-fn-wrapup.js",
+    "language/expressions/new/ctorExpr-isCtor-after-args-eval.js",
+    "language/expressions/new/non-ctor-err-realm.js",
+    "language/expressions/new/spread-err-mult-err-expr-throws.js",
+    "language/expressions/new/spread-err-mult-err-iter-get-value.js",
+    "language/expressions/new/spread-err-mult-err-itr-get-call.js",
+    "language/expressions/new/spread-err-mult-err-itr-get-get.js",
+    "language/expressions/new/spread-err-mult-err-itr-step.js",
+    "language/expressions/new/spread-err-mult-err-itr-value.js",
+    "language/expressions/new/spread-err-mult-err-obj-unresolvable.js",
+    "language/expressions/new/spread-err-mult-err-unresolvable.js",
+    "language/expressions/new/spread-err-sngl-err-expr-throws.js",
+    "language/expressions/new/spread-err-sngl-err-itr-get-call.js",
+    "language/expressions/new/spread-err-sngl-err-itr-get-get.js",
+    "language/expressions/new/spread-err-sngl-err-itr-get-value.js",
+    "language/expressions/new/spread-err-sngl-err-itr-step.js",
+    "language/expressions/new/spread-err-sngl-err-itr-value.js",
+    "language/expressions/new/spread-err-sngl-err-obj-unresolvable.js",
+    "language/expressions/new/spread-err-sngl-err-unresolvable.js",
+    "language/expressions/new/spread-mult-empty.js",
+    "language/expressions/new/spread-mult-expr.js",
+    "language/expressions/new/spread-mult-iter.js",
+    "language/expressions/new/spread-mult-literal.js",
+    "language/expressions/new/spread-mult-obj-ident.js",
+    "language/expressions/new/spread-mult-obj-null.js",
+    "language/expressions/new/spread-mult-obj-undefined.js",
+    "language/expressions/new/spread-obj-getter-descriptor.js",
+    "language/expressions/new/spread-obj-getter-init.js",
+    "language/expressions/new/spread-obj-manipulate-outter-obj-in-getter.js",
+    "language/expressions/new/spread-obj-mult-spread-getter.js",
+    "language/expressions/new/spread-obj-mult-spread.js",
+    "language/expressions/new/spread-obj-null.js",
+    "language/expressions/new/spread-obj-override-immutable.js",
+    "language/expressions/new/spread-obj-overrides-prev-properties.js",
+    "language/expressions/new/spread-obj-skip-non-enumerable.js",
+    "language/expressions/new/spread-obj-spread-order.js",
+    "language/expressions/new/spread-obj-symbol-property.js",
+    "language/expressions/new/spread-obj-undefined.js",
+    "language/expressions/new/spread-obj-with-overrides.js",
+    "language/expressions/new/spread-sngl-empty.js",
+    "language/expressions/new/spread-sngl-expr.js",
+    "language/expressions/new/spread-sngl-iter.js",
+    "language/expressions/new/spread-sngl-literal.js",
+    "language/expressions/new/spread-sngl-obj-ident.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "new"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

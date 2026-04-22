@@ -219,6 +219,12 @@ where
                     r#await,
                 );
             }
+            (_, _) if r#await => {
+                return Err(Error::general(
+                    "`await` can only be used in a `for await .. of` loop",
+                    position,
+                ));
+            }
             (Some(ParsedForInitializer::Regular(init)), _) => Some(init),
             (None, _) => None,
         };

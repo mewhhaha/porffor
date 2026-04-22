@@ -1,0 +1,78 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 5140718476062495357,
+  "run_kind": "matrix-filter-leaf",
+  "total": 7,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/StringIteratorPrototype/Symbol.toStringTag.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/ancestry.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/next/length.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/next/name.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/next/next-iteration-surrogate-pairs.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/next/next-iteration.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/StringIteratorPrototype/next/next-missing-internal-slots.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/StringIteratorPrototype/Symbol.toStringTag.js",
+    "built-ins/StringIteratorPrototype/ancestry.js",
+    "built-ins/StringIteratorPrototype/next/length.js",
+    "built-ins/StringIteratorPrototype/next/name.js",
+    "built-ins/StringIteratorPrototype/next/next-iteration-surrogate-pairs.js",
+    "built-ins/StringIteratorPrototype/next/next-iteration.js",
+    "built-ins/StringIteratorPrototype/next/next-missing-internal-slots.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "StringIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

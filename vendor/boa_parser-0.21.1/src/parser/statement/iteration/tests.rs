@@ -359,3 +359,13 @@ fn reject_const_no_init_for_loop() {
 fn reject_for_await_in_loop() {
     check_invalid_script("for await (x in [1,2,3]);");
 }
+
+/// Checks rejection of invalid `for await` loop heads in async generators.
+#[test]
+fn reject_invalid_for_await_heads_in_async_generators() {
+    check_invalid_script("async function* f() { for await (;;) ; }");
+    check_invalid_script("async function* f() { for await (a ;;) ; }");
+    check_invalid_script("async function* f() { for await (var a in null) ; }");
+    check_invalid_script("async function* f() { for await ([a] = 0 in null) ; }");
+    check_invalid_script("async function* f() { for await ({a} = 0 ;;) ; }");
+}

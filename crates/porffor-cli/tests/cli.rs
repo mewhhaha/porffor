@@ -1335,7 +1335,9 @@ fn test262_publish_status_updates_readme_and_writes_artifacts() {
     assert!(readme.contains("Fake full Rust rewrite suite: `190/190` green"));
     assert!(readme.contains("Pinned real Test262 baseline (`spec-exec`"));
     assert!(readme.contains("Pinned revisions: `ecma262=ecma262-current-draft`"));
-    assert!(readme.contains("./target/debug/porf test262 publish-status --execution-backend spec-exec"));
+    assert!(
+        readme.contains("./target/debug/porf test262 publish-status --execution-backend spec-exec")
+    );
     assert!(readme.contains("## Design"));
 }
 

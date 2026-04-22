@@ -26,6 +26,9 @@ const MATRIX_STRATEGY_VERSION: u32 = 2;
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
 const MATRIX_RECURSION_THRESHOLD: usize = 500;
 const MATRIX_CHUNK_SIZE: usize = 250;
+// Resume path is used by low-RAM matrix publication. Checkpoint after every
+// completed case so a timed-out process never restarts a whole slow node.
+const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FailureKind {
@@ -103,7 +106,7 @@ pub struct FailureRecord {
     pub detail_hash: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PinnedRevisions {
     pub ecma262: String,
     pub test262: String,
@@ -337,7 +340,7 @@ pub struct TopLevelRunSummary {
 
 pub type MatrixEntrySummary = TopLevelRunSummary;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MatrixNodeKind {
     FilterLeaf,
     ChunkLeaf,
@@ -370,7 +373,7 @@ pub struct VerifiedAggregateSummary {
     pub summary: AggregateRunSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunMatrixNode {
     pub node_id: String,
     pub node_kind: MatrixNodeKind,
@@ -440,6 +443,15 @@ struct SnapshotAggregateEntry {
     counts_per_kind: BTreeMap<String, usize>,
     counts_per_origin: BTreeMap<String, usize>,
     manifest_hash: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MatrixCacheFile {
+    snapshot_version: u32,
+    matrix_strategy_version: u32,
+    execution_backend: String,
+    pinned_revisions: SnapshotPinnedRevisions,
+    nodes: Vec<RunMatrixNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -735,7 +747,11 @@ pub fn run_top_level_matrix(
     config: &SuiteConfig,
     run_config: RunConfig,
 ) -> Result<AggregateRunSummary, String> {
-    let nodes = build_run_matrix(config)?;
+    let nodes = load_or_build_run_matrix(config, run_config.execution_backend)?;
+    let current_node_ids = nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
     let aggregate_manifest_hash = hash_matrix_nodes(&nodes, run_config.execution_backend);
     let aggregate_snapshot_name = format!("{}-aggregate", run_config.snapshot_name);
     let pinned_revisions = pinned_revisions(config);
@@ -743,6 +759,7 @@ pub fn run_top_level_matrix(
     let mut entries = Vec::new();
     let mut completed_nodes = BTreeSet::new();
     if run_config.resume {
+        let mut aggregate_entries = BTreeMap::new();
         if let Some(snapshot) = load_resume_aggregate_snapshot(
             config,
             &aggregate_snapshot_name,
@@ -751,26 +768,69 @@ pub fn run_top_level_matrix(
             &pinned_revisions,
         )? {
             if snapshot.run_kind == "aggregate-matrix" {
-                let aggregate_entries = snapshot
-                    .aggregate_entries
-                    .iter()
-                    .cloned()
-                    .map(|entry| (entry.node_id.clone(), entry))
-                    .collect::<BTreeMap<_, _>>();
-                for node_id in &snapshot.completed_nodes {
-                    let Some(entry) = aggregate_entries.get(node_id) else {
-                        continue;
-                    };
-                    completed_nodes.insert(node_id.clone());
-                    entries.push(load_resume_matrix_node_summary(
-                        config,
-                        &run_config.snapshot_name,
-                        entry,
-                        run_config.execution_backend,
-                        &pinned_revisions,
-                    )?.unwrap_or_else(|| entry.clone()));
+                if run_config.max_matrix_nodes == Some(1) {
+                    completed_nodes = snapshot
+                        .completed_nodes
+                        .into_iter()
+                        .filter(|node_id| current_node_ids.contains(node_id))
+                        .collect::<BTreeSet<_>>();
+                    entries = snapshot
+                        .aggregate_entries
+                        .into_iter()
+                        .filter(|entry| current_node_ids.contains(&entry.node_id))
+                        .collect::<Vec<_>>();
+                } else {
+                    aggregate_entries = snapshot
+                        .aggregate_entries
+                        .iter()
+                        .cloned()
+                        .map(|entry| (entry.node_id.clone(), entry))
+                        .collect::<BTreeMap<_, _>>();
                 }
             }
+        }
+
+        for node in &nodes {
+            if completed_nodes.contains(&node.node_id) {
+                continue;
+            }
+
+            let resumed = if let Some(entry) = aggregate_entries.get(&node.node_id) {
+                load_resume_matrix_node_summary(
+                    config,
+                    &run_config.snapshot_name,
+                    entry,
+                    run_config.execution_backend,
+                    &pinned_revisions,
+                )?
+            } else {
+                load_resume_matrix_node_summary_for_node(
+                    config,
+                    &run_config.snapshot_name,
+                    node,
+                    run_config.execution_backend,
+                    &pinned_revisions,
+                )?
+            };
+
+            if let Some(summary) = resumed {
+                completed_nodes.insert(node.node_id.clone());
+                entries.push(summary);
+            }
+        }
+
+        if !entries.is_empty() {
+            let aggregate = aggregate_from_entries(&entries);
+            let aggregate_snapshot = aggregate_snapshot(
+                &pinned_revisions,
+                aggregate_manifest_hash,
+                &aggregate,
+                run_config.execution_backend,
+                "aggregate-matrix",
+                vec!["top-level".to_string()],
+                completed_nodes.iter().cloned().collect(),
+            );
+            write_snapshot(config, &aggregate_snapshot, &aggregate_snapshot_name)?;
         }
     }
 
@@ -806,6 +866,39 @@ pub fn run_top_level_matrix(
     Ok(aggregate_from_entries(&entries))
 }
 
+fn load_resume_matrix_node_summary_for_node(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    node: &RunMatrixNode,
+    expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
+) -> Result<Option<TopLevelRunSummary>, String> {
+    let manifest_hash = hash_manifest_case_paths(
+        expected_pinned,
+        &node.case_paths,
+        Some(node.filter.as_str()),
+    );
+    let entry = TopLevelRunSummary {
+        node_id: node.node_id.clone(),
+        node_kind: node.node_kind,
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: node.total_cases,
+        passed: 0,
+        failed: 0,
+        counts_per_kind: BTreeMap::new(),
+        counts_per_origin: BTreeMap::new(),
+        manifest_hash,
+    };
+    load_resume_matrix_node_summary(
+        config,
+        snapshot_name,
+        &entry,
+        expected_backend,
+        expected_pinned,
+    )
+}
+
 fn load_resume_matrix_node_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
@@ -818,9 +911,10 @@ fn load_resume_matrix_node_summary(
         snapshot_name,
         sanitize_filter_for_snapshot(&entry.node_id)
     );
-    let path = config
-        .snapshot_dir
-        .join(format!("{}-{}.json", node_snapshot_name, entry.manifest_hash));
+    let path = config.snapshot_dir.join(format!(
+        "{}-{}.json",
+        node_snapshot_name, entry.manifest_hash
+    ));
     if !path.exists() {
         return Ok(None);
     }
@@ -874,7 +968,12 @@ fn load_resume_matrix_node_summary(
             file.pinned_revisions.test262
         ));
     }
-    if !file.run_kind.starts_with("matrix-") {
+    let is_complete_case_checkpoint =
+        file.run_kind == "resume-case-checkpoint" && file.completed_paths.len() == entry.total;
+    if !is_complete_case_checkpoint && file.run_kind == "resume-case-checkpoint" {
+        return Ok(None);
+    }
+    if !is_complete_case_checkpoint && !file.run_kind.starts_with("matrix-") {
         return Err(format!(
             "resume node snapshot mismatch for run_kind in {}: expected matrix-* found {}",
             path.display(),
@@ -1032,7 +1131,121 @@ pub fn try_compare_with_js_oracle(
     }
 }
 
-pub fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, String> {
+fn hash_matrix_cache_key(
+    pinned_revisions: &PinnedRevisions,
+    execution_backend: ExecutionBackend,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    SNAPSHOT_VERSION.hash(&mut hasher);
+    MATRIX_STRATEGY_VERSION.hash(&mut hasher);
+    execution_backend.as_str().hash(&mut hasher);
+    pinned_revisions.ecma262.hash(&mut hasher);
+    pinned_revisions.test262.hash(&mut hasher);
+    TOP_LEVEL_FILTERS.hash(&mut hasher);
+    MATRIX_SPLIT_FILTERS.hash(&mut hasher);
+    MATRIX_RECURSION_THRESHOLD.hash(&mut hasher);
+    MATRIX_CHUNK_SIZE.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn matrix_cache_path(
+    config: &SuiteConfig,
+    pinned_revisions: &PinnedRevisions,
+    execution_backend: ExecutionBackend,
+) -> PathBuf {
+    let cache_hash = hash_matrix_cache_key(pinned_revisions, execution_backend);
+    config.snapshot_dir.join(format!(
+        "matrix-cache-{}-{cache_hash}.json",
+        execution_backend.as_str()
+    ))
+}
+
+fn load_cached_run_matrix(
+    config: &SuiteConfig,
+    pinned_revisions: &PinnedRevisions,
+    execution_backend: ExecutionBackend,
+) -> Result<Option<Vec<RunMatrixNode>>, String> {
+    let path = matrix_cache_path(config, pinned_revisions, execution_backend);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let file = fs::File::open(&path)
+        .map_err(|err| format!("failed to open matrix cache {}: {err}", path.display()))?;
+    let file = std::io::BufReader::new(file);
+    let cache = match serde_json::from_reader::<_, MatrixCacheFile>(file) {
+        Ok(cache) => cache,
+        Err(_) => return Ok(None),
+    };
+    if cache.snapshot_version != SNAPSHOT_VERSION
+        || cache.matrix_strategy_version != MATRIX_STRATEGY_VERSION
+        || cache.execution_backend != execution_backend.as_str()
+        || cache.pinned_revisions.ecma262 != pinned_revisions.ecma262
+        || cache.pinned_revisions.test262 != pinned_revisions.test262
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(cache.nodes))
+}
+
+fn write_run_matrix_cache(
+    config: &SuiteConfig,
+    pinned_revisions: &PinnedRevisions,
+    execution_backend: ExecutionBackend,
+    nodes: &[RunMatrixNode],
+) -> Result<(), String> {
+    fs::create_dir_all(&config.snapshot_dir).map_err(|err| {
+        format!(
+            "failed to create matrix cache dir {}: {err}",
+            config.snapshot_dir.display()
+        )
+    })?;
+    let path = matrix_cache_path(config, pinned_revisions, execution_backend);
+    let unique_suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let temp_path = config.snapshot_dir.join(format!(
+        ".{}.tmp-{}-{unique_suffix}",
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("matrix-cache"),
+        std::process::id(),
+    ));
+    let file = fs::File::create(&temp_path).map_err(|err| {
+        format!(
+            "failed to create matrix cache temp file {}: {err}",
+            temp_path.display()
+        )
+    })?;
+    let file = std::io::BufWriter::new(file);
+    let cache = MatrixCacheFile {
+        snapshot_version: SNAPSHOT_VERSION,
+        matrix_strategy_version: MATRIX_STRATEGY_VERSION,
+        execution_backend: execution_backend.as_str().to_string(),
+        pinned_revisions: SnapshotPinnedRevisions {
+            ecma262: pinned_revisions.ecma262.clone(),
+            test262: pinned_revisions.test262.clone(),
+        },
+        nodes: nodes.to_vec(),
+    };
+    serde_json::to_writer_pretty(file, &cache).map_err(|err| {
+        format!(
+            "failed to write matrix cache temp file {}: {err}",
+            temp_path.display()
+        )
+    })?;
+    fs::rename(&temp_path, &path).map_err(|err| {
+        format!(
+            "failed to finalize matrix cache {} from {}: {err}",
+            path.display(),
+            temp_path.display()
+        )
+    })
+}
+
+fn build_run_matrix_uncached(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, String> {
     let mut nodes = Vec::new();
     for root in TOP_LEVEL_FILTERS {
         let manifest = discover_suite(config, Some(root))?;
@@ -1045,6 +1258,23 @@ pub fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, Stri
     }
     nodes.sort_by(|left, right| left.node_id.cmp(&right.node_id));
     Ok(nodes)
+}
+
+fn load_or_build_run_matrix(
+    config: &SuiteConfig,
+    execution_backend: ExecutionBackend,
+) -> Result<Vec<RunMatrixNode>, String> {
+    let pinned = pinned_revisions(config);
+    if let Some(nodes) = load_cached_run_matrix(config, &pinned, execution_backend)? {
+        return Ok(nodes);
+    }
+    let nodes = build_run_matrix_uncached(config)?;
+    write_run_matrix_cache(config, &pinned, execution_backend, &nodes)?;
+    Ok(nodes)
+}
+
+pub fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, String> {
+    build_run_matrix_uncached(config)
 }
 
 fn group_cases_by_segment(
@@ -1307,6 +1537,37 @@ fn execute_cases(
         return Ok(existing);
     }
 
+    if run_config.resume {
+        let mut all_results = completed.into_values().collect::<Vec<_>>();
+        all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+        for (index, case) in remaining.into_iter().enumerate() {
+            let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                run_one_case(
+                    &case,
+                    preludes,
+                    config.timeout_ms,
+                    run_config.execution_backend,
+                )
+            }))
+            .unwrap_or_else(|panic_payload| TestResult {
+                test_path: case.path.clone(),
+                status: TestStatus::Failed(classify_failure(
+                    &case.path,
+                    FailureKind::Runtime,
+                    format!("worker panic: {}", panic_message(&panic_payload)),
+                )),
+                duration_ms: config.timeout_ms.into(),
+            });
+            all_results.push(result);
+            all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+
+            if (index + 1) % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
+                write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
+            }
+        }
+        return Ok(all_results);
+    }
+
     let queue = Arc::new(Mutex::new(remaining));
     let results = Arc::new(Mutex::new(Vec::new()));
     let worker_count = config.worker_count.max(1).min(cases.len().max(1));
@@ -1350,6 +1611,21 @@ fn execute_cases(
     all_results.extend(results.lock().expect("results mutex poisoned").clone());
     all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
     Ok(all_results)
+}
+
+fn write_resume_case_checkpoint(
+    config: &SuiteConfig,
+    manifest: &SuiteManifest,
+    results: &[TestResult],
+    run_config: &RunConfig,
+) -> Result<(), String> {
+    let snapshot = snapshot_from_summary(
+        manifest,
+        "resume-case-checkpoint".to_string(),
+        &summarize_results(results),
+        run_config.execution_backend,
+    );
+    write_snapshot(config, &snapshot, &run_config.snapshot_name).map(|_| ())
 }
 
 fn run_one_case(
@@ -2210,8 +2486,11 @@ pub fn load_verified_aggregate_summary(
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
 ) -> Result<VerifiedAggregateSummary, String> {
-    let nodes = build_run_matrix(config)?;
-    let expected_node_ids = nodes.iter().map(|node| node.node_id.clone()).collect::<BTreeSet<_>>();
+    let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let expected_node_ids = nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
     let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
     let aggregate_snapshot_name = format!("{snapshot_name}-aggregate");
     let snapshot_paths = SnapshotPaths {
@@ -2664,12 +2943,27 @@ fn hash_manifest(
     cases: &[TestCase],
     filter: Option<&str>,
 ) -> u64 {
+    hash_manifest_case_paths(
+        pinned_revisions,
+        &cases
+            .iter()
+            .map(|case| case.path.as_str())
+            .collect::<Vec<_>>(),
+        filter,
+    )
+}
+
+fn hash_manifest_case_paths(
+    pinned_revisions: &PinnedRevisions,
+    case_paths: &[impl AsRef<str>],
+    filter: Option<&str>,
+) -> u64 {
     let mut hasher = DefaultHasher::new();
     pinned_revisions.ecma262.hash(&mut hasher);
     pinned_revisions.test262.hash(&mut hasher);
     filter.hash(&mut hasher);
-    for case in cases {
-        case.path.hash(&mut hasher);
+    for case_path in case_paths {
+        case_path.as_ref().hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -2709,6 +3003,7 @@ fn repo_root_from_suite(suite_root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
@@ -2735,6 +3030,38 @@ mod tests {
             includes: Vec::new(),
             negative: None,
             is_module: false,
+        }
+    }
+
+    fn unique_temp_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "porffor-test262-{label}-{}-{nanos}",
+            std::process::id()
+        ))
+    }
+
+    fn copy_dir_all(from: &Path, to: &Path) {
+        fs::create_dir_all(to).expect("target dir should create");
+        for entry in fs::read_dir(from)
+            .expect("source dir should read")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("source entries should iterate")
+        {
+            let source = entry.path();
+            let target = to.join(entry.file_name());
+            if entry
+                .file_type()
+                .expect("entry file type should read")
+                .is_dir()
+            {
+                copy_dir_all(&source, &target);
+            } else {
+                fs::copy(&source, &target).expect("file copy should succeed");
+            }
         }
     }
 
@@ -2902,8 +3229,8 @@ mod tests {
             snapshot_name: "aggregate-refresh".to_string(),
             ..RunConfig::default()
         };
-        let first =
-            run_top_level_matrix(&config, run_config.clone()).expect("first matrix run should work");
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("first matrix run should work");
         assert_eq!(first.failed, 0);
 
         let entry = first
@@ -2965,6 +3292,282 @@ mod tests {
                 .unwrap_or(0),
             1
         );
+    }
+
+    #[test]
+    fn report_all_low_ram_resume_trusts_aggregate_entries() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-low-ram".to_string(),
+            max_matrix_nodes: Some(1),
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("checkpointed aggregate run should complete");
+        assert_eq!(first.entries.len(), 1);
+        let entry = first
+            .entries
+            .first()
+            .expect("checkpointed aggregate should contain one node entry");
+
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&entry.node_id),
+            entry.manifest_hash
+        ));
+        let mut file =
+            read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
+        file.passed = file.total.saturating_sub(1);
+        file.counts_per_kind.insert("Runtime".to_string(), 1);
+        file.failures = vec![SnapshotFailureRecord {
+            test_path: "language/pass/runtime-refresh.js".to_string(),
+            kind: "Runtime".to_string(),
+            origin: FailureOrigin::SpecExecHost.as_str().to_string(),
+            detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
+            detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
+        }];
+        fs::write(
+            &node_snapshot_path,
+            serde_json::to_string_pretty(&file).expect("node snapshot json should serialize"),
+        )
+        .expect("mutated node snapshot should write");
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config
+            },
+        )
+        .expect("low-ram resume matrix run should work");
+        let resumed_entry = resumed
+            .entries
+            .iter()
+            .find(|candidate| candidate.node_id == entry.node_id)
+            .expect("resumed entry should exist");
+        assert_eq!(resumed.failed, 0);
+        assert_eq!(resumed_entry.failed, 0);
+    }
+
+    #[test]
+    fn load_or_build_run_matrix_reuses_cached_nodes() {
+        let root = unique_temp_path("matrix-cache");
+        copy_dir_all(&fixture_root(), &root);
+        let config = SuiteConfig {
+            suite_root: root.join("vendor").join("test262"),
+            local_harness_path: root.join("harness.js"),
+            snapshot_dir: unique_temp_path("matrix-cache-snapshots"),
+            timeout_ms: 1_000,
+            worker_count: 2,
+        };
+        let first = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
+            .expect("matrix cache should build");
+        assert!(!first.is_empty());
+
+        let test_root = config.suite_root.join("test");
+        fs::remove_dir_all(&test_root).expect("fixture test root should remove");
+
+        let second = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
+            .expect("matrix cache should reload");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn report_all_resume_recovers_from_partial_aggregate_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-recover".to_string(),
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("first matrix run should work");
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let aggregate_hash = hash_matrix_nodes(&nodes, ExecutionBackend::SpecExec);
+        let aggregate_path = config
+            .snapshot_dir
+            .join(format!("aggregate-recover-aggregate-{aggregate_hash}.json"));
+        let mut file =
+            read_snapshot_file(&aggregate_path).expect("aggregate snapshot should parse");
+        file.completed_nodes.truncate(1);
+        file.aggregate_entries.truncate(1);
+        file.total = file.aggregate_entries.iter().map(|entry| entry.total).sum();
+        file.passed = file
+            .aggregate_entries
+            .iter()
+            .map(|entry| entry.passed)
+            .sum();
+        file.failures.clear();
+        file.counts_per_kind = BTreeMap::new();
+        for kind in FailureKind::ALL {
+            file.counts_per_kind.insert(kind.as_str().to_string(), 0);
+        }
+        fs::write(
+            &aggregate_path,
+            serde_json::to_string_pretty(&file).expect("aggregate snapshot json should serialize"),
+        )
+        .expect("partial aggregate snapshot should write");
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config
+            },
+        )
+        .expect("resume matrix run should recover from partial aggregate");
+        assert_eq!(resumed.total, first.total);
+        assert_eq!(resumed.passed, first.passed);
+        assert_eq!(resumed.failed, first.failed);
+
+        let repaired =
+            read_snapshot_file(&aggregate_path).expect("repaired aggregate should parse");
+        assert_eq!(repaired.completed_nodes.len(), nodes.len());
+        assert_eq!(repaired.aggregate_entries.len(), nodes.len());
+    }
+
+    #[test]
+    fn report_all_resume_ignores_incomplete_node_case_checkpoint_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-ignore-checkpoint".to_string(),
+            max_matrix_nodes: Some(1),
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("checkpointed aggregate run should complete");
+        assert_eq!(first.entries.len(), 1);
+
+        let first_entry = first
+            .entries
+            .first()
+            .expect("checkpointed aggregate should contain one node entry");
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&first_entry.node_id),
+            first_entry.manifest_hash
+        ));
+        let mut file =
+            read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
+        file.run_kind = "resume-case-checkpoint".to_string();
+        file.completed_paths.clear();
+        fs::write(
+            &node_snapshot_path,
+            serde_json::to_string_pretty(&file).expect("node checkpoint json should serialize"),
+        )
+        .expect("node checkpoint snapshot should write");
+
+        let mut expected_entry = first_entry.clone();
+        expected_entry.total += 1;
+        let resumed_entry = load_resume_matrix_node_summary(
+            &config,
+            &run_config.snapshot_name,
+            &expected_entry,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+        )
+        .expect("resume node summary load should work");
+        assert!(resumed_entry.is_none());
+    }
+
+    #[test]
+    fn report_all_resume_promotes_complete_node_case_checkpoint_snapshot() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-promote-checkpoint".to_string(),
+            max_matrix_nodes: Some(1),
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("checkpointed aggregate run should complete");
+        assert_eq!(first.entries.len(), 1);
+
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let first_node = nodes.first().expect("matrix should have first node");
+        let resumed_entry = load_resume_matrix_node_summary_for_node(
+            &config,
+            &run_config.snapshot_name,
+            first_node,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+        )
+        .expect("resume node summary load should work");
+        assert!(resumed_entry.is_some());
+        assert_eq!(
+            resumed_entry.expect("completed checkpoint should load").passed,
+            first.entries[0].passed
+        );
+    }
+
+    #[test]
+    fn execute_cases_resume_reuses_case_checkpoint_snapshot() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![
+            TestCase {
+                path: "resume/case-1.js".to_string(),
+                source_path: PathBuf::from("resume/case-1.js"),
+                original_source: "1;".to_string(),
+                flags: BTreeSet::new(),
+                includes: Vec::new(),
+                negative: None,
+                is_module: false,
+            },
+            TestCase {
+                path: "resume/case-2.js".to_string(),
+                source_path: PathBuf::from("resume/case-2.js"),
+                original_source: "2;".to_string(),
+                flags: BTreeSet::new(),
+                includes: Vec::new(),
+                negative: None,
+                is_module: false,
+            },
+        ];
+        let manifest = SuiteManifest {
+            pinned_revisions: pinned_revisions(&config),
+            manifest_hash: hash_manifest(&pinned_revisions(&config), &cases, Some("resume-node")),
+            filter: Some("resume-node".to_string()),
+            cases: cases.clone(),
+        };
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "resume-case-checkpoint".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        write_resume_case_checkpoint(
+            &config,
+            &manifest,
+            &[TestResult {
+                test_path: cases[0].path.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 7,
+            }],
+            &run_config,
+        )
+        .expect("partial checkpoint should write");
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume execute_cases should work");
+        assert_eq!(results.len(), 2);
+        let first = results
+            .iter()
+            .find(|result| result.test_path == cases[0].path)
+            .expect("first case should exist");
+        assert_eq!(first.duration_ms, 0);
+
+        let resumed_snapshot =
+            load_previous_snapshot(&config, &run_config.snapshot_name, manifest.manifest_hash)
+                .expect("snapshot load should work")
+                .expect("snapshot should exist");
+        assert_eq!(resumed_snapshot.completed_paths.len(), 2);
     }
 
     #[test]

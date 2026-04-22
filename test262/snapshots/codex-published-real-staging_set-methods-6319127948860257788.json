@@ -1,0 +1,58 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 6319127948860257788,
+  "run_kind": "matrix-filter-leaf",
+  "total": 3,
+  "passed": 3,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "staging/set-methods/set-intersect-other-is-set-like.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/set-methods/set-intersection-other-is-map.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/set-methods/set-intersection-other-is-set.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "staging/set-methods/set-intersect-other-is-set-like.js",
+    "staging/set-methods/set-intersection-other-is-map.js",
+    "staging/set-methods/set-intersection-other-is-set.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "set-methods"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

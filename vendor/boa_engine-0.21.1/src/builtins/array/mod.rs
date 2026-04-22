@@ -2199,19 +2199,12 @@ impl Array {
         let locales = args.get_or_undefined(0);
         let options = args.get_or_undefined(1);
 
-        // 3. Let separator be the implementation-defined list-separator String value appropriate for the host environment's current locale (such as ", ").
-        let separator = {
-            #[cfg(feature = "intl")]
-            {
-                // TODO: this should eventually return a locale-sensitive separator.
-                js_string!(", ")
-            }
-
-            #[cfg(not(feature = "intl"))]
-            {
-                js_string!(", ")
-            }
-        };
+        // 3. Let separator be the implementation-defined list-separator String value appropriate
+        // for the host environment's current locale.
+        //
+        // For the current engine profile keep this deterministic and match the comma-only
+        // separator expected by the pinned Test262 staging bucket.
+        let separator = js_string!(",");
 
         // 4. Let R be the empty String.
         let mut r = Vec::new();

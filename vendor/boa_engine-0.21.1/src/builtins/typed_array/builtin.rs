@@ -2516,18 +2516,8 @@ impl BuiltinTypedArray {
             (o.array_length(buf_len), is_fixed_len)
         };
 
-        let separator = {
-            #[cfg(feature = "intl")]
-            {
-                // TODO: this should eventually return a locale-sensitive separator.
-                utf16!(", ")
-            }
-
-            #[cfg(not(feature = "intl"))]
-            {
-                utf16!(", ")
-            }
-        };
+        // Keep separator aligned with Array.prototype.toLocaleString for current engine profile.
+        let separator = utf16!(",");
 
         let mut r = Vec::new();
 

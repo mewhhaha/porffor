@@ -172,6 +172,29 @@ fn assign_operator_precedence() {
 }
 
 #[test]
+fn escaped_async_arrow_head_is_rejected() {
+    check_invalid_script(r"\u0061sync x => {};");
+    check_invalid_script(r"var x = \u0061sync () => {};");
+}
+
+#[test]
+fn escaped_async_stays_valid_outside_arrow_head() {
+    assert!(
+        Parser::new(Source::from_bytes(r"var async = 0; \u0061sync;"))
+            .parse_script(&Scope::new_global(), &mut Interner::default())
+            .is_ok()
+    );
+}
+
+#[test]
+fn async_async_binding_forms_are_rejected() {
+    check_invalid_script(r"var {async async: a} = {};");
+    check_invalid_script(r"let {async async} = {};");
+    check_invalid_script(r"const {async async = 0} = {};");
+    check_invalid_script(r"({async async: 0});");
+}
+
+#[test]
 fn hoisting() {
     let interner = &mut Interner::default();
     let hello = interner.get_or_intern_static("hello", utf16!("hello"));

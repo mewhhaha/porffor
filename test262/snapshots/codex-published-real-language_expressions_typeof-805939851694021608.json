@@ -1,0 +1,100 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 805939851694021608,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/typeof/bigint.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/boolean.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/built-in-exotic-objects-no-call.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/built-in-functions.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/built-in-ordinary-objects-no-call.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/get-value-ref-err.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/get-value.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/native-call.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/null.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "language/expressions/typeof/number.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/typeof/bigint.js",
+    "language/expressions/typeof/boolean.js",
+    "language/expressions/typeof/built-in-exotic-objects-no-call.js",
+    "language/expressions/typeof/built-in-functions.js",
+    "language/expressions/typeof/built-in-ordinary-objects-no-call.js",
+    "language/expressions/typeof/get-value-ref-err.js",
+    "language/expressions/typeof/get-value.js",
+    "language/expressions/typeof/native-call.js",
+    "language/expressions/typeof/null.js",
+    "language/expressions/typeof/number.js",
+    "language/expressions/typeof/proxy.js",
+    "language/expressions/typeof/string.js",
+    "language/expressions/typeof/symbol.js",
+    "language/expressions/typeof/syntax.js",
+    "language/expressions/typeof/undefined.js",
+    "language/expressions/typeof/unresolvable-reference.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "typeof"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

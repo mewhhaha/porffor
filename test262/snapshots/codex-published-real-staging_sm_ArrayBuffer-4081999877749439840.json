@@ -1,0 +1,69 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 4081999877749439840,
+  "run_kind": "matrix-filter-leaf",
+  "total": 5,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "staging/sm/ArrayBuffer/CloneArrayBuffer.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/ArrayBuffer/bug1777413.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/ArrayBuffer/constructorNotCallable.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/ArrayBuffer/getter-name.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "staging/sm/ArrayBuffer/slice-species.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "staging/sm/ArrayBuffer/CloneArrayBuffer.js",
+    "staging/sm/ArrayBuffer/bug1777413.js",
+    "staging/sm/ArrayBuffer/constructorNotCallable.js",
+    "staging/sm/ArrayBuffer/getter-name.js",
+    "staging/sm/ArrayBuffer/slice-species.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "ArrayBuffer"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

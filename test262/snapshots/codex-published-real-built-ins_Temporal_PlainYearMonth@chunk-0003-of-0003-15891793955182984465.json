@@ -1,0 +1,69 @@
+{
+  "snapshot_version": 4,
+  "matrix_strategy_version": 2,
+  "execution_backend": "spec-exec",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "751621225d61f440fa6e707494e81b9ad7501f21"
+  },
+  "manifest_hash": 15891793955182984465,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 5,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Temporal/PlainYearMonth/subclass.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+    "built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+    "built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+    "built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+    "built-ins/Temporal/PlainYearMonth/subclass.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Temporal",
+    "PlainYearMonth"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -11,7 +11,7 @@ use boa_interner::Interner;
 mod tests;
 
 /// The maximum number of tokens which can be peeked ahead.
-const MAX_PEEK_SKIP: usize = 3;
+const MAX_PEEK_SKIP: usize = 32;
 
 /// The fixed size of the buffer used for storing values that are peeked ahead.
 ///
@@ -39,17 +39,7 @@ where
     fn from(lexer: Lexer<R>) -> Self {
         Self {
             lexer,
-            peeked: [
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-                None::<Token>,
-            ],
+            peeked: std::array::from_fn(|_| None::<Token>),
             read_index: 0,
             write_index: 0,
             last_linear_pos: LinearPosition::default(),

@@ -99,6 +99,25 @@ fn async_starts_arrow_function<R: ReadChar>(
 
     match next.kind() {
         TokenKind::Punctuator(Punctuator::OpenParen) => {
+            let mut depth = 1usize;
+            let mut scan = 2usize;
+            while let Some(token) = cursor.peek(scan, interner)? {
+                match token.kind() {
+                    TokenKind::Punctuator(Punctuator::OpenParen) => depth += 1,
+                    TokenKind::Punctuator(Punctuator::CloseParen) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Ok(matches!(
+                                cursor.peek(scan + 1, interner).or_abrupt()?.kind(),
+                                TokenKind::Punctuator(Punctuator::Arrow)
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+                scan += 1;
+            }
+
             if matches!(
                 cursor.peek(2, interner).or_abrupt()?.kind(),
                 TokenKind::Punctuator(Punctuator::CloseParen)
@@ -127,7 +146,7 @@ fn async_starts_arrow_function<R: ReadChar>(
             ) {
                 return Ok(false);
             }
-            Ok(true)
+            Ok(false)
         }
         TokenKind::IdentifierName(_)
         | TokenKind::Keyword((Keyword::Yield | Keyword::Await | Keyword::Of, _)) => Ok(matches!(
@@ -146,8 +165,9 @@ where
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Expression> {
         cursor.set_goal(InputElement::RegExp);
+        let current = cursor.peek(0, interner).or_abrupt()?.clone();
 
-        match cursor.peek(0, interner).or_abrupt()?.kind() {
+        match current.kind() {
             // [+Yield]YieldExpression[?In, ?Await]
             TokenKind::Keyword((Keyword::Yield, _)) if self.allow_yield.0 => {
                 return YieldExpression::new(self.allow_in, self.allow_await)
@@ -174,8 +194,14 @@ where
                 }
             }
             //  AsyncArrowFunction[?In, ?Yield, ?Await]
-            TokenKind::Keyword((Keyword::Async, false)) => {
+            TokenKind::Keyword((Keyword::Async, escaped)) => {
                 if async_starts_arrow_function(cursor, interner)? {
+                    if *escaped {
+                        return Err(Error::general(
+                            "Keyword must not contain escaped characters",
+                            current.span().start(),
+                        ));
+                    }
                     return Ok(AsyncArrowFunction::new(self.allow_in, self.allow_yield)
                         .parse(cursor, interner)?
                         .into());

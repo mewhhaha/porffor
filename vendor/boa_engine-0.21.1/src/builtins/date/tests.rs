@@ -821,10 +821,45 @@ fn date_proto_to_gmt_string() {
 
 #[test]
 fn date_proto_to_iso_string() {
-    run_test_actions([TestAction::assert_eq(
-        "new Date(Date.UTC(2020, 6, 8, 9, 16, 15, 779)).toISOString()",
-        js_str!("2020-07-08T09:16:15.779Z"),
-    )]);
+    run_test_actions([
+        TestAction::assert_eq(
+            "new Date(Date.UTC(2020, 6, 8, 9, 16, 15, 779)).toISOString()",
+            js_str!("2020-07-08T09:16:15.779Z"),
+        ),
+        TestAction::assert_eq(
+            "new Date(Date.UTC(0, 0, 1, 0, 0, 0, 0)).toISOString()",
+            js_str!("1900-01-01T00:00:00.000Z"),
+        ),
+        TestAction::assert_eq(
+            "new Date(-62167219200000).toISOString()",
+            js_str!("0000-01-01T00:00:00.000Z"),
+        ),
+        TestAction::assert_eq(
+            "new Date(253402300800000).toISOString()",
+            js_str!("+010000-01-01T00:00:00.000Z"),
+        ),
+    ]);
+}
+
+#[test]
+fn date_parse_spidermonkey_space_forms() {
+    run_test_actions([
+        TestAction::assert_eq(
+            "Date.parse('1997-03-08 1:1:1.01') === Date.parse('1997-03-08T01:01:01.01')",
+            true,
+        ),
+        TestAction::assert_eq(
+            "Date.parse('1997-3-8 11:19:20') === Date.parse('1997-03-08T11:19:20')",
+            true,
+        ),
+        TestAction::assert_eq(
+            "Date.parse('1997-03-08 11:19:10-07') === Date.parse('1997-03-08 11:19:10-0700')",
+            true,
+        ),
+        TestAction::assert_eq("Number.isNaN(Date.parse('1997-03-08T11:19:10-07'))", true),
+        TestAction::assert_eq("Number.isNaN(Date.parse('1997-3-8T11:19:20'))", true),
+        TestAction::assert_eq("Number.isNaN(Date.parse('1997-03-08T1:1'))", true),
+    ]);
 }
 
 #[test]

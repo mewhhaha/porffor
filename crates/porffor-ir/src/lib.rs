@@ -2098,7 +2098,7 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
                 source.source_text.as_str(),
                 SCRIPT_OWNER_ID.to_string(),
             )
-                .lower(&script);
+            .lower(&script);
             program.script = Some(ScriptIr {
                 functions: lowered.functions,
                 body: lowered.body,
@@ -2395,7 +2395,12 @@ impl<'a> AnalysisBuilder<'a> {
             None,
         );
         for function in script_root_functions.iter().cloned() {
-            self.collect_function_plan(function, SCRIPT_OWNER_ID.to_string(), interner, source_text);
+            self.collect_function_plan(
+                function,
+                SCRIPT_OWNER_ID.to_string(),
+                interner,
+                source_text,
+            );
         }
         self.finalize_capture_plans();
         Analysis {
@@ -2757,30 +2762,93 @@ impl<'a> AnalysisBuilder<'a> {
                 }
             }
             Statement::If(if_statement) => {
-                self.scan_expression(owner_id, if_statement.cond(), interner, source_text, self_name, refs);
-                self.scan_statement(owner_id, if_statement.body(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    if_statement.cond(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_statement(
+                    owner_id,
+                    if_statement.body(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
                 if let Some(else_node) = if_statement.else_node() {
-                    self.scan_statement(owner_id, else_node, interner, source_text, self_name, refs);
+                    self.scan_statement(
+                        owner_id,
+                        else_node,
+                        interner,
+                        source_text,
+                        self_name,
+                        refs,
+                    );
                 }
             }
             Statement::WhileLoop(while_loop) => {
-                self.scan_expression(owner_id, while_loop.condition(), interner, source_text, self_name, refs);
-                self.scan_statement(owner_id, while_loop.body(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    while_loop.condition(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_statement(
+                    owner_id,
+                    while_loop.body(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Statement::DoWhileLoop(do_while) => {
-                self.scan_statement(owner_id, do_while.body(), interner, source_text, self_name, refs);
-                self.scan_expression(owner_id, do_while.cond(), interner, source_text, self_name, refs);
+                self.scan_statement(
+                    owner_id,
+                    do_while.body(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_expression(
+                    owner_id,
+                    do_while.cond(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Statement::ForLoop(for_loop) => {
                 if let Some(init) = for_loop.init() {
                     match init {
                         ForLoopInitializer::Expression(expr) => {
-                            self.scan_expression(owner_id, expr, interner, source_text, self_name, refs);
+                            self.scan_expression(
+                                owner_id,
+                                expr,
+                                interner,
+                                source_text,
+                                self_name,
+                                refs,
+                            );
                         }
                         ForLoopInitializer::Var(var) => {
                             for declarator in var.0.as_ref() {
                                 if let Some(init) = declarator.init() {
-                                    self.scan_expression(owner_id, init, interner, source_text, self_name, refs);
+                                    self.scan_expression(
+                                        owner_id,
+                                        init,
+                                        interner,
+                                        source_text,
+                                        self_name,
+                                        refs,
+                                    );
                                 }
                             }
                         }
@@ -2795,25 +2863,60 @@ impl<'a> AnalysisBuilder<'a> {
                             };
                             for declarator in list.as_ref() {
                                 if let Some(init) = declarator.init() {
-                                    self.scan_expression(owner_id, init, interner, source_text, self_name, refs);
+                                    self.scan_expression(
+                                        owner_id,
+                                        init,
+                                        interner,
+                                        source_text,
+                                        self_name,
+                                        refs,
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 if let Some(condition) = for_loop.condition() {
-                    self.scan_expression(owner_id, condition, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        condition,
+                        interner,
+                        source_text,
+                        self_name,
+                        refs,
+                    );
                 }
                 if let Some(update) = for_loop.final_expr() {
                     self.scan_expression(owner_id, update, interner, source_text, self_name, refs);
                 }
-                self.scan_statement(owner_id, for_loop.body(), interner, source_text, self_name, refs);
+                self.scan_statement(
+                    owner_id,
+                    for_loop.body(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Statement::Switch(switch) => {
-                self.scan_expression(owner_id, switch.val(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    switch.val(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
                 for case in switch.cases() {
                     if let Some(condition) = case.condition() {
-                        self.scan_expression(owner_id, condition, interner, source_text, self_name, refs);
+                        self.scan_expression(
+                            owner_id,
+                            condition,
+                            interner,
+                            source_text,
+                            self_name,
+                            refs,
+                        );
                     }
                     for item in case.body().statements() {
                         self.scan_item(owner_id, item, interner, source_text, self_name, refs);
@@ -2822,13 +2925,27 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Statement::Labelled(labelled) => {
                 if let Some(statement) = ScriptLowerer::labelled_base_statement(labelled) {
-                    self.scan_statement(owner_id, statement, interner, source_text, self_name, refs);
+                    self.scan_statement(
+                        owner_id,
+                        statement,
+                        interner,
+                        source_text,
+                        self_name,
+                        refs,
+                    );
                 }
             }
             Statement::Var(var) => {
                 for declarator in var.0.as_ref() {
                     if let Some(init) = declarator.init() {
-                        self.scan_expression(owner_id, init, interner, source_text, self_name, refs);
+                        self.scan_expression(
+                            owner_id,
+                            init,
+                            interner,
+                            source_text,
+                            self_name,
+                            refs,
+                        );
                     }
                 }
             }
@@ -2897,10 +3014,24 @@ impl<'a> AnalysisBuilder<'a> {
                 for property in object.properties() {
                     match property {
                         PropertyDefinition::Property(_, value) => {
-                            self.scan_expression(owner_id, value, interner, source_text, self_name, refs);
+                            self.scan_expression(
+                                owner_id,
+                                value,
+                                interner,
+                                source_text,
+                                self_name,
+                                refs,
+                            );
                         }
                         PropertyDefinition::SpreadObject(value) => {
-                            self.scan_expression(owner_id, value, interner, source_text, self_name, refs);
+                            self.scan_expression(
+                                owner_id,
+                                value,
+                                interner,
+                                source_text,
+                                self_name,
+                                refs,
+                            );
                         }
                         PropertyDefinition::MethodDefinition(method) => {
                             let key = object_method_key(method);
@@ -2940,17 +3071,45 @@ impl<'a> AnalysisBuilder<'a> {
                             refs.insert(interner.resolve_expect(identifier.sym()).to_string());
                         }
                         PropertyDefinition::CoverInitializedName(_, value) => {
-                            self.scan_expression(owner_id, value, interner, source_text, self_name, refs);
+                            self.scan_expression(
+                                owner_id,
+                                value,
+                                interner,
+                                source_text,
+                                self_name,
+                                refs,
+                            );
                         }
                     }
                 }
             }
             Expression::Unary(unary) => {
-                self.scan_expression(owner_id, unary.target(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    unary.target(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Expression::Binary(binary) => {
-                self.scan_expression(owner_id, binary.lhs(), interner, source_text, self_name, refs);
-                self.scan_expression(owner_id, binary.rhs(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    binary.lhs(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_expression(
+                    owner_id,
+                    binary.rhs(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Expression::Assign(assign) => {
                 match assign.lhs() {
@@ -2958,11 +3117,25 @@ impl<'a> AnalysisBuilder<'a> {
                         refs.insert(interner.resolve_expect(identifier.sym()).to_string());
                     }
                     AssignTarget::Access(access) => {
-                        self.scan_property_access(owner_id, access, interner, source_text, self_name, refs);
+                        self.scan_property_access(
+                            owner_id,
+                            access,
+                            interner,
+                            source_text,
+                            self_name,
+                            refs,
+                        );
                     }
                     _ => {}
                 }
-                self.scan_expression(owner_id, assign.rhs(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    assign.rhs(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
             }
             Expression::Update(update) => {
                 if let UpdateTarget::Identifier(identifier) = update.target() {
@@ -2970,7 +3143,14 @@ impl<'a> AnalysisBuilder<'a> {
                 }
             }
             Expression::Call(call) => {
-                self.scan_expression(owner_id, call.function(), interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    call.function(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
                 for arg in call.args() {
                     self.scan_expression(owner_id, arg, interner, source_text, self_name, refs);
                 }
@@ -3001,7 +3181,12 @@ impl<'a> AnalysisBuilder<'a> {
                         body: function.body(),
                         is_expression: true,
                     };
-                    self.collect_function_plan(pending, owner_id.to_string(), interner, source_text);
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        interner,
+                        source_text,
+                    );
                 }
             }
             Expression::ArrowFunction(function) => {
@@ -3025,7 +3210,12 @@ impl<'a> AnalysisBuilder<'a> {
                         body: function.body(),
                         is_expression: true,
                     };
-                    self.collect_function_plan(pending, owner_id.to_string(), interner, source_text);
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        interner,
+                        source_text,
+                    );
                 }
             }
             Expression::This(_) => {
@@ -3083,7 +3273,14 @@ impl<'a> AnalysisBuilder<'a> {
         let PropertyAccess::Simple(access) = access else {
             return;
         };
-        self.scan_expression(owner_id, access.target(), interner, source_text, self_name, refs);
+        self.scan_expression(
+            owner_id,
+            access.target(),
+            interner,
+            source_text,
+            self_name,
+            refs,
+        );
         if let PropertyAccessField::Expr(expr) = access.field() {
             self.scan_expression(owner_id, expr, interner, source_text, self_name, refs);
         }
@@ -7138,7 +7335,8 @@ impl<'a> ScriptLowerer<'a> {
                         .cloned()
                         .unwrap_or(FunctionSignature {
                             id: init_function_id.clone(),
-                            to_string_representation: CallableToStringRepresentation::NativeAnonymous,
+                            to_string_representation:
+                                CallableToStringRepresentation::NativeAnonymous,
                             flavor: FunctionFlavor::Ordinary,
                             callable: true,
                             constructable: false,
@@ -7192,7 +7390,8 @@ impl<'a> ScriptLowerer<'a> {
                         .cloned()
                         .unwrap_or(FunctionSignature {
                             id: init_function_id.clone(),
-                            to_string_representation: CallableToStringRepresentation::NativeAnonymous,
+                            to_string_representation:
+                                CallableToStringRepresentation::NativeAnonymous,
                             flavor: FunctionFlavor::Ordinary,
                             callable: true,
                             constructable: false,
@@ -9076,8 +9275,9 @@ impl<'a> ScriptLowerer<'a> {
             if name == "toString"
                 && self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype")
             {
-                return self
-                    .function_value_expr(StandardBuiltinId::FunctionPrototypeToString.function_id());
+                return self.function_value_expr(
+                    StandardBuiltinId::FunctionPrototypeToString.function_id(),
+                );
             }
             if name == "stack" && self.is_error_constructor_expr(&target) {
                 return self.unsupported_expr("Error.stack");
@@ -9107,8 +9307,9 @@ impl<'a> ScriptLowerer<'a> {
                 && (target.kind == ValueKind::Function
                     || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
             {
-                return self
-                    .function_value_expr(StandardBuiltinId::FunctionPrototypeToString.function_id());
+                return self.function_value_expr(
+                    StandardBuiltinId::FunctionPrototypeToString.function_id(),
+                );
             }
             if name == "toString" && self.is_error_prototype_expr(&target) {
                 return self

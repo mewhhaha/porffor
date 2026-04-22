@@ -651,11 +651,7 @@ impl WrapForValidIteratorPrototype {
             JsNativeError::typ()
                 .with_message("%WrapForValidIteratorPrototype%.next requires internal slot")
         })?;
-        let result = wrap
-            .next_method
-            .call(&wrap.iterator.clone().into(), &[], context)?;
-        IteratorResult::from_value(result.clone())?;
-        Ok(result)
+        wrap.next_method.call(&wrap.iterator.clone().into(), &[], context)
     }
 
     fn return_(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
@@ -774,10 +770,15 @@ impl IteratorHelperObject {
                 inner,
             } => loop {
                 if let Some(inner_record) = inner {
-                    if let Some(value) = inner_record.step_value(context)? {
-                        return Ok(create_iter_result_object(value, false, context));
+                    match inner_record.step_value(context) {
+                        Ok(Some(value)) => {
+                            return Ok(create_iter_result_object(value, false, context));
+                        }
+                        Ok(None) => {
+                            *inner = None;
+                        }
+                        Err(error) => return iterated.close(Err(error), context),
                     }
-                    *inner = None;
                 }
 
                 let Some(value) = iterated.step_value(context)? else {

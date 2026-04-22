@@ -317,7 +317,10 @@ fn fake_suite_config() -> SuiteConfig {
 fn fake_suite_counts() -> Result<FakeSuiteCounts, String> {
     let runner = ConformanceRunner::with_config(fake_suite_config());
     let full_total = runner.discover_suite(None)?.cases.len();
-    let wasm_safe_total = runner.discover_suite(Some("language/wasm/pass"))?.cases.len();
+    let wasm_safe_total = runner
+        .discover_suite(Some("language/wasm/pass"))?
+        .cases
+        .len();
     Ok(FakeSuiteCounts {
         wasm_safe_total,
         full_total,
@@ -546,7 +549,12 @@ fn top_target_labels(entries: &[PublishedTargetEntry], limit: usize) -> String {
     let labels = entries
         .iter()
         .take(limit)
-        .map(|entry| format!("`{}: {}/{} passed`", entry.filter, entry.passed, entry.total))
+        .map(|entry| {
+            format!(
+                "`{}: {}/{} passed`",
+                entry.filter, entry.passed, entry.total
+            )
+        })
         .collect::<Vec<_>>();
     if labels.is_empty() {
         "none".to_string()
@@ -584,7 +592,10 @@ fn render_current_status_block(artifact: &PublishedStatusArtifact) -> String {
     )
 }
 
-fn rewrite_current_status_block(readme_path: &Path, artifact: &PublishedStatusArtifact) -> Result<(), String> {
+fn rewrite_current_status_block(
+    readme_path: &Path,
+    artifact: &PublishedStatusArtifact,
+) -> Result<(), String> {
     let raw = fs::read_to_string(readme_path)
         .map_err(|err| format!("failed to read {}: {err}", readme_path.display()))?;
     let replacement = render_current_status_block(artifact);
@@ -592,11 +603,19 @@ fn rewrite_current_status_block(readme_path: &Path, artifact: &PublishedStatusAr
         raw.find("<!-- porffor-status:start -->"),
         raw.find("<!-- porffor-status:end -->"),
     ) {
-        let section_start = raw[..start]
-            .rfind("## Current Status")
-            .ok_or_else(|| format!("missing `## Current Status` before status marker in {}", readme_path.display()))?;
+        let section_start = raw[..start].rfind("## Current Status").ok_or_else(|| {
+            format!(
+                "missing `## Current Status` before status marker in {}",
+                readme_path.display()
+            )
+        })?;
         let after_end = end + "<!-- porffor-status:end -->".len();
-        format!("{}{}{}", &raw[..section_start], replacement, &raw[after_end..])
+        format!(
+            "{}{}{}",
+            &raw[..section_start],
+            replacement,
+            &raw[after_end..]
+        )
     } else {
         let section_start = raw
             .find("## Current Status")
@@ -605,7 +624,12 @@ fn rewrite_current_status_block(readme_path: &Path, artifact: &PublishedStatusAr
             .find("\n## ")
             .map(|offset| section_start + "## Current Status".len() + offset)
             .unwrap_or(raw.len());
-        format!("{}{}{}", &raw[..section_start], replacement, &raw[section_end..])
+        format!(
+            "{}{}{}",
+            &raw[..section_start],
+            replacement,
+            &raw[section_end..]
+        )
     };
     fs::write(readme_path, updated)
         .map_err(|err| format!("failed to write {}: {err}", readme_path.display()))
@@ -728,15 +752,18 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                         .to_string(),
                 );
             }
-            let verified = match runner
-                .load_verified_aggregate_summary(&parsed.run_config.snapshot_name, execution_backend)
-            {
+            let verified = match runner.load_verified_aggregate_summary(
+                &parsed.run_config.snapshot_name,
+                execution_backend,
+            ) {
                 Ok(verified) => verified,
                 Err(err)
                     if err.contains("missing aggregate snapshot")
                         || err.contains("aggregate snapshot incomplete") =>
                 {
-                    runner.run_top_level_matrix(parsed.run_config.clone())?;
+                    let mut resume_run_config = parsed.run_config.clone();
+                    resume_run_config.resume = true;
+                    runner.run_top_level_matrix(resume_run_config)?;
                     runner.load_verified_aggregate_summary(
                         &parsed.run_config.snapshot_name,
                         execution_backend,
@@ -746,10 +773,17 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             };
             let refresh_date = current_utc_date_string()?;
             let fake_counts = fake_suite_counts()?;
-            let artifact =
-                build_published_status_artifact(&fake_counts, &verified, execution_backend, &refresh_date);
-            let status_paths =
-                write_published_status_artifact(&runner.config().snapshot_dir, execution_backend, &artifact)?;
+            let artifact = build_published_status_artifact(
+                &fake_counts,
+                &verified,
+                execution_backend,
+                &refresh_date,
+            );
+            let status_paths = write_published_status_artifact(
+                &runner.config().snapshot_dir,
+                execution_backend,
+                &artifact,
+            )?;
             let readme_path = parsed.readme_path.unwrap_or_else(default_readme_path);
             rewrite_current_status_block(&readme_path, &artifact)?;
 
@@ -759,10 +793,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("passed: {}", verified.summary.passed);
             println!("failed: {}", verified.summary.failed);
             println!("manifest_hash: {}", verified.manifest_hash);
-            println!(
-                "pinned_ecma262: {}",
-                verified.pinned_revisions.ecma262
-            );
+            println!("pinned_ecma262: {}", verified.pinned_revisions.ecma262);
             println!("pinned_test262: {}", verified.pinned_revisions.test262);
             for entry in &artifact.real_suite.counts_per_kind {
                 println!("kind_{}: {}", entry.label, entry.count);
@@ -887,11 +918,10 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                 let value = args
                     .get(index)
                     .ok_or_else(|| "--max-matrix-nodes needs a value".to_string())?;
-                run_config.max_matrix_nodes = Some(
-                    value
-                        .parse::<usize>()
-                        .map_err(|err| format!("invalid --max-matrix-nodes value {value}: {err}"))?,
-                );
+                run_config.max_matrix_nodes =
+                    Some(value.parse::<usize>().map_err(|err| {
+                        format!("invalid --max-matrix-nodes value {value}: {err}")
+                    })?);
             }
             "--readme-path" => {
                 index += 1;

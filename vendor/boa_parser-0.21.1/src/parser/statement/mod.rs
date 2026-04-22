@@ -738,14 +738,25 @@ where
                 }
             }
 
-            if let Some(peek_token) = cursor.peek(0, interner)?
-                && peek_token.kind() == &TokenKind::Punctuator(Punctuator::Comma)
-            {
-                cursor.expect(
-                    TokenKind::Punctuator(Punctuator::Comma),
-                    "object binding pattern",
-                    interner,
-                )?;
+            if let Some(peek_token) = cursor.peek(0, interner)? {
+                match peek_token.kind() {
+                    TokenKind::Punctuator(Punctuator::Comma) => {
+                        cursor.expect(
+                            TokenKind::Punctuator(Punctuator::Comma),
+                            "object binding pattern",
+                            interner,
+                        )?;
+                    }
+                    TokenKind::Punctuator(Punctuator::CloseBlock) => {}
+                    _ => {
+                        return Err(Error::expected(
+                            [",".to_owned(), "}".to_owned()],
+                            peek_token.to_string(interner),
+                            peek_token.span(),
+                            "object binding pattern",
+                        ));
+                    }
+                }
             }
         }
     }

@@ -1267,9 +1267,20 @@ impl JsValue {
     where
         K: Into<PropertyKey>,
     {
-        // Note: The spec specifies this function for JsValue.
-        // The main part of the function is implemented for JsObject.
-        self.to_object(context)?.get_method(key, context)
+        // 1. Assert: IsPropertyKey(P) is true.
+        // 2. Let func be ? GetV(V, P).
+        let func = self.get_v(key, context)?;
+
+        match func.variant() {
+            // 3. If func is either undefined or null, return undefined.
+            JsVariant::Undefined | JsVariant::Null => Ok(None),
+            // 5. Return func.
+            JsVariant::Object(obj) if obj.is_callable() => Ok(Some(obj.clone())),
+            // 4. If IsCallable(func) is false, throw a TypeError exception.
+            _ => Err(JsNativeError::typ()
+                .with_message("value returned for property is not a function")
+                .into()),
+        }
     }
 
     /// It is used to create List value whose elements are provided by the indexed properties of

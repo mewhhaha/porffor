@@ -3298,6 +3298,150 @@ mod tests {
     }
 
     #[test]
+    fn date_parse_supports_spidermonkey_space_forms() {
+        execute_script(
+            r#"
+            if (new Date("1997-03-08 1:1:1.01").getTime() !== new Date("1997-03-08T01:01:01.01").getTime()) {
+              throw new Error("space-separated date-time with short fields should parse");
+            }
+            if (new Date("1997-3-8 11:19:20").getTime() !== new Date("1997-03-08T11:19:20").getTime()) {
+              throw new Error("space-separated date should accept short month/day");
+            }
+            if (new Date("1997-03-08 11:19:10-07").getTime() !== new Date("1997-03-08 11:19:10-0700").getTime()) {
+              throw new Error("space-separated short offset should normalize like four-digit offset");
+            }
+            if (!Number.isNaN(new Date("1997-03-08T11:19:10-07").getTime())) {
+              throw new Error("strict T offset without minutes should stay invalid");
+            }
+            if (!Number.isNaN(new Date("1997-3-8T11:19:20").getTime())) {
+              throw new Error("non-zero-padded T form should stay invalid");
+            }
+            if (!Number.isNaN(new Date("1997-03-08T1:1").getTime())) {
+              throw new Error("short T time fields should stay invalid");
+            }
+            "#,
+            Some("date-parse-space-forms.js"),
+            &[],
+        )
+        .expect("Date.parse should support SpiderMonkey space-separated forms without weakening T forms");
+    }
+
+    #[test]
+    fn date_to_iso_string_formats_year_zero() {
+        execute_script(
+            r#"
+            if (new Date(-62167219200000).toISOString() !== "0000-01-01T00:00:00.000Z") {
+                throw new Error("toISOString should format year zero without negative extended form");
+            }
+            if (new Date(253402300800000).toISOString() !== "+010000-01-01T00:00:00.000Z") {
+              throw new Error("toISOString should preserve positive extended year form");
+            }
+            "#,
+            Some("date-toISOString-year-zero.js"),
+            &[],
+        )
+        .expect("Date.prototype.toISOString should format year zero correctly");
+    }
+
+    #[test]
+    fn async_generator_rejects_invalid_for_await_heads() {
+        execute_script(
+            r#"
+            const AsyncGenerator = async function*() {}.constructor;
+
+            function assertSyntaxError(code) {
+              const functionCode = `async function* f() { ${code} }`;
+              try {
+                AsyncGenerator(code);
+                throw new Error("AsyncGenerator should reject invalid for-await head");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+
+              try {
+                eval(functionCode);
+                throw new Error("direct eval should reject invalid for-await head");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+
+              const indirectEval = eval;
+              try {
+                indirectEval(functionCode);
+                throw new Error("indirect eval should reject invalid for-await head");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+            }
+
+            assertSyntaxError("for await (;;) ;");
+            assertSyntaxError("for await (a ;;) ;");
+            assertSyntaxError("for await (var a in null) ;");
+            assertSyntaxError("for await ([a] = 0 in null) ;");
+            "#,
+            Some("async-generator-invalid-for-await-heads.js"),
+            &[],
+        )
+        .expect("async generators should reject invalid for-await heads across constructor and eval paths");
+    }
+
+    #[test]
+    fn async_parser_rejects_escaped_heads_and_async_async_bindings() {
+        execute_script(
+            r#"
+            function assertSyntaxError(code) {
+              try {
+                Function(code);
+                throw new Error("Function should reject invalid async syntax");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+
+              try {
+                eval(code);
+                throw new Error("direct eval should reject invalid async syntax");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+
+              const indirectEval = eval;
+              try {
+                indirectEval(code);
+                throw new Error("indirect eval should reject invalid async syntax");
+              } catch (error) {
+                if (!(error instanceof SyntaxError)) {
+                  throw error;
+                }
+              }
+            }
+
+            assertSyntaxError("\\u0061sync x => {};");
+            assertSyntaxError("var x = \\u0061sync () => {};");
+            assertSyntaxError("({async async: 0})");
+            assertSyntaxError("var {async async: a} = {}");
+
+            var async = 0;
+            if (async !== 0 || \u0061sync !== 0) {
+              throw new Error("escaped async should stay valid outside async head");
+            }
+            "#,
+            Some("async-parser-invalid-heads.js"),
+            &[],
+        )
+        .expect("async parser should reject escaped async heads and async async bindings");
+    }
+
+    #[test]
     fn supports_native_iterator_helpers() {
         execute_script(
             r#"
@@ -3317,6 +3461,180 @@ mod tests {
             &[],
         )
         .expect("native Iterator helpers should be available");
+    }
+
+    #[test]
+    fn iterator_from_wrap_preserves_raw_next_values() {
+        execute_script(
+            r#"
+            const cases = [undefined, null, 0, false, "test", Symbol("")];
+            for (const value of cases) {
+              const result = Iterator.from({ next: () => value }).next();
+              if (!Object.is(result, value)) {
+                throw new Error("Iterator.from wrapper should preserve raw next values");
+              }
+            }
+            "#,
+            Some("iterator-from-wrap-raw-next.js"),
+            &[],
+        )
+        .expect("Iterator.from wrapper should preserve raw next values");
+    }
+
+    #[test]
+    fn iterator_flat_map_closes_outer_iterator_on_inner_abrupt() {
+        execute_script(
+            r#"
+            class TestIterator extends Iterator {
+              next() {
+                return { done: false, value: 0 };
+              }
+
+              closed = false;
+              return() {
+                this.closed = true;
+                return { done: true };
+              }
+            }
+
+            class TestError extends Error {}
+
+            {
+              class InnerIterator extends Iterator {
+                next() {
+                  throw new TestError();
+                }
+              }
+
+              const iter = new TestIterator();
+              const mapped = iter.flatMap(() => new InnerIterator());
+              try {
+                mapped.next();
+                throw new Error("flatMap should rethrow inner next error");
+              } catch (error) {
+                if (!(error instanceof TestError)) {
+                  throw error;
+                }
+              }
+              if (!iter.closed) {
+                throw new Error("flatMap should close outer iterator on inner next error");
+              }
+            }
+
+            {
+              class InnerIterator extends Iterator {
+                next() {
+                  return {
+                    get done() {
+                      throw new TestError();
+                    }
+                  };
+                }
+              }
+
+              const iter = new TestIterator();
+              const mapped = iter.flatMap(() => new InnerIterator());
+              try {
+                mapped.next();
+                throw new Error("flatMap should rethrow inner done error");
+              } catch (error) {
+                if (!(error instanceof TestError)) {
+                  throw error;
+                }
+              }
+              if (!iter.closed) {
+                throw new Error("flatMap should close outer iterator on inner done error");
+              }
+            }
+
+            {
+              class InnerIterator extends Iterator {
+                next() {
+                  return {
+                    done: false,
+                    get value() {
+                      throw new TestError();
+                    }
+                  };
+                }
+              }
+
+              const iter = new TestIterator();
+              const mapped = iter.flatMap(() => new InnerIterator());
+              try {
+                mapped.next();
+                throw new Error("flatMap should rethrow inner value error");
+              } catch (error) {
+                if (!(error instanceof TestError)) {
+                  throw error;
+                }
+              }
+              if (!iter.closed) {
+                throw new Error("flatMap should close outer iterator on inner value error");
+              }
+            }
+            "#,
+            Some("iterator-flatmap-close-outer.js"),
+            &[],
+        )
+        .expect(
+            "Iterator.prototype.flatMap should close outer iterator on inner abrupt completion",
+        );
+    }
+
+    #[test]
+    fn iterator_flat_map_closes_outer_iterator_when_inner_not_iterable() {
+        execute_script(
+            r#"
+            class InvalidIterable {
+              [Symbol.iterator]() {
+                return {};
+              }
+            }
+
+            class TestIterator extends Iterator {
+              next() {
+                return { done: false, value: 0 };
+              }
+
+              closed = false;
+              return() {
+                this.closed = true;
+                return { done: true };
+              }
+            }
+
+            const nonIterables = [
+              new InvalidIterable(),
+              undefined,
+              null,
+              0,
+              false,
+              Symbol(""),
+              0n,
+              {},
+            ];
+
+            for (const value of nonIterables) {
+              const iter = new TestIterator();
+              const mapped = iter.flatMap(() => value);
+              try {
+                mapped.next();
+                throw new Error("flatMap should throw for non-iterable mapped value");
+              } catch (error) {
+                if (!(error instanceof TypeError)) {
+                  throw error;
+                }
+              }
+              if (!iter.closed) {
+                throw new Error("flatMap should close outer iterator for non-iterable mapped value");
+              }
+            }
+            "#,
+            Some("iterator-flatmap-non-iterable.js"),
+            &[],
+        )
+        .expect("Iterator.prototype.flatMap should close outer iterator when mapped value is not iterable");
     }
 
     #[test]

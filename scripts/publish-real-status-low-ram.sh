@@ -133,6 +133,50 @@ console.log(`${completed} ${nodes.length}`);
 NODE
 }
 
+current_test262_revision() {
+  git -C "$SUITE_ROOT" rev-parse HEAD 2>/dev/null || printf 'missing-vendored-suite\n'
+}
+
+clear_snapshot_family() {
+  find "$SNAPSHOT_DIR" -maxdepth 1 -type f \
+    \( -name "${SNAPSHOT_NAME}-*.json" -o -name "${SNAPSHOT_NAME}-*.txt" \) \
+    -delete
+}
+
+reset_snapshot_family_on_revision_mismatch_once() {
+  local aggregate_glob aggregate_path current_revision snapshot_revision
+  aggregate_glob="$SNAPSHOT_DIR/${SNAPSHOT_NAME}-aggregate-"'*.json'
+  aggregate_path=""
+  if compgen -G "$aggregate_glob" > /dev/null; then
+    aggregate_path="$(ls "$SNAPSHOT_DIR"/"${SNAPSHOT_NAME}"-aggregate-*.json | head -n 1)"
+  fi
+
+  if [[ -z "$aggregate_path" ]]; then
+    return 0
+  fi
+
+  current_revision="$(current_test262_revision)"
+  snapshot_revision="$(
+    AGGREGATE_PATH="$aggregate_path" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+aggregate_path = Path(os.environ["AGGREGATE_PATH"])
+if not aggregate_path.exists():
+    raise SystemExit(0)
+
+aggregate = json.loads(aggregate_path.read_text())
+print(aggregate.get("pinned_revisions", {}).get("test262", ""))
+PY
+  )"
+
+  if [[ -n "$snapshot_revision" && "$snapshot_revision" != "$current_revision" ]]; then
+    echo "snapshot_family_reset: pinned_test262 ${snapshot_revision} -> ${current_revision}"
+    clear_snapshot_family
+  fi
+}
+
 reset_stale_failed_nodes_once() {
   local aggregate_glob aggregate_path
   aggregate_glob="$SNAPSHOT_DIR/${SNAPSHOT_NAME}-aggregate-"'*.json'
@@ -191,9 +235,15 @@ aggregate_path.write_text(json.dumps(aggregate, indent=2) + "\n")
 PY
 }
 
+did_reset_revision_mismatch=0
 did_reset_stale_failed_nodes=0
 
 while true; do
+  if [[ "$did_reset_revision_mismatch" -eq 0 ]]; then
+    reset_snapshot_family_on_revision_mismatch_once
+    did_reset_revision_mismatch=1
+  fi
+
   read -r completed total < <(matrix_progress)
   echo "matrix_progress: ${completed}/${total}"
 

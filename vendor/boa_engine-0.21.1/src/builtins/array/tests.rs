@@ -848,6 +848,28 @@ fn array_symbol_iterator() {
 }
 
 #[test]
+fn array_from_primitives_uses_primitive_receiver_for_iterator_getter() {
+    run_test_actions([
+        TestAction::run_harness(),
+        TestAction::assert(indoc! {r#"
+            for (const primitive of [true, 3.14, "hello", Symbol()]) {
+                const prototype = Object.getPrototypeOf(primitive);
+                Object.defineProperty(prototype, Symbol.iterator, {
+                    configurable: true,
+                    get() {
+                        "use strict";
+                        assert.sameValue(this, primitive);
+                        return () => [this][Symbol.iterator]();
+                    },
+                });
+                assert.sameValue(Array.from(primitive)[0], primitive);
+                delete prototype[Symbol.iterator];
+            }
+        "#}),
+    ]);
+}
+
+#[test]
 fn array_values_symbol_iterator() {
     run_test_actions([TestAction::assert(indoc! {r#"
                 var iterator = [1, 2, 3].values();
@@ -966,5 +988,35 @@ fn array_of_neg_zero() {
         TestAction::run("let arr = [-0, -0, -0, -0];"),
         // Assert the parity of all items of the list.
         TestAction::assert("arr.every(x => (1/x) === -Infinity)"),
+    ]);
+}
+
+#[test]
+fn array_to_locale_string_uses_comma_separator_for_array_like_values() {
+    run_test_actions([
+        TestAction::run_harness(),
+        TestAction::assert(indoc! {r#"
+            var o = { length: 2, 0: 7, 1: { toLocaleString: function() { return "baz"; } } };
+            assert.sameValue(Array.prototype.toLocaleString.call(o), "7,baz");
+        "#}),
+        TestAction::assert(indoc! {r#"
+            var o = {};
+            assert.sameValue(Array.prototype.toLocaleString.call(o), "");
+        "#}),
+        TestAction::assert(indoc! {r#"
+            var log = "";
+            var arr = {
+                length: {
+                    valueOf: function () {
+                        log += "L";
+                        return 2;
+                    }
+                },
+                0: "x",
+                1: "z"
+            };
+            assert.sameValue(Array.prototype.toLocaleString.call(arr), "x,z");
+            assert.sameValue(log, "L");
+        "#}),
     ]);
 }
