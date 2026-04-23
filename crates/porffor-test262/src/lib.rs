@@ -759,6 +759,7 @@ pub fn run_top_level_matrix(
     let aggregate_manifest_hash = hash_matrix_nodes(&nodes, run_config.execution_backend);
     let aggregate_snapshot_name = format!("{}-aggregate", run_config.snapshot_name);
     let pinned_revisions = pinned_revisions(config);
+    let low_ram_resume = run_config.resume && run_config.max_matrix_nodes == Some(1);
 
     let mut entries = Vec::new();
     let mut completed_nodes = BTreeSet::new();
@@ -772,12 +773,7 @@ pub fn run_top_level_matrix(
             &pinned_revisions,
         )? {
             if snapshot.run_kind == "aggregate-matrix" {
-                if run_config.max_matrix_nodes == Some(1) {
-                    completed_nodes = snapshot
-                        .completed_nodes
-                        .into_iter()
-                        .filter(|node_id| current_node_ids.contains(node_id))
-                        .collect::<BTreeSet<_>>();
+                if low_ram_resume {
                     entries = snapshot
                         .aggregate_entries
                         .into_iter()
@@ -792,6 +788,23 @@ pub fn run_top_level_matrix(
                         .collect::<BTreeMap<_, _>>();
                 }
             }
+        }
+
+        if low_ram_resume {
+            let rebuilt_entries = rebuild_resume_entries_from_node_snapshots(
+                config,
+                &run_config.snapshot_name,
+                &nodes,
+                run_config.execution_backend,
+                &pinned_revisions,
+            )?;
+            if rebuilt_entries.len() > entries.len() {
+                entries = rebuilt_entries;
+            }
+            completed_nodes = entries
+                .iter()
+                .map(|entry| entry.node_id.clone())
+                .collect::<BTreeSet<_>>();
         }
 
         for node in &nodes {
@@ -868,6 +881,31 @@ pub fn run_top_level_matrix(
     }
 
     Ok(aggregate_from_entries(&entries))
+}
+
+fn rebuild_resume_entries_from_node_snapshots(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    nodes: &[RunMatrixNode],
+    expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
+) -> Result<Vec<TopLevelRunSummary>, String> {
+    let mut entries = Vec::new();
+    for node in nodes {
+        match load_resume_matrix_node_summary_for_node(
+            config,
+            snapshot_name,
+            node,
+            expected_backend,
+            expected_pinned,
+        ) {
+            Ok(Some(summary)) => entries.push(summary),
+            Ok(None) => {}
+            Err(err) if err.starts_with("resume node snapshot mismatch") => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(entries)
 }
 
 fn load_resume_matrix_node_summary_for_node(
@@ -3581,6 +3619,215 @@ mod tests {
             .expect("resumed entry should exist");
         assert_eq!(resumed.failed, 0);
         assert_eq!(resumed_entry.failed, 0);
+    }
+
+    #[test]
+    fn report_all_low_ram_resume_repairs_clobbered_aggregate_before_next_node() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-low-ram-repair".to_string(),
+            max_matrix_nodes: Some(1),
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("first low-ram checkpoint should complete");
+        let second = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect("second low-ram checkpoint should complete");
+        let third = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect("third low-ram checkpoint should complete");
+        assert_eq!(first.entries.len(), 1);
+        assert_eq!(second.entries.len(), 2);
+        assert_eq!(third.entries.len(), 3);
+
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let aggregate_hash = hash_matrix_nodes(&nodes, ExecutionBackend::SpecExec);
+        let aggregate_path = config.snapshot_dir.join(format!(
+            "{}-aggregate-{aggregate_hash}.json",
+            run_config.snapshot_name
+        ));
+        let mut file =
+            read_snapshot_file(&aggregate_path).expect("aggregate snapshot should parse");
+        assert_eq!(file.completed_nodes.len(), 3);
+        assert_eq!(file.aggregate_entries.len(), 3);
+
+        file.aggregate_entries.truncate(1);
+        file.total = file.aggregate_entries.iter().map(|entry| entry.total).sum();
+        file.passed = file.aggregate_entries.iter().map(|entry| entry.passed).sum();
+        file.failures.clear();
+        file.counts_per_kind = BTreeMap::new();
+        file.aggregate_counts_so_far = BTreeMap::new();
+        for kind in FailureKind::ALL {
+            file.counts_per_kind.insert(kind.as_str().to_string(), 0);
+            file.aggregate_counts_so_far
+                .insert(kind.as_str().to_string(), 0);
+        }
+        fs::write(
+            &aggregate_path,
+            serde_json::to_string_pretty(&file).expect("aggregate json should serialize"),
+        )
+        .expect("clobbered aggregate should write");
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect("low-ram resume repair should work");
+        assert_eq!(resumed.entries.len(), 4);
+        assert_eq!(resumed.entries[0].node_id, first.entries[0].node_id);
+        assert_eq!(resumed.entries[1].node_id, second.entries[1].node_id);
+        assert_eq!(resumed.entries[2].node_id, third.entries[2].node_id);
+        assert_eq!(resumed.entries[3].node_id, nodes[3].node_id);
+
+        let repaired =
+            read_snapshot_file(&aggregate_path).expect("repaired aggregate should parse");
+        assert_eq!(repaired.completed_nodes.len(), 4);
+        assert_eq!(repaired.aggregate_entries.len(), 4);
+    }
+
+    #[test]
+    fn rebuild_resume_entries_ignores_stale_pin_backend_and_strategy_snapshots() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-rebuild-stale-nodes".to_string(),
+            max_matrix_nodes: Some(4),
+            ..RunConfig::default()
+        };
+        let summary = run_top_level_matrix(&config, run_config.clone())
+            .expect("matrix checkpoint should write node snapshots");
+        assert_eq!(summary.entries.len(), 4);
+
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let pinned = pinned_revisions(&config);
+        for (index, entry) in summary.entries.iter().take(3).enumerate() {
+            let prefix = format!(
+                "{}-{}-",
+                run_config.snapshot_name,
+                sanitize_filter_for_snapshot(&entry.node_id)
+            );
+            let paths = fs::read_dir(&config.snapshot_dir)
+                .expect("snapshot dir should read")
+                .filter_map(Result::ok)
+                .map(|candidate| candidate.path())
+                .filter(|path| {
+                    path.extension().and_then(|value| value.to_str()) == Some("json")
+                        && path
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .is_some_and(|name| name.starts_with(&prefix))
+                })
+                .collect::<Vec<_>>();
+            assert!(!paths.is_empty(), "node snapshot should exist for {}", entry.node_id);
+            for path in paths {
+                let mut file = read_snapshot_file(&path).expect("node snapshot should parse");
+                match index {
+                    0 => file.pinned_revisions.test262 = "stale-test262".to_string(),
+                    1 => file.execution_backend = ExecutionBackend::WasmAot.as_str().to_string(),
+                    2 => file.matrix_strategy_version = MATRIX_STRATEGY_VERSION.saturating_sub(1),
+                    _ => unreachable!(),
+                }
+                fs::write(
+                    &path,
+                    serde_json::to_string_pretty(&file)
+                        .expect("node snapshot json should serialize"),
+                )
+                .expect("mutated stale node snapshot should write");
+            }
+        }
+
+        let rebuilt = rebuild_resume_entries_from_node_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &nodes,
+            ExecutionBackend::SpecExec,
+            &pinned,
+        )
+        .expect("rebuild from node snapshots should work");
+        assert_eq!(rebuilt.len(), 1);
+        assert_eq!(rebuilt[0].node_id, nodes[3].node_id);
+    }
+
+    #[test]
+    fn rebuild_resume_entries_ignores_incomplete_case_checkpoint_snapshots() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-rebuild-ignore-checkpoint".to_string(),
+            ..RunConfig::default()
+        };
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let non_empty_nodes = nodes
+            .iter()
+            .filter(|node| node.total_cases > 0)
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(non_empty_nodes.len(), 2);
+        let first_summary = run_matrix_node(&config, &non_empty_nodes[0], &run_config)
+            .expect("first node snapshot should write");
+        let second_summary = run_matrix_node(&config, &non_empty_nodes[1], &run_config)
+            .expect("second node snapshot should write");
+        let pinned = pinned_revisions(&config);
+        let prefix = format!(
+            "{}-{}-",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&second_summary.node_id)
+        );
+        let paths = fs::read_dir(&config.snapshot_dir)
+            .expect("snapshot dir should read")
+            .filter_map(Result::ok)
+            .map(|candidate| candidate.path())
+            .filter(|path| {
+                path.extension().and_then(|value| value.to_str()) == Some("json")
+                    && path
+                        .file_name()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !paths.is_empty(),
+            "node snapshot should exist for {}",
+            second_summary.node_id
+        );
+        for path in paths {
+            let mut file = read_snapshot_file(&path).expect("node snapshot should parse");
+            file.run_kind = "resume-case-checkpoint".to_string();
+            file.completed_paths.clear();
+            fs::write(
+                &path,
+                serde_json::to_string_pretty(&file)
+                    .expect("node checkpoint json should serialize"),
+            )
+            .expect("incomplete checkpoint snapshot should write");
+        }
+
+        let rebuilt = rebuild_resume_entries_from_node_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &nodes,
+            ExecutionBackend::SpecExec,
+            &pinned,
+        )
+        .expect("rebuild from node snapshots should work");
+        assert_eq!(rebuilt.len(), 1);
+        assert_eq!(rebuilt[0].node_id, first_summary.node_id);
+        assert!(!rebuilt
+            .iter()
+            .any(|entry| entry.node_id == second_summary.node_id));
     }
 
     #[test]

@@ -4,12 +4,12 @@
   "execution_backend": "spec-exec",
   "pinned_revisions": {
     "ecma262": "ecma262-current-draft",
-    "test262": "6cbab9d88da2ec32db4bb1718c6a2693859e5d85"
+    "test262": "4f5bf38883cc6b7916feca1acb0f780501ada973"
   },
   "manifest_hash": 15267581516879359568,
   "run_kind": "aggregate-matrix",
-  "total": 12472,
-  "passed": 12472,
+  "total": 11503,
+  "passed": 11503,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
@@ -109,25 +109,7 @@
     "built-ins/Object/getOwnPropertyNames",
     "built-ins/Object/getOwnPropertySymbols",
     "built-ins/Object/getPrototypeOf",
-    "built-ins/Object/groupBy",
-    "built-ins/Object/hasOwn",
-    "built-ins/Object/internals",
-    "built-ins/Object/is",
-    "built-ins/Object/isExtensible",
-    "built-ins/Object/isFrozen",
-    "built-ins/Object/isSealed",
-    "built-ins/Object/keys",
-    "built-ins/Object/preventExtensions",
-    "built-ins/Object/prototype",
-    "built-ins/Object/seal",
-    "built-ins/Object/setPrototypeOf",
-    "built-ins/Object/values",
-    "built-ins/Promise",
-    "built-ins/Promise/Symbol.species",
-    "built-ins/Promise/all",
-    "built-ins/Promise/allKeyed",
-    "built-ins/Promise/allSettled",
-    "built-ins/Promise/allSettledKeyed"
+    "built-ins/Object/groupBy"
   ],
   "aggregate_counts_so_far": {
     "EarlyError": 0,
@@ -166,7 +148,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 8575315321452509597
+      "manifest_hash": 1743283467236543523
     },
     {
       "node_id": "built-ins/AbstractModuleSource",
@@ -196,7 +178,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5223329817645430284
+      "manifest_hash": 5028246356288903276
     },
     {
       "node_id": "built-ins/AggregateError",
@@ -226,7 +208,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13580055806019496901
+      "manifest_hash": 7249903177391708071
     },
     {
       "node_id": "built-ins/Array",
@@ -256,7 +238,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11293444957494108569
+      "manifest_hash": 13451931493461159813
     },
     {
       "node_id": "built-ins/Array/Symbol.species",
@@ -287,7 +269,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 6569394235441431315
+      "manifest_hash": 748697713821481113
     },
     {
       "node_id": "built-ins/Array/from",
@@ -318,7 +300,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 2468327500016416630
+      "manifest_hash": 11373516160597938843
     },
     {
       "node_id": "built-ins/Array/fromAsync",
@@ -349,7 +331,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5124831212761612184
+      "manifest_hash": 17792803545864943181
     },
     {
       "node_id": "built-ins/Array/isArray",
@@ -380,7 +362,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 7476059590545392288
+      "manifest_hash": 1076325247242425388
     },
     {
       "node_id": "built-ins/Array/length",
@@ -411,7 +393,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 2972800240084744191
+      "manifest_hash": 1266399389449319853
     },
     {
       "node_id": "built-ins/Array/of",
@@ -442,7 +424,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 4334787304144944829
+      "manifest_hash": 8235354563095766949
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0001-of-0012",
@@ -473,7 +455,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1943237151470914864
+      "manifest_hash": 9369919251442657551
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0002-of-0012",
@@ -504,7 +486,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3553638267439213672
+      "manifest_hash": 9191930372626660845
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0003-of-0012",
@@ -535,7 +517,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3327516904298280987
+      "manifest_hash": 4934487874121521296
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0004-of-0012",
@@ -566,7 +548,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 14157520897874923205
+      "manifest_hash": 7912084430037477752
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0005-of-0012",
@@ -597,7 +579,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 17942159451708962793
+      "manifest_hash": 1069088785250392317
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0006-of-0012",
@@ -628,7 +610,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3668396201758954273
+      "manifest_hash": 7094022907480486098
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0007-of-0012",
@@ -659,7 +641,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 2097610093382390367
+      "manifest_hash": 4660579270111838265
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0008-of-0012",
@@ -690,7 +672,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10851572115657432968
+      "manifest_hash": 6532717112978564457
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0009-of-0012",
@@ -721,7 +703,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 2290904721157808865
+      "manifest_hash": 8031087954533292009
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0010-of-0012",
@@ -752,7 +734,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10270481821777944526
+      "manifest_hash": 7709712756816474384
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0011-of-0012",
@@ -783,7 +765,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12782425650654117953
+      "manifest_hash": 1543856596036951855
     },
     {
       "node_id": "built-ins/Array/prototype@chunk-0012-of-0012",
@@ -814,7 +796,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 8455831026696357205
+      "manifest_hash": 7624125076713843443
     },
     {
       "node_id": "built-ins/ArrayBuffer",
@@ -844,7 +826,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13592317191326696
+      "manifest_hash": 16275047050296790809
     },
     {
       "node_id": "built-ins/ArrayIteratorPrototype",
@@ -874,7 +856,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10792990384105402098
+      "manifest_hash": 11412999870252463168
     },
     {
       "node_id": "built-ins/AsyncDisposableStack",
@@ -904,7 +886,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3167864710350909186
+      "manifest_hash": 211172857905374776
     },
     {
       "node_id": "built-ins/AsyncFromSyncIteratorPrototype",
@@ -934,7 +916,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12826385963790418916
+      "manifest_hash": 11542216425667006412
     },
     {
       "node_id": "built-ins/AsyncFunction",
@@ -964,7 +946,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10210824420849049494
+      "manifest_hash": 11835026007270824871
     },
     {
       "node_id": "built-ins/AsyncGeneratorFunction",
@@ -994,7 +976,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11076006729562506959
+      "manifest_hash": 6134835291350361785
     },
     {
       "node_id": "built-ins/AsyncGeneratorPrototype",
@@ -1024,7 +1006,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13120283095708106215
+      "manifest_hash": 10339813240963156520
     },
     {
       "node_id": "built-ins/AsyncIteratorPrototype",
@@ -1054,7 +1036,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 16492109253480888350
+      "manifest_hash": 2508634439612748611
     },
     {
       "node_id": "built-ins/Atomics",
@@ -1084,7 +1066,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 14383160104565338512
+      "manifest_hash": 3607624451013195324
     },
     {
       "node_id": "built-ins/BigInt",
@@ -1114,7 +1096,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 4606209530346800041
+      "manifest_hash": 6046809283709876546
     },
     {
       "node_id": "built-ins/Boolean",
@@ -1144,7 +1126,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 16095639760711663115
+      "manifest_hash": 9047888087033894784
     },
     {
       "node_id": "built-ins/DataView",
@@ -1174,7 +1156,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12364153636675412773
+      "manifest_hash": 17171423111895670747
     },
     {
       "node_id": "built-ins/DataView/prototype",
@@ -1205,7 +1187,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13609157026079338514
+      "manifest_hash": 7968460693980322530
     },
     {
       "node_id": "built-ins/Date",
@@ -1235,7 +1217,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 902037986068055515
+      "manifest_hash": 1486869146951370581
     },
     {
       "node_id": "built-ins/Date/UTC",
@@ -1266,7 +1248,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12329444450767030816
+      "manifest_hash": 2490093012835912029
     },
     {
       "node_id": "built-ins/Date/now",
@@ -1297,7 +1279,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5492618977943170762
+      "manifest_hash": 8112379019271792300
     },
     {
       "node_id": "built-ins/Date/parse",
@@ -1328,7 +1310,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3031230247099858144
+      "manifest_hash": 2465069586552699935
     },
     {
       "node_id": "built-ins/Date/prototype",
@@ -1359,7 +1341,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 74480820422301420
+      "manifest_hash": 9731296672226338850
     },
     {
       "node_id": "built-ins/DisposableStack",
@@ -1389,7 +1371,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1046657613180885786
+      "manifest_hash": 15830369397384793334
     },
     {
       "node_id": "built-ins/Error",
@@ -1419,7 +1401,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13317794408976181343
+      "manifest_hash": 10262017950583780679
     },
     {
       "node_id": "built-ins/FinalizationRegistry",
@@ -1449,7 +1431,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 9608815071532830642
+      "manifest_hash": 11451776015709594112
     },
     {
       "node_id": "built-ins/Function",
@@ -1479,7 +1461,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5848921107151953581
+      "manifest_hash": 898558907021444726
     },
     {
       "node_id": "built-ins/Function/internals",
@@ -1510,7 +1492,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15365820761888074854
+      "manifest_hash": 18446427514921576292
     },
     {
       "node_id": "built-ins/Function/length",
@@ -1541,7 +1523,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 2388341608188842696
+      "manifest_hash": 12274777888601025178
     },
     {
       "node_id": "built-ins/Function/prototype",
@@ -1572,7 +1554,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5839453272444421014
+      "manifest_hash": 4880248465390323300
     },
     {
       "node_id": "built-ins/GeneratorFunction",
@@ -1602,7 +1584,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1230817967614123288
+      "manifest_hash": 15583430764619762902
     },
     {
       "node_id": "built-ins/GeneratorPrototype",
@@ -1632,7 +1614,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 4155977227738457296
+      "manifest_hash": 10918643042665585116
     },
     {
       "node_id": "built-ins/Infinity",
@@ -1662,7 +1644,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12214949533770956032
+      "manifest_hash": 15497414342107324971
     },
     {
       "node_id": "built-ins/Iterator",
@@ -1692,7 +1674,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3412567142344771710
+      "manifest_hash": 7066838468240645609
     },
     {
       "node_id": "built-ins/Iterator/concat",
@@ -1723,7 +1705,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1454251885783676969
+      "manifest_hash": 18079740715358853505
     },
     {
       "node_id": "built-ins/Iterator/from",
@@ -1754,7 +1736,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 349341946949608161
+      "manifest_hash": 7485736650377201787
     },
     {
       "node_id": "built-ins/Iterator/prototype",
@@ -1785,7 +1767,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 13562012139577104913
+      "manifest_hash": 11252023259808987757
     },
     {
       "node_id": "built-ins/Iterator/zip",
@@ -1816,7 +1798,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15789029039405652845
+      "manifest_hash": 1532926375254752728
     },
     {
       "node_id": "built-ins/Iterator/zipKeyed",
@@ -1847,7 +1829,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 8667056751850003984
+      "manifest_hash": 2468545477322944205
     },
     {
       "node_id": "built-ins/JSON",
@@ -1877,7 +1859,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 8613641634810089361
+      "manifest_hash": 15348244104423737586
     },
     {
       "node_id": "built-ins/Map",
@@ -1907,7 +1889,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1592533595315921323
+      "manifest_hash": 6037416336063206668
     },
     {
       "node_id": "built-ins/MapIteratorPrototype",
@@ -1937,7 +1919,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11280005134339406083
+      "manifest_hash": 16473639203519665092
     },
     {
       "node_id": "built-ins/Math",
@@ -1967,7 +1949,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15390878959835463025
+      "manifest_hash": 17378363000233447607
     },
     {
       "node_id": "built-ins/NaN",
@@ -1997,7 +1979,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3804487617290890760
+      "manifest_hash": 181989739958464437
     },
     {
       "node_id": "built-ins/NativeErrors",
@@ -2027,7 +2009,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15869307658444217150
+      "manifest_hash": 14532366756010835880
     },
     {
       "node_id": "built-ins/Number",
@@ -2057,7 +2039,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 12657333069966359999
+      "manifest_hash": 16102143633354047766
     },
     {
       "node_id": "built-ins/Object",
@@ -2087,7 +2069,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10731082827038727721
+      "manifest_hash": 16273564326855142169
     },
     {
       "node_id": "built-ins/Object/assign",
@@ -2118,7 +2100,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 7900348606892033438
+      "manifest_hash": 17416737484537704160
     },
     {
       "node_id": "built-ins/Object/create",
@@ -2149,7 +2131,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15566852861081133703
+      "manifest_hash": 18425627004567613228
     },
     {
       "node_id": "built-ins/Object/defineProperties@chunk-0001-of-0003",
@@ -2180,7 +2162,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 1591531828132795787
+      "manifest_hash": 1600521570061191464
     },
     {
       "node_id": "built-ins/Object/defineProperties@chunk-0002-of-0003",
@@ -2211,7 +2193,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 193836252892178581
+      "manifest_hash": 7335369206150784522
     },
     {
       "node_id": "built-ins/Object/defineProperties@chunk-0003-of-0003",
@@ -2242,7 +2224,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3052501268927310568
+      "manifest_hash": 5543103828901864775
     },
     {
       "node_id": "built-ins/Object/defineProperty@chunk-0001-of-0005",
@@ -2273,7 +2255,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11220750223478151590
+      "manifest_hash": 7419159863458200040
     },
     {
       "node_id": "built-ins/Object/defineProperty@chunk-0002-of-0005",
@@ -2304,7 +2286,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 17223310196618565280
+      "manifest_hash": 8155961633867151506
     },
     {
       "node_id": "built-ins/Object/defineProperty@chunk-0003-of-0005",
@@ -2335,7 +2317,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 9723365395391270443
+      "manifest_hash": 14022510796653065835
     },
     {
       "node_id": "built-ins/Object/defineProperty@chunk-0004-of-0005",
@@ -2366,7 +2348,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 15362944327605336869
+      "manifest_hash": 14136811576082540238
     },
     {
       "node_id": "built-ins/Object/defineProperty@chunk-0005-of-0005",
@@ -2397,7 +2379,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 9324022557505395788
+      "manifest_hash": 5011401156306623044
     },
     {
       "node_id": "built-ins/Object/entries",
@@ -2428,7 +2410,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11581729673926823645
+      "manifest_hash": 4038272644350917260
     },
     {
       "node_id": "built-ins/Object/freeze",
@@ -2459,7 +2441,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 14780030534675705358
+      "manifest_hash": 13122067028905903226
     },
     {
       "node_id": "built-ins/Object/fromEntries",
@@ -2490,7 +2472,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 11933429001738394172
+      "manifest_hash": 7672966553577100603
     },
     {
       "node_id": "built-ins/Object/getOwnPropertyDescriptor",
@@ -2521,7 +2503,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 115920239773176853
+      "manifest_hash": 9303564441033807220
     },
     {
       "node_id": "built-ins/Object/getOwnPropertyDescriptors",
@@ -2552,7 +2534,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 3697271555648864714
+      "manifest_hash": 6961917698992586696
     },
     {
       "node_id": "built-ins/Object/getOwnPropertyNames",
@@ -2583,7 +2565,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 10544605937473292891
+      "manifest_hash": 5041619905493670062
     },
     {
       "node_id": "built-ins/Object/getOwnPropertySymbols",
@@ -2614,7 +2596,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 5531886116307013335
+      "manifest_hash": 9795796213645477048
     },
     {
       "node_id": "built-ins/Object/getPrototypeOf",
@@ -2645,7 +2627,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 8951038574577845266
+      "manifest_hash": 213640030404605593
     },
     {
       "node_id": "built-ins/Object/groupBy",
@@ -2676,564 +2658,7 @@
         "spec-exec-host": 0,
         "unknown": 0
       },
-      "manifest_hash": 17090429782411976046
-    },
-    {
-      "node_id": "built-ins/Object/hasOwn",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/hasOwn",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "hasOwn"
-      ],
-      "total": 62,
-      "passed": 62,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 11779615522464047194
-    },
-    {
-      "node_id": "built-ins/Object/internals",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/internals",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "internals"
-      ],
-      "total": 6,
-      "passed": 6,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 9024768965460754693
-    },
-    {
-      "node_id": "built-ins/Object/is",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/is",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "is"
-      ],
-      "total": 21,
-      "passed": 21,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 15876692048241127795
-    },
-    {
-      "node_id": "built-ins/Object/isExtensible",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/isExtensible",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "isExtensible"
-      ],
-      "total": 38,
-      "passed": 38,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 5554092733143844841
-    },
-    {
-      "node_id": "built-ins/Object/isFrozen",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/isFrozen",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "isFrozen"
-      ],
-      "total": 59,
-      "passed": 59,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 16736929498076938918
-    },
-    {
-      "node_id": "built-ins/Object/isSealed",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/isSealed",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "isSealed"
-      ],
-      "total": 33,
-      "passed": 33,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 10146871530834723039
-    },
-    {
-      "node_id": "built-ins/Object/keys",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/keys",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "keys"
-      ],
-      "total": 59,
-      "passed": 59,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 3435128746073048188
-    },
-    {
-      "node_id": "built-ins/Object/preventExtensions",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/preventExtensions",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "preventExtensions"
-      ],
-      "total": 40,
-      "passed": 40,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 17605649079228713965
-    },
-    {
-      "node_id": "built-ins/Object/prototype",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/prototype",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "prototype"
-      ],
-      "total": 248,
-      "passed": 248,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 15390270588442538321
-    },
-    {
-      "node_id": "built-ins/Object/seal",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/seal",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "seal"
-      ],
-      "total": 94,
-      "passed": 94,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 14718857130850524043
-    },
-    {
-      "node_id": "built-ins/Object/setPrototypeOf",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/setPrototypeOf",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "setPrototypeOf"
-      ],
-      "total": 12,
-      "passed": 12,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 13071968676381815089
-    },
-    {
-      "node_id": "built-ins/Object/values",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Object/values",
-      "matrix_path": [
-        "built-ins",
-        "Object",
-        "values"
-      ],
-      "total": 20,
-      "passed": 20,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 390022140884393432
-    },
-    {
-      "node_id": "built-ins/Promise",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise",
-      "matrix_path": [
-        "built-ins",
-        "Promise"
-      ],
-      "total": 58,
-      "passed": 58,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 15594804744697606067
-    },
-    {
-      "node_id": "built-ins/Promise/Symbol.species",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise/Symbol.species",
-      "matrix_path": [
-        "built-ins",
-        "Promise",
-        "Symbol.species"
-      ],
-      "total": 5,
-      "passed": 5,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 3550242902738011464
-    },
-    {
-      "node_id": "built-ins/Promise/all",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise/all",
-      "matrix_path": [
-        "built-ins",
-        "Promise",
-        "all"
-      ],
-      "total": 98,
-      "passed": 98,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 7489345966033776460
-    },
-    {
-      "node_id": "built-ins/Promise/allKeyed",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise/allKeyed",
-      "matrix_path": [
-        "built-ins",
-        "Promise",
-        "allKeyed"
-      ],
-      "total": 6,
-      "passed": 6,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 3481990105215655538
-    },
-    {
-      "node_id": "built-ins/Promise/allSettled",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise/allSettled",
-      "matrix_path": [
-        "built-ins",
-        "Promise",
-        "allSettled"
-      ],
-      "total": 104,
-      "passed": 104,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 6267224494016610832
-    },
-    {
-      "node_id": "built-ins/Promise/allSettledKeyed",
-      "node_kind": "filter-leaf",
-      "filter": "built-ins/Promise/allSettledKeyed",
-      "matrix_path": [
-        "built-ins",
-        "Promise",
-        "allSettledKeyed"
-      ],
-      "total": 6,
-      "passed": 6,
-      "failed": 0,
-      "counts_per_kind": {
-        "EarlyError": 0,
-        "HostHarness": 0,
-        "Lowering": 0,
-        "Parser": 0,
-        "Runtime": 0,
-        "Unsupported": 0,
-        "WasmBackend": 0
-      },
-      "counts_per_origin": {
-        "boa-parser": 0,
-        "boa-runtime": 0,
-        "icu-intl": 0,
-        "local-harness": 0,
-        "spec-exec-host": 0,
-        "unknown": 0
-      },
-      "manifest_hash": 8339094882801552284
+      "manifest_hash": 6195338964199946252
     }
   ]
 }
