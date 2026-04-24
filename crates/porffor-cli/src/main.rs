@@ -968,6 +968,17 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
         }
     }
 
+    if run_config.execution_backend == ExecutionBackend::WasmAot {
+        let wasm_harness_path = config
+            .local_harness_path
+            .with_file_name("harness-wasm-aot.js");
+        let wasm_harness_exists = wasm_harness_path.exists()
+            || (!wasm_harness_path.is_absolute() && repo_root().join(&wasm_harness_path).exists());
+        if wasm_harness_exists {
+            config.local_harness_path = wasm_harness_path;
+        }
+    }
+
     if std::env::var_os("PORFFOR_TEST262_DISABLE_CASE_RUNNER").is_none() {
         config.case_runner_bin = std::env::current_exe().ok();
     }
@@ -1034,6 +1045,21 @@ mod tests {
         assert_eq!(
             parsed.run_config.execution_backend,
             ExecutionBackend::WasmAot
+        );
+    }
+
+    #[test]
+    fn parse_test262_args_uses_wasm_aot_harness_when_present() {
+        let parsed = parse_test262_args(&[
+            "--execution-backend".to_string(),
+            "wasm-aot".to_string(),
+            "--suite-root".to_string(),
+            "test262/vendor/test262".to_string(),
+        ])
+        .expect("backend should parse");
+        assert_eq!(
+            parsed.config.local_harness_path,
+            PathBuf::from("test262").join("harness-wasm-aot.js")
         );
     }
 }

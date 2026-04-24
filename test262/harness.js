@@ -40,7 +40,7 @@ var $262 = {
     if (typeof __porfEvalScript === 'function') {
       return __porfEvalScript(code);
     }
-    return (0, eval)(String(code));
+    throw new Test262Error('evalScript unsupported');
   },
   createRealm() {
     if (typeof __porfCreateRealm === 'function') {
@@ -49,7 +49,7 @@ var $262 = {
     return {
       global: globalThis,
       evalScript(code) {
-        return (0, eval)(String(code));
+        throw new Test262Error('evalScript unsupported');
       },
       getGlobal(name) {
         return globalThis[name];

@@ -2045,6 +2045,7 @@ mod tests {
                 "function f() { return arguments + \"\"; } f(1, 2);",
                 "string([object Arguments])",
             ),
+            ("let f = function() {}; \"x\" + f;", "string(xfunction("),
         ] {
             let outcome = engine()
                 .run_script(
@@ -2068,7 +2069,6 @@ mod tests {
     fn wasm_backend_rejects_remaining_out_of_slice_heap_coercions() {
         for source in [
             "let f = function() {}; f == 1;",
-            "let f = function() {}; \"x\" + f;",
             "let o = { valueOf() { return {}; } }; o + 1;",
             "let o = { toString() { return function() {}; } }; \"\" + o;",
         ] {

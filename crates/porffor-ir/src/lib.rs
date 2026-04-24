@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use boa_ast::property::{MethodDefinitionKind, PropertyName};
 use boa_ast::{
-    declaration::{Binding, LexicalDeclaration, VarDeclaration},
+    declaration::{Binding, ExportDeclaration, LexicalDeclaration, VarDeclaration},
     expression::access::{
         PrivatePropertyAccess, PropertyAccess, PropertyAccessField, SuperPropertyAccess,
     },
@@ -31,7 +31,7 @@ use boa_ast::{
         Block, If, Labelled as AstLabelled, LabelledItem, Return as AstReturn, Statement,
         Switch as AstSwitch, Throw as AstThrow, Try as AstTry,
     },
-    Declaration, Script, Spanned, StatementListItem,
+    Declaration, ModuleItem, Script, Spanned, StatementListItem,
 };
 use boa_interner::Interner;
 use boa_parser::{Parser, Source};
@@ -43,10 +43,14 @@ pub const LEXICAL_ARGUMENTS_NAME: &str = "$arguments";
 pub const LEXICAL_NEW_TARGET_NAME: &str = "$new.target";
 pub const GLOBAL_THIS_NAME: &str = "globalThis";
 pub const PRINT_NAME: &str = "print";
+pub const GC_NAME: &str = "gc";
 pub const HOST_PRINT_FUNCTION_ID: &str = "$host.print";
+pub const HOST_GC_FUNCTION_ID: &str = "$host.gc";
 pub const FUNCTION_NAME: &str = "Function";
 pub const OBJECT_NAME: &str = "Object";
 pub const ARRAY_NAME: &str = "Array";
+pub const ARRAY_BUFFER_NAME: &str = "ArrayBuffer";
+pub const DATA_VIEW_NAME: &str = "DataView";
 pub const NUMBER_NAME: &str = "Number";
 pub const STRING_NAME: &str = "String";
 pub const BOOLEAN_NAME: &str = "Boolean";
@@ -69,6 +73,10 @@ pub const BUILTIN_OBJECT_CREATE_FUNCTION_ID: &str = "$builtin.Object.create";
 pub const BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Object.getPrototypeOf";
 pub const BUILTIN_ARRAY_FUNCTION_ID: &str = "$builtin.Array";
 pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
+pub const BUILTIN_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.ArrayBuffer";
+pub const BUILTIN_DATA_VIEW_FUNCTION_ID: &str = "$builtin.DataView";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getUint8";
 pub const BUILTIN_NUMBER_FUNCTION_ID: &str = "$builtin.Number";
 pub const BUILTIN_STRING_FUNCTION_ID: &str = "$builtin.String";
 pub const BUILTIN_BOOLEAN_FUNCTION_ID: &str = "$builtin.Boolean";
@@ -82,6 +90,11 @@ pub const BUILTIN_URI_ERROR_FUNCTION_ID: &str = "$builtin.URIError";
 pub const BUILTIN_REFERENCE_ERROR_FUNCTION_ID: &str = "$builtin.ReferenceError";
 pub const BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Error.prototype.toString";
 pub const BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID: &str = "$builtin.[[BoundFunctionInvoke]]";
+pub const ARRAY_BUFFER_DATA_PTR_SLOT: &str = "$ArrayBufferDataPtr";
+pub const ARRAY_BUFFER_BYTE_LENGTH_SLOT: &str = "$ArrayBufferByteLength";
+pub const DATA_VIEW_DATA_PTR_SLOT: &str = "$DataViewDataPtr";
+pub const DATA_VIEW_BYTE_OFFSET_SLOT: &str = "$DataViewByteOffset";
+pub const DATA_VIEW_BYTE_LENGTH_SLOT: &str = "$DataViewByteLength";
 
 pub type FunctionId = String;
 pub type PrivateNameId = u32;
@@ -105,24 +118,28 @@ pub fn private_setter_key(private_name_id: PrivateNameId) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HostBuiltinId {
     Print,
+    Gc,
 }
 
 impl HostBuiltinId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Print => PRINT_NAME,
+            Self::Gc => GC_NAME,
         }
     }
 
     pub fn function_id(self) -> FunctionId {
         match self {
             Self::Print => HOST_PRINT_FUNCTION_ID.to_string(),
+            Self::Gc => HOST_GC_FUNCTION_ID.to_string(),
         }
     }
 
     pub fn from_function_id(function_id: &str) -> Option<Self> {
         match function_id {
             HOST_PRINT_FUNCTION_ID => Some(Self::Print),
+            HOST_GC_FUNCTION_ID => Some(Self::Gc),
             _ => None,
         }
     }
@@ -140,6 +157,9 @@ pub enum StandardBuiltinId {
     ObjectGetPrototypeOf,
     ArrayConstructor,
     ArrayIsArray,
+    ArrayBufferConstructor,
+    DataViewConstructor,
+    DataViewPrototypeGetUint8,
     NumberConstructor,
     StringConstructor,
     BooleanConstructor,
@@ -162,6 +182,8 @@ impl StandardBuiltinId {
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
             Self::ObjectConstructor => Some(OBJECT_NAME),
             Self::ArrayConstructor => Some(ARRAY_NAME),
+            Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
+            Self::DataViewConstructor => Some(DATA_VIEW_NAME),
             Self::NumberConstructor => Some(NUMBER_NAME),
             Self::StringConstructor => Some(STRING_NAME),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -179,6 +201,7 @@ impl StandardBuiltinId {
             | Self::ObjectCreate
             | Self::ObjectGetPrototypeOf
             | Self::ArrayIsArray
+            | Self::DataViewPrototypeGetUint8
             | Self::ErrorPrototypeToString
             | Self::BoundFunctionInvoker => None,
         }
@@ -196,6 +219,9 @@ impl StandardBuiltinId {
             Self::ObjectGetPrototypeOf => "Object.getPrototypeOf",
             Self::ArrayConstructor => ARRAY_NAME,
             Self::ArrayIsArray => "Array.isArray",
+            Self::ArrayBufferConstructor => ARRAY_BUFFER_NAME,
+            Self::DataViewConstructor => DATA_VIEW_NAME,
+            Self::DataViewPrototypeGetUint8 => "DataView.prototype.getUint8",
             Self::NumberConstructor => NUMBER_NAME,
             Self::StringConstructor => STRING_NAME,
             Self::BooleanConstructor => BOOLEAN_NAME,
@@ -228,6 +254,11 @@ impl StandardBuiltinId {
             Self::ObjectGetPrototypeOf => BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
             Self::ArrayConstructor => BUILTIN_ARRAY_FUNCTION_ID.to_string(),
             Self::ArrayIsArray => BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID.to_string(),
+            Self::ArrayBufferConstructor => BUILTIN_ARRAY_BUFFER_FUNCTION_ID.to_string(),
+            Self::DataViewConstructor => BUILTIN_DATA_VIEW_FUNCTION_ID.to_string(),
+            Self::DataViewPrototypeGetUint8 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID.to_string()
+            }
             Self::NumberConstructor => BUILTIN_NUMBER_FUNCTION_ID.to_string(),
             Self::StringConstructor => BUILTIN_STRING_FUNCTION_ID.to_string(),
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
@@ -260,6 +291,11 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ObjectGetPrototypeOf),
             BUILTIN_ARRAY_FUNCTION_ID => Some(Self::ArrayConstructor),
             BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID => Some(Self::ArrayIsArray),
+            BUILTIN_ARRAY_BUFFER_FUNCTION_ID => Some(Self::ArrayBufferConstructor),
+            BUILTIN_DATA_VIEW_FUNCTION_ID => Some(Self::DataViewConstructor),
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetUint8)
+            }
             BUILTIN_NUMBER_FUNCTION_ID => Some(Self::NumberConstructor),
             BUILTIN_STRING_FUNCTION_ID => Some(Self::StringConstructor),
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
@@ -282,6 +318,8 @@ impl StandardBuiltinId {
             Self::FunctionConstructor,
             Self::ObjectConstructor,
             Self::ArrayConstructor,
+            Self::ArrayBufferConstructor,
+            Self::DataViewConstructor,
             Self::NumberConstructor,
             Self::StringConstructor,
             Self::BooleanConstructor,
@@ -308,6 +346,9 @@ impl StandardBuiltinId {
             Self::ObjectGetPrototypeOf,
             Self::ArrayConstructor,
             Self::ArrayIsArray,
+            Self::ArrayBufferConstructor,
+            Self::DataViewConstructor,
+            Self::DataViewPrototypeGetUint8,
             Self::NumberConstructor,
             Self::StringConstructor,
             Self::BooleanConstructor,
@@ -331,6 +372,8 @@ impl StandardBuiltinId {
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
                 | Self::ArrayConstructor
+                | Self::ArrayBufferConstructor
+                | Self::DataViewConstructor
                 | Self::NumberConstructor
                 | Self::StringConstructor
                 | Self::BooleanConstructor
@@ -385,6 +428,9 @@ impl StandardBuiltinId {
             Self::ObjectGetPrototypeOf => Some("getPrototypeOf"),
             Self::ArrayConstructor => Some(ARRAY_NAME),
             Self::ArrayIsArray => Some("isArray"),
+            Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
+            Self::DataViewConstructor => Some(DATA_VIEW_NAME),
+            Self::DataViewPrototypeGetUint8 => Some("getUint8"),
             Self::NumberConstructor => Some(NUMBER_NAME),
             Self::StringConstructor => Some(STRING_NAME),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -2076,26 +2122,43 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
         script: None,
     };
 
-    if source.goal != ParseGoal::Script {
-        program.diagnostics.push(IrDiagnostic {
-            kind: IrDiagnosticKind::Unsupported,
-            message: "unsupported in porffor wasm-aot first slice: modules".to_string(),
-        });
-        program
-            .stages
-            .push(LoweringStage::UnsupportedFeaturesRecorded);
-        return program;
-    }
+    let lowered_source;
+    let script_source = match source.goal {
+        ParseGoal::Script => source,
+        ParseGoal::Module => match lower_supported_module_source(source) {
+            Ok(source_text) => {
+                lowered_source = SourceUnit {
+                    goal: ParseGoal::Script,
+                    filename: source.filename.clone(),
+                    source_text,
+                };
+                &lowered_source
+            }
+            Err(message) => {
+                program.diagnostics.push(IrDiagnostic {
+                    kind: IrDiagnosticKind::Unsupported,
+                    message,
+                });
+                program
+                    .stages
+                    .push(LoweringStage::UnsupportedFeaturesRecorded);
+                return program;
+            }
+        },
+    };
 
-    match reparse_script(source) {
+    match reparse_script(script_source) {
         Ok((script, interner)) => {
             program.stages.push(LoweringStage::AstReparsed);
-            let analysis =
-                AnalysisBuilder::default().finish(&script, &interner, source.source_text.as_str());
+            let analysis = AnalysisBuilder::default().finish(
+                &script,
+                &interner,
+                script_source.source_text.as_str(),
+            );
             let lowered = ScriptLowerer::new(
                 &interner,
                 &analysis,
-                source.source_text.as_str(),
+                script_source.source_text.as_str(),
                 SCRIPT_OWNER_ID.to_string(),
             )
             .lower(&script);
@@ -2155,6 +2218,176 @@ fn reparse_script(source: &SourceUnit) -> Result<(Script, Interner), String> {
         .parse_script(&scope, &mut interner)
         .map_err(|err| format!("lowering reparse failed: {err}"))?;
     Ok((script, interner))
+}
+
+fn lower_supported_module_source(source: &SourceUnit) -> Result<String, String> {
+    let mut interner = Interner::default();
+    let scope = Scope::new_global();
+    let parser_source = if let Some(filename) = &source.filename {
+        Source::from_bytes(source.source_text.as_bytes()).with_path(std::path::Path::new(filename))
+    } else {
+        Source::from_bytes(source.source_text.as_bytes())
+    };
+    let module = Parser::new(parser_source)
+        .parse_module(&scope, &mut interner)
+        .map_err(|err| format!("lowering module reparse failed: {err}"))?;
+
+    for item in module.items().items() {
+        match item {
+            ModuleItem::StatementListItem(_) => {}
+            ModuleItem::ImportDeclaration(_) => {
+                return Err(
+                    "unsupported in porffor wasm-aot first slice: module imports".to_string(),
+                );
+            }
+            ModuleItem::ExportDeclaration(export) => match export.as_ref() {
+                ExportDeclaration::List(_)
+                | ExportDeclaration::VarStatement(_)
+                | ExportDeclaration::Declaration(_) => {}
+                ExportDeclaration::ReExport { .. } => {
+                    return Err(
+                        "unsupported in porffor wasm-aot first slice: module re-exports"
+                            .to_string(),
+                    );
+                }
+                ExportDeclaration::DefaultFunctionDeclaration(_)
+                | ExportDeclaration::DefaultGeneratorDeclaration(_)
+                | ExportDeclaration::DefaultAsyncFunctionDeclaration(_)
+                | ExportDeclaration::DefaultAsyncGeneratorDeclaration(_)
+                | ExportDeclaration::DefaultClassDeclaration(_)
+                | ExportDeclaration::DefaultAssignmentExpression(_) => {
+                    return Err(
+                        "unsupported in porffor wasm-aot first slice: default exports".to_string(),
+                    );
+                }
+            },
+        }
+    }
+
+    strip_supported_export_syntax(&source.source_text)
+}
+
+fn strip_supported_export_syntax(source: &str) -> Result<String, String> {
+    let bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if is_keyword_at(source, i, "export") {
+            i += "export".len();
+            i = copy_ws_and_comments(source, i, &mut out);
+            if i < bytes.len() && bytes[i] == b'{' {
+                i = skip_balanced_export_list(source, i)?;
+                i = skip_ws_and_comments(source, i);
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
+                }
+                out.push('\n');
+                continue;
+            }
+            continue;
+        }
+        let Some(ch) = source[i..].chars().next() else {
+            break;
+        };
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    Ok(out)
+}
+
+fn is_keyword_at(source: &str, index: usize, keyword: &str) -> bool {
+    let end = index + keyword.len();
+    if end > source.len() || &source[index..end] != keyword {
+        return false;
+    }
+    let before = index
+        .checked_sub(1)
+        .and_then(|prev| source[..=prev].chars().last());
+    let after = source[end..].chars().next();
+    !before.is_some_and(is_identifier_part) && !after.is_some_and(is_identifier_part)
+}
+
+fn is_identifier_part(ch: char) -> bool {
+    ch == '_' || ch == '$' || ch.is_ascii_alphanumeric()
+}
+
+fn copy_ws_and_comments(source: &str, mut index: usize, out: &mut String) -> usize {
+    let bytes = source.as_bytes();
+    loop {
+        if index >= bytes.len() {
+            return index;
+        }
+        let Some(ch) = source[index..].chars().next() else {
+            return index;
+        };
+        if ch.is_whitespace() {
+            out.push(ch);
+            index += ch.len_utf8();
+            continue;
+        }
+        if bytes[index..].starts_with(b"//") {
+            let start = index;
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            out.push_str(&source[start..index]);
+            continue;
+        }
+        if bytes[index..].starts_with(b"/*") {
+            let start = index;
+            index += 2;
+            while index + 1 < bytes.len() && !bytes[index..].starts_with(b"*/") {
+                index += 1;
+            }
+            index = (index + 2).min(bytes.len());
+            out.push_str(&source[start..index]);
+            continue;
+        }
+        return index;
+    }
+}
+
+fn skip_ws_and_comments(source: &str, mut index: usize) -> usize {
+    let mut ignored = String::new();
+    index = copy_ws_and_comments(source, index, &mut ignored);
+    index
+}
+
+fn skip_balanced_export_list(source: &str, mut index: usize) -> Result<usize, String> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+                if depth == 0 {
+                    return Ok(index);
+                }
+                continue;
+            }
+            b'\'' | b'"' => {
+                let quote = bytes[index];
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\\' {
+                        index = (index + 2).min(bytes.len());
+                    } else if bytes[index] == quote {
+                        index += 1;
+                        break;
+                    } else {
+                        index += 1;
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    Err("unsupported in porffor wasm-aot first slice: malformed export list".to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4051,6 +4284,61 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn array_buffer_instance_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            ARRAY_BUFFER_DATA_PTR_SLOT.to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+        );
+        properties.insert(
+            ARRAY_BUFFER_BYTE_LENGTH_SLOT.to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn data_view_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "getUint8".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetUint8.function_id(),
+                false,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn data_view_instance_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for key in [
+            DATA_VIEW_DATA_PTR_SLOT,
+            DATA_VIEW_BYTE_OFFSET_SLOT,
+            DATA_VIEW_BYTE_LENGTH_SLOT,
+        ] {
+            properties.insert(
+                key.to_string(),
+                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+            );
+        }
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::data_view_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn fresh_constructed_instance_with_private_brands(
         private_brands: BTreeSet<PrivateNameId>,
     ) -> ValueInfo {
@@ -4297,10 +4585,27 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
+                StandardBuiltinId::ArrayBufferConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::array_buffer_instance_shape(),
+                        ))),
+                    );
+                }
+                StandardBuiltinId::DataViewConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::data_view_prototype_shape(),
+                        ))),
+                    );
+                }
                 StandardBuiltinId::FunctionPrototypeCall
                 | StandardBuiltinId::FunctionPrototypeApply
                 | StandardBuiltinId::FunctionPrototypeBind
                 | StandardBuiltinId::FunctionPrototypeToString
+                | StandardBuiltinId::DataViewPrototypeGetUint8
                 | StandardBuiltinId::ErrorPrototypeToString
                 | StandardBuiltinId::BoundFunctionInvoker => {}
                 _ => {}
@@ -4377,6 +4682,24 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayIsArray => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayBufferConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::array_buffer_instance_shape()),
+                Self::value_info_from_shape(Some(Self::array_buffer_instance_shape())),
+            ),
+            StandardBuiltinId::DataViewConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::data_view_instance_shape()),
+                Self::value_info_from_shape(Some(Self::data_view_instance_shape())),
+            ),
+            StandardBuiltinId::DataViewPrototypeGetUint8 => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -4555,6 +4878,15 @@ impl<'a> ScriptLowerer<'a> {
                         source: GlobalPropertySource::HostBuiltin,
                     },
                 );
+                properties.insert(
+                    GC_NAME.to_string(),
+                    GlobalPropertyInfo {
+                        value_info: Self::host_function_value_info(HostBuiltinId::Gc),
+                        proven_present: true,
+                        configurable: true,
+                        source: GlobalPropertySource::HostBuiltin,
+                    },
+                );
                 for builtin in StandardBuiltinId::all_globals() {
                     if let Some(name) = builtin.global_name() {
                         properties.insert(
@@ -4602,6 +4934,28 @@ impl<'a> ScriptLowerer<'a> {
                 id: HostBuiltinId::Print.function_id(),
                 to_string_representation: CallableToStringRepresentation::NativeNamed(
                     HostBuiltinId::Print.as_str().to_string(),
+                ),
+                flavor: FunctionFlavor::Ordinary,
+                callable: true,
+                constructable: false,
+                class_kind: ClassFunctionKind::None,
+                class_heritage_kind: ClassHeritageKind::None,
+                params: Vec::new(),
+                return_kind: ValueKind::Undefined,
+                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
+                return_shape: None,
+                return_targets: BTreeSet::new(),
+                constructor_instance: ValueInfo::undefined(),
+                this_info: self.global_this_info(),
+                this_observed: false,
+            },
+        );
+        self.function_signatures.insert(
+            HostBuiltinId::Gc.function_id(),
+            FunctionSignature {
+                id: HostBuiltinId::Gc.function_id(),
+                to_string_representation: CallableToStringRepresentation::NativeNamed(
+                    HostBuiltinId::Gc.as_str().to_string(),
                 ),
                 flavor: FunctionFlavor::Ordinary,
                 callable: true,
@@ -4692,6 +5046,7 @@ impl<'a> ScriptLowerer<'a> {
         );
         self.function_signatures = prepass.function_signatures;
         self.global_properties = prepass.global_properties;
+        self.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
         let mut functions = Vec::with_capacity(self.analysis.function_order.len());
         for function_id in &self.analysis.function_order {
             let plan = self
@@ -4842,15 +5197,21 @@ impl<'a> ScriptLowerer<'a> {
     fn prepare_root_function_bindings(&mut self, root_functions: &[PendingFunction<'a>]) {
         self.visible_function_names.clear();
         for function in root_functions {
+            let function_info = self.function_value_info(&function.id);
             self.visible_function_names
                 .insert(function.name.clone(), function.id.clone());
+            self.set_global_property_value_info_with_source(
+                function.name.clone(),
+                function_info.clone(),
+                GlobalPropertySource::GlobalWrite,
+            );
             self.declare_binding(
                 function.name.clone(),
                 BindingInfo {
                     mode: BindingMode::Const,
                     kind: ValueKind::Function,
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
-                    heap_shape: self.function_value_info(&function.id).heap_shape,
+                    heap_shape: function_info.heap_shape,
                     function_targets: BTreeSet::from([function.id.clone()]),
                 },
             );
@@ -5467,6 +5828,15 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_if_statement(&mut self, if_statement: &If) -> (StatementIr, ValueKind) {
         let condition = self.lower_expression(if_statement.cond());
+        if let Some(value) = Self::static_bool_expr(&condition) {
+            if value {
+                return self.lower_statement(if_statement.body());
+            }
+            return match if_statement.else_node() {
+                Some(else_node) => self.lower_statement(else_node),
+                None => (StatementIr::Empty, ValueKind::Undefined),
+            };
+        }
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
         let (then_branch, then_kind) = self.lower_statement(if_statement.body());
@@ -5505,6 +5875,29 @@ impl<'a> ScriptLowerer<'a> {
             },
             result_kind,
         )
+    }
+
+    fn static_bool_expr(expr: &TypedExpr) -> Option<bool> {
+        match &expr.expr {
+            ExprIr::StrictEquality { op, lhs, rhs } => {
+                let lhs = Self::static_string_expr(lhs)?;
+                let rhs = Self::static_string_expr(rhs)?;
+                Some(match op {
+                    EqualityBinaryOp::StrictEqual => lhs == rhs,
+                    EqualityBinaryOp::StrictNotEqual => lhs != rhs,
+                    _ => return None,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn static_string_expr(expr: &TypedExpr) -> Option<&str> {
+        match &expr.expr {
+            ExprIr::String(value) => Some(value.as_str()),
+            ExprIr::TypeOfUnresolvedIdentifier { .. } => Some("undefined"),
+            _ => None,
+        }
     }
 
     fn lower_while_loop(&mut self, while_loop: &WhileLoop) -> (StatementIr, ValueKind) {
@@ -5755,7 +6148,7 @@ impl<'a> ScriptLowerer<'a> {
                 .init()
                 .map(|expression| self.lower_expression(expression));
             if let Some(init) = &init {
-                self.set_var_kind(&name, init.kind);
+                self.set_binding_value_info(&name, init.value_info());
             }
             declarators.push(VarDeclaratorIr { name, init });
         }
@@ -8183,31 +8576,11 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                     }
-                    let key = match callee.expr {
-                        ExprIr::PropertyRead { key, .. } => key,
-                        ExprIr::GlobalPropertyRead { name } => PropertyKeyIr::StaticString(name),
-                        _ => match access.field() {
-                            PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                                self.interner.resolve_expect(name.sym()).to_string(),
-                            ),
-                            PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.try_static_string_key(expr) {
-                                    PropertyKeyIr::StaticString(key)
-                                } else {
-                                    let lowered = self.lower_expression(expr);
-                                    if lowered.kind != ValueKind::String {
-                                        return self.unsupported_expr("indirect call");
-                                    }
-                                    PropertyKeyIr::StringExpr(Box::new(lowered))
-                                }
-                            }
-                        },
-                    };
                     return TypedExpr::from_info(
                         info,
-                        ExprIr::CallMethod {
-                            receiver: Box::new(receiver),
-                            key,
+                        ExprIr::CallIndirect {
+                            callee: Box::new(callee),
+                            this_arg: Some(Box::new(receiver)),
                             args,
                         },
                     );
@@ -8727,6 +9100,40 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayBufferConstructor => {
+                if !args.is_empty()
+                    && !args[0]
+                        .possible_kinds
+                        .is_subset_of(KindSet::from_kind(ValueKind::Number))
+                {
+                    self.unsupported_with_message(
+                        "unsupported in porffor wasm-aot first slice: ArrayBuffer byteLength must be numeric".to_string(),
+                    );
+                    return None;
+                }
+                Some(Self::value_info_from_shape(Some(
+                    Self::array_buffer_instance_shape(),
+                )))
+            }
+            StandardBuiltinId::DataViewConstructor => {
+                let Some(buffer) = args.first() else {
+                    self.unsupported_with_message(
+                        "unsupported in porffor wasm-aot first slice: DataView requires ArrayBuffer".to_string(),
+                    );
+                    return None;
+                };
+                if !buffer
+                    .possible_kinds
+                    .is_subset_of(KindSet::from_kind(ValueKind::Object))
+                {
+                    self.unsupported_with_message(
+                        "unsupported in porffor wasm-aot first slice: DataView buffer must be object".to_string(),
+                    );
+                    return None;
+                }
+                Some(Self::value_info_from_shape(Some(Self::data_view_instance_shape())))
+            }
+            StandardBuiltinId::DataViewPrototypeGetUint8 => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::NumberConstructor => {
                 if context == "construct" {
                     Some(Self::boxed_primitive_instance_info(ValueInfo::new(
@@ -9089,16 +9496,7 @@ impl<'a> ScriptLowerer<'a> {
                 PropertyKeyIr::StaticString(self.interner.resolve_expect(name.sym()).to_string())
             }
             PropertyAccessField::Expr(expr) => {
-                if let Some(key) = self.try_static_string_key(expr) {
-                    PropertyKeyIr::StaticString(key)
-                } else {
-                    let lowered = self.lower_expression(expr);
-                    if lowered.kind != ValueKind::String {
-                        self.unsupported_expr("object property key must be string");
-                        return None;
-                    }
-                    PropertyKeyIr::StringExpr(Box::new(lowered))
-                }
+                self.lower_dynamic_object_property_key(expr)?
             }
         })
     }
@@ -9239,6 +9637,30 @@ impl<'a> ScriptLowerer<'a> {
         .any(|name| self.is_builtin_reference_expr(expr, name))
     }
 
+    fn lower_dynamic_object_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
+        if let Some(key) = self.try_static_string_key(expr) {
+            return Some(PropertyKeyIr::StaticString(key));
+        }
+
+        let mut lowered = self.lower_expression(expr);
+        if lowered.kind == ValueKind::String {
+            return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
+        }
+
+        if lowered.possible_kinds == KindSet::all_runtime_tags() {
+            if let ExprIr::Identifier(name) = &lowered.expr {
+                self.set_binding_kind(name, ValueKind::String)?;
+                lowered.kind = ValueKind::String;
+                lowered.possible_kinds = KindSet::from_kind(ValueKind::String);
+                lowered.heap_shape = None;
+                lowered.function_targets.clear();
+                return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
+            }
+        }
+
+        None
+    }
+
     fn lower_object_property_key(
         &mut self,
         target: TypedExpr,
@@ -9248,17 +9670,10 @@ impl<'a> ScriptLowerer<'a> {
             PropertyAccessField::Const(name) => {
                 PropertyKeyIr::StaticString(self.interner.resolve_expect(name.sym()).to_string())
             }
-            PropertyAccessField::Expr(expr) => {
-                if let Some(key) = self.try_static_string_key(expr) {
-                    PropertyKeyIr::StaticString(key)
-                } else {
-                    let lowered = self.lower_expression(expr);
-                    if lowered.kind != ValueKind::String {
-                        return self.unsupported_expr("object property key must be string");
-                    }
-                    PropertyKeyIr::StringExpr(Box::new(lowered))
-                }
-            }
+            PropertyAccessField::Expr(expr) => match self.lower_dynamic_object_property_key(expr) {
+                Some(key) => key,
+                None => return self.unsupported_expr("object property key must be string"),
+            },
         };
         if matches!(&target.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
             if let PropertyKeyIr::StaticString(name) = &key {
@@ -9574,16 +9989,12 @@ impl<'a> ScriptLowerer<'a> {
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.try_static_string_key(expr) {
-                                    PropertyKeyIr::StaticString(key)
-                                } else {
-                                    let lowered = self.lower_expression(expr);
-                                    if lowered.kind != ValueKind::String {
-                                        return self.unsupported_expr(
-                                            "object property key must be string",
-                                        );
+                                match self.lower_dynamic_object_property_key(expr) {
+                                    Some(key) => key,
+                                    None => {
+                                        return self
+                                            .unsupported_expr("object property key must be string");
                                     }
-                                    PropertyKeyIr::StringExpr(Box::new(lowered))
                                 }
                             }
                         };
@@ -9878,13 +10289,21 @@ impl<'a> ScriptLowerer<'a> {
                     && lhs.possible_kinds != KindSet::all_runtime_tags();
                 let rhs_proves_string = rhs.possible_kinds.contains(ValueKind::String)
                     && rhs.possible_kinds != KindSet::all_runtime_tags();
-                if (lhs_proves_string || rhs_proves_string)
-                    && lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                    && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                {
+                if lhs_proves_string || rhs_proves_string {
+                    if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                        && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                    {
+                        return TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::String),
+                            ExprIr::StringConcat {
+                                lhs: Box::new(lhs),
+                                rhs: Box::new(rhs),
+                            },
+                        );
+                    }
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::String),
-                        ExprIr::StringConcat {
+                        ExprIr::CoerciveAdd {
                             lhs: Box::new(lhs),
                             rhs: Box::new(rhs),
                         },
@@ -10866,15 +11285,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn set_var_kind(&mut self, name: &str, kind: ValueKind) {
-        if let Some(binding) = self.var_bindings.get_mut(name) {
-            binding.kind = kind;
-            binding.possible_kinds = KindSet::from_kind(kind);
-            binding.heap_shape = None;
-            binding.function_targets.clear();
-        }
-    }
-
     fn merge_var_bindings(
         &self,
         left: &BTreeMap<String, VarBindingInfo>,
@@ -11094,6 +11504,11 @@ mod tests {
         lower(&source)
     }
 
+    fn lower_module(source: &str) -> ProgramIr {
+        let source = parse(source, ParseOptions::module()).expect("module should parse");
+        lower(&source)
+    }
+
     #[test]
     fn lowers_simple_script_ir() {
         let program = lower_script("let x = 40; const y = 2; x + y;");
@@ -11101,6 +11516,24 @@ mod tests {
         let script = program.script.as_ref().expect("script ir should exist");
         assert_eq!(script.body.statements.len(), 3);
         assert_eq!(script.result_kind(), ValueKind::Number);
+    }
+
+    #[test]
+    fn lowers_no_import_module_export_declaration() {
+        let program = lower_module("export const value = 1; value;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert_eq!(script.result_kind(), ValueKind::Number);
+    }
+
+    #[test]
+    fn rejects_module_imports_explicitly() {
+        let program = lower_module("import value from './dep.js'; value;");
+        assert!(!program.is_wasm_supported());
+        assert!(program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("module imports")));
     }
 
     #[test]
@@ -11211,6 +11644,42 @@ mod tests {
         assert!(summary.contains("functions=1"));
         assert!(summary.contains("calls=1"));
         assert!(summary.contains("returns=1"));
+    }
+
+    #[test]
+    fn lowers_root_function_constructor_reference_inside_function_body() {
+        let program = lower_script(
+            "function Box(message) { this.message = message; } function make(message) { return new Box(message); } make(\"ok\");",
+        );
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("constructs=1"));
+    }
+
+    #[test]
+    fn exposes_gc_as_noop_host_builtin() {
+        let program = lower_script("if (typeof gc === \"function\") { gc(); }");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.host_builtins.contains(&HostBuiltinId::Gc));
+    }
+
+    #[test]
+    fn prunes_unresolved_typeof_function_guard() {
+        let program = lower_script(
+            "if (typeof __missingHostHook === \"function\") { __missingHostHook(); }",
+        );
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("calls=0"));
+    }
+
+    #[test]
+    fn narrows_identifier_used_as_object_property_key_to_string() {
+        let program = lower_script("function get(obj, name) { return obj[name]; } get({ x: 1 }, \"x\");");
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("property_reads=1"));
     }
 
     #[test]
@@ -11337,6 +11806,16 @@ mod tests {
         assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("unsupported in porffor wasm-aot first slice")));
+    }
+
+    #[test]
+    fn lowers_dynamic_plus_proven_string_as_coercive_add() {
+        let program = lower_script(
+            "function choose(flag) { if (flag) return 1; return {}; } function format(message) { return message + \" suffix\"; } format(choose(true));",
+        );
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("string_concats=1"));
     }
 
     #[test]
