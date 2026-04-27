@@ -472,6 +472,8 @@ fn render_wasm_completion(
         ValueKind::Array => format!("handle@{}", payload as u64),
         ValueKind::Function => format!("handle@{}", payload as u64),
         ValueKind::Arguments => format!("handle@{}", payload as u64),
+        ValueKind::Symbol => format!("symbol@{}", payload as u64),
+        ValueKind::BigInt => format!("{}n", payload),
         ValueKind::Dynamic => {
             return Err(EngineError::new(
                 "wasm completion used dynamic tag; expected concrete runtime tag",

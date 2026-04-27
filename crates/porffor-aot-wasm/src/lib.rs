@@ -82,6 +82,7 @@ const UINT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 43;
 const UINT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 44;
 const UINT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 45;
 const UINT8_CLAMPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 46;
+const BIGINT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 47;
 const JS_FUNCTION_TYPE_INDEX: u32 = 1;
 const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 2;
 const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 0;
@@ -136,6 +137,8 @@ const BOXED_PRIMITIVE_KIND_NONE: u64 = 0;
 const BOXED_PRIMITIVE_KIND_NUMBER: u64 = 1;
 const BOXED_PRIMITIVE_KIND_STRING: u64 = 2;
 const BOXED_PRIMITIVE_KIND_BOOLEAN: u64 = 3;
+const BOXED_PRIMITIVE_KIND_BIGINT: u64 = 4;
+const BOXED_PRIMITIVE_KIND_SYMBOL: u64 = 5;
 const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -173,6 +176,7 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         StandardBuiltinId::Uint8ClampedArrayConstructor => {
             Some(UINT8_CLAMPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX)
         }
+        StandardBuiltinId::BigIntConstructor => Some(BIGINT_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::NumberConstructor => Some(NUMBER_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::StringConstructor => Some(STRING_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::BooleanConstructor => Some(BOOLEAN_CONSTRUCTOR_GLOBAL_INDEX),
@@ -198,6 +202,7 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         | StandardBuiltinId::ArrayPrototypeConcat
         | StandardBuiltinId::ArrayPrototypePush
         | StandardBuiltinId::ArrayBufferIsView
+        | StandardBuiltinId::NumberIsInteger
         | StandardBuiltinId::ArrayBufferSpeciesGetter
         | StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
         | StandardBuiltinId::DataViewPrototypeBufferGetter
@@ -211,6 +216,20 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         | StandardBuiltinId::DataViewPrototypeSetUint16
         | StandardBuiltinId::DataViewPrototypeGetInt16
         | StandardBuiltinId::DataViewPrototypeSetInt16
+        | StandardBuiltinId::DataViewPrototypeGetUint32
+        | StandardBuiltinId::DataViewPrototypeSetUint32
+        | StandardBuiltinId::DataViewPrototypeGetInt32
+        | StandardBuiltinId::DataViewPrototypeSetInt32
+        | StandardBuiltinId::DataViewPrototypeGetFloat16
+        | StandardBuiltinId::DataViewPrototypeSetFloat16
+        | StandardBuiltinId::DataViewPrototypeGetFloat32
+        | StandardBuiltinId::DataViewPrototypeSetFloat32
+        | StandardBuiltinId::DataViewPrototypeGetFloat64
+        | StandardBuiltinId::DataViewPrototypeSetFloat64
+        | StandardBuiltinId::DataViewPrototypeGetBigInt64
+        | StandardBuiltinId::DataViewPrototypeSetBigInt64
+        | StandardBuiltinId::DataViewPrototypeGetBigUint64
+        | StandardBuiltinId::DataViewPrototypeSetBigUint64
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::BoundFunctionInvoker => None,
     }
@@ -244,6 +263,7 @@ fn boxed_primitive_kind_tag(builtin: StandardBuiltinId) -> Option<u64> {
         StandardBuiltinId::NumberConstructor => Some(BOXED_PRIMITIVE_KIND_NUMBER),
         StandardBuiltinId::StringConstructor => Some(BOXED_PRIMITIVE_KIND_STRING),
         StandardBuiltinId::BooleanConstructor => Some(BOXED_PRIMITIVE_KIND_BOOLEAN),
+        StandardBuiltinId::BigIntConstructor => Some(BOXED_PRIMITIVE_KIND_BIGINT),
         _ => None,
     }
 }
@@ -411,7 +431,7 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
             },
             &ConstExpr::i64_const(0),
         );
-        for _ in 0..42 {
+        for _ in 0..43 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -628,6 +648,7 @@ impl StringPool {
             "construct",
             "isArray",
             "isView",
+            "isInteger",
             "getUint8",
             "setUint8",
             "getInt8",
@@ -636,12 +657,25 @@ impl StringPool {
             "setUint16",
             "getInt16",
             "setInt16",
+            "getUint32",
+            "setUint32",
+            "getInt32",
+            "setInt32",
+            "getFloat16",
+            "setFloat16",
+            "getFloat32",
+            "setFloat32",
+            "getFloat64",
+            "setFloat64",
             "buffer",
             "byteOffset",
             "byteLength",
             "maxByteLength",
             "resizable",
             "Symbol.species",
+            "Symbol.toStringTag",
+            "Symbol.toPrimitive",
+            "DataView",
             "get",
             "set",
             "value",
@@ -701,6 +735,22 @@ impl StringPool {
             "DataView getUint8 index out of bounds",
             "DataView getUint16 index out of bounds",
             "DataView setUint16 index out of bounds",
+            "DataView getUint32 index out of bounds",
+            "DataView setUint32 index out of bounds",
+            "DataView getFloat16 index out of bounds",
+            "DataView setFloat16 index out of bounds",
+            "DataView getFloat32 index out of bounds",
+            "DataView setFloat32 index out of bounds",
+            "DataView getFloat64 index out of bounds",
+            "DataView setFloat64 index out of bounds",
+            "DataView getBigInt64 index out of bounds",
+            "DataView setBigInt64 index out of bounds",
+            "cannot convert Number to BigInt",
+            "cannot convert non-integer Number to BigInt",
+            "cannot convert value to BigInt",
+            "Cannot convert BigInt to number",
+            "Cannot convert Symbol to number",
+            "BigInt is not a constructor",
             "right-hand side of `in` is not an object",
             "must call super() before accessing `this`",
             "derived constructor must call super() before returning",
@@ -844,6 +894,7 @@ impl StringPool {
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
             ExprIr::String(value) => self.intern_string(value),
+            ExprIr::BigInt(_) => {}
             ExprIr::ObjectLiteral(properties) => {
                 self.uses_heap = true;
                 for property in properties {
@@ -898,6 +949,8 @@ impl StringPool {
                 self.intern_string("object");
                 self.intern_string("boolean");
                 self.intern_string("number");
+                self.intern_string("bigint");
+                self.intern_string("symbol");
                 self.intern_string("string");
                 self.intern_string("function");
                 self.collect_expr(expr);
@@ -2182,6 +2235,32 @@ impl<'a> FunctionBuilder<'a> {
                     ("setUint16", StandardBuiltinId::DataViewPrototypeSetUint16),
                     ("getInt16", StandardBuiltinId::DataViewPrototypeGetInt16),
                     ("setInt16", StandardBuiltinId::DataViewPrototypeSetInt16),
+                    ("getUint32", StandardBuiltinId::DataViewPrototypeGetUint32),
+                    ("setUint32", StandardBuiltinId::DataViewPrototypeSetUint32),
+                    ("getInt32", StandardBuiltinId::DataViewPrototypeGetInt32),
+                    ("setInt32", StandardBuiltinId::DataViewPrototypeSetInt32),
+                    ("getFloat16", StandardBuiltinId::DataViewPrototypeGetFloat16),
+                    ("setFloat16", StandardBuiltinId::DataViewPrototypeSetFloat16),
+                    ("getFloat32", StandardBuiltinId::DataViewPrototypeGetFloat32),
+                    ("setFloat32", StandardBuiltinId::DataViewPrototypeSetFloat32),
+                    ("getFloat64", StandardBuiltinId::DataViewPrototypeGetFloat64),
+                    ("setFloat64", StandardBuiltinId::DataViewPrototypeSetFloat64),
+                    (
+                        "getBigInt64",
+                        StandardBuiltinId::DataViewPrototypeGetBigInt64,
+                    ),
+                    (
+                        "setBigInt64",
+                        StandardBuiltinId::DataViewPrototypeSetBigInt64,
+                    ),
+                    (
+                        "getBigUint64",
+                        StandardBuiltinId::DataViewPrototypeGetBigUint64,
+                    ),
+                    (
+                        "setBigUint64",
+                        StandardBuiltinId::DataViewPrototypeSetBigUint64,
+                    ),
                 ] {
                     let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                         EmitError::unsupported(format!(
@@ -2196,6 +2275,21 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("DataView")));
+                function.instruction(&Instruction::LocalSet(getter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(getter_tag_local));
+                self.emit_object_define_data(
+                    prototype_object_local,
+                    key_local,
+                    getter_payload_local,
+                    getter_tag_local,
+                    function,
+                )?;
                 self.release_temp_local(getter_tag_local);
                 self.release_temp_local(getter_payload_local);
                 self.release_temp_local(key_local);
@@ -2221,7 +2315,23 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.release_temp_local(prototype_object_local);
             }
-            StandardBuiltinId::NumberConstructor
+            StandardBuiltinId::NumberConstructor => {
+                let is_integer_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::NumberIsInteger.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Number.isInteger`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "isInteger",
+                    is_integer_meta,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::BigIntConstructor
             | StandardBuiltinId::StringConstructor
             | StandardBuiltinId::BooleanConstructor
             | StandardBuiltinId::Float64ArrayConstructor
@@ -2251,6 +2361,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ObjectGetOwnPropertyDescriptor
             | StandardBuiltinId::ReflectConstruct
             | StandardBuiltinId::ArrayIsArray
+            | StandardBuiltinId::NumberIsInteger
             | StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypePush
             | StandardBuiltinId::ArrayBufferIsView
@@ -2262,6 +2373,20 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::DataViewPrototypeSetUint16
             | StandardBuiltinId::DataViewPrototypeGetInt16
             | StandardBuiltinId::DataViewPrototypeSetInt16
+            | StandardBuiltinId::DataViewPrototypeGetUint32
+            | StandardBuiltinId::DataViewPrototypeSetUint32
+            | StandardBuiltinId::DataViewPrototypeGetInt32
+            | StandardBuiltinId::DataViewPrototypeSetInt32
+            | StandardBuiltinId::DataViewPrototypeGetFloat16
+            | StandardBuiltinId::DataViewPrototypeSetFloat16
+            | StandardBuiltinId::DataViewPrototypeGetFloat32
+            | StandardBuiltinId::DataViewPrototypeSetFloat32
+            | StandardBuiltinId::DataViewPrototypeGetFloat64
+            | StandardBuiltinId::DataViewPrototypeSetFloat64
+            | StandardBuiltinId::DataViewPrototypeGetBigInt64
+            | StandardBuiltinId::DataViewPrototypeSetBigInt64
+            | StandardBuiltinId::DataViewPrototypeGetBigUint64
+            | StandardBuiltinId::DataViewPrototypeSetBigUint64
             | StandardBuiltinId::DataViewPrototypeBufferGetter
             | StandardBuiltinId::DataViewPrototypeByteLengthGetter
             | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
@@ -2499,6 +2624,11 @@ impl<'a> FunctionBuilder<'a> {
         self.init_builtin_constructor_object(
             StandardBuiltinId::BooleanConstructor,
             BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+            function,
+        )?;
+        self.init_builtin_constructor_object(
+            StandardBuiltinId::BigIntConstructor,
+            OBJECT_PROTOTYPE_GLOBAL_INDEX,
             function,
         )?;
         self.init_builtin_constructor_object(
@@ -4100,6 +4230,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(i64::from(*value)));
             }
             ExprIr::Number(bits) => {
+                function.instruction(&Instruction::I64Const(*bits as i64));
+            }
+            ExprIr::BigInt(bits) => {
                 function.instruction(&Instruction::I64Const(*bits as i64));
             }
             ExprIr::String(value) => {
@@ -10399,6 +10532,38 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Br(1));
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_alloc_boxed_wrapper_from_locals(
+                    OBJECT_PROTOTYPE_GLOBAL_INDEX,
+                    BOXED_PRIMITIVE_KIND_SYMBOL,
+                    arg_payload_local,
+                    arg_tag_local,
+                    self.result_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Br(1));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_alloc_boxed_wrapper_from_locals(
+                    OBJECT_PROTOTYPE_GLOBAL_INDEX,
+                    BOXED_PRIMITIVE_KIND_BIGINT,
+                    arg_payload_local,
+                    arg_tag_local,
+                    self.result_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Br(1));
+                function.instruction(&Instruction::End);
                 self.emit_alloc_plain_object_with_prototype(
                     None,
                     Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -10663,6 +10828,38 @@ impl<'a> FunctionBuilder<'a> {
                     value_tag_local,
                     function,
                 )?;
+                self.emit_alloc_data_descriptor_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    false,
+                    true,
+                    self.result_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Br(1));
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(target_payload_local));
+                function.instruction(&Instruction::GlobalGet(DATA_VIEW_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::LocalGet(key_string_local));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload("DataView")));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
                 self.emit_alloc_data_descriptor_from_locals(
                     value_payload_local,
                     value_tag_local,
@@ -11497,6 +11694,9 @@ impl<'a> FunctionBuilder<'a> {
                 let validation_tag_local = self.reserve_temp_local();
                 let value_payload_local = self.reserve_temp_local();
                 let value_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::LocalGet(receiver_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -11542,6 +11742,43 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
+                if matches!(
+                    builtin,
+                    StandardBuiltinId::DataViewPrototypeByteLengthGetter
+                        | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
+                ) {
+                    function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_object_read(
+                        receiver_payload_local,
+                        receiver_tag_local,
+                        receiver_payload_local,
+                        receiver_tag_local,
+                        key_local,
+                        buffer_payload_local,
+                        buffer_tag_local,
+                        function,
+                    )?;
+                    self.emit_object_read_number_slot_to_i64_local(
+                        buffer_payload_local,
+                        ARRAY_BUFFER_DATA_PTR_SLOT,
+                        data_ptr_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(data_ptr_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "DataView backing buffer is detached",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+
                 let slot_name = match builtin {
                     StandardBuiltinId::DataViewPrototypeBufferGetter => "buffer",
                     StandardBuiltinId::DataViewPrototypeByteLengthGetter => {
@@ -11569,6 +11806,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(value_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
                 self.release_temp_local(value_tag_local);
                 self.release_temp_local(value_payload_local);
                 self.release_temp_local(validation_tag_local);
@@ -11818,18 +12058,6 @@ impl<'a> FunctionBuilder<'a> {
                     "buffer",
                     data_ptr_local,
                     buffer_tag_local,
-                    function,
-                )?;
-                self.emit_object_define_number_data_from_i64_local(
-                    object_local,
-                    "byteOffset",
-                    byte_offset_local,
-                    function,
-                )?;
-                self.emit_object_define_number_data_from_i64_local(
-                    object_local,
-                    "byteLength",
-                    byte_length_local,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(object_local));
@@ -12543,6 +12771,934 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(index_tag_local);
                 self.release_temp_local(index_payload_local);
             }
+            StandardBuiltinId::DataViewPrototypeGetUint32
+            | StandardBuiltinId::DataViewPrototypeGetInt32 => {
+                let signed = matches!(builtin, StandardBuiltinId::DataViewPrototypeGetInt32);
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+                let byte0_local = self.reserve_temp_local();
+                let byte1_local = self.reserve_temp_local();
+                let byte2_local = self.reserve_temp_local();
+                let byte3_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(4));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                for (offset, local) in [
+                    (0_i64, byte0_local),
+                    (1_i64, byte1_local),
+                    (2_i64, byte2_local),
+                    (3_i64, byte3_local),
+                ] {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::LocalSet(local));
+                }
+                function.instruction(&Instruction::LocalGet(little_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(byte0_local));
+                function.instruction(&Instruction::I64Const(24));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::LocalGet(byte1_local));
+                function.instruction(&Instruction::I64Const(16));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalGet(byte2_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalGet(byte3_local));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(byte3_local));
+                function.instruction(&Instruction::I64Const(24));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::LocalGet(byte2_local));
+                function.instruction(&Instruction::I64Const(16));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalGet(byte1_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalGet(byte0_local));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                if signed {
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::I64Const(0x8000_0000));
+                    function.instruction(&Instruction::I64GeU);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::I64Const(0x1_0000_0000));
+                    function.instruction(&Instruction::I64Sub);
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::F64ConvertI64S);
+                } else {
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                }
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(byte3_local);
+                self.release_temp_local(byte2_local);
+                self.release_temp_local(byte1_local);
+                self.release_temp_local(byte0_local);
+                self.release_temp_local(address_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::DataViewPrototypeGetBigInt64
+            | StandardBuiltinId::DataViewPrototypeGetBigUint64 => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+                let byte_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        "DataView getBigInt64 index out of bounds",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getBigInt64 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView getBigInt64 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::LocalGet(little_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for offset in 0_i64..8_i64 {
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalSet(word_value_local));
+                }
+                function.instruction(&Instruction::Else);
+                for offset in (0_i64..8_i64).rev() {
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalSet(word_value_local));
+                }
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(word_value_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(byte_local);
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(address_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::DataViewPrototypeGetFloat16
+            | StandardBuiltinId::DataViewPrototypeGetFloat32
+            | StandardBuiltinId::DataViewPrototypeGetFloat64 => {
+                let is_float16 = matches!(builtin, StandardBuiltinId::DataViewPrototypeGetFloat16);
+                let is_float64 = matches!(builtin, StandardBuiltinId::DataViewPrototypeGetFloat64);
+                let byte_width = if is_float64 {
+                    8
+                } else if is_float16 {
+                    2
+                } else {
+                    4
+                };
+                let error_message = if is_float64 {
+                    "DataView getFloat64 index out of bounds"
+                } else if is_float16 {
+                    "DataView getFloat16 index out of bounds"
+                } else {
+                    "DataView getFloat32 index out of bounds"
+                };
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+                let byte0_local = self.reserve_temp_local();
+                let byte1_local = self.reserve_temp_local();
+                let byte2_local = self.reserve_temp_local();
+                let byte3_local = self.reserve_temp_local();
+                let byte4_local = self.reserve_temp_local();
+                let byte5_local = self.reserve_temp_local();
+                let byte6_local = self.reserve_temp_local();
+                let byte7_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+                let half_sign_local = self.reserve_temp_local();
+                let half_exp_local = self.reserve_temp_local();
+                let half_frac_local = self.reserve_temp_local();
+                let half_bits_local = self.reserve_temp_local();
+                let half_norm_exp_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                for infinity in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinity)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        error_message,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    error_message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(byte_width));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    error_message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                for (offset, local) in [
+                    (0_i64, byte0_local),
+                    (1_i64, byte1_local),
+                    (2_i64, byte2_local),
+                    (3_i64, byte3_local),
+                    (4_i64, byte4_local),
+                    (5_i64, byte5_local),
+                    (6_i64, byte6_local),
+                    (7_i64, byte7_local),
+                ]
+                .into_iter()
+                .take(byte_width as usize)
+                {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::LocalSet(local));
+                }
+                if is_float16 {
+                    function.instruction(&Instruction::LocalGet(little_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::LocalGet(byte0_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(byte1_local));
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(byte1_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(byte0_local));
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::LocalSet(word_value_local));
+                    self.emit_half_bits_to_f64_payload(
+                        word_value_local,
+                        half_sign_local,
+                        half_exp_local,
+                        half_frac_local,
+                        half_bits_local,
+                        half_norm_exp_local,
+                        function,
+                    );
+                } else if is_float64 {
+                    function.instruction(&Instruction::LocalGet(little_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    for (local, shift) in [
+                        (byte0_local, 56_i64),
+                        (byte1_local, 48),
+                        (byte2_local, 40),
+                        (byte3_local, 32),
+                        (byte4_local, 24),
+                        (byte5_local, 16),
+                        (byte6_local, 8),
+                        (byte7_local, 0),
+                    ] {
+                        function.instruction(&Instruction::LocalGet(local));
+                        if shift != 0 {
+                            function.instruction(&Instruction::I64Const(shift));
+                            function.instruction(&Instruction::I64Shl);
+                        }
+                        if shift != 56 {
+                            function.instruction(&Instruction::I64Or);
+                        }
+                    }
+                    function.instruction(&Instruction::Else);
+                    for (local, shift) in [
+                        (byte7_local, 56_i64),
+                        (byte6_local, 48),
+                        (byte5_local, 40),
+                        (byte4_local, 32),
+                        (byte3_local, 24),
+                        (byte2_local, 16),
+                        (byte1_local, 8),
+                        (byte0_local, 0),
+                    ] {
+                        function.instruction(&Instruction::LocalGet(local));
+                        if shift != 0 {
+                            function.instruction(&Instruction::I64Const(shift));
+                            function.instruction(&Instruction::I64Shl);
+                        }
+                        if shift != 56 {
+                            function.instruction(&Instruction::I64Or);
+                        }
+                    }
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                } else {
+                    function.instruction(&Instruction::LocalGet(little_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::LocalGet(byte0_local));
+                    function.instruction(&Instruction::I64Const(24));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(byte1_local));
+                    function.instruction(&Instruction::I64Const(16));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalGet(byte2_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalGet(byte3_local));
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(byte3_local));
+                    function.instruction(&Instruction::I64Const(24));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::LocalGet(byte2_local));
+                    function.instruction(&Instruction::I64Const(16));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalGet(byte1_local));
+                    function.instruction(&Instruction::I64Const(8));
+                    function.instruction(&Instruction::I64Shl);
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::LocalGet(byte0_local));
+                    function.instruction(&Instruction::I64Or);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::F32ReinterpretI32);
+                    function.instruction(&Instruction::F64PromoteF32);
+                }
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(half_norm_exp_local);
+                self.release_temp_local(half_bits_local);
+                self.release_temp_local(half_frac_local);
+                self.release_temp_local(half_exp_local);
+                self.release_temp_local(half_sign_local);
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(byte7_local);
+                self.release_temp_local(byte6_local);
+                self.release_temp_local(byte5_local);
+                self.release_temp_local(byte4_local);
+                self.release_temp_local(byte3_local);
+                self.release_temp_local(byte2_local);
+                self.release_temp_local(byte1_local);
+                self.release_temp_local(byte0_local);
+                self.release_temp_local(address_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
             StandardBuiltinId::DataViewPrototypeSetUint8
             | StandardBuiltinId::DataViewPrototypeSetInt8 => {
                 let this_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -13101,6 +14257,1008 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(value_payload_local);
                 self.release_temp_local(index_tag_local);
                 self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::DataViewPrototypeSetUint32
+            | StandardBuiltinId::DataViewPrototypeSetInt32 => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+                let byte0_local = self.reserve_temp_local();
+                let byte1_local = self.reserve_temp_local();
+                let byte2_local = self.reserve_temp_local();
+                let byte3_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    2,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(4));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setUint32 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
+                function.instruction(&Instruction::F64Lt);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MAX as f64)));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::I64Const(0xFFFF_FFFF));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(word_value_local));
+                function.instruction(&Instruction::I64Const(0xFF));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(byte0_local));
+                function.instruction(&Instruction::LocalGet(word_value_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64ShrU);
+                function.instruction(&Instruction::I64Const(0xFF));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(byte1_local));
+                function.instruction(&Instruction::LocalGet(word_value_local));
+                function.instruction(&Instruction::I64Const(16));
+                function.instruction(&Instruction::I64ShrU);
+                function.instruction(&Instruction::I64Const(0xFF));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(byte2_local));
+                function.instruction(&Instruction::LocalGet(word_value_local));
+                function.instruction(&Instruction::I64Const(24));
+                function.instruction(&Instruction::I64ShrU);
+                function.instruction(&Instruction::I64Const(0xFF));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(byte3_local));
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                function.instruction(&Instruction::LocalGet(little_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for (offset, local) in [
+                    (0_i64, byte3_local),
+                    (1_i64, byte2_local),
+                    (2_i64, byte1_local),
+                    (3_i64, byte0_local),
+                ] {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+                }
+                function.instruction(&Instruction::Else);
+                for (offset, local) in [
+                    (0_i64, byte0_local),
+                    (1_i64, byte1_local),
+                    (2_i64, byte2_local),
+                    (3_i64, byte3_local),
+                ] {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+                }
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(byte3_local);
+                self.release_temp_local(byte2_local);
+                self.release_temp_local(byte1_local);
+                self.release_temp_local(byte0_local);
+                self.release_temp_local(address_local);
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::DataViewPrototypeSetFloat16
+            | StandardBuiltinId::DataViewPrototypeSetFloat32
+            | StandardBuiltinId::DataViewPrototypeSetFloat64 => {
+                let is_float16 = matches!(builtin, StandardBuiltinId::DataViewPrototypeSetFloat16);
+                let is_float64 = matches!(builtin, StandardBuiltinId::DataViewPrototypeSetFloat64);
+                let byte_width = if is_float64 {
+                    8
+                } else if is_float16 {
+                    2
+                } else {
+                    4
+                };
+                let error_message = if is_float64 {
+                    "DataView setFloat64 index out of bounds"
+                } else if is_float16 {
+                    "DataView setFloat16 index out of bounds"
+                } else {
+                    "DataView setFloat32 index out of bounds"
+                };
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+                let byte0_local = self.reserve_temp_local();
+                let byte1_local = self.reserve_temp_local();
+                let byte2_local = self.reserve_temp_local();
+                let byte3_local = self.reserve_temp_local();
+                let byte4_local = self.reserve_temp_local();
+                let byte5_local = self.reserve_temp_local();
+                let byte6_local = self.reserve_temp_local();
+                let byte7_local = self.reserve_temp_local();
+                let half_sign_local = self.reserve_temp_local();
+                let half_exp_local = self.reserve_temp_local();
+                let half_frac_local = self.reserve_temp_local();
+                let half_bits_local = self.reserve_temp_local();
+                let half_shift_local = self.reserve_temp_local();
+                let half_temp_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    2,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                for infinity in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinity)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        error_message,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    error_message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(byte_width));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    error_message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                if is_float64 {
+                    function.instruction(&Instruction::LocalGet(value_payload_local));
+                } else if is_float16 {
+                    self.emit_f64_payload_to_half_bits_local(
+                        value_payload_local,
+                        word_value_local,
+                        half_sign_local,
+                        half_exp_local,
+                        half_frac_local,
+                        half_bits_local,
+                        half_shift_local,
+                        half_temp_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                } else {
+                    function.instruction(&Instruction::LocalGet(value_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F32DemoteF64);
+                    function.instruction(&Instruction::I32ReinterpretF32);
+                    function.instruction(&Instruction::I64ExtendI32U);
+                }
+                function.instruction(&Instruction::LocalSet(word_value_local));
+
+                for (local, shift) in [
+                    (byte0_local, 0_i64),
+                    (byte1_local, 8),
+                    (byte2_local, 16),
+                    (byte3_local, 24),
+                    (byte4_local, 32),
+                    (byte5_local, 40),
+                    (byte6_local, 48),
+                    (byte7_local, 56),
+                ]
+                .into_iter()
+                .take(byte_width as usize)
+                {
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    if shift != 0 {
+                        function.instruction(&Instruction::I64Const(shift));
+                        function.instruction(&Instruction::I64ShrU);
+                    }
+                    function.instruction(&Instruction::I64Const(0xFF));
+                    function.instruction(&Instruction::I64And);
+                    function.instruction(&Instruction::LocalSet(local));
+                }
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                function.instruction(&Instruction::LocalGet(little_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for (offset, local) in if is_float64 {
+                    vec![
+                        (0_i64, byte7_local),
+                        (1, byte6_local),
+                        (2, byte5_local),
+                        (3, byte4_local),
+                        (4, byte3_local),
+                        (5, byte2_local),
+                        (6, byte1_local),
+                        (7, byte0_local),
+                    ]
+                } else if is_float16 {
+                    vec![(0_i64, byte1_local), (1, byte0_local)]
+                } else {
+                    vec![
+                        (0_i64, byte3_local),
+                        (1, byte2_local),
+                        (2, byte1_local),
+                        (3, byte0_local),
+                    ]
+                } {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+                }
+                function.instruction(&Instruction::Else);
+                for (offset, local) in [
+                    (0_i64, byte0_local),
+                    (1_i64, byte1_local),
+                    (2_i64, byte2_local),
+                    (3_i64, byte3_local),
+                    (4_i64, byte4_local),
+                    (5_i64, byte5_local),
+                    (6_i64, byte6_local),
+                    (7_i64, byte7_local),
+                ]
+                .into_iter()
+                .take(byte_width as usize)
+                {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+                }
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(half_temp_local);
+                self.release_temp_local(half_shift_local);
+                self.release_temp_local(half_bits_local);
+                self.release_temp_local(half_frac_local);
+                self.release_temp_local(half_exp_local);
+                self.release_temp_local(half_sign_local);
+                self.release_temp_local(byte7_local);
+                self.release_temp_local(byte6_local);
+                self.release_temp_local(byte5_local);
+                self.release_temp_local(byte4_local);
+                self.release_temp_local(byte3_local);
+                self.release_temp_local(byte2_local);
+                self.release_temp_local(byte1_local);
+                self.release_temp_local(byte0_local);
+                self.release_temp_local(address_local);
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::DataViewPrototypeSetBigInt64
+            | StandardBuiltinId::DataViewPrototypeSetBigUint64 => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing DataView receiver",
+                    )
+                })?;
+                let index_payload_local = self.reserve_temp_local();
+                let index_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let little_payload_local = self.reserve_temp_local();
+                let little_tag_local = self.reserve_temp_local();
+                let little_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let validation_payload_local = self.reserve_temp_local();
+                let validation_tag_local = self.reserve_temp_local();
+                let buffer_payload_local = self.reserve_temp_local();
+                let buffer_tag_local = self.reserve_temp_local();
+                let data_ptr_local = self.reserve_temp_local();
+                let byte_offset_local = self.reserve_temp_local();
+                let byte_length_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let word_value_local = self.reserve_temp_local();
+                let address_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, index_payload_local, index_tag_local, function);
+                self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    2,
+                    little_payload_local,
+                    little_tag_local,
+                    function,
+                );
+                self.compile_truthy_tagged_i32(little_tag_local, little_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(little_local));
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(DATA_VIEW_BYTE_LENGTH_SLOT),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    validation_payload_local,
+                    validation_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(validation_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView accessor requires DataView",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    buffer_payload_local,
+                    buffer_tag_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    buffer_payload_local,
+                    ARRAY_BUFFER_DATA_PTR_SLOT,
+                    data_ptr_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_OFFSET_SLOT,
+                    byte_offset_local,
+                    function,
+                )?;
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    DATA_VIEW_BYTE_LENGTH_SLOT,
+                    byte_length_local,
+                    function,
+                )?;
+                self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_payload_local));
+                function.instruction(&Instruction::End);
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        "DataView setBigInt64 index out of bounds",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(index_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setBigInt64 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_value_to_bigint_payload(
+                    value_tag_local,
+                    value_payload_local,
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(word_value_local));
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(byte_length_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "DataView setBigInt64 index out of bounds",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::LocalGet(byte_offset_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(address_local));
+                for offset in 0_i64..8_i64 {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I64Const(offset));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(word_value_local));
+                    function.instruction(&Instruction::LocalGet(little_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::I64Const((7_i64 - offset) * 8));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::I64Const(offset * 8));
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::I64ShrU);
+                    function.instruction(&Instruction::I64Const(0xff));
+                    function.instruction(&Instruction::I64And);
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+                }
+                self.emit_undefined_payload(function);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(address_local);
+                self.release_temp_local(word_value_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(byte_length_local);
+                self.release_temp_local(byte_offset_local);
+                self.release_temp_local(data_ptr_local);
+                self.release_temp_local(buffer_tag_local);
+                self.release_temp_local(buffer_payload_local);
+                self.release_temp_local(validation_tag_local);
+                self.release_temp_local(validation_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(little_local);
+                self.release_temp_local(little_tag_local);
+                self.release_temp_local(little_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(index_tag_local);
+                self.release_temp_local(index_payload_local);
+            }
+            StandardBuiltinId::BigIntConstructor => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                self.emit_value_to_bigint_payload(
+                    arg_tag_local,
+                    arg_payload_local,
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
+            }
+            StandardBuiltinId::NumberIsInteger => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(arg_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Trunc);
+                function.instruction(&Instruction::LocalGet(arg_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(arg_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
             }
             StandardBuiltinId::NumberConstructor
             | StandardBuiltinId::StringConstructor
@@ -15096,6 +17254,302 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_half_bits_to_f64_payload(
+        &mut self,
+        half_local: u32,
+        sign_local: u32,
+        exp_local: u32,
+        frac_local: u32,
+        f32_bits_local: u32,
+        norm_exp_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(half_local));
+        function.instruction(&Instruction::I64Const(0x8000));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(16));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalSet(sign_local));
+        function.instruction(&Instruction::LocalGet(half_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0x1f));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(exp_local));
+        function.instruction(&Instruction::LocalGet(half_local));
+        function.instruction(&Instruction::I64Const(0x03ff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(frac_local));
+
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::LocalSet(f32_bits_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(-14));
+        function.instruction(&Instruction::LocalSet(norm_exp_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(0x0400));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalSet(frac_local));
+        function.instruction(&Instruction::LocalGet(norm_exp_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(norm_exp_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(0x03ff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(frac_local));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::LocalGet(norm_exp_local));
+        function.instruction(&Instruction::I64Const(127));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(23));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(13));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(f32_bits_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(31));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(0x7f800000));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(13));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(f32_bits_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(112));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(23));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(13));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(f32_bits_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(f32_bits_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::F32ReinterpretI32);
+        function.instruction(&Instruction::F64PromoteF32);
+    }
+
+    fn emit_f64_payload_to_half_bits_local(
+        &mut self,
+        value_payload_local: u32,
+        half_local: u32,
+        sign_local: u32,
+        exp_local: u32,
+        frac_local: u32,
+        f32_bits_local: u32,
+        shift_local: u32,
+        temp_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::I64Const(48));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0x8000));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(sign_local));
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F32DemoteF64);
+        function.instruction(&Instruction::I32ReinterpretF32);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(f32_bits_local));
+        function.instruction(&Instruction::LocalGet(f32_bits_local));
+        function.instruction(&Instruction::I64Const(23));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0xff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(exp_local));
+        function.instruction(&Instruction::LocalGet(f32_bits_local));
+        function.instruction(&Instruction::I64Const(0x7fffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(frac_local));
+
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.00006103515625)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            0.0000000298023223876953125,
+        )));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            0.000000059604644775390625,
+        )));
+        function.instruction(&Instruction::F64Div);
+        function.instruction(&Instruction::F64Nearest);
+        function.instruction(&Instruction::I64TruncF64U);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(65520.0)));
+        function.instruction(&Instruction::F64Ge);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(0x7c00));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(65504.0)));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(0x7bff));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(255));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(0x7c00));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0x0200));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(142));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(0x7c00));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(113));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(0x0fff));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(13));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(13));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(112));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Const(0xffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Const(103));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(126));
+        function.instruction(&Instruction::LocalGet(exp_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(shift_local));
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::I64Const(0x800000));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Const(0xffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::LocalSet(half_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
     const fn memarg64(offset: u64) -> MemArg {
         MemArg {
             offset,
@@ -15848,7 +18302,11 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Undefined | ValueKind::Null => {
                 function.instruction(&Instruction::I32Const(0));
             }
-            ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments => {
+            ValueKind::Object
+            | ValueKind::Array
+            | ValueKind::Function
+            | ValueKind::Arguments
+            | ValueKind::Symbol => {
                 function.instruction(&Instruction::I32Const(1));
             }
             ValueKind::Boolean => {
@@ -15874,6 +18332,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Ne);
                 function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::I32Eqz);
+            }
+            ValueKind::BigInt => {
+                function.instruction(&Instruction::LocalGet(local));
+                function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
             }
             ValueKind::Dynamic => {
@@ -15916,6 +18379,12 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_truthy_local_i32(ValueKind::Number, payload_local, function)?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.compile_truthy_local_i32(ValueKind::BigInt, payload_local, function)?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
@@ -15928,6 +18397,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -16037,8 +18507,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let hook_names: &[&str] = match hint {
-            ToPrimitiveHint::String => &["toString", "valueOf"],
-            ToPrimitiveHint::Default | ToPrimitiveHint::Number => &["valueOf", "toString"],
+            ToPrimitiveHint::String => &["Symbol.toPrimitive", "toString", "valueOf"],
+            ToPrimitiveHint::Default | ToPrimitiveHint::Number => {
+                &["Symbol.toPrimitive", "valueOf", "toString"]
+            }
         };
 
         let boxed_kind_local = self.reserve_temp_local();
@@ -16097,33 +18569,96 @@ impl<'a> FunctionBuilder<'a> {
                 hook_value_tag,
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(hook_value_tag));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            if *hook_name == "toString" {
+            if *hook_name == "Symbol.toPrimitive" {
+                function.instruction(&Instruction::LocalGet(hook_value_tag));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    hook_value_payload,
+                    hook_value_tag,
+                    Some((object_local, None)),
+                    &[],
+                    call_result_payload,
+                    call_result_tag,
+                    function,
+                )?;
+                self.emit_is_primitive_tag_i32(call_result_tag, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(call_result_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(call_result_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
                 function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(callable_to_string_local));
+                function.instruction(&Instruction::LocalSet(primitive_result_local));
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Cannot convert object to primitive value",
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(hook_value_tag));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(hook_value_tag));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Cannot convert object to primitive value",
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            } else {
+                function.instruction(&Instruction::LocalGet(hook_value_tag));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                if *hook_name == "toString" {
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(callable_to_string_local));
+                }
+                self.emit_function_handle_call(
+                    hook_value_payload,
+                    hook_value_tag,
+                    Some((object_local, None)),
+                    &[],
+                    call_result_payload,
+                    call_result_tag,
+                    function,
+                )?;
+                self.emit_is_primitive_tag_i32(call_result_tag, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(call_result_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(call_result_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(primitive_result_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                if *hook_name == "toString" {
+                    function.instruction(&Instruction::LocalGet(hook_value_tag));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(callable_to_string_local));
+                    function.instruction(&Instruction::End);
+                }
             }
-            self.emit_function_handle_call(
-                hook_value_payload,
-                hook_value_tag,
-                Some((object_local, None)),
-                &[],
-                call_result_payload,
-                call_result_tag,
-                function,
-            )?;
-            self.emit_is_primitive_tag_i32(call_result_tag, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(call_result_payload));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::LocalGet(call_result_tag));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(primitive_result_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
             self.release_temp_local(key_local);
         }
@@ -16407,6 +18942,8 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Null,
             ValueKind::Boolean,
             ValueKind::Number,
+            ValueKind::BigInt,
+            ValueKind::Symbol,
             ValueKind::String,
         ] {
             function.instruction(&Instruction::LocalGet(tag_local));
@@ -16657,6 +19194,34 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot convert BigInt to number",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        self.emit_nan_payload(function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot convert Symbol to number",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        self.emit_nan_payload(function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -16666,6 +19231,103 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_value_to_bigint_payload(
+        &mut self,
+        tag_local: u32,
+        payload_local: u32,
+        allow_number: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        if !allow_number {
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                "cannot convert Number to BigInt",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::I32Const(0));
+        }
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "cannot convert Number to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+            function.instruction(&Instruction::F64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                RANGE_ERROR_NAME,
+                "cannot convert Number to BigInt",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "cannot convert non-integer Number to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "cannot convert value to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         Ok(())
@@ -16898,7 +19560,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -17524,6 +20186,8 @@ impl<'a> FunctionBuilder<'a> {
             }
             ValueKind::Boolean => "boolean",
             ValueKind::Number => "number",
+            ValueKind::BigInt => "bigint",
+            ValueKind::Symbol => "symbol",
             ValueKind::String => "string",
             ValueKind::Function => "function",
             ValueKind::Dynamic => unreachable!(),
@@ -17551,6 +20215,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("number")));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(self.strings.payload("bigint")));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(self.strings.payload("symbol")));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -17563,6 +20239,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("function")));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(self.strings.payload("object")));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -18954,11 +21632,25 @@ fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::DataViewPrototypeGetUint8
         | StandardBuiltinId::DataViewPrototypeGetInt8
         | StandardBuiltinId::DataViewPrototypeGetUint16
-        | StandardBuiltinId::DataViewPrototypeGetInt16 => 1,
+        | StandardBuiltinId::DataViewPrototypeGetInt16
+        | StandardBuiltinId::DataViewPrototypeGetUint32
+        | StandardBuiltinId::DataViewPrototypeGetInt32
+        | StandardBuiltinId::DataViewPrototypeGetFloat16
+        | StandardBuiltinId::DataViewPrototypeGetFloat32
+        | StandardBuiltinId::DataViewPrototypeGetFloat64
+        | StandardBuiltinId::DataViewPrototypeGetBigInt64
+        | StandardBuiltinId::DataViewPrototypeGetBigUint64 => 1,
         StandardBuiltinId::DataViewPrototypeSetUint8
         | StandardBuiltinId::DataViewPrototypeSetInt8
         | StandardBuiltinId::DataViewPrototypeSetUint16
-        | StandardBuiltinId::DataViewPrototypeSetInt16 => 2,
+        | StandardBuiltinId::DataViewPrototypeSetInt16
+        | StandardBuiltinId::DataViewPrototypeSetUint32
+        | StandardBuiltinId::DataViewPrototypeSetInt32
+        | StandardBuiltinId::DataViewPrototypeSetFloat16
+        | StandardBuiltinId::DataViewPrototypeSetFloat32
+        | StandardBuiltinId::DataViewPrototypeSetFloat64
+        | StandardBuiltinId::DataViewPrototypeSetBigInt64
+        | StandardBuiltinId::DataViewPrototypeSetBigUint64 => 2,
         StandardBuiltinId::Float64ArrayConstructor
         | StandardBuiltinId::Float32ArrayConstructor
         | StandardBuiltinId::Int32ArrayConstructor
@@ -18968,7 +21660,9 @@ fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::Uint16ArrayConstructor
         | StandardBuiltinId::Uint8ArrayConstructor
         | StandardBuiltinId::Uint8ClampedArrayConstructor => 3,
-        StandardBuiltinId::NumberConstructor => 1,
+        StandardBuiltinId::NumberConstructor
+        | StandardBuiltinId::BigIntConstructor
+        | StandardBuiltinId::NumberIsInteger => 1,
         StandardBuiltinId::StringConstructor => 1,
         StandardBuiltinId::BooleanConstructor => 1,
         StandardBuiltinId::ErrorConstructor
@@ -19348,6 +22042,7 @@ fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::Null
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
         | ExprIr::String(_)
         | ExprIr::This
         | ExprIr::Identifier(_)
@@ -19438,6 +22133,7 @@ fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::Null
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -19783,6 +22479,7 @@ fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         | ExprIr::Null
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This

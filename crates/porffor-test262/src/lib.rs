@@ -155,6 +155,7 @@ pub struct TestCase {
     pub source_path: PathBuf,
     pub original_source: String,
     pub flags: BTreeSet<String>,
+    pub features: BTreeSet<String>,
     pub includes: Vec<String>,
     pub negative: Option<NegativeExpectation>,
     pub is_module: bool,
@@ -1860,6 +1861,18 @@ fn run_one_case(
 ) -> TestResult {
     let start = Instant::now();
     let outcome = (|| -> Result<(), FailureRecord> {
+        if execution_backend == ExecutionBackend::WasmAot {
+            if let Some(feature) = wasm_aot_unsupported_feature(case) {
+                return Err(classify_failure(
+                    &case.path,
+                    FailureKind::Unsupported,
+                    format!(
+                        "unsupported in porffor wasm-aot first slice: feature `{feature}` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm."
+                    ),
+                ));
+            }
+        }
+
         let materialized = materialize_test(case, preludes)
             .map_err(|detail| classify_failure(&case.path, FailureKind::HostHarness, detail))?;
 
@@ -2266,6 +2279,22 @@ fn classify_engine_error(message: &str) -> FailureKind {
     } else {
         FailureKind::Runtime
     }
+}
+
+fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
+    if case.features.contains("resizable-arraybuffer") {
+        return Some("resizable-arraybuffer");
+    }
+    if case.features.contains("immutable-arraybuffer") {
+        return Some("immutable-arraybuffer");
+    }
+    if case.features.contains("SharedArrayBuffer")
+        || case.path.contains("-sab")
+        || case.path.contains("/sab")
+    {
+        return Some("SharedArrayBuffer");
+    }
+    None
 }
 
 fn classify_failure_origin(detail: &str) -> FailureOrigin {
@@ -3031,6 +3060,7 @@ fn scan_tests(
 fn parse_test_case(path: String, source_path: PathBuf, original_source: String) -> TestCase {
     let frontmatter = parse_frontmatter_block(&original_source);
     let flags = parse_frontmatter_list(frontmatter.get("flags").map(String::as_str));
+    let features = parse_frontmatter_list(frontmatter.get("features").map(String::as_str));
     let includes = parse_frontmatter_vec(frontmatter.get("includes").map(String::as_str));
     let negative = parse_negative(frontmatter.get("negative").map(String::as_str));
     let is_module = flags.iter().any(|flag| flag == "module");
@@ -3040,6 +3070,7 @@ fn parse_test_case(path: String, source_path: PathBuf, original_source: String) 
         source_path,
         original_source,
         flags,
+        features,
         includes,
         negative,
         is_module,
@@ -3297,6 +3328,7 @@ mod tests {
             source_path: PathBuf::from(path),
             original_source: "0;".to_string(),
             flags: BTreeSet::new(),
+            features: BTreeSet::new(),
             includes: Vec::new(),
             negative: None,
             is_module: false,
@@ -4053,6 +4085,7 @@ mod tests {
                 source_path: PathBuf::from("resume/case-1.js"),
                 original_source: "1;".to_string(),
                 flags: BTreeSet::new(),
+                features: BTreeSet::new(),
                 includes: Vec::new(),
                 negative: None,
                 is_module: false,
@@ -4062,6 +4095,7 @@ mod tests {
                 source_path: PathBuf::from("resume/case-2.js"),
                 original_source: "2;".to_string(),
                 flags: BTreeSet::new(),
+                features: BTreeSet::new(),
                 includes: Vec::new(),
                 negative: None,
                 is_module: false,
@@ -4396,6 +4430,7 @@ mod tests {
             original_source: "import './does-not-exist.mjs';\nexport const value = 1;\n"
                 .to_string(),
             flags: BTreeSet::from(["module".to_string()]),
+            features: BTreeSet::new(),
             includes: Vec::new(),
             negative: Some(NegativeExpectation {
                 phase: "resolution".to_string(),
@@ -4411,6 +4446,31 @@ mod tests {
             ExecutionBackend::SpecExec,
         );
         assert!(matches!(result.status, TestStatus::Passed));
+    }
+
+    #[test]
+    fn wasm_aot_classifies_feature_gated_cases_as_unsupported() {
+        for feature in [
+            "resizable-arraybuffer",
+            "immutable-arraybuffer",
+            "SharedArrayBuffer",
+        ] {
+            let mut case = synthetic_case("built-ins/DataView/prototype/feature.js");
+            case.features.insert(feature.to_string());
+
+            let result = run_one_case(
+                &case,
+                &PreludeStore::default(),
+                5_000,
+                ExecutionBackend::WasmAot,
+            );
+
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("feature-gated case should fail as unsupported");
+            };
+            assert_eq!(failure.kind, FailureKind::Unsupported);
+            assert!(failure.detail.contains(feature));
+        }
     }
 
     #[test]

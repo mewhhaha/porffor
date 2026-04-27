@@ -66,6 +66,7 @@ pub const UINT32_ARRAY_NAME: &str = "Uint32Array";
 pub const UINT16_ARRAY_NAME: &str = "Uint16Array";
 pub const UINT8_ARRAY_NAME: &str = "Uint8Array";
 pub const UINT8_CLAMPED_ARRAY_NAME: &str = "Uint8ClampedArray";
+pub const BIGINT_NAME: &str = "BigInt";
 pub const REFLECT_NAME: &str = "Reflect";
 pub const NUMBER_NAME: &str = "Number";
 pub const STRING_NAME: &str = "String";
@@ -124,6 +125,34 @@ pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT16_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.getInt16";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.setInt16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getUint32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setUint32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getInt32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setInt32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getFloat16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setFloat16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getFloat32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT32_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setFloat32";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getFloat64";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setFloat64";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGINT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getBigInt64";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGINT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setBigInt64";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGUINT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getBigUint64";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setBigUint64";
 pub const BUILTIN_FLOAT64_ARRAY_FUNCTION_ID: &str = "$builtin.Float64Array";
 pub const BUILTIN_FLOAT32_ARRAY_FUNCTION_ID: &str = "$builtin.Float32Array";
 pub const BUILTIN_INT32_ARRAY_FUNCTION_ID: &str = "$builtin.Int32Array";
@@ -133,7 +162,9 @@ pub const BUILTIN_UINT32_ARRAY_FUNCTION_ID: &str = "$builtin.Uint32Array";
 pub const BUILTIN_UINT16_ARRAY_FUNCTION_ID: &str = "$builtin.Uint16Array";
 pub const BUILTIN_UINT8_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8Array";
 pub const BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8ClampedArray";
+pub const BUILTIN_BIGINT_FUNCTION_ID: &str = "$builtin.BigInt";
 pub const BUILTIN_NUMBER_FUNCTION_ID: &str = "$builtin.Number";
+pub const BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID: &str = "$builtin.Number.isInteger";
 pub const BUILTIN_STRING_FUNCTION_ID: &str = "$builtin.String";
 pub const BUILTIN_BOOLEAN_FUNCTION_ID: &str = "$builtin.Boolean";
 pub const BUILTIN_ERROR_FUNCTION_ID: &str = "$builtin.Error";
@@ -249,6 +280,20 @@ pub enum StandardBuiltinId {
     DataViewPrototypeSetUint16,
     DataViewPrototypeGetInt16,
     DataViewPrototypeSetInt16,
+    DataViewPrototypeGetUint32,
+    DataViewPrototypeSetUint32,
+    DataViewPrototypeGetInt32,
+    DataViewPrototypeSetInt32,
+    DataViewPrototypeGetFloat16,
+    DataViewPrototypeSetFloat16,
+    DataViewPrototypeGetFloat32,
+    DataViewPrototypeSetFloat32,
+    DataViewPrototypeGetFloat64,
+    DataViewPrototypeSetFloat64,
+    DataViewPrototypeGetBigInt64,
+    DataViewPrototypeSetBigInt64,
+    DataViewPrototypeGetBigUint64,
+    DataViewPrototypeSetBigUint64,
     Float64ArrayConstructor,
     Float32ArrayConstructor,
     Int32ArrayConstructor,
@@ -258,7 +303,9 @@ pub enum StandardBuiltinId {
     Uint16ArrayConstructor,
     Uint8ArrayConstructor,
     Uint8ClampedArrayConstructor,
+    BigIntConstructor,
     NumberConstructor,
+    NumberIsInteger,
     StringConstructor,
     BooleanConstructor,
     ErrorConstructor,
@@ -291,6 +338,7 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => Some(UINT16_ARRAY_NAME),
             Self::Uint8ArrayConstructor => Some(UINT8_ARRAY_NAME),
             Self::Uint8ClampedArrayConstructor => Some(UINT8_CLAMPED_ARRAY_NAME),
+            Self::BigIntConstructor => Some(BIGINT_NAME),
             Self::NumberConstructor => Some(NUMBER_NAME),
             Self::StringConstructor => Some(STRING_NAME),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -314,6 +362,7 @@ impl StandardBuiltinId {
             | Self::ArrayPrototypeConcat
             | Self::ArrayPrototypePush
             | Self::ArrayBufferIsView
+            | Self::NumberIsInteger
             | Self::ArrayBufferSpeciesGetter
             | Self::ArrayBufferPrototypeByteLengthGetter
             | Self::DataViewPrototypeBufferGetter
@@ -327,6 +376,20 @@ impl StandardBuiltinId {
             | Self::DataViewPrototypeSetUint16
             | Self::DataViewPrototypeGetInt16
             | Self::DataViewPrototypeSetInt16
+            | Self::DataViewPrototypeGetUint32
+            | Self::DataViewPrototypeSetUint32
+            | Self::DataViewPrototypeGetInt32
+            | Self::DataViewPrototypeSetInt32
+            | Self::DataViewPrototypeGetFloat16
+            | Self::DataViewPrototypeSetFloat16
+            | Self::DataViewPrototypeGetFloat32
+            | Self::DataViewPrototypeSetFloat32
+            | Self::DataViewPrototypeGetFloat64
+            | Self::DataViewPrototypeSetFloat64
+            | Self::DataViewPrototypeGetBigInt64
+            | Self::DataViewPrototypeSetBigInt64
+            | Self::DataViewPrototypeGetBigUint64
+            | Self::DataViewPrototypeSetBigUint64
             | Self::ErrorPrototypeToString
             | Self::BoundFunctionInvoker => None,
         }
@@ -365,6 +428,20 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetUint16 => "DataView.prototype.setUint16",
             Self::DataViewPrototypeGetInt16 => "DataView.prototype.getInt16",
             Self::DataViewPrototypeSetInt16 => "DataView.prototype.setInt16",
+            Self::DataViewPrototypeGetUint32 => "DataView.prototype.getUint32",
+            Self::DataViewPrototypeSetUint32 => "DataView.prototype.setUint32",
+            Self::DataViewPrototypeGetInt32 => "DataView.prototype.getInt32",
+            Self::DataViewPrototypeSetInt32 => "DataView.prototype.setInt32",
+            Self::DataViewPrototypeGetFloat16 => "DataView.prototype.getFloat16",
+            Self::DataViewPrototypeSetFloat16 => "DataView.prototype.setFloat16",
+            Self::DataViewPrototypeGetFloat32 => "DataView.prototype.getFloat32",
+            Self::DataViewPrototypeSetFloat32 => "DataView.prototype.setFloat32",
+            Self::DataViewPrototypeGetFloat64 => "DataView.prototype.getFloat64",
+            Self::DataViewPrototypeSetFloat64 => "DataView.prototype.setFloat64",
+            Self::DataViewPrototypeGetBigInt64 => "DataView.prototype.getBigInt64",
+            Self::DataViewPrototypeSetBigInt64 => "DataView.prototype.setBigInt64",
+            Self::DataViewPrototypeGetBigUint64 => "DataView.prototype.getBigUint64",
+            Self::DataViewPrototypeSetBigUint64 => "DataView.prototype.setBigUint64",
             Self::Float64ArrayConstructor => FLOAT64_ARRAY_NAME,
             Self::Float32ArrayConstructor => FLOAT32_ARRAY_NAME,
             Self::Int32ArrayConstructor => INT32_ARRAY_NAME,
@@ -374,7 +451,9 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => UINT16_ARRAY_NAME,
             Self::Uint8ArrayConstructor => UINT8_ARRAY_NAME,
             Self::Uint8ClampedArrayConstructor => UINT8_CLAMPED_ARRAY_NAME,
+            Self::BigIntConstructor => BIGINT_NAME,
             Self::NumberConstructor => NUMBER_NAME,
+            Self::NumberIsInteger => "Number.isInteger",
             Self::StringConstructor => STRING_NAME,
             Self::BooleanConstructor => BOOLEAN_NAME,
             Self::ErrorConstructor => ERROR_NAME,
@@ -455,6 +534,48 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetInt16 => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID.to_string()
             }
+            Self::DataViewPrototypeGetUint32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetUint32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetInt32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetInt32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetFloat16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT16_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetFloat16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT16_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetFloat32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetFloat32 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT32_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetFloat64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT64_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetFloat64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT64_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetBigInt64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGINT64_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetBigInt64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGINT64_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetBigUint64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGUINT64_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetBigUint64 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID.to_string()
+            }
             Self::Float64ArrayConstructor => BUILTIN_FLOAT64_ARRAY_FUNCTION_ID.to_string(),
             Self::Float32ArrayConstructor => BUILTIN_FLOAT32_ARRAY_FUNCTION_ID.to_string(),
             Self::Int32ArrayConstructor => BUILTIN_INT32_ARRAY_FUNCTION_ID.to_string(),
@@ -466,7 +587,9 @@ impl StandardBuiltinId {
             Self::Uint8ClampedArrayConstructor => {
                 BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID.to_string()
             }
+            Self::BigIntConstructor => BUILTIN_BIGINT_FUNCTION_ID.to_string(),
             Self::NumberConstructor => BUILTIN_NUMBER_FUNCTION_ID.to_string(),
+            Self::NumberIsInteger => BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID.to_string(),
             Self::StringConstructor => BUILTIN_STRING_FUNCTION_ID.to_string(),
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
             Self::ErrorConstructor => BUILTIN_ERROR_FUNCTION_ID.to_string(),
@@ -545,6 +668,48 @@ impl StandardBuiltinId {
             BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeSetInt16)
             }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetUint32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetUint32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetInt32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetInt32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetFloat16)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetFloat16)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetFloat32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT32_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetFloat32)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_FLOAT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetFloat64)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_FLOAT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetFloat64)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGINT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetBigInt64)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGINT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetBigInt64)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGUINT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetBigUint64)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetBigUint64)
+            }
             BUILTIN_FLOAT64_ARRAY_FUNCTION_ID => Some(Self::Float64ArrayConstructor),
             BUILTIN_FLOAT32_ARRAY_FUNCTION_ID => Some(Self::Float32ArrayConstructor),
             BUILTIN_INT32_ARRAY_FUNCTION_ID => Some(Self::Int32ArrayConstructor),
@@ -554,7 +719,9 @@ impl StandardBuiltinId {
             BUILTIN_UINT16_ARRAY_FUNCTION_ID => Some(Self::Uint16ArrayConstructor),
             BUILTIN_UINT8_ARRAY_FUNCTION_ID => Some(Self::Uint8ArrayConstructor),
             BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID => Some(Self::Uint8ClampedArrayConstructor),
+            BUILTIN_BIGINT_FUNCTION_ID => Some(Self::BigIntConstructor),
             BUILTIN_NUMBER_FUNCTION_ID => Some(Self::NumberConstructor),
+            BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID => Some(Self::NumberIsInteger),
             BUILTIN_STRING_FUNCTION_ID => Some(Self::StringConstructor),
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
             BUILTIN_ERROR_FUNCTION_ID => Some(Self::ErrorConstructor),
@@ -587,6 +754,7 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor,
             Self::Uint8ArrayConstructor,
             Self::Uint8ClampedArrayConstructor,
+            Self::BigIntConstructor,
             Self::NumberConstructor,
             Self::StringConstructor,
             Self::BooleanConstructor,
@@ -634,6 +802,20 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetUint16,
             Self::DataViewPrototypeGetInt16,
             Self::DataViewPrototypeSetInt16,
+            Self::DataViewPrototypeGetUint32,
+            Self::DataViewPrototypeSetUint32,
+            Self::DataViewPrototypeGetInt32,
+            Self::DataViewPrototypeSetInt32,
+            Self::DataViewPrototypeGetFloat16,
+            Self::DataViewPrototypeSetFloat16,
+            Self::DataViewPrototypeGetFloat32,
+            Self::DataViewPrototypeSetFloat32,
+            Self::DataViewPrototypeGetFloat64,
+            Self::DataViewPrototypeSetFloat64,
+            Self::DataViewPrototypeGetBigInt64,
+            Self::DataViewPrototypeSetBigInt64,
+            Self::DataViewPrototypeGetBigUint64,
+            Self::DataViewPrototypeSetBigUint64,
             Self::Float64ArrayConstructor,
             Self::Float32ArrayConstructor,
             Self::Int32ArrayConstructor,
@@ -643,7 +825,9 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor,
             Self::Uint8ArrayConstructor,
             Self::Uint8ClampedArrayConstructor,
+            Self::BigIntConstructor,
             Self::NumberConstructor,
+            Self::NumberIsInteger,
             Self::StringConstructor,
             Self::BooleanConstructor,
             Self::ErrorConstructor,
@@ -715,6 +899,7 @@ impl StandardBuiltinId {
                 | Self::ReflectConstruct
                 | Self::ArrayIsArray
                 | Self::ArrayBufferIsView
+                | Self::NumberIsInteger
         )
     }
 
@@ -758,6 +943,20 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetUint16 => Some("setUint16"),
             Self::DataViewPrototypeGetInt16 => Some("getInt16"),
             Self::DataViewPrototypeSetInt16 => Some("setInt16"),
+            Self::DataViewPrototypeGetUint32 => Some("getUint32"),
+            Self::DataViewPrototypeSetUint32 => Some("setUint32"),
+            Self::DataViewPrototypeGetInt32 => Some("getInt32"),
+            Self::DataViewPrototypeSetInt32 => Some("setInt32"),
+            Self::DataViewPrototypeGetFloat16 => Some("getFloat16"),
+            Self::DataViewPrototypeSetFloat16 => Some("setFloat16"),
+            Self::DataViewPrototypeGetFloat32 => Some("getFloat32"),
+            Self::DataViewPrototypeSetFloat32 => Some("setFloat32"),
+            Self::DataViewPrototypeGetFloat64 => Some("getFloat64"),
+            Self::DataViewPrototypeSetFloat64 => Some("setFloat64"),
+            Self::DataViewPrototypeGetBigInt64 => Some("getBigInt64"),
+            Self::DataViewPrototypeSetBigInt64 => Some("setBigInt64"),
+            Self::DataViewPrototypeGetBigUint64 => Some("getBigUint64"),
+            Self::DataViewPrototypeSetBigUint64 => Some("setBigUint64"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),
@@ -767,7 +966,9 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => Some(UINT16_ARRAY_NAME),
             Self::Uint8ArrayConstructor => Some(UINT8_ARRAY_NAME),
             Self::Uint8ClampedArrayConstructor => Some(UINT8_CLAMPED_ARRAY_NAME),
+            Self::BigIntConstructor => Some(BIGINT_NAME),
             Self::NumberConstructor => Some(NUMBER_NAME),
+            Self::NumberIsInteger => Some("isInteger"),
             Self::StringConstructor => Some(STRING_NAME),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
             Self::ErrorConstructor => Some(ERROR_NAME),
@@ -844,10 +1045,12 @@ pub enum ValueKind {
     Boolean,
     Number,
     String,
+    Symbol,
     Object,
     Array,
     Function,
     Arguments,
+    BigInt,
     Dynamic,
 }
 
@@ -859,10 +1062,12 @@ impl ValueKind {
             Self::Boolean => "boolean",
             Self::Number => "number",
             Self::String => "string",
+            Self::Symbol => "symbol",
             Self::Object => "object",
             Self::Array => "array",
             Self::Function => "function",
             Self::Arguments => "arguments",
+            Self::BigInt => "bigint",
             Self::Dynamic => "dynamic",
         }
     }
@@ -874,11 +1079,13 @@ impl ValueKind {
             Self::Boolean => 2,
             Self::Number => 3,
             Self::String => 4,
-            Self::Object => 5,
-            Self::Array => 6,
-            Self::Function => 7,
-            Self::Arguments => 8,
-            Self::Dynamic => 9,
+            Self::Symbol => 5,
+            Self::Object => 6,
+            Self::Array => 7,
+            Self::Function => 8,
+            Self::Arguments => 9,
+            Self::BigInt => 10,
+            Self::Dynamic => 11,
         }
     }
 
@@ -889,10 +1096,12 @@ impl ValueKind {
             2 => Some(Self::Boolean),
             3 => Some(Self::Number),
             4 => Some(Self::String),
-            5 => Some(Self::Object),
-            6 => Some(Self::Array),
-            7 => Some(Self::Function),
-            8 => Some(Self::Arguments),
+            5 => Some(Self::Symbol),
+            6 => Some(Self::Object),
+            7 => Some(Self::Array),
+            8 => Some(Self::Function),
+            9 => Some(Self::Arguments),
+            10 => Some(Self::BigInt),
             _ => None,
         }
     }
@@ -909,17 +1118,21 @@ impl KindSet {
     const BOOLEAN_BIT: u16 = 1 << 2;
     const NUMBER_BIT: u16 = 1 << 3;
     const STRING_BIT: u16 = 1 << 4;
-    const OBJECT_BIT: u16 = 1 << 5;
-    const ARRAY_BIT: u16 = 1 << 6;
-    const FUNCTION_BIT: u16 = 1 << 7;
-    const ARGUMENTS_BIT: u16 = 1 << 8;
+    const SYMBOL_BIT: u16 = 1 << 5;
+    const OBJECT_BIT: u16 = 1 << 6;
+    const ARRAY_BIT: u16 = 1 << 7;
+    const FUNCTION_BIT: u16 = 1 << 8;
+    const ARGUMENTS_BIT: u16 = 1 << 9;
+    const BIGINT_BIT: u16 = 1 << 10;
 
     pub const PRIMITIVE_ONLY: Self = Self(
         Self::UNDEFINED_BIT
             | Self::NULL_BIT
             | Self::BOOLEAN_BIT
             | Self::NUMBER_BIT
-            | Self::STRING_BIT,
+            | Self::STRING_BIT
+            | Self::SYMBOL_BIT
+            | Self::BIGINT_BIT,
     );
 
     pub const HEAP_COERCIBLE_ONLY: Self =
@@ -937,10 +1150,12 @@ impl KindSet {
             ValueKind::Boolean => Self(Self::BOOLEAN_BIT),
             ValueKind::Number => Self(Self::NUMBER_BIT),
             ValueKind::String => Self(Self::STRING_BIT),
+            ValueKind::Symbol => Self(Self::SYMBOL_BIT),
             ValueKind::Object => Self(Self::OBJECT_BIT),
             ValueKind::Array => Self(Self::ARRAY_BIT),
             ValueKind::Function => Self(Self::FUNCTION_BIT),
             ValueKind::Arguments => Self(Self::ARGUMENTS_BIT),
+            ValueKind::BigInt => Self(Self::BIGINT_BIT),
             ValueKind::Dynamic => Self::all_runtime_tags(),
         }
     }
@@ -952,10 +1167,12 @@ impl KindSet {
                 | Self::BOOLEAN_BIT
                 | Self::NUMBER_BIT
                 | Self::STRING_BIT
+                | Self::SYMBOL_BIT
                 | Self::OBJECT_BIT
                 | Self::ARRAY_BIT
                 | Self::FUNCTION_BIT
-                | Self::ARGUMENTS_BIT,
+                | Self::ARGUMENTS_BIT
+                | Self::BIGINT_BIT,
         )
     }
 
@@ -991,6 +1208,8 @@ impl KindSet {
                 ValueKind::Number
             } else if self.contains(ValueKind::String) {
                 ValueKind::String
+            } else if self.contains(ValueKind::Symbol) {
+                ValueKind::Symbol
             } else if self.contains(ValueKind::Object) {
                 ValueKind::Object
             } else if self.contains(ValueKind::Array) {
@@ -999,6 +1218,8 @@ impl KindSet {
                 ValueKind::Function
             } else if self.contains(ValueKind::Arguments) {
                 ValueKind::Arguments
+            } else if self.contains(ValueKind::BigInt) {
+                ValueKind::BigInt
             } else {
                 ValueKind::Dynamic
             }
@@ -1138,6 +1359,8 @@ pub enum BoxedPrimitiveKind {
     Number,
     String,
     Boolean,
+    Symbol,
+    BigInt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1301,6 +1524,7 @@ pub enum ExprIr {
     Null,
     Boolean(bool),
     Number(u64),
+    BigInt(u64),
     String(String),
     FunctionValue(FunctionId),
     This,
@@ -2425,6 +2649,7 @@ impl IrSummaryCounts {
             | ExprIr::Null
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
+            | ExprIr::BigInt(_)
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::Identifier(_) => {
@@ -4359,6 +4584,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::ClassDefinition(_)
         | ExprIr::String(_)
         | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
         | ExprIr::Boolean(_)
         | ExprIr::Null
         | ExprIr::Undefined
@@ -4768,6 +4994,108 @@ impl<'a> ScriptLowerer<'a> {
                 false,
             )),
         );
+        properties.insert(
+            "getUint32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetUint32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setUint32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetUint32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getInt32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetInt32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setInt32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetInt32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getFloat16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetFloat16.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setFloat16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetFloat16.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getFloat32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetFloat32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setFloat32".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetFloat32.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getFloat64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetFloat64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setFloat64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetFloat64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getBigInt64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetBigInt64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setBigInt64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetBigInt64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getBigUint64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetBigUint64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setBigUint64".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetBigUint64.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("DataView")),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4793,14 +5121,6 @@ impl<'a> ScriptLowerer<'a> {
             ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
                 Self::array_buffer_instance_shape(),
             ))),
-        );
-        properties.insert(
-            "byteOffset".to_string(),
-            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
-        );
-        properties.insert(
-            "byteLength".to_string(),
-            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
         );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Self::data_view_prototype_shape()),
@@ -4922,6 +5242,8 @@ impl<'a> ScriptLowerer<'a> {
             ValueKind::Number => Some(BoxedPrimitiveKind::Number),
             ValueKind::String => Some(BoxedPrimitiveKind::String),
             ValueKind::Boolean => Some(BoxedPrimitiveKind::Boolean),
+            ValueKind::Symbol => Some(BoxedPrimitiveKind::Symbol),
+            ValueKind::BigInt => Some(BoxedPrimitiveKind::BigInt),
             _ => None,
         }
     }
@@ -4930,6 +5252,8 @@ impl<'a> ScriptLowerer<'a> {
         KindSet::from_kind(ValueKind::Boolean)
             .union(KindSet::from_kind(ValueKind::Number))
             .union(KindSet::from_kind(ValueKind::String))
+            .union(KindSet::from_kind(ValueKind::Symbol))
+            .union(KindSet::from_kind(ValueKind::BigInt))
     }
 
     fn standard_boxed_prototype_shape(_kind: BoxedPrimitiveKind) -> Box<HeapShape> {
@@ -5042,6 +5366,13 @@ impl<'a> ScriptLowerer<'a> {
                             )),
                             function_targets: BTreeSet::new(),
                         }),
+                    );
+                    object.properties.insert(
+                        "isInteger".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::NumberIsInteger.function_id(),
+                            false,
+                        )),
                     );
                 }
                 StandardBuiltinId::StringConstructor => {
@@ -5288,6 +5619,12 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::NumberIsInteger => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayPrototypeConcat => (
                 ValueKind::Array,
                 KindSet::from_kind(ValueKind::Array),
@@ -5362,18 +5699,43 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::DataViewPrototypeGetUint8
             | StandardBuiltinId::DataViewPrototypeGetInt8
             | StandardBuiltinId::DataViewPrototypeGetUint16
-            | StandardBuiltinId::DataViewPrototypeGetInt16 => (
+            | StandardBuiltinId::DataViewPrototypeGetInt16
+            | StandardBuiltinId::DataViewPrototypeGetUint32
+            | StandardBuiltinId::DataViewPrototypeGetInt32
+            | StandardBuiltinId::DataViewPrototypeGetFloat16
+            | StandardBuiltinId::DataViewPrototypeGetFloat32
+            | StandardBuiltinId::DataViewPrototypeGetFloat64 => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DataViewPrototypeGetBigInt64
+            | StandardBuiltinId::DataViewPrototypeGetBigUint64 => (
+                ValueKind::BigInt,
+                KindSet::from_kind(ValueKind::BigInt),
                 None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::DataViewPrototypeSetUint8
             | StandardBuiltinId::DataViewPrototypeSetInt8
             | StandardBuiltinId::DataViewPrototypeSetUint16
-            | StandardBuiltinId::DataViewPrototypeSetInt16 => (
+            | StandardBuiltinId::DataViewPrototypeSetInt16
+            | StandardBuiltinId::DataViewPrototypeSetUint32
+            | StandardBuiltinId::DataViewPrototypeSetInt32
+            | StandardBuiltinId::DataViewPrototypeSetFloat16
+            | StandardBuiltinId::DataViewPrototypeSetFloat32
+            | StandardBuiltinId::DataViewPrototypeSetFloat64
+            | StandardBuiltinId::DataViewPrototypeSetBigInt64
+            | StandardBuiltinId::DataViewPrototypeSetBigUint64 => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::BigIntConstructor => (
+                ValueKind::BigInt,
+                KindSet::from_kind(ValueKind::BigInt),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -6452,6 +6814,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::Null
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
+            | ExprIr::BigInt(_)
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::This
@@ -7622,6 +7985,26 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn lower_bigint_literal<T: std::fmt::Display>(&mut self, value: &T, negate: bool) -> TypedExpr {
+        let text = value.to_string();
+        let Some(bits) = Self::parse_bigint_literal_bits(&text, negate) else {
+            return self.unsupported_expr("bigint literal outside 64-bit DataView slice");
+        };
+        TypedExpr::from_info(ValueInfo::new(ValueKind::BigInt), ExprIr::BigInt(bits))
+    }
+
+    fn parse_bigint_literal_bits(text: &str, negate: bool) -> Option<u64> {
+        if text.starts_with('-') {
+            return None;
+        }
+        let unsigned = text.parse::<u64>().ok()?;
+        Some(if negate {
+            unsigned.wrapping_neg()
+        } else {
+            unsigned
+        })
+    }
+
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
         match expression {
             Expression::Identifier(identifier) => {
@@ -7727,7 +8110,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::Null,
                 ),
                 LiteralKind::Undefined => TypedExpr::undefined(),
-                LiteralKind::BigInt(_) => self.unsupported_expr("bigint literal"),
+                LiteralKind::BigInt(value) => self.lower_bigint_literal(value.as_ref(), false),
             },
             Expression::Parenthesized(expression) => self.lower_expression(expression.expression()),
             Expression::ArrayLiteral(array) => self.lower_array_literal(array),
@@ -9253,7 +9636,7 @@ impl<'a> ScriptLowerer<'a> {
                     self.lower_expression(arg);
                 }
                 return TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::String),
+                    ValueInfo::new(ValueKind::Symbol),
                     ExprIr::String("Symbol()".to_string()),
                 );
             }
@@ -9394,6 +9777,76 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Object) =>
                                     {
                                         Some(StandardBuiltinId::DataViewPrototypeSetInt16)
+                                    }
+                                    "getUint32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetUint32)
+                                    }
+                                    "setUint32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetUint32)
+                                    }
+                                    "getInt32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetInt32)
+                                    }
+                                    "setInt32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetInt32)
+                                    }
+                                    "getFloat16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat16)
+                                    }
+                                    "setFloat16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat16)
+                                    }
+                                    "getFloat32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat32)
+                                    }
+                                    "setFloat32"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat32)
+                                    }
+                                    "getFloat64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat64)
+                                    }
+                                    "setFloat64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat64)
+                                    }
+                                    "getBigInt64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetBigInt64)
+                                    }
+                                    "setBigInt64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetBigInt64)
+                                    }
+                                    "getBigUint64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetBigUint64)
+                                    }
+                                    "setBigUint64"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetBigUint64)
                                     }
                                     _ => None,
                                 };
@@ -10402,6 +10855,12 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::NumberIsInteger => Some(ValueInfo {
+                kind: ValueKind::Boolean,
+                possible_kinds: KindSet::from_kind(ValueKind::Boolean),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ArrayPrototypeConcat => Some(ValueInfo {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
@@ -10474,13 +10933,36 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::DataViewPrototypeGetUint8
             | StandardBuiltinId::DataViewPrototypeGetInt8
             | StandardBuiltinId::DataViewPrototypeGetUint16
-            | StandardBuiltinId::DataViewPrototypeGetInt16 => {
+            | StandardBuiltinId::DataViewPrototypeGetInt16
+            | StandardBuiltinId::DataViewPrototypeGetUint32
+            | StandardBuiltinId::DataViewPrototypeGetInt32
+            | StandardBuiltinId::DataViewPrototypeGetFloat16
+            | StandardBuiltinId::DataViewPrototypeGetFloat32
+            | StandardBuiltinId::DataViewPrototypeGetFloat64 => {
                 Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::DataViewPrototypeGetBigInt64
+            | StandardBuiltinId::DataViewPrototypeGetBigUint64 => {
+                Some(ValueInfo::new(ValueKind::BigInt))
             }
             StandardBuiltinId::DataViewPrototypeSetUint8
             | StandardBuiltinId::DataViewPrototypeSetInt8
             | StandardBuiltinId::DataViewPrototypeSetUint16
-            | StandardBuiltinId::DataViewPrototypeSetInt16 => Some(ValueInfo::undefined()),
+            | StandardBuiltinId::DataViewPrototypeSetInt16
+            | StandardBuiltinId::DataViewPrototypeSetUint32
+            | StandardBuiltinId::DataViewPrototypeSetInt32
+            | StandardBuiltinId::DataViewPrototypeSetFloat16
+            | StandardBuiltinId::DataViewPrototypeSetFloat32
+            | StandardBuiltinId::DataViewPrototypeSetFloat64
+            | StandardBuiltinId::DataViewPrototypeSetBigInt64
+            | StandardBuiltinId::DataViewPrototypeSetBigUint64 => Some(ValueInfo::undefined()),
+            StandardBuiltinId::BigIntConstructor => {
+                if context == "construct" {
+                    None
+                } else {
+                    Some(ValueInfo::new(ValueKind::BigInt))
+                }
+            }
             StandardBuiltinId::NumberConstructor => {
                 if context == "construct" {
                     Some(Self::boxed_primitive_instance_info(ValueInfo::new(
@@ -10718,10 +11200,20 @@ impl<'a> ScriptLowerer<'a> {
                     });
                 }
                 PropertyDefinition::MethodDefinition(method) => {
-                    let PropertyName::Literal(name) = method.name() else {
-                        return self.unsupported_expr("computed object key");
+                    let key = match method.name() {
+                        PropertyName::Literal(name) => {
+                            self.interner.resolve_expect(name.sym()).to_string()
+                        }
+                        PropertyName::Computed(expr) => {
+                            let Some(key) = self
+                                .try_static_string_key(expr)
+                                .or_else(|| self.static_number_property_key(expr))
+                            else {
+                                return self.unsupported_expr("computed object key");
+                            };
+                            key
+                        }
                     };
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
                     let Some(function) = self.lower_object_method_function(method, &key) else {
                         return TypedExpr::undefined();
                     };
@@ -10820,7 +11312,10 @@ impl<'a> ScriptLowerer<'a> {
                     if target_name == "Symbol" {
                         if let PropertyAccessField::Const(name) = access.field() {
                             let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
-                            if matches!(symbol_name.as_str(), "species" | "iterator") {
+                            if matches!(
+                                symbol_name.as_str(),
+                                "species" | "iterator" | "toStringTag" | "toPrimitive"
+                            ) {
                                 return TypedExpr::from_info(
                                     ValueInfo::new(ValueKind::String),
                                     ExprIr::String(format!("Symbol.{symbol_name}")),
@@ -11022,6 +11517,9 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         let mut lowered = self.lower_expression(expr);
+        if let ExprIr::String(key) = &lowered.expr {
+            return Some(PropertyKeyIr::StaticString(key.clone()));
+        }
         if lowered.kind == ValueKind::String {
             return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
         }
@@ -11681,6 +12179,12 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             UnaryOp::Minus => {
+                if let ExprIr::BigInt(bits) = &lowered_target.expr {
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::BigInt),
+                        ExprIr::BigInt((*bits).wrapping_neg()),
+                    );
+                }
                 if lowered_target.kind != ValueKind::Number {
                     return self.unsupported_expr("coercive unary minus");
                 }
@@ -12150,6 +12654,8 @@ impl<'a> ScriptLowerer<'a> {
             ValueKind::Boolean,
             ValueKind::Number,
             ValueKind::String,
+            ValueKind::Symbol,
+            ValueKind::BigInt,
             ValueKind::Object,
             ValueKind::Array,
             ValueKind::Arguments,
@@ -12162,7 +12668,9 @@ impl<'a> ScriptLowerer<'a> {
                 | ValueKind::Null
                 | ValueKind::Boolean
                 | ValueKind::Number
-                | ValueKind::String => KindSet::from_kind(kind),
+                | ValueKind::String
+                | ValueKind::Symbol
+                | ValueKind::BigInt => KindSet::from_kind(kind),
                 ValueKind::Object => {
                     self.object_to_primitive_kinds(info.heap_shape.as_deref(), hint)?
                 }
@@ -12195,8 +12703,10 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let order: &[&str] = match hint {
-            ToPrimitiveHint::String => &["toString", "valueOf"],
-            ToPrimitiveHint::Default | ToPrimitiveHint::Number => &["valueOf", "toString"],
+            ToPrimitiveHint::String => &["Symbol.toPrimitive", "toString", "valueOf"],
+            ToPrimitiveHint::Default | ToPrimitiveHint::Number => {
+                &["Symbol.toPrimitive", "valueOf", "toString"]
+            }
         };
         for key in order {
             let Some(ObjectShapeProperty::Data(info)) = shape.properties.get(*key) else {
@@ -12260,6 +12770,8 @@ impl<'a> ScriptLowerer<'a> {
                 | ValueKind::Boolean
                 | ValueKind::Number
                 | ValueKind::String
+                | ValueKind::Symbol
+                | ValueKind::BigInt
                 | ValueKind::Dynamic => {}
                 ValueKind::Function => return None,
             }
@@ -12268,13 +12780,36 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn try_static_string_key(&self, expr: &Expression) -> Option<String> {
-        let Expression::Literal(literal) = expr else {
-            return None;
-        };
-        let LiteralKind::String(sym) = literal.kind() else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(*sym).to_string())
+        match expr {
+            Expression::Literal(literal) => {
+                let LiteralKind::String(sym) = literal.kind() else {
+                    return None;
+                };
+                Some(self.interner.resolve_expect(*sym).to_string())
+            }
+            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
+                let Expression::Identifier(identifier) = access.target() else {
+                    return None;
+                };
+                let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if target_name != "Symbol" {
+                    return None;
+                }
+                let PropertyAccessField::Const(name) = access.field() else {
+                    return None;
+                };
+                let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
+                if matches!(
+                    symbol_name.as_str(),
+                    "species" | "iterator" | "toStringTag" | "toPrimitive"
+                ) {
+                    Some(format!("Symbol.{symbol_name}"))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn read_object_shape(&self, target: &TypedExpr, key: &str) -> Option<ValueInfo> {
