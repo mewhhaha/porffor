@@ -1818,8 +1818,7 @@ fn run_case_entry(
     run_config: &RunConfig,
 ) -> TestResult {
     let use_child_runner = config.case_runner_bin.is_some()
-        && (run_config.resume
-            || run_config.filter.as_deref() == Some(case.path.as_str()));
+        && (run_config.resume || run_config.filter.as_deref() == Some(case.path.as_str()));
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
             TestResult {
@@ -3664,7 +3663,11 @@ mod tests {
 
         file.aggregate_entries.truncate(1);
         file.total = file.aggregate_entries.iter().map(|entry| entry.total).sum();
-        file.passed = file.aggregate_entries.iter().map(|entry| entry.passed).sum();
+        file.passed = file
+            .aggregate_entries
+            .iter()
+            .map(|entry| entry.passed)
+            .sum();
         file.failures.clear();
         file.counts_per_kind = BTreeMap::new();
         file.aggregate_counts_so_far = BTreeMap::new();
@@ -3731,7 +3734,11 @@ mod tests {
                             .is_some_and(|name| name.starts_with(&prefix))
                 })
                 .collect::<Vec<_>>();
-            assert!(!paths.is_empty(), "node snapshot should exist for {}", entry.node_id);
+            assert!(
+                !paths.is_empty(),
+                "node snapshot should exist for {}",
+                entry.node_id
+            );
             for path in paths {
                 let mut file = read_snapshot_file(&path).expect("node snapshot should parse");
                 match index {
@@ -3809,8 +3816,7 @@ mod tests {
             file.completed_paths.clear();
             fs::write(
                 &path,
-                serde_json::to_string_pretty(&file)
-                    .expect("node checkpoint json should serialize"),
+                serde_json::to_string_pretty(&file).expect("node checkpoint json should serialize"),
             )
             .expect("incomplete checkpoint snapshot should write");
         }
