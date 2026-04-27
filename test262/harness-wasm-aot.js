@@ -108,8 +108,8 @@ var $262 = {
   gc: function () {
     gc();
   },
-  detachArrayBuffer: function () {
-    __porfUnsupportedHost('detachArrayBuffer');
+  detachArrayBuffer: function (buffer) {
+    __porfDetachArrayBuffer(buffer);
   },
   evalScript: function () {
     __porfUnsupportedHost('evalScript');
@@ -204,6 +204,8 @@ function verifyProperty(obj, name, desc) {
 
   return true;
 }
+
+var verifyPrimordialProperty = verifyProperty;
 
 function verifyNotWritable(obj, name) {
   var desc = Object.getOwnPropertyDescriptor(obj, name);

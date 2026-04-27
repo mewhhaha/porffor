@@ -50,6 +50,8 @@ pub const HOST_PRINT_FUNCTION_ID: &str = "$host.print";
 pub const HOST_GC_FUNCTION_ID: &str = "$host.gc";
 pub const HOST_ASSERT_THROWS_FUNCTION_ID: &str = "$host.assertThrows";
 pub const HOST_IS_CONSTRUCTOR_FUNCTION_ID: &str = "$host.isConstructor";
+pub const DETACH_ARRAY_BUFFER_NAME: &str = "__porfDetachArrayBuffer";
+pub const HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID: &str = "$host.detachArrayBuffer";
 pub const FUNCTION_NAME: &str = "Function";
 pub const OBJECT_NAME: &str = "Object";
 pub const ARRAY_NAME: &str = "Array";
@@ -97,9 +99,31 @@ pub const BUILTIN_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.ArrayBuffer";
 pub const BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID: &str = "$builtin.ArrayBuffer.isView";
 pub const BUILTIN_ARRAY_BUFFER_SPECIES_GETTER_FUNCTION_ID: &str =
     "$builtin.ArrayBuffer[Symbol.species].get";
+pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.ArrayBuffer.prototype.byteLength.get";
 pub const BUILTIN_DATA_VIEW_FUNCTION_ID: &str = "$builtin.DataView";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.buffer.get";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.byteLength.get";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.byteOffset.get";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.getUint8";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT8_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setUint8";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT8_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getInt8";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT8_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setInt8";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getUint16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setUint16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.getInt16";
+pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID: &str =
+    "$builtin.DataView.prototype.setInt16";
 pub const BUILTIN_FLOAT64_ARRAY_FUNCTION_ID: &str = "$builtin.Float64Array";
 pub const BUILTIN_FLOAT32_ARRAY_FUNCTION_ID: &str = "$builtin.Float32Array";
 pub const BUILTIN_INT32_ARRAY_FUNCTION_ID: &str = "$builtin.Int32Array";
@@ -128,6 +152,8 @@ pub const DATA_VIEW_DATA_PTR_SLOT: &str = "$DataViewDataPtr";
 pub const DATA_VIEW_BYTE_OFFSET_SLOT: &str = "$DataViewByteOffset";
 pub const DATA_VIEW_BYTE_LENGTH_SLOT: &str = "$DataViewByteLength";
 pub const TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT: &str = "$TypedArrayViewedArrayBuffer";
+pub const TYPED_ARRAY_BYTE_OFFSET_SLOT: &str = "$TypedArrayByteOffset";
+pub const TYPED_ARRAY_BYTE_LENGTH_SLOT: &str = "$TypedArrayByteLength";
 
 pub type FunctionId = String;
 pub type PrivateNameId = u32;
@@ -154,6 +180,7 @@ pub enum HostBuiltinId {
     Gc,
     AssertThrows,
     IsConstructor,
+    DetachArrayBuffer,
 }
 
 impl HostBuiltinId {
@@ -163,6 +190,7 @@ impl HostBuiltinId {
             Self::Gc => GC_NAME,
             Self::AssertThrows => ASSERT_THROWS_NAME,
             Self::IsConstructor => IS_CONSTRUCTOR_NAME,
+            Self::DetachArrayBuffer => DETACH_ARRAY_BUFFER_NAME,
         }
     }
 
@@ -172,6 +200,7 @@ impl HostBuiltinId {
             Self::Gc => HOST_GC_FUNCTION_ID.to_string(),
             Self::AssertThrows => HOST_ASSERT_THROWS_FUNCTION_ID.to_string(),
             Self::IsConstructor => HOST_IS_CONSTRUCTOR_FUNCTION_ID.to_string(),
+            Self::DetachArrayBuffer => HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID.to_string(),
         }
     }
 
@@ -181,6 +210,7 @@ impl HostBuiltinId {
             HOST_GC_FUNCTION_ID => Some(Self::Gc),
             HOST_ASSERT_THROWS_FUNCTION_ID => Some(Self::AssertThrows),
             HOST_IS_CONSTRUCTOR_FUNCTION_ID => Some(Self::IsConstructor),
+            HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID => Some(Self::DetachArrayBuffer),
             _ => None,
         }
     }
@@ -206,8 +236,19 @@ pub enum StandardBuiltinId {
     ArrayBufferConstructor,
     ArrayBufferIsView,
     ArrayBufferSpeciesGetter,
+    ArrayBufferPrototypeByteLengthGetter,
     DataViewConstructor,
+    DataViewPrototypeBufferGetter,
+    DataViewPrototypeByteLengthGetter,
+    DataViewPrototypeByteOffsetGetter,
     DataViewPrototypeGetUint8,
+    DataViewPrototypeSetUint8,
+    DataViewPrototypeGetInt8,
+    DataViewPrototypeSetInt8,
+    DataViewPrototypeGetUint16,
+    DataViewPrototypeSetUint16,
+    DataViewPrototypeGetInt16,
+    DataViewPrototypeSetInt16,
     Float64ArrayConstructor,
     Float32ArrayConstructor,
     Int32ArrayConstructor,
@@ -274,7 +315,18 @@ impl StandardBuiltinId {
             | Self::ArrayPrototypePush
             | Self::ArrayBufferIsView
             | Self::ArrayBufferSpeciesGetter
+            | Self::ArrayBufferPrototypeByteLengthGetter
+            | Self::DataViewPrototypeBufferGetter
+            | Self::DataViewPrototypeByteLengthGetter
+            | Self::DataViewPrototypeByteOffsetGetter
             | Self::DataViewPrototypeGetUint8
+            | Self::DataViewPrototypeSetUint8
+            | Self::DataViewPrototypeGetInt8
+            | Self::DataViewPrototypeSetInt8
+            | Self::DataViewPrototypeGetUint16
+            | Self::DataViewPrototypeSetUint16
+            | Self::DataViewPrototypeGetInt16
+            | Self::DataViewPrototypeSetInt16
             | Self::ErrorPrototypeToString
             | Self::BoundFunctionInvoker => None,
         }
@@ -300,8 +352,19 @@ impl StandardBuiltinId {
             Self::ArrayBufferConstructor => ARRAY_BUFFER_NAME,
             Self::ArrayBufferIsView => "ArrayBuffer.isView",
             Self::ArrayBufferSpeciesGetter => "get ArrayBuffer [Symbol.species]",
+            Self::ArrayBufferPrototypeByteLengthGetter => "get ArrayBuffer.prototype.byteLength",
             Self::DataViewConstructor => DATA_VIEW_NAME,
+            Self::DataViewPrototypeBufferGetter => "get DataView.prototype.buffer",
+            Self::DataViewPrototypeByteLengthGetter => "get DataView.prototype.byteLength",
+            Self::DataViewPrototypeByteOffsetGetter => "get DataView.prototype.byteOffset",
             Self::DataViewPrototypeGetUint8 => "DataView.prototype.getUint8",
+            Self::DataViewPrototypeSetUint8 => "DataView.prototype.setUint8",
+            Self::DataViewPrototypeGetInt8 => "DataView.prototype.getInt8",
+            Self::DataViewPrototypeSetInt8 => "DataView.prototype.setInt8",
+            Self::DataViewPrototypeGetUint16 => "DataView.prototype.getUint16",
+            Self::DataViewPrototypeSetUint16 => "DataView.prototype.setUint16",
+            Self::DataViewPrototypeGetInt16 => "DataView.prototype.getInt16",
+            Self::DataViewPrototypeSetInt16 => "DataView.prototype.setInt16",
             Self::Float64ArrayConstructor => FLOAT64_ARRAY_NAME,
             Self::Float32ArrayConstructor => FLOAT32_ARRAY_NAME,
             Self::Int32ArrayConstructor => INT32_ARRAY_NAME,
@@ -355,9 +418,42 @@ impl StandardBuiltinId {
             Self::ArrayBufferSpeciesGetter => {
                 BUILTIN_ARRAY_BUFFER_SPECIES_GETTER_FUNCTION_ID.to_string()
             }
+            Self::ArrayBufferPrototypeByteLengthGetter => {
+                BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID.to_string()
+            }
             Self::DataViewConstructor => BUILTIN_DATA_VIEW_FUNCTION_ID.to_string(),
+            Self::DataViewPrototypeBufferGetter => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeByteLengthGetter => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeByteOffsetGetter => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID.to_string()
+            }
             Self::DataViewPrototypeGetUint8 => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetUint8 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT8_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetInt8 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT8_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetInt8 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT8_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetUint16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT16_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetUint16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT16_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeGetInt16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT16_FUNCTION_ID.to_string()
+            }
+            Self::DataViewPrototypeSetInt16 => {
+                BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID.to_string()
             }
             Self::Float64ArrayConstructor => BUILTIN_FLOAT64_ARRAY_FUNCTION_ID.to_string(),
             Self::Float32ArrayConstructor => BUILTIN_FLOAT32_ARRAY_FUNCTION_ID.to_string(),
@@ -412,9 +508,42 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_BUFFER_FUNCTION_ID => Some(Self::ArrayBufferConstructor),
             BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID => Some(Self::ArrayBufferIsView),
             BUILTIN_ARRAY_BUFFER_SPECIES_GETTER_FUNCTION_ID => Some(Self::ArrayBufferSpeciesGetter),
+            BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID => {
+                Some(Self::ArrayBufferPrototypeByteLengthGetter)
+            }
             BUILTIN_DATA_VIEW_FUNCTION_ID => Some(Self::DataViewConstructor),
+            BUILTIN_DATA_VIEW_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeBufferGetter)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeByteLengthGetter)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeByteOffsetGetter)
+            }
             BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeGetUint8)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT8_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetUint8)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT8_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetInt8)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT8_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetInt8)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetUint16)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetUint16)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_GET_INT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeGetInt16)
+            }
+            BUILTIN_DATA_VIEW_PROTOTYPE_SET_INT16_FUNCTION_ID => {
+                Some(Self::DataViewPrototypeSetInt16)
             }
             BUILTIN_FLOAT64_ARRAY_FUNCTION_ID => Some(Self::Float64ArrayConstructor),
             BUILTIN_FLOAT32_ARRAY_FUNCTION_ID => Some(Self::Float32ArrayConstructor),
@@ -492,8 +621,19 @@ impl StandardBuiltinId {
             Self::ArrayBufferConstructor,
             Self::ArrayBufferIsView,
             Self::ArrayBufferSpeciesGetter,
+            Self::ArrayBufferPrototypeByteLengthGetter,
             Self::DataViewConstructor,
+            Self::DataViewPrototypeBufferGetter,
+            Self::DataViewPrototypeByteLengthGetter,
+            Self::DataViewPrototypeByteOffsetGetter,
             Self::DataViewPrototypeGetUint8,
+            Self::DataViewPrototypeSetUint8,
+            Self::DataViewPrototypeGetInt8,
+            Self::DataViewPrototypeSetInt8,
+            Self::DataViewPrototypeGetUint16,
+            Self::DataViewPrototypeSetUint16,
+            Self::DataViewPrototypeGetInt16,
+            Self::DataViewPrototypeSetInt16,
             Self::Float64ArrayConstructor,
             Self::Float32ArrayConstructor,
             Self::Int32ArrayConstructor,
@@ -605,8 +745,19 @@ impl StandardBuiltinId {
             Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
             Self::ArrayBufferIsView => Some("isView"),
             Self::ArrayBufferSpeciesGetter => Some("get [Symbol.species]"),
+            Self::ArrayBufferPrototypeByteLengthGetter => Some("get byteLength"),
             Self::DataViewConstructor => Some(DATA_VIEW_NAME),
+            Self::DataViewPrototypeBufferGetter => Some("get buffer"),
+            Self::DataViewPrototypeByteLengthGetter => Some("get byteLength"),
+            Self::DataViewPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::DataViewPrototypeGetUint8 => Some("getUint8"),
+            Self::DataViewPrototypeSetUint8 => Some("setUint8"),
+            Self::DataViewPrototypeGetInt8 => Some("getInt8"),
+            Self::DataViewPrototypeSetInt8 => Some("setInt8"),
+            Self::DataViewPrototypeGetUint16 => Some("getUint16"),
+            Self::DataViewPrototypeSetUint16 => Some("setUint16"),
+            Self::DataViewPrototypeGetInt16 => Some("getInt16"),
+            Self::DataViewPrototypeSetInt16 => Some("setInt16"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),
@@ -4505,6 +4656,26 @@ impl<'a> ScriptLowerer<'a> {
             ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
         );
         Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::array_buffer_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn array_buffer_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "byteLength".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
+                        .function_id(),
+                }),
+                setter: None,
+            },
+        );
+        Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
             private_brands: BTreeSet::new(),
@@ -4515,9 +4686,85 @@ impl<'a> ScriptLowerer<'a> {
     fn data_view_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         properties.insert(
+            "buffer".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::DataViewPrototypeBufferGetter.function_id(),
+                }),
+                setter: None,
+            },
+        );
+        properties.insert(
+            "byteLength".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::DataViewPrototypeByteLengthGetter.function_id(),
+                }),
+                setter: None,
+            },
+        );
+        properties.insert(
+            "byteOffset".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::DataViewPrototypeByteOffsetGetter.function_id(),
+                }),
+                setter: None,
+            },
+        );
+        properties.insert(
             "getUint8".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::DataViewPrototypeGetUint8.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setUint8".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetUint8.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getInt8".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetInt8.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setInt8".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetInt8.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getUint16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetUint16.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setUint16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetUint16.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "getInt16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeGetInt16.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setInt16".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DataViewPrototypeSetInt16.function_id(),
                 false,
             )),
         );
@@ -4571,6 +4818,14 @@ impl<'a> ScriptLowerer<'a> {
             ObjectShapeProperty::Data(buffer_info.clone()),
         );
         properties.insert("buffer".to_string(), ObjectShapeProperty::Data(buffer_info));
+        properties.insert(
+            TYPED_ARRAY_BYTE_OFFSET_SLOT.to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+        );
+        properties.insert(
+            TYPED_ARRAY_BYTE_LENGTH_SLOT.to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4875,7 +5130,7 @@ impl<'a> ScriptLowerer<'a> {
                     object.properties.insert(
                         "prototype".to_string(),
                         ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
-                            Self::array_buffer_instance_shape(),
+                            Self::array_buffer_prototype_shape(),
                         ))),
                     );
                 }
@@ -4911,7 +5166,13 @@ impl<'a> ScriptLowerer<'a> {
                 | StandardBuiltinId::FunctionPrototypeApply
                 | StandardBuiltinId::FunctionPrototypeBind
                 | StandardBuiltinId::FunctionPrototypeToString
+                | StandardBuiltinId::DataViewPrototypeBufferGetter
+                | StandardBuiltinId::DataViewPrototypeByteLengthGetter
+                | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
                 | StandardBuiltinId::DataViewPrototypeGetUint8
+                | StandardBuiltinId::DataViewPrototypeSetUint8
+                | StandardBuiltinId::DataViewPrototypeGetInt8
+                | StandardBuiltinId::DataViewPrototypeSetInt8
                 | StandardBuiltinId::ErrorPrototypeToString
                 | StandardBuiltinId::BoundFunctionInvoker => {}
                 _ => {}
@@ -5059,6 +5320,25 @@ impl<'a> ScriptLowerer<'a> {
                 )),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DataViewPrototypeBufferGetter => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::array_buffer_instance_shape()),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DataViewPrototypeByteLengthGetter
+            | StandardBuiltinId::DataViewPrototypeByteOffsetGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::DataViewConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -5079,9 +5359,21 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::typed_array_instance_shape()),
                 Self::value_info_from_shape(Some(Self::typed_array_instance_shape())),
             ),
-            StandardBuiltinId::DataViewPrototypeGetUint8 => (
+            StandardBuiltinId::DataViewPrototypeGetUint8
+            | StandardBuiltinId::DataViewPrototypeGetInt8
+            | StandardBuiltinId::DataViewPrototypeGetUint16
+            | StandardBuiltinId::DataViewPrototypeGetInt16 => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DataViewPrototypeSetUint8
+            | StandardBuiltinId::DataViewPrototypeSetInt8
+            | StandardBuiltinId::DataViewPrototypeSetUint16
+            | StandardBuiltinId::DataViewPrototypeSetInt16 => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -5288,6 +5580,17 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
                 properties.insert(
+                    DETACH_ARRAY_BUFFER_NAME.to_string(),
+                    GlobalPropertyInfo {
+                        value_info: Self::host_function_value_info(
+                            HostBuiltinId::DetachArrayBuffer,
+                        ),
+                        proven_present: true,
+                        configurable: true,
+                        source: GlobalPropertySource::HostBuiltin,
+                    },
+                );
+                properties.insert(
                     REFLECT_NAME.to_string(),
                     GlobalPropertyInfo {
                         value_info: Self::reflect_object_value_info(),
@@ -5425,6 +5728,28 @@ impl<'a> ScriptLowerer<'a> {
                 this_observed: false,
             },
         );
+        self.function_signatures.insert(
+            HostBuiltinId::DetachArrayBuffer.function_id(),
+            FunctionSignature {
+                id: HostBuiltinId::DetachArrayBuffer.function_id(),
+                to_string_representation: CallableToStringRepresentation::NativeNamed(
+                    HostBuiltinId::DetachArrayBuffer.as_str().to_string(),
+                ),
+                flavor: FunctionFlavor::Ordinary,
+                callable: true,
+                constructable: false,
+                class_kind: ClassFunctionKind::None,
+                class_heritage_kind: ClassHeritageKind::None,
+                params: Vec::new(),
+                return_kind: ValueKind::Undefined,
+                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
+                return_shape: None,
+                return_targets: BTreeSet::new(),
+                constructor_instance: ValueInfo::undefined(),
+                this_info: self.global_this_info(),
+                this_observed: false,
+            },
+        );
         for builtin in StandardBuiltinId::all_functions() {
             self.function_signatures.insert(
                 builtin.function_id(),
@@ -5499,6 +5824,7 @@ impl<'a> ScriptLowerer<'a> {
         );
         self.function_signatures = prepass.function_signatures;
         self.global_properties = prepass.global_properties;
+        self.var_bindings = prepass.var_bindings;
         self.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
         self.hoist_statement_items(script.statements().statements());
         let mut functions = Vec::with_capacity(self.analysis.function_order.len());
@@ -6691,6 +7017,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = self.function_signatures.clone();
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.var_bindings = self.var_bindings.clone();
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function.id.clone());
         lowerer.current_this_info = if function.flavor == FunctionFlavor::Arrow {
@@ -8949,6 +9276,38 @@ impl<'a> ScriptLowerer<'a> {
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     _ => None,
                                 };
+                                if field_name == "forEach" {
+                                    let args = args
+                                        .iter()
+                                        .map(|arg| self.lower_expression(arg))
+                                        .collect::<Vec<_>>();
+                                    if let Some(callback) = args.first() {
+                                        if let Some(function_id) =
+                                            self.resolve_single_function_target(callback)
+                                        {
+                                            self.merge_function_param_infos(
+                                                &function_id,
+                                                &[
+                                                    ValueInfo {
+                                                        kind: ValueKind::Dynamic,
+                                                        possible_kinds: KindSet::all_runtime_tags(),
+                                                        heap_shape: None,
+                                                        function_targets: BTreeSet::new(),
+                                                    },
+                                                    ValueInfo::new(ValueKind::Number),
+                                                ],
+                                            );
+                                        }
+                                    }
+                                    return TypedExpr::from_info(
+                                        ValueInfo::undefined(),
+                                        ExprIr::CallMethod {
+                                            receiver: Box::new(receiver),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                            args,
+                                        },
+                                    );
+                                }
                                 if let Some(builtin) = builtin {
                                     TypedExpr::from_info(
                                         Self::standard_builtin_value_info(builtin),
@@ -8966,6 +9325,12 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         ValueKind::Arguments => {
                             self.lower_arguments_index_key(receiver.clone(), access.field())
+                        }
+                        ValueKind::Dynamic
+                            if receiver.heap_shape.is_some()
+                                && matches!(access.field(), PropertyAccessField::Const(_)) =>
+                        {
+                            self.lower_object_property_key(receiver.clone(), access.field())
                         }
                         ValueKind::Dynamic
                             if receiver.possible_kinds.contains(ValueKind::Function) =>
@@ -8989,6 +9354,46 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeConcat)
+                                    }
+                                    "getUint8"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetUint8)
+                                    }
+                                    "setUint8"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetUint8)
+                                    }
+                                    "getInt8"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetInt8)
+                                    }
+                                    "setInt8"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetInt8)
+                                    }
+                                    "getUint16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetUint16)
+                                    }
+                                    "setUint16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetUint16)
+                                    }
+                                    "getInt16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeGetInt16)
+                                    }
+                                    "setInt16"
+                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
+                                    {
+                                        Some(StandardBuiltinId::DataViewPrototypeSetInt16)
                                     }
                                     _ => None,
                                 };
@@ -9015,6 +9420,38 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
+                                if field_name == "forEach" {
+                                    let args = args
+                                        .iter()
+                                        .map(|arg| self.lower_expression(arg))
+                                        .collect::<Vec<_>>();
+                                    if let Some(callback) = args.first() {
+                                        if let Some(function_id) =
+                                            self.resolve_single_function_target(callback)
+                                        {
+                                            self.merge_function_param_infos(
+                                                &function_id,
+                                                &[
+                                                    ValueInfo {
+                                                        kind: ValueKind::Dynamic,
+                                                        possible_kinds: KindSet::all_runtime_tags(),
+                                                        heap_shape: None,
+                                                        function_targets: BTreeSet::new(),
+                                                    },
+                                                    ValueInfo::new(ValueKind::Number),
+                                                ],
+                                            );
+                                        }
+                                    }
+                                    return TypedExpr::from_info(
+                                        ValueInfo::undefined(),
+                                        ExprIr::CallMethod {
+                                            receiver: Box::new(receiver),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                            args,
+                                        },
+                                    );
+                                }
                                 let builtin = match field_name.as_str() {
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
@@ -9881,6 +10318,48 @@ impl<'a> ScriptLowerer<'a> {
                                 function_targets: BTreeSet::new(),
                             });
                         }
+                        if let Some(property) = self.read_object_shape_property(target, key) {
+                            let fields = match property {
+                                ObjectShapeProperty::Data(value) => vec![
+                                    ("value", value),
+                                    ("writable", Self::boolean_value_info()),
+                                    ("enumerable", Self::boolean_value_info()),
+                                    ("configurable", Self::boolean_value_info()),
+                                ],
+                                ObjectShapeProperty::Accessor { getter, setter } => vec![
+                                    (
+                                        "get",
+                                        getter
+                                            .map(|accessor| {
+                                                Self::function_value_info_with_constructable(
+                                                    accessor.function_id,
+                                                    false,
+                                                )
+                                            })
+                                            .unwrap_or_else(ValueInfo::undefined),
+                                    ),
+                                    (
+                                        "set",
+                                        setter
+                                            .map(|accessor| {
+                                                Self::function_value_info_with_constructable(
+                                                    accessor.function_id,
+                                                    false,
+                                                )
+                                            })
+                                            .unwrap_or_else(ValueInfo::undefined),
+                                    ),
+                                    ("enumerable", Self::boolean_value_info()),
+                                    ("configurable", Self::boolean_value_info()),
+                                ],
+                            };
+                            return Some(ValueInfo {
+                                kind: ValueKind::Object,
+                                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                                heap_shape: Some(Self::property_descriptor_shape(fields)),
+                                function_targets: BTreeSet::new(),
+                            });
+                        }
                     }
                 }
                 Some(ValueInfo {
@@ -9953,6 +10432,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayBufferSpeciesGetter => Some(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayBufferConstructor,
             )),
+            StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
             StandardBuiltinId::ArrayBufferIsView => Some(ValueInfo {
                 kind: ValueKind::Boolean,
                 possible_kinds: KindSet::from_kind(ValueKind::Boolean),
@@ -9966,18 +10448,17 @@ impl<'a> ScriptLowerer<'a> {
                     );
                     return None;
                 };
-                if !buffer
-                    .possible_kinds
-                    .is_subset_of(KindSet::from_kind(ValueKind::Object))
-                {
-                    self.unsupported_with_message(
-                        "unsupported in porffor wasm-aot first slice: DataView buffer must be object".to_string(),
-                    );
-                    return None;
-                }
+                let _ = buffer;
                 Some(Self::value_info_from_shape(Some(
                     Self::data_view_instance_shape(),
                 )))
+            }
+            StandardBuiltinId::DataViewPrototypeBufferGetter => Some(Self::value_info_from_shape(
+                Some(Self::array_buffer_instance_shape()),
+            )),
+            StandardBuiltinId::DataViewPrototypeByteLengthGetter
+            | StandardBuiltinId::DataViewPrototypeByteOffsetGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
@@ -9990,7 +10471,16 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::Uint8ClampedArrayConstructor => Some(Self::value_info_from_shape(
                 Some(Self::typed_array_instance_shape()),
             )),
-            StandardBuiltinId::DataViewPrototypeGetUint8 => Some(ValueInfo::new(ValueKind::Number)),
+            StandardBuiltinId::DataViewPrototypeGetUint8
+            | StandardBuiltinId::DataViewPrototypeGetInt8
+            | StandardBuiltinId::DataViewPrototypeGetUint16
+            | StandardBuiltinId::DataViewPrototypeGetInt16 => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::DataViewPrototypeSetUint8
+            | StandardBuiltinId::DataViewPrototypeSetInt8
+            | StandardBuiltinId::DataViewPrototypeSetUint16
+            | StandardBuiltinId::DataViewPrototypeSetInt16 => Some(ValueInfo::undefined()),
             StandardBuiltinId::NumberConstructor => {
                 if context == "construct" {
                     Some(Self::boxed_primitive_instance_info(ValueInfo::new(
@@ -10289,8 +10779,22 @@ impl<'a> ScriptLowerer<'a> {
                 PropertyDefinition::CoverInitializedName(_identifier, _) => {
                     return self.unsupported_expr("object literal shorthand");
                 }
-                PropertyDefinition::Property(PropertyName::Computed(_), _) => {
-                    return self.unsupported_expr("computed object key");
+                PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
+                    let Some(key) = self
+                        .try_static_string_key(expr)
+                        .or_else(|| self.static_number_property_key(expr))
+                    else {
+                        return self.unsupported_expr("computed object key");
+                    };
+                    let lowered = self.lower_expression(value);
+                    shape
+                        .properties
+                        .insert(key.clone(), ObjectShapeProperty::Data(lowered.value_info()));
+                    properties.push(ObjectPropertyIr::Data {
+                        key,
+                        value: lowered,
+                        is_shorthand: false,
+                    });
                 }
                 PropertyDefinition::SpreadObject(_) => {
                     return self.unsupported_expr("object literal spread");
@@ -10332,6 +10836,12 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     ValueKind::Array => self.lower_array_index_key(target, access.field()),
                     ValueKind::Arguments => self.lower_arguments_index_key(target, access.field()),
+                    ValueKind::Dynamic
+                        if target.possible_kinds.contains(ValueKind::Array)
+                            && matches!(access.field(), PropertyAccessField::Expr(_)) =>
+                    {
+                        self.lower_array_index_key(target, access.field())
+                    }
                     ValueKind::Dynamic => self.lower_object_property_key(target, access.field()),
                     _ => self.unsupported_expr("property access on non-object target"),
                 }
@@ -10530,6 +11040,32 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
+    fn is_typed_array_value(&self, target: &TypedExpr) -> bool {
+        self.read_object_shape_property(target, TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT)
+            .is_some()
+    }
+
+    fn static_number_property_key(&self, expr: &Expression) -> Option<String> {
+        let value = self.try_constant_array_index_expr(expr)?;
+        if value.fract() == 0.0 {
+            Some(format!("{value:.0}"))
+        } else {
+            Some(value.to_string())
+        }
+    }
+
+    fn static_number_index_expr(&self, value: f64) -> TypedExpr {
+        TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::Number(value.to_bits()),
+        )
+    }
+
     fn lower_object_property_key(
         &mut self,
         target: TypedExpr,
@@ -10539,10 +11075,24 @@ impl<'a> ScriptLowerer<'a> {
             PropertyAccessField::Const(name) => {
                 PropertyKeyIr::StaticString(self.interner.resolve_expect(name.sym()).to_string())
             }
-            PropertyAccessField::Expr(expr) => match self.lower_dynamic_object_property_key(expr) {
-                Some(key) => key,
-                None => return self.unsupported_expr("object property key must be string"),
-            },
+            PropertyAccessField::Expr(expr) => {
+                if let Some(key) = self.try_static_string_key(expr) {
+                    PropertyKeyIr::StaticString(key)
+                } else if let Some(index) = self.try_constant_array_index_expr(expr) {
+                    if self.is_typed_array_value(&target) {
+                        PropertyKeyIr::ArrayIndex(Box::new(self.static_number_index_expr(index)))
+                    } else if let Some(key) = self.static_number_property_key(expr) {
+                        PropertyKeyIr::StaticString(key)
+                    } else {
+                        return self.unsupported_expr("object property key must be string");
+                    }
+                } else {
+                    match self.lower_dynamic_object_property_key(expr) {
+                        Some(key) => key,
+                        None => return self.unsupported_expr("object property key must be string"),
+                    }
+                }
+            }
         };
         if matches!(&target.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
             if let PropertyKeyIr::StaticString(name) = &key {
@@ -10622,7 +11172,15 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             },
-            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => unreachable!(),
+            PropertyKeyIr::ArrayIndex(_) if self.is_typed_array_value(&target) => {
+                ValueInfo::new(ValueKind::Number)
+            }
+            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
         };
         self.mark_host_builtins_from_info(&info);
         TypedExpr::from_info(
@@ -10678,7 +11236,16 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported array dot access");
         };
-        let index = self.lower_expression(expr);
+        let mut index = self.lower_expression(expr);
+        if index.possible_kinds == KindSet::all_runtime_tags() {
+            if let ExprIr::Identifier(name) = &index.expr {
+                self.set_binding_kind(name, ValueKind::Number);
+                index.kind = ValueKind::Number;
+                index.possible_kinds = KindSet::from_kind(ValueKind::Number);
+                index.heap_shape = None;
+                index.function_targets.clear();
+            }
+        }
         if index.kind != ValueKind::Number {
             return self.unsupported_expr("array index must be number");
         }
@@ -10876,12 +11443,30 @@ impl<'a> ScriptLowerer<'a> {
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             PropertyAccessField::Expr(expr) => {
-                                match self.lower_dynamic_object_property_key(expr) {
-                                    Some(key) => key,
-                                    None => {
+                                if let Some(key) = self.try_static_string_key(expr) {
+                                    PropertyKeyIr::StaticString(key)
+                                } else if let Some(index) = self.try_constant_array_index_expr(expr)
+                                {
+                                    if self.is_typed_array_value(&target) {
+                                        PropertyKeyIr::ArrayIndex(Box::new(
+                                            self.static_number_index_expr(index),
+                                        ))
+                                    } else if let Some(key) = self.static_number_property_key(expr)
+                                    {
+                                        PropertyKeyIr::StaticString(key)
+                                    } else {
                                         return self.unsupported_expr(
                                             "object property key must be string",
                                         );
+                                    }
+                                } else {
+                                    match self.lower_dynamic_object_property_key(expr) {
+                                        Some(key) => key,
+                                        None => {
+                                            return self.unsupported_expr(
+                                                "object property key must be string",
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -12097,6 +12682,19 @@ impl<'a> ScriptLowerer<'a> {
         };
         if let Some(function_id) = owner.function_bindings.get(name) {
             return self.function_value_info(function_id);
+        }
+        if owner_id == SCRIPT_OWNER_ID {
+            if let Some(binding) = self.var_bindings.get(name) {
+                return ValueInfo {
+                    kind: binding.kind,
+                    possible_kinds: binding.possible_kinds,
+                    heap_shape: binding.heap_shape.clone(),
+                    function_targets: binding.function_targets.clone(),
+                };
+            }
+            if let Some(info) = self.lookup_global_property(name) {
+                return info;
+            }
         }
         ValueInfo {
             kind: ValueKind::Dynamic,
