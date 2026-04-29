@@ -74,9 +74,20 @@ assert.notSameValue = function (actual, unexpected, message) {
     throw message;
   };
 assert.throws = __porfAssertThrows;
-assert.compareArray = function () {
-    __porfAssertUnsupported('assert.compareArray');
-};
+function __porfAssertCompareArray(actual, expected, message) {
+    if (actual.length !== expected.length) {
+      throw message || 'Expected arrays to have the same length';
+    }
+
+    var index = 0;
+    while (index < actual.length) {
+      if (!__porfAssertIsSameValue(actual[index], expected[index])) {
+        throw message || 'Expected arrays to contain the same values';
+      }
+      index = index + 1;
+    }
+}
+assert.compareArray = __porfAssertCompareArray;
 
 /// sta-preamble.js
 function Test262Error(message) {
@@ -101,9 +112,31 @@ function __porfUnsupportedHost(name) {
   throw name + ' unsupported in wasm-aot host harness';
 }
 
+function AbstractModuleSource() {
+  throw new TypeError();
+}
+
+function __porfAbstractModuleSourceToStringTag() {
+  return undefined;
+}
+
+Object.defineProperty(AbstractModuleSource, "prototype", {
+  value: AbstractModuleSource.prototype,
+  writable: false,
+  enumerable: false,
+  configurable: false
+});
+
+Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
+  get: __porfAbstractModuleSourceToStringTag,
+  set: undefined,
+  enumerable: false,
+  configurable: true
+});
+
 var $262 = {
   global: globalThis,
-  AbstractModuleSource: undefined,
+  AbstractModuleSource: AbstractModuleSource,
   IsHTMLDDA: undefined,
   gc: function () {
     gc();
@@ -115,7 +148,7 @@ var $262 = {
     __porfUnsupportedHost('evalScript');
   },
   createRealm: function () {
-    __porfUnsupportedHost('createRealm');
+    return __porfCreateRealm();
   },
   destroy: function () {},
   getGlobal: function () {
@@ -298,16 +331,21 @@ var allTypedArrayConstructors = typedArrayConstructors;
 var TypedArray = Object.getPrototypeOf(Int8Array);
 var nonAtomicsFriendlyTypedArrayConstructors = [];
 
+function makePassthrough(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+
 function testWithTypedArrayConstructors(f, selected) {
-  f(Float64Array);
-  f(Float32Array);
-  f(Int32Array);
-  f(Int16Array);
-  f(Int8Array);
-  f(Uint32Array);
-  f(Uint16Array);
-  f(Uint8Array);
-  f(Uint8ClampedArray);
+  var passthrough = function (value) { return value; };
+  f(Float64Array, passthrough);
+  f(Float32Array, passthrough);
+  f(Int32Array, passthrough);
+  f(Int16Array, passthrough);
+  f(Int8Array, passthrough);
+  f(Uint32Array, passthrough);
+  f(Uint16Array, passthrough);
+  f(Uint8Array, passthrough);
+  f(Uint8ClampedArray, passthrough);
 }
 
 function testWithAllTypedArrayConstructors(f, selected) {
@@ -323,4 +361,43 @@ function testWithAtomicsFriendlyTypedArrayConstructors(f) {
 
 function testWithNonAtomicsFriendlyTypedArrayConstructors(f) {
   testWithTypedArrayConstructors(f, nonAtomicsFriendlyTypedArrayConstructors);
+}
+
+/// resizableArrayBufferUtils.js
+const ctors = [
+  Uint8Array,
+  Int8Array,
+  Uint16Array,
+  Int16Array,
+  Uint32Array,
+  Int32Array,
+  Float32Array,
+  Float64Array,
+  Uint8ClampedArray
+];
+const floatCtors = [
+  Float32Array,
+  Float64Array
+];
+
+function CreateResizableArrayBuffer(byteLength, maxByteLength) {
+  return new ArrayBuffer(byteLength, { maxByteLength: maxByteLength });
+}
+
+function Convert(item) {
+  return item;
+}
+
+function ToNumbers(array) {
+  var result = [];
+  var i = 0;
+  while (i < array.length) {
+    result.push(Convert(array[i]));
+    i = i + 1;
+  }
+  return result;
+}
+
+function MayNeedBigInt(ta, n) {
+  return n;
 }

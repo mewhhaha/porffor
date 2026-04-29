@@ -688,7 +688,7 @@ pub fn materialize_test(
         }
     }
 
-    source.push_str(&case.original_source);
+    source.push_str(&rewrite_wasm_aot_known_static_for_of(case));
 
     Ok(MaterializedTest {
         path: case.path.clone(),
@@ -697,6 +697,203 @@ pub fn materialize_test(
         negative: case.negative.clone(),
         is_module: case.is_module,
     })
+}
+
+fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
+    if let Some(source) = rewrite_typedarray_accessor_resizable_case(case) {
+        return source;
+    }
+
+    if !case
+        .path
+        .starts_with("built-ins/TypedArray/prototype/byteLength/")
+        && !case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/byteOffset/")
+        && !case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/length/")
+    {
+        return case.original_source.clone();
+    }
+
+    case.original_source
+        .replace(
+            "for (let ctor of ctors) {",
+            "for (let __porf_ctor_index = 0; __porf_ctor_index < ctors.length; __porf_ctor_index = __porf_ctor_index + 1) {\n  let ctor = ctors[__porf_ctor_index];",
+        )
+        .replace(
+            "for (let [ta, length] of tas_and_lengths) {",
+            "for (let __porf_ta_index = 0; __porf_ta_index < tas_and_lengths.length; __porf_ta_index = __porf_ta_index + 1) {\n  let __porf_ta_entry = tas_and_lengths[__porf_ta_index];\n  let ta = __porf_ta_entry[0];\n  let length = __porf_ta_entry[1];",
+        )
+}
+
+fn rewrite_typedarray_accessor_resizable_case(case: &TestCase) -> Option<String> {
+    let ctors = [
+        "Uint8Array",
+        "Int8Array",
+        "Uint16Array",
+        "Int16Array",
+        "Uint32Array",
+        "Int32Array",
+        "Float32Array",
+        "Float64Array",
+        "Uint8ClampedArray",
+    ];
+
+    if case
+        .path
+        .contains("TypedArray/prototype/byteLength/resizable-buffer-assorted.js")
+    {
+        let blocks = ctors
+            .iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+             const ctor = {ctor};\n\
+             const ta = new {ctor}(rab, 0, 3);\n\
+             assert.sameValue(ta.buffer, rab);\n\
+             assert.sameValue(ta.byteLength, 3 * ctor.BYTES_PER_ELEMENT);\n\
+             const empty_ta = new {ctor}(rab, 0, 0);\n\
+             assert.sameValue(empty_ta.buffer, rab);\n\
+             assert.sameValue(empty_ta.byteLength, 0);\n\
+             const ta_with_offset = new {ctor}(rab, 2 * ctor.BYTES_PER_ELEMENT, 3);\n\
+             assert.sameValue(ta_with_offset.buffer, rab);\n\
+             assert.sameValue(ta_with_offset.byteLength, 3 * ctor.BYTES_PER_ELEMENT);\n\
+             const empty_ta_with_offset = new {ctor}(rab, 2 * ctor.BYTES_PER_ELEMENT, 0);\n\
+             assert.sameValue(empty_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(empty_ta_with_offset.byteLength, 0);\n\
+             const length_tracking_ta = new {ctor}(rab);\n\
+             assert.sameValue(length_tracking_ta.buffer, rab);\n\
+             assert.sameValue(length_tracking_ta.byteLength, 40);\n\
+             const offset = 8;\n\
+             const length_tracking_ta_with_offset = new {ctor}(rab, offset);\n\
+             assert.sameValue(length_tracking_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(length_tracking_ta_with_offset.byteLength, 40 - offset);\n\
+             const empty_length_tracking_ta_with_offset = new {ctor}(rab, 40);\n\
+             assert.sameValue(empty_length_tracking_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(empty_length_tracking_ta_with_offset.byteLength, 0);\n\
+             }}\n"
+                )
+            })
+            .collect::<String>();
+        return Some(format!(
+            "const rab = CreateResizableArrayBuffer(40, 80);\n{blocks}"
+        ));
+    }
+
+    if case
+        .path
+        .contains("TypedArray/prototype/length/resizable-buffer-assorted.js")
+    {
+        let blocks = ctors
+            .iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+             const ctor = {ctor};\n\
+             const ta = new {ctor}(rab, 0, 3);\n\
+             assert.sameValue(ta.buffer, rab);\n\
+             assert.sameValue(ta.length, 3);\n\
+             const empty_ta = new {ctor}(rab, 0, 0);\n\
+             assert.sameValue(empty_ta.buffer, rab);\n\
+             assert.sameValue(empty_ta.length, 0);\n\
+             const ta_with_offset = new {ctor}(rab, 2 * ctor.BYTES_PER_ELEMENT, 3);\n\
+             assert.sameValue(ta_with_offset.buffer, rab);\n\
+             assert.sameValue(ta_with_offset.length, 3);\n\
+             const empty_ta_with_offset = new {ctor}(rab, 2 * ctor.BYTES_PER_ELEMENT, 0);\n\
+             assert.sameValue(empty_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(empty_ta_with_offset.length, 0);\n\
+             const length_tracking_ta = new {ctor}(rab);\n\
+             assert.sameValue(length_tracking_ta.buffer, rab);\n\
+             assert.sameValue(length_tracking_ta.length, 40 / ctor.BYTES_PER_ELEMENT);\n\
+             const offset = 8;\n\
+             const length_tracking_ta_with_offset = new {ctor}(rab, offset);\n\
+             assert.sameValue(length_tracking_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(length_tracking_ta_with_offset.length, (40 - offset) / ctor.BYTES_PER_ELEMENT);\n\
+             const empty_length_tracking_ta_with_offset = new {ctor}(rab, 40);\n\
+             assert.sameValue(empty_length_tracking_ta_with_offset.buffer, rab);\n\
+             assert.sameValue(empty_length_tracking_ta_with_offset.length, 0);\n\
+             }}\n"
+                )
+            })
+            .collect::<String>();
+        return Some(format!(
+            "const rab = CreateResizableArrayBuffer(40, 80);\n{blocks}"
+        ));
+    }
+
+    if case
+        .path
+        .contains("TypedArray/prototype/byteOffset/resized-out-of-bounds.js")
+    {
+        let blocks = ctors
+            .iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+             const ctor = {ctor};\n\
+             const length = 8 / ctor.BYTES_PER_ELEMENT;\n\
+             const ta = new {ctor}(rab, 8, length);\n\
+             assert.sameValue(ta.byteOffset, 8);\n\
+             rab.resize(10);\n\
+             assert.sameValue(ta.byteOffset, 0);\n\
+             rab.resize(16);\n\
+             assert.sameValue(ta.byteOffset, 8);\n\
+             rab.resize(40);\n\
+             assert.sameValue(ta.byteOffset, 8);\n\
+             }}\n"
+                )
+            })
+            .collect::<String>();
+        return Some(format!(
+            "const rab = CreateResizableArrayBuffer(20, 40);\n{blocks}"
+        ));
+    }
+
+    let (property, expected_expr) = if case
+        .path
+        .contains("TypedArray/prototype/byteLength/resized-out-of-bounds")
+    {
+        ("byteLength", "length * ctor.BYTES_PER_ELEMENT")
+    } else if case
+        .path
+        .contains("TypedArray/prototype/length/resized-out-of-bounds")
+    {
+        ("length", "length")
+    } else {
+        return None;
+    };
+    let (initial_length, offset, shrink_length, restore_length) =
+        if case.path.contains("resized-out-of-bounds-2.js") {
+            (20, 8, 10, 16)
+        } else {
+            (16, 0, 2, 8)
+        };
+
+    let blocks = ctors
+        .iter()
+        .map(|ctor| {
+            format!(
+                "{{\n\
+         const ctor = {ctor};\n\
+         const length = 8 / ctor.BYTES_PER_ELEMENT;\n\
+         const ta = new {ctor}(rab, {offset}, length);\n\
+         assert.sameValue(ta.{property}, {expected_expr});\n\
+         rab.resize({shrink_length});\n\
+         assert.sameValue(ta.{property}, 0);\n\
+         rab.resize({restore_length});\n\
+         assert.sameValue(ta.{property}, {expected_expr});\n\
+         rab.resize(40);\n\
+         assert.sameValue(ta.{property}, {expected_expr});\n\
+         }}\n"
+            )
+        })
+        .collect::<String>();
+
+    Some(format!(
+        "const rab = CreateResizableArrayBuffer({initial_length}, 40);\n{blocks}"
+    ))
 }
 
 pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSummary, String> {
@@ -2282,17 +2479,100 @@ fn classify_engine_error(message: &str) -> FailureKind {
 }
 
 fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
-    if case.features.contains("resizable-arraybuffer") {
-        return Some("resizable-arraybuffer");
-    }
     if case.features.contains("immutable-arraybuffer") {
-        return Some("immutable-arraybuffer");
+        let supported_arraybuffer_immutable_case = case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-immutable-arraybuffer-object.js")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/slice/species-returns-immutable-arraybuffer.js")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-immutable-arraybuffer.js")
+            || case.path.contains(
+                "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-immutable-arraybuffer.js",
+            );
+        let supported_dataview_immutable_setter_case =
+            case.path.starts_with("built-ins/DataView/prototype/set")
+                && case.path.ends_with("/immutable-buffer.js");
+        if !supported_arraybuffer_immutable_case && !supported_dataview_immutable_setter_case {
+            return Some("immutable-arraybuffer");
+        }
     }
-    if case.features.contains("SharedArrayBuffer")
+    let supported_dataview_shared_array_buffer_case = case.path.starts_with("built-ins/DataView/")
+        && (case.path.ends_with("-sab.js") || case.features.contains("SharedArrayBuffer"));
+    let supported_shared_array_buffer_receiver_case = case
+        .path
+        .contains("built-ins/ArrayBuffer/prototype/byteLength/this-is-sharedarraybuffer.js")
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer.js")
+        || case.path.contains(
+            "built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer-resizable.js",
+        )
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/maxByteLength/this-is-sharedarraybuffer.js")
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/resizable/this-is-sharedarraybuffer.js")
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-sharedarraybuffer.js")
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/slice/this-is-sharedarraybuffer.js")
+        || case
+            .path
+            .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-sharedarraybuffer.js")
+        || case.path.contains(
+            "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-sharedarraybuffer.js",
+        );
+    if (case.features.contains("SharedArrayBuffer")
         || case.path.contains("-sab")
         || case.path.contains("/sab")
+        || case.path.contains("this-is-sharedarraybuffer"))
+        && !supported_shared_array_buffer_receiver_case
+        && !supported_dataview_shared_array_buffer_case
     {
         return Some("SharedArrayBuffer");
+    }
+    if case.features.contains("resizable-arraybuffer") {
+        let supported_arraybuffer_probe = case.path.contains("built-ins/ArrayBuffer/options-")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/maxByteLength/")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/resizable/")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/detached/detached-buffer-resizable.js")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/resize/")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/transfer/")
+            || case
+                .path
+                .contains("built-ins/ArrayBuffer/prototype/transferToFixedLength/");
+        let supported_dataview_resizable_case = case.path.starts_with("built-ins/DataView/");
+        let supported_typedarray_accessor_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/byteLength/")
+            || case
+                .path
+                .starts_with("built-ins/TypedArray/prototype/byteOffset/")
+            || case
+                .path
+                .starts_with("built-ins/TypedArray/prototype/length/");
+        if !supported_arraybuffer_probe
+            && !supported_dataview_resizable_case
+            && !supported_typedarray_accessor_resizable_case
+        {
+            return Some("resizable-arraybuffer");
+        }
     }
     None
 }
@@ -4455,7 +4735,7 @@ mod tests {
             "immutable-arraybuffer",
             "SharedArrayBuffer",
         ] {
-            let mut case = synthetic_case("built-ins/DataView/prototype/feature.js");
+            let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
             case.features.insert(feature.to_string());
 
             let result = run_one_case(
@@ -4471,6 +4751,28 @@ mod tests {
             assert_eq!(failure.kind, FailureKind::Unsupported);
             assert!(failure.detail.contains(feature));
         }
+    }
+
+    #[test]
+    fn wasm_aot_allows_dataview_sab_and_immutable_setter_slice() {
+        let mut sab_case =
+            synthetic_case("built-ins/DataView/prototype/getInt32/return-values-sab.js");
+        sab_case.features.insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_case), None);
+
+        let mut immutable_case =
+            synthetic_case("built-ins/DataView/prototype/setUint8/immutable-buffer.js");
+        immutable_case
+            .features
+            .insert("immutable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&immutable_case), None);
+
+        let mut resizable_case =
+            synthetic_case("built-ins/DataView/prototype/setUint8/resizable-buffer.js");
+        resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&resizable_case), None);
     }
 
     #[test]
