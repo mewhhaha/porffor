@@ -107,6 +107,7 @@ pub const BUILTIN_ARRAY_FUNCTION_ID: &str = "$builtin.Array";
 pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
 pub const BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.Array.prototype.concat";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID: &str = "$builtin.Array.prototype.flat";
+pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.flatMap";
 pub const BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID: &str = "$builtin.Array.prototype.push";
 pub const BUILTIN_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.ArrayBuffer";
 pub const BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.SharedArrayBuffer";
@@ -311,6 +312,7 @@ pub enum StandardBuiltinId {
     ArrayIsArray,
     ArrayPrototypeConcat,
     ArrayPrototypeFlat,
+    ArrayPrototypeFlatMap,
     ArrayPrototypePush,
     ArrayBufferConstructor,
     SharedArrayBufferConstructor,
@@ -426,6 +428,7 @@ impl StandardBuiltinId {
             | Self::ArrayIsArray
             | Self::ArrayPrototypeConcat
             | Self::ArrayPrototypeFlat
+            | Self::ArrayPrototypeFlatMap
             | Self::ArrayPrototypePush
             | Self::ArrayBufferIsView
             | Self::NumberIsInteger
@@ -493,6 +496,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => "Array.isArray",
             Self::ArrayPrototypeConcat => "Array.prototype.concat",
             Self::ArrayPrototypeFlat => "Array.prototype.flat",
+            Self::ArrayPrototypeFlatMap => "Array.prototype.flatMap",
             Self::ArrayPrototypePush => "Array.prototype.push",
             Self::ArrayBufferConstructor => ARRAY_BUFFER_NAME,
             Self::SharedArrayBufferConstructor => SHARED_ARRAY_BUFFER_NAME,
@@ -600,6 +604,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeConcat => BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFlat => BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeFlatMap => BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypePush => BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID.to_string(),
             Self::ArrayBufferConstructor => BUILTIN_ARRAY_BUFFER_FUNCTION_ID.to_string(),
             Self::SharedArrayBufferConstructor => {
@@ -781,6 +786,7 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID => Some(Self::ArrayIsArray),
             BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::ArrayPrototypeConcat),
             BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID => Some(Self::ArrayPrototypeFlat),
+            BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeFlatMap),
             BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID => Some(Self::ArrayPrototypePush),
             BUILTIN_ARRAY_BUFFER_FUNCTION_ID => Some(Self::ArrayBufferConstructor),
             BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID => Some(Self::SharedArrayBufferConstructor),
@@ -981,6 +987,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray,
             Self::ArrayPrototypeConcat,
             Self::ArrayPrototypeFlat,
+            Self::ArrayPrototypeFlatMap,
             Self::ArrayPrototypePush,
             Self::ArrayBufferConstructor,
             Self::SharedArrayBufferConstructor,
@@ -1141,6 +1148,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => Some("isArray"),
             Self::ArrayPrototypeConcat => Some("concat"),
             Self::ArrayPrototypeFlat => Some("flat"),
+            Self::ArrayPrototypeFlatMap => Some("flatMap"),
             Self::ArrayPrototypePush => Some("push"),
             Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
@@ -6160,6 +6168,12 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ArrayPrototypeFlatMap => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayPrototypePush => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
@@ -10294,6 +10308,7 @@ impl<'a> ScriptLowerer<'a> {
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
+                                    "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     _ => None,
                                 };
                                 if field_name == "forEach" {
@@ -10379,6 +10394,11 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeFlat)
+                                    }
+                                    "flatMap"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeFlatMap)
                                     }
                                     "getUint8"
                                         if receiver.possible_kinds.contains(ValueKind::Object) =>
@@ -10582,6 +10602,7 @@ impl<'a> ScriptLowerer<'a> {
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
+                                    "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     _ => None,
                                 };
                                 if let Some(builtin) = builtin {
@@ -10662,13 +10683,41 @@ impl<'a> ScriptLowerer<'a> {
                     self.merge_function_this_info(&function_id, receiver.value_info());
                     if let Some(
                         array_builtin @ (StandardBuiltinId::ArrayPrototypePush
-                        | StandardBuiltinId::ArrayPrototypeFlat),
+                        | StandardBuiltinId::ArrayPrototypeFlat
+                        | StandardBuiltinId::ArrayPrototypeFlatMap),
                     ) = StandardBuiltinId::from_function_id(&function_id)
                     {
                         let args = args
                             .iter()
                             .map(|arg| self.lower_expression(arg))
                             .collect::<Vec<_>>();
+                        if array_builtin == StandardBuiltinId::ArrayPrototypeFlatMap {
+                            if let Some(callback) = args.first() {
+                                if let Some(callback_id) =
+                                    self.resolve_single_function_target(callback)
+                                {
+                                    self.merge_function_param_infos(
+                                        &callback_id,
+                                        &[
+                                            ValueInfo {
+                                                kind: ValueKind::Dynamic,
+                                                possible_kinds: KindSet::all_runtime_tags(),
+                                                heap_shape: None,
+                                                function_targets: BTreeSet::new(),
+                                            },
+                                            ValueInfo::new(ValueKind::Number),
+                                            receiver.value_info(),
+                                        ],
+                                    );
+                                    self.merge_function_this_info(
+                                        &callback_id,
+                                        args.get(1)
+                                            .map(TypedExpr::value_info)
+                                            .unwrap_or_else(ValueInfo::undefined),
+                                    );
+                                }
+                            }
+                        }
                         let (key, info) = match array_builtin {
                             StandardBuiltinId::ArrayPrototypePush => {
                                 ("push", ValueInfo::new(ValueKind::Number))
@@ -10684,6 +10733,28 @@ impl<'a> ScriptLowerer<'a> {
                                     function_targets: BTreeSet::new(),
                                 },
                             ),
+                            StandardBuiltinId::ArrayPrototypeFlatMap => ("flatMap", {
+                                let mut shape = ArrayShape::default();
+                                if let Some(HeapShape::Array(receiver_shape)) =
+                                    receiver.heap_shape.as_deref()
+                                {
+                                    shape.elements.resize(
+                                        receiver_shape.elements.len(),
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                    );
+                                }
+                                ValueInfo {
+                                    kind: ValueKind::Array,
+                                    possible_kinds: KindSet::from_kind(ValueKind::Array),
+                                    heap_shape: Some(Box::new(HeapShape::Array(shape))),
+                                    function_targets: BTreeSet::new(),
+                                }
+                            }),
                             _ => unreachable!(),
                         };
                         return TypedExpr::from_info(
@@ -11611,6 +11682,12 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayPrototypeFlatMap => Some(ValueInfo {
+                kind: ValueKind::Array,
+                possible_kinds: KindSet::from_kind(ValueKind::Array),
+                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ArrayPrototypePush => Some(ValueInfo {
                 kind: ValueKind::Number,
                 possible_kinds: KindSet::from_kind(ValueKind::Number),
@@ -12513,9 +12590,32 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "flatMap" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFlatMap),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             if name == "push" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypePush),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "constructor" {
+                return TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),
@@ -12837,15 +12937,24 @@ impl<'a> ScriptLowerer<'a> {
                         )
                     }
                     ValueKind::Array => {
-                        let PropertyAccessField::Expr(expr) = access.field() else {
-                            return self.unsupported_expr("unsupported array dot access");
-                        };
-                        let index = self.lower_expression(expr);
-                        if index.kind != ValueKind::Number {
-                            return self.unsupported_expr("array index must be number");
-                        }
                         let value = self.lower_expression(rhs);
-                        let key = PropertyKeyIr::ArrayIndex(Box::new(index));
+                        let key = match access.field() {
+                            PropertyAccessField::Const(name) => {
+                                let name = self.interner.resolve_expect(name.sym()).to_string();
+                                if name == "constructor" {
+                                    PropertyKeyIr::StaticString(name)
+                                } else {
+                                    return self.unsupported_expr("unsupported array dot access");
+                                }
+                            }
+                            PropertyAccessField::Expr(expr) => {
+                                let index = self.lower_expression(expr);
+                                if index.kind != ValueKind::Number {
+                                    return self.unsupported_expr("array index must be number");
+                                }
+                                PropertyKeyIr::ArrayIndex(Box::new(index))
+                            }
+                        };
                         self.update_written_shape(access.target(), &key, &value.value_info());
                         TypedExpr::from_info(
                             value.value_info(),
