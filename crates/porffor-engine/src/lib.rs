@@ -724,6 +724,41 @@ mod tests {
     }
 
     #[test]
+    fn wasm_backend_catches_arraybuffer_dataview_constructor_toindex_abrupts() {
+        for source in [
+            "try { new ArrayBuffer({ valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "try { new ArrayBuffer(0, { maxByteLength: { valueOf: function() { throw \"x\"; } } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "try { new DataView(new ArrayBuffer(8), -1); 0; } catch (e) { e.name === \"RangeError\" ? 123 : 1; }",
+            "try { new DataView(new ArrayBuffer(8), 0, -1); 0; } catch (e) { e.name === \"RangeError\" ? 123 : 1; }",
+            "try { new Uint8Array(new ArrayBuffer(8), { valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "try { new Uint8Array(new ArrayBuffer(8), 0, { valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "var view = new DataView(new ArrayBuffer(8)); try { view.getUint8({ valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "var view = new DataView(new ArrayBuffer(8)); try { view.setUint16({ valueOf: function() { throw \"x\"; } }, 1); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "var view = new DataView(new ArrayBuffer(8)); try { view.getBigInt64({ valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "try { new ArrayBuffer(1, { maxByteLength: 4 }).resize({ valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+            "try { new ArrayBuffer(1).transfer({ valueOf: function() { throw \"x\"; } }); 0; } catch (e) { e === \"x\" ? 123 : 1; }",
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("constructor ToIndex abrupt case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains("number(123"),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
     fn wasm_emit_reports_unsupported_slice_precisely() {
         let unit = engine()
             .compile_script("function f({ x }) { return x; }", CompileOptions::default())

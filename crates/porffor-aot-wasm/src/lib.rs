@@ -14599,7 +14599,7 @@ impl<'a> FunctionBuilder<'a> {
                 call_payload_local,
                 call_tag_local,
                 call_completion_local,
-                3,
+                2,
                 function,
             )?;
             function.instruction(&Instruction::LocalGet(call_payload_local));
@@ -14638,7 +14638,7 @@ impl<'a> FunctionBuilder<'a> {
                 call_payload_local,
                 call_tag_local,
                 call_completion_local,
-                3,
+                2,
                 function,
             )?;
             function.instruction(&Instruction::LocalGet(call_payload_local));
@@ -17109,6 +17109,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Else);
                 self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
@@ -17195,6 +17196,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(resizable_local));
                 self.emit_value_to_number_payload(max_tag_local, max_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(max_number_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(max_number_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -17835,6 +17837,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
                 self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(new_length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(new_length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(new_length_payload_local));
@@ -19422,6 +19425,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(offset_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(offset_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(offset_payload_local));
@@ -19532,6 +19536,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
@@ -19833,6 +19838,9 @@ impl<'a> FunctionBuilder<'a> {
                     offset_payload_local,
                     function,
                 )?;
+                function.instruction(&Instruction::LocalSet(offset_payload_local));
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(offset_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::I64TruncF64U);
                 function.instruction(&Instruction::LocalSet(byte_offset_local));
@@ -19873,6 +19881,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::I64TruncF64U);
@@ -19908,6 +19917,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::I64TruncF64U);
@@ -20223,6 +20233,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -20517,6 +20528,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -20808,6 +20820,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -21095,6 +21108,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -21370,6 +21384,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -21718,6 +21733,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -22060,6 +22076,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -22386,6 +22403,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -22757,6 +22775,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -23093,6 +23112,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(index_payload_local));
+                self.emit_return_current_completion_if_throw(function);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(index_payload_local));
@@ -33082,6 +33102,15 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_nan_payload(&self, function: &mut Function) {
         function.instruction(&Instruction::I64Const(f64::NAN.to_bits() as i64));
+    }
+
+    fn emit_return_current_completion_if_throw(&mut self, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
     }
 
     fn emit_value_to_number_payload(

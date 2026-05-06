@@ -18,6 +18,35 @@ fn snapshot_dir() -> String {
         .to_string()
 }
 
+fn unique_snapshot_dir(name: &str) -> String {
+    std::env::temp_dir()
+        .join(format!(
+            "porffor-cli-test262-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ))
+        .display()
+        .to_string()
+}
+
+fn tiny_wasm_suite_root(name: &str) -> String {
+    let root = std::env::temp_dir().join(format!(
+        "porffor-cli-tiny-test262-{}-{}-{}",
+        name,
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let test_dir = root.join("test/language/wasm/pass");
+    std::fs::create_dir_all(&test_dir).expect("tiny test262 wasm dir should be created");
+    std::fs::write(
+        test_dir.join("publish-status-wasm.js"),
+        "/*---\nflags: [raw]\n---*/\n\n1 + 2;\n",
+    )
+    .expect("tiny test262 wasm case should write");
+    root.display().to_string()
+}
+
 fn temp_readme_path(name: &str) -> String {
     let path = std::env::temp_dir().join(format!(
         "porffor-cli-readme-{}-{}-{}.md",
@@ -1255,9 +1284,10 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_constructor_newtarget_fix
         .output()
         .expect("run command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(object ToIndex abrupt)"));
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
 }
 
 #[test]
@@ -1288,9 +1318,10 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_resizable_constructor_opt
         .output()
         .expect("run command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(maxByteLength abrupt)"));
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
 }
 
 #[test]
@@ -1316,6 +1347,22 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_resize_validation_fixture
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_arraybuffer_resize_validation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_toindex_abrupt_catchability_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_toindex_abrupt_catchability.js"))
         .output()
         .expect("run command should run");
 
@@ -1433,9 +1480,10 @@ fn run_wasm_backend_succeeds_for_supported_dataview_constructor_toindex_fixture(
         .output()
         .expect("run command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(negative integer offset)"));
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
 }
 
 #[test]
@@ -2846,13 +2894,15 @@ fn test262_publish_status_is_stable_on_second_run() {
 #[test]
 fn test262_publish_status_supports_wasm_backend() {
     let readme_path = temp_readme_path("publish-status-wasm");
+    let suite_root = tiny_wasm_suite_root("publish-status-wasm");
+    let snapshot_dir = unique_snapshot_dir("publish-status-wasm");
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("test262")
         .arg("publish-status")
         .arg("--suite-root")
-        .arg(suite_root())
+        .arg(&suite_root)
         .arg("--snapshot-dir")
-        .arg(snapshot_dir())
+        .arg(&snapshot_dir)
         .arg("--snapshot-name")
         .arg("cli-publish-status-wasm")
         .arg("--execution-backend")
@@ -2865,18 +2915,46 @@ fn test262_publish_status_supports_wasm_backend() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: wasm-aot"));
-    assert!(stdout.contains("total: 190"));
-    assert!(stdout.contains("passed:"));
-    assert!(stdout.contains("outcome_"));
-    assert!(stdout.contains("origin_"));
+    assert!(stdout.contains("total: 1"));
+    assert!(stdout.contains("passed: 1"));
+    assert!(stdout.contains("outcome_Success: 1"));
     assert!(stdout.contains("status_json:"));
+    assert!(stdout.contains("status_txt:"));
+    assert!(stdout.contains("snapshot_json:"));
+    assert!(stdout.contains("snapshot_txt:"));
 
     let readme = std::fs::read_to_string(&readme_path).expect("wasm readme should read");
     assert!(readme.contains("Pinned real Test262 baseline (`wasm-aot`"));
+    assert!(readme.contains("): `1/1` green"));
     assert!(readme.contains("Current real outcomes:"));
     assert!(
         readme.contains("./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real")
     );
+
+    let status_json_line = stdout
+        .lines()
+        .find(|line| line.starts_with("status_json: "))
+        .expect("stdout should include status_json path");
+    let status_json_path = status_json_line
+        .strip_prefix("status_json: ")
+        .expect("status_json line should have prefix");
+    assert!(std::path::Path::new(status_json_path).exists());
+
+    let status_txt_line = stdout
+        .lines()
+        .find(|line| line.starts_with("status_txt: "))
+        .expect("stdout should include status_txt path");
+    let status_txt_path = status_txt_line
+        .strip_prefix("status_txt: ")
+        .expect("status_txt line should have prefix");
+    assert!(std::path::Path::new(status_txt_path).exists());
+
+    let status_json = std::fs::read_to_string(status_json_path).expect("status json should read");
+    let status: serde_json::Value =
+        serde_json::from_str(&status_json).expect("status json should parse");
+    assert_eq!(status["real_suite"]["backend"], "wasm-aot");
+    assert_eq!(status["real_suite"]["total"], 1);
+    assert_eq!(status["real_suite"]["passed"], 1);
 }
 
 #[test]
