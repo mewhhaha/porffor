@@ -21,7 +21,7 @@ const TOP_LEVEL_FILTERS: [&str; 6] = [
     "staging",
 ];
 const MATRIX_SPLIT_FILTERS: [&str; 4] = ["built-ins", "intl402", "language", "staging"];
-const SNAPSHOT_VERSION: u32 = 4;
+const SNAPSHOT_VERSION: u32 = 5;
 const MATRIX_STRATEGY_VERSION: u32 = 2;
 // Keep matrix nodes small enough that slow semantic buckets like RegExp and
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
@@ -41,6 +41,32 @@ pub enum FailureKind {
     WasmBackend,
     HostHarness,
     Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OutcomeKind {
+    Success,
+    NotImplemented,
+    Crash,
+    Bug,
+}
+
+impl OutcomeKind {
+    pub const ALL: [OutcomeKind; 4] = [
+        OutcomeKind::Success,
+        OutcomeKind::NotImplemented,
+        OutcomeKind::Crash,
+        OutcomeKind::Bug,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OutcomeKind::Success => "Success",
+            OutcomeKind::NotImplemented => "NotImplemented",
+            OutcomeKind::Crash => "Crash",
+            OutcomeKind::Bug => "Bug",
+        }
+    }
 }
 
 impl FailureKind {
@@ -103,6 +129,7 @@ impl FailureOrigin {
 pub struct FailureRecord {
     pub test_path: String,
     pub kind: FailureKind,
+    pub outcome: OutcomeKind,
     pub origin: FailureOrigin,
     pub detail: String,
     pub detail_hash: u64,
@@ -273,6 +300,7 @@ pub struct RunSummary {
     pub total: usize,
     pub passed: usize,
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
+    pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
     pub failures: Vec<FailureRecord>,
     pub timeouts: Vec<String>,
     pub slowest_tests: Vec<(String, u128)>,
@@ -290,6 +318,7 @@ pub struct ProgressSnapshot {
     pub total: usize,
     pub passed: usize,
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
+    pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
     pub slowest_tests: Vec<(String, u128)>,
     pub timeout_list: Vec<String>,
     pub failures: Vec<FailureRecord>,
@@ -339,6 +368,7 @@ pub struct TopLevelRunSummary {
     pub passed: usize,
     pub failed: usize,
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
+    pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
     pub counts_per_origin: BTreeMap<FailureOrigin, usize>,
     pub manifest_hash: u64,
 }
@@ -366,6 +396,7 @@ pub struct AggregateRunSummary {
     pub passed: usize,
     pub failed: usize,
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
+    pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
     pub counts_per_origin: BTreeMap<FailureOrigin, usize>,
     pub entries: Vec<TopLevelRunSummary>,
 }
@@ -376,6 +407,53 @@ pub struct VerifiedAggregateSummary {
     pub manifest_hash: u64,
     pub snapshot_paths: SnapshotPaths,
     pub summary: AggregateRunSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AggregateProgressSummary {
+    pub pinned_revisions: PinnedRevisions,
+    pub manifest_hash: u64,
+    pub snapshot_paths: SnapshotPaths,
+    pub summary: AggregateRunSummary,
+    pub target_total: usize,
+    pub complete: bool,
+    pub matrix_nodes_completed: usize,
+    pub matrix_nodes_total: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixTriageEntry {
+    pub node_id: String,
+    pub filter: String,
+    pub matrix_path: Vec<String>,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub not_implemented: usize,
+    pub crash: usize,
+    pub bug: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailureDetailGroup {
+    pub outcome: OutcomeKind,
+    pub kind: FailureKind,
+    pub origin: FailureOrigin,
+    pub detail: String,
+    pub detail_hash: u64,
+    pub count: usize,
+    pub representative_tests: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixFailureDetails {
+    pub node_id: String,
+    pub filter: String,
+    pub matrix_path: Vec<String>,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub groups: Vec<FailureDetailGroup>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,6 +483,8 @@ struct SnapshotFile {
     total: usize,
     passed: usize,
     counts_per_kind: BTreeMap<String, usize>,
+    #[serde(default)]
+    counts_per_outcome: BTreeMap<String, usize>,
     slowest_tests: Vec<SnapshotSlowTest>,
     timeout_list: Vec<String>,
     failures: Vec<SnapshotFailureRecord>,
@@ -431,6 +511,8 @@ struct SnapshotSlowTest {
 struct SnapshotFailureRecord {
     test_path: String,
     kind: String,
+    #[serde(default)]
+    outcome: String,
     origin: String,
     detail: String,
     detail_hash: u64,
@@ -446,6 +528,8 @@ struct SnapshotAggregateEntry {
     passed: usize,
     failed: usize,
     counts_per_kind: BTreeMap<String, usize>,
+    #[serde(default)]
+    counts_per_outcome: BTreeMap<String, usize>,
     counts_per_origin: BTreeMap<String, usize>,
     manifest_hash: u64,
 }
@@ -563,6 +647,36 @@ impl ConformanceRunner {
         execution_backend: ExecutionBackend,
     ) -> Result<VerifiedAggregateSummary, String> {
         load_verified_aggregate_summary(&self.config, snapshot_name, execution_backend)
+    }
+
+    pub fn load_aggregate_progress_summary(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<AggregateProgressSummary, String> {
+        load_aggregate_progress_summary(&self.config, snapshot_name, execution_backend)
+    }
+
+    pub fn load_matrix_triage_entries(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<Vec<MatrixTriageEntry>, String> {
+        load_matrix_triage_entries(&self.config, snapshot_name, execution_backend)
+    }
+
+    pub fn load_matrix_failure_details(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+        node_selector: &str,
+    ) -> Result<MatrixFailureDetails, String> {
+        load_matrix_failure_details(
+            &self.config,
+            snapshot_name,
+            execution_backend,
+            node_selector,
+        )
     }
 }
 
@@ -996,9 +1110,7 @@ pub fn run_top_level_matrix(
                 run_config.execution_backend,
                 &pinned_revisions,
             )?;
-            if rebuilt_entries.len() > entries.len() {
-                entries = rebuilt_entries;
-            }
+            entries = rebuilt_entries;
             completed_nodes = entries
                 .iter()
                 .map(|entry| entry.node_id.clone())
@@ -1127,6 +1239,7 @@ fn load_resume_matrix_node_summary_for_node(
         passed: 0,
         failed: 0,
         counts_per_kind: BTreeMap::new(),
+        counts_per_outcome: empty_outcome_counts(),
         counts_per_origin: BTreeMap::new(),
         manifest_hash,
     };
@@ -1233,9 +1346,77 @@ fn load_resume_matrix_node_summary(
         passed: snapshot.passed,
         failed: snapshot.total.saturating_sub(snapshot.passed),
         counts_per_kind: snapshot.counts_per_kind.clone(),
+        counts_per_outcome: snapshot.counts_per_outcome.clone(),
         counts_per_origin: counts_per_origin(&snapshot.failures),
         manifest_hash: entry.manifest_hash,
     }))
+}
+
+fn validate_resume_node_snapshot(
+    file: &SnapshotFile,
+    path: &Path,
+    entry: &TopLevelRunSummary,
+    expected_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
+) -> Result<(), String> {
+    if file.snapshot_version != SNAPSHOT_VERSION {
+        return Err(format!(
+            "resume node snapshot mismatch for snapshot_version in {}: expected {}, found {}",
+            path.display(),
+            SNAPSHOT_VERSION,
+            file.snapshot_version
+        ));
+    }
+    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
+        return Err(format!(
+            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
+            path.display(),
+            MATRIX_STRATEGY_VERSION,
+            file.matrix_strategy_version
+        ));
+    }
+    if file.execution_backend != expected_backend.as_str() {
+        return Err(format!(
+            "resume node snapshot mismatch for execution_backend in {}: expected {}, found {}",
+            path.display(),
+            expected_backend.as_str(),
+            file.execution_backend
+        ));
+    }
+    if file.manifest_hash != entry.manifest_hash {
+        return Err(format!(
+            "resume node snapshot mismatch for manifest_hash in {}: expected {}, found {}",
+            path.display(),
+            entry.manifest_hash,
+            file.manifest_hash
+        ));
+    }
+    if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
+        return Err(format!(
+            "resume node snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.ecma262,
+            file.pinned_revisions.ecma262
+        ));
+    }
+    if file.pinned_revisions.test262 != expected_pinned.test262 {
+        return Err(format!(
+            "resume node snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            path.display(),
+            expected_pinned.test262,
+            file.pinned_revisions.test262
+        ));
+    }
+    let is_complete_case_checkpoint =
+        file.completed_paths.len() == file.total && file.total == entry.total;
+    if !is_complete_case_checkpoint && !file.run_kind.starts_with("matrix-") {
+        return Err(format!(
+            "resume node snapshot mismatch for run_kind in {}: expected matrix-* found {}",
+            path.display(),
+            file.run_kind
+        ));
+    }
+    Ok(())
 }
 
 pub fn classify_failure(
@@ -1244,11 +1425,13 @@ pub fn classify_failure(
     detail: impl Into<String>,
 ) -> FailureRecord {
     let detail = detail.into();
+    let outcome = classify_failure_outcome(kind, &detail);
     let origin = classify_failure_origin(&detail);
     let detail = format!("[origin:{}] {detail}", origin.as_str());
     FailureRecord {
         test_path: test_path.into(),
         kind,
+        outcome,
         origin,
         detail_hash: hash_detail(&detail),
         detail,
@@ -1678,6 +1861,7 @@ fn finalize_matrix_nodes(
 
 fn aggregate_from_entries(entries: &[TopLevelRunSummary]) -> AggregateRunSummary {
     let mut counts_per_kind = BTreeMap::new();
+    let mut counts_per_outcome = empty_outcome_counts();
     let mut counts_per_origin = BTreeMap::new();
     for kind in FailureKind::ALL {
         counts_per_kind.insert(kind, 0);
@@ -1697,6 +1881,10 @@ fn aggregate_from_entries(entries: &[TopLevelRunSummary]) -> AggregateRunSummary
             *counts_per_kind.entry(kind).or_insert(0) +=
                 entry.counts_per_kind.get(&kind).copied().unwrap_or(0);
         }
+        for outcome in OutcomeKind::ALL {
+            *counts_per_outcome.entry(outcome).or_insert(0) +=
+                entry.counts_per_outcome.get(&outcome).copied().unwrap_or(0);
+        }
         for origin in FailureOrigin::ALL {
             *counts_per_origin.entry(origin).or_insert(0) +=
                 entry.counts_per_origin.get(&origin).copied().unwrap_or(0);
@@ -1708,6 +1896,7 @@ fn aggregate_from_entries(entries: &[TopLevelRunSummary]) -> AggregateRunSummary
         passed,
         failed: total.saturating_sub(passed),
         counts_per_kind,
+        counts_per_outcome,
         counts_per_origin,
         entries: ordered_entries,
     }
@@ -2248,6 +2437,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
     for kind in FailureKind::ALL {
         counts.insert(kind, 0);
     }
+    let mut outcome_counts = empty_outcome_counts();
 
     let mut failures = Vec::new();
     let mut completed_paths = Vec::new();
@@ -2265,9 +2455,11 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
         match &result.status {
             TestStatus::Passed => {
                 passed += 1;
+                *outcome_counts.entry(OutcomeKind::Success).or_insert(0) += 1;
             }
             TestStatus::Failed(failure) => {
                 *counts.entry(failure.kind).or_insert(0) += 1;
+                *outcome_counts.entry(failure.outcome).or_insert(0) += 1;
                 if failure.detail.contains("timeout exceeded") {
                     timeouts.push(failure.test_path.clone());
                 }
@@ -2280,6 +2472,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
         total: results.len(),
         passed,
         counts_per_kind: counts,
+        counts_per_outcome: outcome_counts,
         failures,
         timeouts,
         slowest_tests: slowest,
@@ -2367,6 +2560,7 @@ fn run_matrix_node(
         passed: summary.passed,
         failed: summary.total.saturating_sub(summary.passed),
         counts_per_kind: summary.counts_per_kind.clone(),
+        counts_per_outcome: summary.counts_per_outcome.clone(),
         counts_per_origin: counts_per_origin(&summary.failures),
         manifest_hash: node_manifest.manifest_hash,
     })
@@ -2381,6 +2575,40 @@ fn counts_per_origin(failures: &[FailureRecord]) -> BTreeMap<FailureOrigin, usiz
         *counts.entry(failure.origin).or_insert(0) += 1;
     }
     counts
+}
+
+fn empty_outcome_counts() -> BTreeMap<OutcomeKind, usize> {
+    let mut counts = BTreeMap::new();
+    for outcome in OutcomeKind::ALL {
+        counts.insert(outcome, 0);
+    }
+    counts
+}
+
+fn classify_failure_outcome(kind: FailureKind, detail: &str) -> OutcomeKind {
+    let lower = detail.to_ascii_lowercase();
+    if kind == FailureKind::Unsupported
+        || lower.contains("not implemented")
+        || lower.contains("unsupported")
+        || lower.contains("not supported")
+        || lower.contains("stub")
+    {
+        return OutcomeKind::NotImplemented;
+    }
+
+    if lower.contains("panic")
+        || lower.contains("panicked")
+        || lower.contains("crash")
+        || lower.contains("segmentation fault")
+        || lower.contains("wasm `unreachable`")
+        || lower.contains("worker panic")
+        || lower.contains("trapped")
+        || lower.contains("timeout exceeded")
+    {
+        return OutcomeKind::Crash;
+    }
+
+    OutcomeKind::Bug
 }
 
 fn panic_message(payload: &Box<dyn core::any::Any + Send>) -> String {
@@ -2409,6 +2637,7 @@ fn snapshot_from_summary(
         total: summary.total,
         passed: summary.passed,
         counts_per_kind: summary.counts_per_kind.clone(),
+        counts_per_outcome: summary.counts_per_outcome.clone(),
         slowest_tests: summary.slowest_tests.clone(),
         timeout_list: summary.timeouts.clone(),
         failures: summary.failures.clone(),
@@ -2439,6 +2668,7 @@ fn aggregate_snapshot(
         total: summary.total,
         passed: summary.passed,
         counts_per_kind: summary.counts_per_kind.clone(),
+        counts_per_outcome: summary.counts_per_outcome.clone(),
         slowest_tests: Vec::new(),
         timeout_list: Vec::new(),
         failures: Vec::new(),
@@ -2632,6 +2862,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
         total: snapshot.total,
         passed: snapshot.passed,
         counts_per_kind: encode_kind_counts(&snapshot.counts_per_kind),
+        counts_per_outcome: encode_outcome_counts(&snapshot.counts_per_outcome),
         slowest_tests: snapshot
             .slowest_tests
             .iter()
@@ -2647,6 +2878,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
             .map(|failure| SnapshotFailureRecord {
                 test_path: failure.test_path.clone(),
                 kind: failure.kind.as_str().to_string(),
+                outcome: failure.outcome.as_str().to_string(),
                 origin: failure.origin.as_str().to_string(),
                 detail: failure.detail.clone(),
                 detail_hash: failure.detail_hash,
@@ -2668,6 +2900,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
                 passed: entry.passed,
                 failed: entry.failed,
                 counts_per_kind: encode_kind_counts(&entry.counts_per_kind),
+                counts_per_outcome: encode_outcome_counts(&entry.counts_per_outcome),
                 counts_per_origin: encode_origin_counts(&entry.counts_per_origin),
                 manifest_hash: entry.manifest_hash,
             })
@@ -2695,6 +2928,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
         total: file.total,
         passed: file.passed,
         counts_per_kind: decode_kind_counts(&file.counts_per_kind),
+        counts_per_outcome: decode_outcome_counts(&file.counts_per_outcome, file.passed),
         slowest_tests: file
             .slowest_tests
             .into_iter()
@@ -2707,6 +2941,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
             .map(|failure| FailureRecord {
                 test_path: failure.test_path,
                 kind: decode_kind(&failure.kind),
+                outcome: decode_outcome(&failure.outcome, decode_kind(&failure.kind)),
                 origin: decode_origin(&failure.origin),
                 detail: failure.detail,
                 detail_hash: failure.detail_hash,
@@ -2731,6 +2966,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
                 passed: entry.passed,
                 failed: entry.failed,
                 counts_per_kind: decode_kind_counts(&entry.counts_per_kind),
+                counts_per_outcome: decode_outcome_counts(&entry.counts_per_outcome, entry.passed),
                 counts_per_origin: decode_origin_counts(&entry.counts_per_origin),
                 manifest_hash: entry.manifest_hash,
             })
@@ -2753,6 +2989,31 @@ fn decode_kind_counts(counts: &BTreeMap<String, usize>) -> BTreeMap<FailureKind,
     let mut out = BTreeMap::new();
     for kind in FailureKind::ALL {
         out.insert(kind, counts.get(kind.as_str()).copied().unwrap_or(0));
+    }
+    out
+}
+
+fn encode_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    for outcome in OutcomeKind::ALL {
+        out.insert(
+            outcome.as_str().to_string(),
+            counts.get(&outcome).copied().unwrap_or(0),
+        );
+    }
+    out
+}
+
+fn decode_outcome_counts(
+    counts: &BTreeMap<String, usize>,
+    passed: usize,
+) -> BTreeMap<OutcomeKind, usize> {
+    let mut out = empty_outcome_counts();
+    for outcome in OutcomeKind::ALL {
+        out.insert(outcome, counts.get(outcome.as_str()).copied().unwrap_or(0));
+    }
+    if counts.is_empty() {
+        out.insert(OutcomeKind::Success, passed);
     }
     out
 }
@@ -2786,6 +3047,19 @@ fn decode_kind(kind: &str) -> FailureKind {
         "HostHarness" => FailureKind::HostHarness,
         "Unsupported" => FailureKind::Unsupported,
         _ => FailureKind::Runtime,
+    }
+}
+
+fn decode_outcome(outcome: &str, kind: FailureKind) -> OutcomeKind {
+    match outcome {
+        "Success" => OutcomeKind::Success,
+        "NotImplemented" => OutcomeKind::NotImplemented,
+        "Crash" => OutcomeKind::Crash,
+        "Bug" => OutcomeKind::Bug,
+        _ => match kind {
+            FailureKind::Unsupported => OutcomeKind::NotImplemented,
+            _ => OutcomeKind::Bug,
+        },
     }
 }
 
@@ -2853,6 +3127,19 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
         )
         .unwrap();
     }
+    for outcome in OutcomeKind::ALL {
+        writeln!(
+            &mut out,
+            "outcome_{}={}",
+            outcome.as_str(),
+            snapshot
+                .counts_per_outcome
+                .get(&outcome)
+                .copied()
+                .unwrap_or(0)
+        )
+        .unwrap();
+    }
     if !snapshot.timeout_list.is_empty() {
         writeln!(&mut out, "timeouts={}", snapshot.timeout_list.join(", ")).unwrap();
     }
@@ -2863,7 +3150,12 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
                 &mut out,
                 "- {} [{}] {}",
                 failure.test_path,
-                format!("{}/{}", failure.kind.as_str(), failure.origin.as_str()),
+                format!(
+                    "{}/{}/{}",
+                    failure.outcome.as_str(),
+                    failure.kind.as_str(),
+                    failure.origin.as_str()
+                ),
                 failure.detail
             )
             .unwrap();
@@ -3132,6 +3424,242 @@ pub fn load_verified_aggregate_summary(
     })
 }
 
+pub fn load_aggregate_progress_summary(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<AggregateProgressSummary, String> {
+    let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let expected_node_ids = nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
+    let target_total = nodes.iter().map(|node| node.total_cases).sum();
+    let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
+    let aggregate_snapshot_name = format!("{snapshot_name}-aggregate");
+    let snapshot_paths = SnapshotPaths {
+        json_path: config
+            .snapshot_dir
+            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.json")),
+        txt_path: config
+            .snapshot_dir
+            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.txt")),
+    };
+    if !snapshot_paths.json_path.exists() {
+        return Err(format!(
+            "missing aggregate snapshot {}",
+            snapshot_paths.json_path.display()
+        ));
+    }
+
+    let file = read_snapshot_file(&snapshot_paths.json_path)?;
+    let expected_pinned = pinned_revisions(config);
+    validate_resume_aggregate_snapshot(
+        &file,
+        &snapshot_paths.json_path,
+        manifest_hash,
+        execution_backend,
+        &expected_pinned,
+    )?;
+    let snapshot = snapshot_from_file(file).ok_or_else(|| {
+        format!(
+            "unsupported snapshot version in {}",
+            snapshot_paths.json_path.display()
+        )
+    })?;
+    let completed_node_ids = snapshot
+        .completed_nodes
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let complete = completed_node_ids == expected_node_ids;
+    Ok(AggregateProgressSummary {
+        pinned_revisions: expected_pinned,
+        manifest_hash,
+        snapshot_paths,
+        summary: aggregate_summary_from_snapshot(&snapshot),
+        target_total,
+        complete,
+        matrix_nodes_completed: completed_node_ids.intersection(&expected_node_ids).count(),
+        matrix_nodes_total: expected_node_ids.len(),
+    })
+}
+
+pub fn load_matrix_triage_entries(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<Vec<MatrixTriageEntry>, String> {
+    let progress = load_aggregate_progress_summary(config, snapshot_name, execution_backend)?;
+    let mut entries = progress
+        .summary
+        .entries
+        .iter()
+        .filter(|entry| entry.failed > 0)
+        .map(|entry| MatrixTriageEntry {
+            node_id: entry.node_id.clone(),
+            filter: entry.filter.clone(),
+            matrix_path: entry.matrix_path.clone(),
+            total: entry.total,
+            passed: entry.passed,
+            failed: entry.failed,
+            not_implemented: entry
+                .counts_per_outcome
+                .get(&OutcomeKind::NotImplemented)
+                .copied()
+                .unwrap_or(0),
+            crash: entry
+                .counts_per_outcome
+                .get(&OutcomeKind::Crash)
+                .copied()
+                .unwrap_or(0),
+            bug: entry
+                .counts_per_outcome
+                .get(&OutcomeKind::Bug)
+                .copied()
+                .unwrap_or(0),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right
+            .crash
+            .cmp(&left.crash)
+            .then_with(|| right.bug.cmp(&left.bug))
+            .then_with(|| right.not_implemented.cmp(&left.not_implemented))
+            .then_with(|| right.failed.cmp(&left.failed))
+            .then_with(|| left.node_id.cmp(&right.node_id))
+    });
+    Ok(entries)
+}
+
+pub fn load_matrix_failure_details(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+    node_selector: &str,
+) -> Result<MatrixFailureDetails, String> {
+    let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let matching_nodes = nodes
+        .iter()
+        .filter(|node| node.node_id == node_selector || node.filter == node_selector)
+        .collect::<Vec<_>>();
+    let node = match matching_nodes.as_slice() {
+        [node] => *node,
+        [] => {
+            return Err(format!(
+            "unknown matrix node {node_selector}; use a node_id or exact filter from triage-status"
+        ))
+        }
+        _ => {
+            return Err(format!(
+            "matrix node selector {node_selector} is ambiguous; use a node_id from triage-status"
+        ))
+        }
+    };
+
+    let expected_pinned = pinned_revisions(config);
+    let manifest_hash = hash_manifest_case_paths(
+        &expected_pinned,
+        &node.case_paths,
+        Some(node.filter.as_str()),
+    );
+    let node_snapshot_name = format!(
+        "{}-{}",
+        snapshot_name,
+        sanitize_filter_for_snapshot(&node.node_id)
+    );
+    let path = config
+        .snapshot_dir
+        .join(format!("{}-{}.json", node_snapshot_name, manifest_hash));
+    if !path.exists() {
+        return Err(format!("missing matrix node snapshot {}", path.display()));
+    }
+
+    let file = read_snapshot_file(&path)?;
+    let summary_entry = TopLevelRunSummary {
+        node_id: node.node_id.clone(),
+        node_kind: node.node_kind,
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: node.total_cases,
+        passed: 0,
+        failed: 0,
+        counts_per_kind: BTreeMap::new(),
+        counts_per_outcome: empty_outcome_counts(),
+        counts_per_origin: BTreeMap::new(),
+        manifest_hash,
+    };
+    validate_resume_node_snapshot(
+        &file,
+        &path,
+        &summary_entry,
+        execution_backend,
+        &expected_pinned,
+    )?;
+    let snapshot = snapshot_from_file(file)
+        .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
+
+    let mut grouped =
+        BTreeMap::<(u64, OutcomeKind, FailureKind, FailureOrigin, String), Vec<String>>::new();
+    for failure in &snapshot.failures {
+        grouped
+            .entry((
+                failure.detail_hash,
+                failure.outcome,
+                failure.kind,
+                failure.origin,
+                failure.detail.clone(),
+            ))
+            .or_default()
+            .push(failure.test_path.clone());
+    }
+    let mut groups = grouped
+        .into_iter()
+        .map(
+            |((detail_hash, outcome, kind, origin, detail), mut tests)| {
+                tests.sort();
+                let count = tests.len();
+                tests.truncate(5);
+                FailureDetailGroup {
+                    outcome,
+                    kind,
+                    origin,
+                    detail,
+                    detail_hash,
+                    count,
+                    representative_tests: tests,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| outcome_rank(left.outcome).cmp(&outcome_rank(right.outcome)))
+            .then_with(|| left.detail.cmp(&right.detail))
+    });
+
+    Ok(MatrixFailureDetails {
+        node_id: node.node_id.clone(),
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: snapshot.total,
+        passed: snapshot.passed,
+        failed: snapshot.total.saturating_sub(snapshot.passed),
+        groups,
+    })
+}
+
+fn outcome_rank(outcome: OutcomeKind) -> usize {
+    match outcome {
+        OutcomeKind::Crash => 0,
+        OutcomeKind::Bug => 1,
+        OutcomeKind::NotImplemented => 2,
+        OutcomeKind::Success => 3,
+    }
+}
+
 fn aggregate_summary_from_snapshot(snapshot: &ProgressSnapshot) -> AggregateRunSummary {
     let mut counts_per_origin = BTreeMap::new();
     for origin in FailureOrigin::ALL {
@@ -3149,6 +3677,7 @@ fn aggregate_summary_from_snapshot(snapshot: &ProgressSnapshot) -> AggregateRunS
         passed: snapshot.passed,
         failed: snapshot.total.saturating_sub(snapshot.passed),
         counts_per_kind: snapshot.counts_per_kind.clone(),
+        counts_per_outcome: snapshot.counts_per_outcome.clone(),
         counts_per_origin,
         entries: snapshot.aggregate_entries.clone(),
     }
@@ -3217,6 +3746,7 @@ pub fn aggregate_baseline_report(summary: &AggregateRunSummary) -> AggregateRunS
                 passed: 0,
                 failed: 0,
                 counts_per_kind,
+                counts_per_outcome: empty_outcome_counts(),
                 counts_per_origin,
                 manifest_hash: entry.manifest_hash,
             }
@@ -3227,6 +3757,10 @@ pub fn aggregate_baseline_report(summary: &AggregateRunSummary) -> AggregateRunS
         for kind in FailureKind::ALL {
             *aggregate.counts_per_kind.entry(kind).or_insert(0) +=
                 entry.counts_per_kind.get(&kind).copied().unwrap_or(0);
+        }
+        for outcome in OutcomeKind::ALL {
+            *aggregate.counts_per_outcome.entry(outcome).or_insert(0) +=
+                entry.counts_per_outcome.get(&outcome).copied().unwrap_or(0);
         }
         for origin in FailureOrigin::ALL {
             *aggregate.counts_per_origin.entry(origin).or_insert(0) +=
@@ -3242,6 +3776,7 @@ pub fn aggregate_baseline_report(summary: &AggregateRunSummary) -> AggregateRunS
         passed: summary.passed,
         failed: summary.failed,
         counts_per_kind: summary.counts_per_kind.clone(),
+        counts_per_outcome: summary.counts_per_outcome.clone(),
         counts_per_origin: summary.counts_per_origin.clone(),
         entries,
     }
@@ -3594,8 +4129,7 @@ mod tests {
         SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
-            snapshot_dir: std::env::temp_dir()
-                .join(format!("porffor-test262-fixture-{}", std::process::id())),
+            snapshot_dir: unique_temp_path("fixture-snapshots"),
             timeout_ms: 1_000,
             worker_count: 2,
             case_runner_bin: None,
@@ -3833,6 +4367,7 @@ mod tests {
         file.failures = vec![SnapshotFailureRecord {
             test_path: "language/pass/runtime-refresh.js".to_string(),
             kind: "Runtime".to_string(),
+            outcome: "Bug".to_string(),
             origin: FailureOrigin::SpecExecHost.as_str().to_string(),
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
@@ -3905,6 +4440,7 @@ mod tests {
         file.failures = vec![SnapshotFailureRecord {
             test_path: "language/pass/runtime-refresh.js".to_string(),
             kind: "Runtime".to_string(),
+            outcome: "Bug".to_string(),
             origin: FailureOrigin::SpecExecHost.as_str().to_string(),
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
@@ -4228,6 +4764,7 @@ mod tests {
     #[test]
     fn report_all_resume_ignores_stale_fallback_aggregate_snapshot() {
         let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
         let run_config = RunConfig {
             snapshot_name: "aggregate-stale-fallback".to_string(),
             max_matrix_nodes: Some(1),
@@ -4250,6 +4787,7 @@ mod tests {
             total: 0,
             passed: 0,
             counts_per_kind: BTreeMap::new(),
+            counts_per_outcome: empty_outcome_counts(),
             slowest_tests: Vec::new(),
             timeout_list: Vec::new(),
             failures: Vec::new(),
@@ -4581,6 +5119,7 @@ mod tests {
                 passed: 0,
                 failed: 0,
                 counts_per_kind,
+                counts_per_outcome: empty_outcome_counts(),
                 counts_per_origin,
                 entries: Vec::new(),
             },

@@ -1,0 +1,11 @@
+let desc = Object.getOwnPropertyDescriptor(Array, Symbol.species);
+if (desc === undefined) throw "missing descriptor";
+if (desc.set !== undefined) throw "unexpected setter";
+if (typeof desc.get !== "function") throw "getter type";
+if (desc.get.length !== 0) throw "getter length";
+if (desc.get.name !== "get [Symbol.species]") throw "getter name";
+if (desc.enumerable !== false) throw "enumerable";
+if (desc.configurable !== true) throw "configurable";
+let receiver = {};
+if (desc.get.call(receiver) !== receiver) throw "receiver";
+true;

@@ -46,4 +46,5 @@ typeof flat === "function"
   && sameArray(deep.flat(Number.POSITIVE_INFINITY), [1, 2, 3, 4])
   && throwsTypeError(function () { flat.call(null); })
   && throwsTypeError(function () { flat.call(undefined); })
+  && throwsTypeError(function () { new flat(); })
   && sameArray(boundFlat(), [1, 2]);

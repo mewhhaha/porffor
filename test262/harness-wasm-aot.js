@@ -120,6 +120,10 @@ function __porfAbstractModuleSourceToStringTag() {
   return undefined;
 }
 
+function __porfIsHTMLDDA() {
+  return null;
+}
+
 Object.defineProperty(AbstractModuleSource, "prototype", {
   value: AbstractModuleSource.prototype,
   writable: false,
@@ -134,10 +138,17 @@ Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
   configurable: true
 });
 
+Object.defineProperty(__porfIsHTMLDDA, "$IsHTMLDDA", {
+  value: true,
+  writable: false,
+  enumerable: false,
+  configurable: false
+});
+
 var $262 = {
   global: globalThis,
   AbstractModuleSource: AbstractModuleSource,
-  IsHTMLDDA: undefined,
+  IsHTMLDDA: __porfIsHTMLDDA,
   gc: function () {
     gc();
   },
@@ -256,9 +267,25 @@ function verifyNotWritable(obj, name) {
   return true;
 }
 
-function verifyWritable(obj, name) {
+function verifyWritable(obj, name, verifyProp, value) {
   var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined || desc.writable !== true) {
+  if (desc === undefined) {
+    throw "Expected obj[" + String(name) + "] to be writable.";
+  }
+  if (verifyProp !== undefined) {
+    var newValue = value || "unlikelyValue";
+    var oldValue = obj[name];
+    if (newValue === oldValue) {
+      newValue = newValue + "2";
+    }
+    obj[name] = newValue;
+    if (obj[verifyProp] !== newValue) {
+      throw "Expected obj[" + String(name) + "] to be writable.";
+    }
+    obj[name] = oldValue;
+    return true;
+  }
+  if (desc.writable !== true) {
     throw "Expected obj[" + String(name) + "] to be writable.";
   }
   return true;

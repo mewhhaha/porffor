@@ -7,6 +7,7 @@ use wasmi::{
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
+const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
 #[cfg(test)]
@@ -427,7 +428,24 @@ impl Engine {
             &store,
         )?;
         if completion_kind != 0 {
-            return Err(EngineError::new(format!("uncaught throw: {note}")));
+            let error_name = if matches!(
+                result_kind,
+                ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
+            ) {
+                read_wasm_string_payload_global(
+                    &instance,
+                    &store,
+                    WASM_THROW_ERROR_NAME_EXPORT,
+                    instance.get_memory(&store, "memory"),
+                )?
+            } else {
+                None
+            };
+            let prefix = error_name
+                .filter(|name| !name.is_empty())
+                .map(|name| format!("{name}: "))
+                .unwrap_or_default();
+            return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
         }
 
         Ok(RunOutcome {
@@ -435,6 +453,39 @@ impl Engine {
             note,
         })
     }
+}
+
+fn read_wasm_string_payload_global(
+    instance: &wasmi::Instance,
+    store: &Store<WasmHostState>,
+    global_name: &str,
+    memory: Option<wasmi::Memory>,
+) -> Result<Option<String>, EngineError> {
+    let Some(global) = instance.get_global(store, global_name) else {
+        return Ok(None);
+    };
+    let WasmiValue::I64(payload) = global.get(store) else {
+        return Err(EngineError::new(format!(
+            "wasm {global_name} export had unexpected type"
+        )));
+    };
+    if payload == 0 {
+        return Ok(None);
+    }
+    let memory = memory.ok_or_else(|| {
+        EngineError::new(format!(
+            "wasm {global_name} string needs exported memory, but none exists"
+        ))
+    })?;
+    let offset = ((payload as u64) >> 32) as usize;
+    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+    let mut bytes = vec![0; len];
+    memory
+        .read(store, offset, &mut bytes)
+        .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}")))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
 }
 
 fn render_wasm_completion(
@@ -651,6 +702,25 @@ mod tests {
             b" : ,undefinednul".to_vec()
         );
         assert_eq!(bytes.expect("string bytes should exist"), b",".to_vec());
+    }
+
+    #[test]
+    fn wasm_backend_lowers_template_expression_legacy_octal_string_literal() {
+        let outcome = engine()
+            .run_script(
+                "`${'\\07'}` === '\\u0007';",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("template expression legacy octal string literal should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -1059,7 +1129,7 @@ mod tests {
             .message()
             .contains("unsupported in porffor wasm-aot first slice: indirect call"));
 
-        let length_err = engine()
+        let length_outcome = engine()
             .run_script(
                 "let a = [1]; a[\"length\"];",
                 CompileOptions::default(),
@@ -1068,10 +1138,8 @@ mod tests {
                     ..RunOptions::default()
                 },
             )
-            .expect_err("array length bracket should stay unsupported");
-        assert!(length_err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice: array index must be number"));
+            .expect("array length bracket should run");
+        assert!(length_outcome.note.contains("undefined(undefined)"));
     }
 
     #[test]
@@ -2167,12 +2235,9 @@ mod tests {
     #[test]
     fn wasm_backend_rejects_non_constructable_new_and_instanceof_tails() {
         for source in [
-            "new (() => 1)();",
-            "let o = { f() {} }; new o.f();",
-            "let o = { get x() { return 1; } }; new o.x();",
-            "new print();",
-            "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
             "new.target;",
+            "let o = { get x() { return 1; } }; new o.x();",
+            "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
         ] {
             let err = engine()
                 .run_script(
@@ -2189,6 +2254,33 @@ mod tests {
                 message.contains("unsupported in porffor wasm-aot first slice")
                     || message.contains("parse error"),
                 "source: {source}, err: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_runtime_throws_for_non_constructable_new_and_instanceof_tails() {
+        for source in [
+            "try { new (() => 1)(); } catch (e) { e.name; }",
+            "try { let o = { f() {} }; new o.f(); } catch (e) { e.name; }",
+            "try { new print(); } catch (e) { e.name; }",
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("non-constructable runtime case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains("string(TypeError)"),
+                "source: {source}, note: {}",
+                outcome.note
             );
         }
     }
@@ -2256,20 +2348,52 @@ mod tests {
                 "boolean(true)",
             ),
             (
+                "try { throw undefined; } catch (e) { e; }",
+                "undefined(undefined)",
+            ),
+            (
+                "try { let x = 1; class C {} throw x; } catch (e) { e; }",
+                "number(1)",
+            ),
+            (
+                "try { let x = 1; class C { constructor() { this.x = 2; } } throw new C().x; } catch (e) { e; }",
+                "number(2)",
+            ),
+            (
+                "try { if (true) { let x = 3; class C {} throw x; } } catch (e) { e; }",
+                "number(3)",
+            ),
+            (
+                "try { label: { if (true) { class C {} throw 4; } } } catch (e) { e; }",
+                "number(4)",
+            ),
+            (
+                "try { while (true) { class C {} throw 5; } } catch (e) { e; }",
+                "number(5)",
+            ),
+            (
+                "try { do { let x = 7; class C {} throw x; } while (false); } catch (e) { e; }",
+                "number(7)",
+            ),
+            (
+                "try { for (let i = 0; i < 1; i = i + 1) { let x = 8; class C {} throw x; } } catch (e) { e; }",
+                "number(8)",
+            ),
+            (
+                "try { for (let x of [9]) { class C {} throw x; } } catch (e) { e; }",
+                "number(9)",
+            ),
+            (
+                "try { switch (1) { case 1: class C {} throw 6; } } catch (e) { e; }",
+                "number(6)",
+            ),
+            (
                 "try { class C {} C(); } catch (e) { e.name; }",
                 "string(TypeError)",
             ),
             (
                 "try { class C { #x = 1; read(obj) { return obj.#x; } } new C().read({}); } catch (e) { e.name; }",
                 "string(TypeError)",
-            ),
-            (
-                "try { class A {} class B extends A { constructor() { this.x = 1; super(); } } new B(); } catch (e) { e.name; }",
-                "string(ReferenceError)",
-            ),
-            (
-                "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e.name; }",
-                "string(ReferenceError)",
             ),
             (
                 "class A {} class B extends A { constructor() { return { ok: 1 }; } } new B().ok;",
@@ -2300,6 +2424,14 @@ mod tests {
                 "number(2)",
             ),
             (
+                "var x = 0; try { let a = 1; class C {} x = a; } finally { let b = 2; class D {} x = x + b; } x;",
+                "number(3)",
+            ),
+            (
+                "var x = 0; try { throw 1; } catch (e) { let a = e; class C {} x = a; } finally { let b = 2; class D {} x = x + b; } x;",
+                "number(3)",
+            ),
+            (
                 "function f() { let x = 0; while (true) { try { break; } finally { x = 1; } } return x; } f();",
                 "number(1)",
             ),
@@ -2320,6 +2452,26 @@ mod tests {
             (
                 "var x; try { \"x\" in 1; } catch (e) { x = e.name; } x;",
                 "string(TypeError)",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() { this.x = 1; super(); } } new B(); } catch (e) { e.name; }",
+                "string(ReferenceError)",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() { this.x = 1; super(); } } new B(); } catch (e) { e; }",
+                "object(handle@",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e.name; }",
+                "string(ReferenceError)",
+            ),
+            (
+                "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e; }",
+                "object(handle@",
+            ),
+            (
+                "try { let marker = 1; class A {} class B extends A { constructor() {} } new B(); marker; } catch (e) { e.name; }",
+                "string(ReferenceError)",
             ),
         ] {
             let outcome = engine()
@@ -2364,24 +2516,24 @@ mod tests {
                 "undefined(undefined)",
             ),
             (
-                "var ok; try { class C extends null {} new C(); } catch (e) { ok = e instanceof TypeError; } ok;",
-                "boolean(true)",
+                "try { class C extends null {} new C(); } catch (e) { e.name; }",
+                "string(TypeError)",
             ),
             (
-                "var ok; try { class C extends null { constructor() { super(); } } new C(); } catch (e) { ok = e instanceof TypeError; } ok;",
-                "boolean(true)",
+                "try { class C extends null { constructor() { super(); } } new C(); } catch (e) { e.name; }",
+                "string(TypeError)",
             ),
             (
-                "var ok; try { class C extends null { constructor() { return undefined; } } new C(); } catch (e) { ok = e instanceof ReferenceError; } ok;",
-                "boolean(true)",
+                "try { class C extends null { constructor() { return undefined; } } new C(); } catch (e) { e.name; }",
+                "string(ReferenceError)",
             ),
             (
-                "var ok; try { class C extends null { m() { return super.x; } constructor() { return Object.create(new.target.prototype); } } new C().m(); } catch (e) { ok = e instanceof TypeError; } ok;",
-                "boolean(true)",
+                "try { class C extends null { m() { return super.x; } constructor() { return Object.create(new.target.prototype); } } new C().m(); } catch (e) { e.name; }",
+                "string(TypeError)",
             ),
             (
-                "var ok; try { class C extends null { #x = 1; read() { return this.#x; } constructor() { return Object.create(new.target.prototype); } } new C().read(); } catch (e) { ok = e instanceof TypeError; } ok;",
-                "boolean(true)",
+                "try { class C extends null { #x = 1; read() { return this.#x; } constructor() { return Object.create(new.target.prototype); } } new C().read(); } catch (e) { e.name; }",
+                "string(TypeError)",
             ),
         ] {
             let outcome = engine()
@@ -2691,12 +2843,8 @@ mod tests {
     #[test]
     fn wasm_backend_rejects_phase_twenty_eight_remaining_builtin_tails() {
         for source in [
-            "Array(3);",
-            "new Array(3);",
             "Function(\"return 1\");",
             "new Function(\"return 1\");",
-            "new Number(Symbol());",
-            "Object(Symbol());",
             "function f() { return 1; } f.apply(null, { length: 1, 0: 1 });",
             "AggregateError(\"x\", \"msg\");",
         ] {
@@ -2767,7 +2915,12 @@ mod tests {
 
     #[test]
     fn wasm_backend_surfaces_uncaught_phase_twenty_three_throws() {
-        for source in ["throw 1;", "class C {} C();"] {
+        for source in [
+            "throw 1;",
+            "class C {} C();",
+            "class A {} class B extends A { constructor() { this.x = 1; super(); } } new B();",
+            "class A {} class B extends A { constructor() {} } new B();",
+        ] {
             let err = engine()
                 .run_script(
                     source,
@@ -2783,6 +2936,14 @@ mod tests {
                 "source: {source}, err: {}",
                 err.message()
             );
+            if source.contains("extends A") {
+                assert!(
+                    err.message()
+                        .starts_with("uncaught throw: ReferenceError: "),
+                    "source: {source}, err: {}",
+                    err.message()
+                );
+            }
         }
     }
 
@@ -2821,10 +2982,6 @@ mod tests {
     #[test]
     fn wasm_backend_rejects_phase_twenty_nine_remaining_delete_edges() {
         for source in [
-            "x = 1; delete x; x",
-            "class C { #x; m(obj) { delete obj.#x; } }",
-            "class C extends Object { m() { delete super.x; } }",
-            "function f() { return delete arguments[0]; }",
             "Error.stack",
             "Function.prototype.toString.call({}); Error.stack;",
         ] {

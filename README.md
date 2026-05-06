@@ -5,11 +5,13 @@ A from-scratch experimental **AOT** optimizing JS/TS -> Wasm/C engine/compiler/r
 
 ## Current Status
 Rust rewrite status must be read in layers, not one vanity number:
-- Fake wasm-safe Test262 subset: `179/179` green
-- Fake full Rust rewrite suite: `182/182` green
-- Full pinned real Test262 for Rust rewrite: **not green / not yet published here as 100%**
+- Fake wasm-safe Test262 subset: `187/187` green
+- Fake full Rust rewrite suite: `190/190` green
+- Full pinned real Test262 for Rust rewrite: **not green / current pinned aggregate not yet fully republished**
+- Current real-suite pin: `ecma262=ecma262-current-draft` `test262=e9d582d6b8b13afc5ba9a676664741592b5c7f69`
+- Last complete cached `spec-exec` publish is stale for the current pin and must not be reported as current progress.
 
-As of `2026-04-19`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned Test262 run is green for Rust path.
+As of `2026-04-30`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until the full pinned real Test262 run is green for Rust path and the status artifact is republished.
 
 Status refresh commands:
 - `cargo test -p porffor-engine --quiet`
@@ -17,7 +19,6 @@ Status refresh commands:
 - `./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
 - `./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262`
 - `./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real`
-- `./target/debug/porf test262 publish-status --execution-backend spec-exec --snapshot-name codex-published-real`
 
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
 

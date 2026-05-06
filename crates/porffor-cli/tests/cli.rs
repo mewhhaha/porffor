@@ -272,7 +272,7 @@ fn inspect_reports_phase_eighteen_global_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("global_bindings=31"));
+    assert!(stdout.contains("global_bindings=35"));
     assert!(stdout.contains("global_this_uses=4"));
     assert!(stdout.contains("top_level_this_uses=1"));
     assert!(stdout.contains("global_default_this_calls=2"));
@@ -363,7 +363,7 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("builtin_globals=27"));
+    assert!(stdout.contains("builtin_globals=30"));
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));
@@ -1080,6 +1080,22 @@ fn run_wasm_backend_succeeds_for_abstract_module_source_host_hook_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_htmldda_host_hook_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_htmldda_host_hook.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_captured_global_object_method_call_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -1239,10 +1255,9 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_constructor_newtarget_fix
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(object ToIndex abrupt)"));
 }
 
 #[test]
@@ -1273,10 +1288,9 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_resizable_constructor_opt
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(maxByteLength abrupt)"));
 }
 
 #[test]
@@ -1419,10 +1433,9 @@ fn run_wasm_backend_succeeds_for_supported_dataview_constructor_toindex_fixture(
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("uncaught throw: wasm-aot completion: string(negative integer offset)"));
 }
 
 #[test]
@@ -1630,7 +1643,7 @@ fn run_wasm_backend_succeeds_for_supported_dataview_float32_validation_fixture()
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(6"));
+    assert!(stdout.contains("number(5"));
 }
 
 #[test]
@@ -1646,7 +1659,7 @@ fn run_wasm_backend_succeeds_for_supported_dataview_float64_validation_fixture()
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(6"));
+    assert!(stdout.contains("number(5"));
 }
 
 #[test]
@@ -1662,7 +1675,7 @@ fn run_wasm_backend_succeeds_for_supported_dataview_float16_validation_fixture()
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(8"));
+    assert!(stdout.contains("number(7"));
 }
 
 #[test]
@@ -1960,12 +1973,348 @@ fn run_wasm_backend_succeeds_for_supported_array_flat_constructor_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_species_target_writes_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_species_target_writes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_array_flat_map_core_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_array_flat_map_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_map_species_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_map_species_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_map_species_custom_ctor_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_map_species_custom_ctor.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_map_dense_array_like_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_map_dense_array_like.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_map_sparse_array_like_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_map_sparse_array_like.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_map_proxy_access_count_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_map_proxy_access_count.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_species_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_species_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_species_target_writes_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_species_target_writes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_spreadable_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_spreadable_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_spreadable_receiver_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_spreadable_receiver.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_concat_spreadable_order_errors_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_concat_spreadable_order_errors.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_map_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_map_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_map_species_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_map_species_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_map_species_target_writes_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_map_species_target_writes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_map_array_constructor_length_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_constructor_length_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_descriptor_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_descriptor_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_array_species_getter_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_species_getter_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_array_sparse_index_no_trap_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_sparse_index_no_trap.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_object_descriptor_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_object_descriptor_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_flat_proxy_access_count_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_flat_proxy_access_count.js"))
         .output()
         .expect("run command should run");
 
@@ -2200,6 +2549,106 @@ fn run_wasm_backend_succeeds_for_supported_function_tostring_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_string_html_annexb_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_html_annexb_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_annexb_substr_trim_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_annexb_substr_trim_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_substr_start_coercion_throw_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_string_substr_start_coercion_throw_core.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_substr_length_coercion_throw_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_string_substr_length_coercion_throw_core.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_substr_numeric_stress_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_substr_numeric_stress_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_annexb_escape_unescape_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_annexb_escape_unescape_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn test262_list_works_with_fixture_suite() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("test262")
@@ -2304,6 +2753,8 @@ fn test262_publish_status_updates_readme_and_writes_artifacts() {
     assert!(stdout.contains("manifest_hash:"));
     assert!(stdout.contains("snapshot_json:"));
     assert!(stdout.contains("status_json:"));
+    assert!(stdout.contains("outcome_Success: 190"));
+    assert!(stdout.contains("outcome_NotImplemented: 0"));
     assert!(stdout.contains("readme_path:"));
 
     let readme = std::fs::read_to_string(&readme_path).expect("updated readme should read");
@@ -2311,10 +2762,54 @@ fn test262_publish_status_updates_readme_and_writes_artifacts() {
     assert!(readme.contains("Fake full Rust rewrite suite: `190/190` green"));
     assert!(readme.contains("Pinned real Test262 baseline (`spec-exec`"));
     assert!(readme.contains("Pinned revisions: `ecma262=ecma262-current-draft`"));
+    assert!(readme
+        .contains("Current real outcomes: `Success=190`, `NotImplemented=0`, `Crash=0`, `Bug=0`"));
+    assert!(readme.contains(
+        "Real Test262 goal: Success=190/190 (100.0%); burn down NotImplemented=0, Crash=0, Bug=0 to zero"
+    ));
+    assert!(readme.contains("Published status artifacts: `"));
     assert!(
-        readme.contains("./target/debug/porf test262 publish-status --execution-backend spec-exec")
+        readme.contains("./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real")
     );
     assert!(readme.contains("## Design"));
+
+    let status_json_line = stdout
+        .lines()
+        .find(|line| line.starts_with("status_json: "))
+        .expect("stdout should include status_json path");
+    let status_json_path = status_json_line
+        .strip_prefix("status_json: ")
+        .expect("status_json line should have prefix");
+    let status_json = std::fs::read_to_string(status_json_path).expect("status json should read");
+    assert!(status_json.contains("\"counts_per_outcome\""));
+    assert!(status_json.contains("\"label\": \"Success\""));
+    let status: serde_json::Value =
+        serde_json::from_str(&status_json).expect("status json should parse");
+    assert_eq!(
+        status["real_suite"]["goal"]["name"],
+        "Full pinned Test262 green"
+    );
+    assert_eq!(
+        status["real_suite"]["goal"]["denominator"],
+        "pinned-suite-total"
+    );
+    assert_eq!(status["real_suite"]["goal"]["target_total"], 190);
+    assert_eq!(status["real_suite"]["goal"]["current_success"], 190);
+    assert_eq!(status["real_suite"]["goal"]["remaining_to_green"], 0);
+    assert_eq!(status["real_suite"]["goal"]["pass_rate"], "100.0%");
+
+    let status_txt_line = stdout
+        .lines()
+        .find(|line| line.starts_with("status_txt: "))
+        .expect("stdout should include status_txt path");
+    let status_txt_path = status_txt_line
+        .strip_prefix("status_txt: ")
+        .expect("status_txt line should have prefix");
+    let status_txt = std::fs::read_to_string(status_txt_path).expect("status txt should read");
+    assert!(status_txt.contains("goal=Full pinned Test262 green"));
+    assert!(status_txt.contains("progress=190/190"));
+    assert!(status_txt.contains("remaining_to_green=0"));
+    assert!(status_txt.contains("burn_down: NotImplemented=0 Crash=0 Bug=0"));
 }
 
 #[test]
@@ -2372,11 +2867,16 @@ fn test262_publish_status_supports_wasm_backend() {
     assert!(stdout.contains("execution_backend: wasm-aot"));
     assert!(stdout.contains("total: 190"));
     assert!(stdout.contains("passed:"));
+    assert!(stdout.contains("outcome_"));
     assert!(stdout.contains("origin_"));
     assert!(stdout.contains("status_json:"));
 
     let readme = std::fs::read_to_string(&readme_path).expect("wasm readme should read");
     assert!(readme.contains("Pinned real Test262 baseline (`wasm-aot`"));
+    assert!(readme.contains("Current real outcomes:"));
+    assert!(
+        readme.contains("./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real")
+    );
 }
 
 #[test]
@@ -2398,6 +2898,138 @@ fn test262_publish_status_rejects_max_matrix_nodes() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("publish-status does not allow --max-matrix-nodes"));
+}
+
+#[test]
+fn test262_progress_status_reports_incomplete_aggregate_without_publishing() {
+    let snapshot_dir = std::env::temp_dir()
+        .join(format!(
+            "porffor-cli-test262-progress-status-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ))
+        .display()
+        .to_string();
+    let snapshot_name = "cli-progress-status";
+    let seed = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("report-all")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(snapshot_name)
+        .arg("--max-matrix-nodes")
+        .arg("1")
+        .output()
+        .expect("partial report-all should run");
+
+    assert!(seed.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("progress-status")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(snapshot_name)
+        .output()
+        .expect("test262 progress-status should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("execution_backend: spec-exec"));
+    assert!(stdout.contains("complete=false"));
+    assert!(stdout.contains("matrix_nodes_completed: 1"));
+    assert!(stdout.contains("matrix_nodes_total:"));
+    assert!(stdout.contains("observed_total:"));
+    assert!(stdout.contains("target_total: 190"));
+    assert!(stdout.contains("unobserved_total:"));
+    assert!(stdout.contains("current_success:"));
+    assert!(stdout.contains("current_success_full:"));
+    assert!(stdout.contains("remaining_observed_failures:"));
+    assert!(stdout.contains("remaining_to_green:"));
+    assert!(stdout.contains("outcomes:"));
+    assert!(stdout.contains("  Success:"));
+    assert!(stdout.contains("  NotImplemented:"));
+    assert!(stdout.contains("  Crash:"));
+    assert!(stdout.contains("  Bug:"));
+    assert!(stdout.contains("burn_down: NotImplemented="));
+    assert!(stdout.contains("not_run:"));
+
+    assert!(!std::path::Path::new(&snapshot_dir)
+        .join("published-status-spec-exec.json")
+        .exists());
+    assert!(!std::path::Path::new(&snapshot_dir)
+        .join("published-status-spec-exec.txt")
+        .exists());
+}
+
+#[test]
+fn test262_triage_and_failure_details_read_completed_matrix_snapshots() {
+    let snapshot_dir = std::env::temp_dir()
+        .join(format!(
+            "porffor-cli-test262-triage-status-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ))
+        .display()
+        .to_string();
+    let snapshot_name = "cli-triage-status";
+    let seed = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("report-all")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(snapshot_name)
+        .output()
+        .expect("report-all should run");
+
+    assert!(seed.status.success());
+
+    let triage = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("triage-status")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(snapshot_name)
+        .output()
+        .expect("triage-status should run");
+
+    assert!(triage.status.success());
+    let stdout = String::from_utf8_lossy(&triage.stdout);
+    assert!(stdout.contains("execution_backend: spec-exec"));
+    assert!(stdout.contains("failing_nodes:"));
+    assert!(stdout.contains("ranking: Crash,Bug,NotImplemented,failed"));
+
+    let details = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("failure-details")
+        .arg("language/wasm")
+        .arg("--suite-root")
+        .arg(suite_root())
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(snapshot_name)
+        .output()
+        .expect("failure-details should run");
+
+    assert!(details.status.success());
+    let stdout = String::from_utf8_lossy(&details.stdout);
+    assert!(stdout.contains("execution_backend: spec-exec"));
+    assert!(stdout.contains("node_id: language/wasm"));
+    assert!(stdout.contains("filter: language/wasm"));
+    assert!(stdout.contains("detail_groups: 0"));
 }
 
 #[test]

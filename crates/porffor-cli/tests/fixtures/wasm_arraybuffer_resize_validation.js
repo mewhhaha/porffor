@@ -54,14 +54,14 @@ let growView = new DataView(grow);
 grow.resize(4);
 if (grow.detached !== false) throw "grow direct resize detached";
 if (grow.byteLength !== 4) throw "grow direct resize byteLength";
-if (growView.byteLength !== 2) throw "grow direct resize view";
+if (growView.byteLength !== 4) throw "grow direct resize view";
 
 let shrink = new ArrayBuffer(2, { maxByteLength: 4 });
 let shrinkView = new DataView(shrink);
 shrink.resize(1);
 if (shrink.detached !== false) throw "shrink direct resize detached";
 if (shrink.byteLength !== 1) throw "shrink direct resize byteLength";
-if (shrinkView.byteLength !== 2) throw "shrink direct resize view";
+if (shrinkView.byteLength !== 1) throw "shrink direct resize view";
 
 let detachedDuringCoercion = new ArrayBuffer(1, { maxByteLength: 4 });
 let directCoercions = 0;

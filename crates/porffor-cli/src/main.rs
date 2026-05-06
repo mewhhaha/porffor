@@ -8,8 +8,8 @@ use porffor_engine::{
     CompileOptions, Engine, ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
 use porffor_test262::{
-    try_compare_with_js_oracle, ConformanceRunner, FailureKind, FailureOrigin, RunConfig,
-    SuiteConfig, VerifiedAggregateSummary,
+    try_compare_with_js_oracle, ConformanceRunner, FailureKind, FailureOrigin, OutcomeKind,
+    RunConfig, SuiteConfig, VerifiedAggregateSummary,
 };
 use serde::Serialize;
 
@@ -69,6 +69,17 @@ struct PublishedPinnedRevisions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PublishedRealSuiteGoal {
+    name: String,
+    denominator: String,
+    target_total: usize,
+    current_success: usize,
+    remaining_to_green: usize,
+    pass_rate: String,
+    outcome_targets: Vec<PublishedCountEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct PublishedRealSuiteStatus {
     backend: String,
     refresh_date: String,
@@ -77,10 +88,12 @@ struct PublishedRealSuiteStatus {
     total: usize,
     failed: usize,
     pinned_revisions: PublishedPinnedRevisions,
+    counts_per_outcome: Vec<PublishedCountEntry>,
     counts_per_kind: Vec<PublishedCountEntry>,
     counts_per_origin: Vec<PublishedCountEntry>,
     top_targets: Vec<PublishedTargetEntry>,
     snapshot_paths: PublishedSnapshotPaths,
+    goal: PublishedRealSuiteGoal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -113,6 +126,9 @@ Commands:
   test262 report [filter] [options]
   test262 report-all [options]
   test262 publish-status [options]
+  test262 progress-status [options]
+  test262 triage-status [options]
+  test262 failure-details <matrix-node> [options]
   test262 compare-js-oracle [filter] [--suite-root PATH]
   inspect <file>                        show compile pipeline summary
 
@@ -368,6 +384,16 @@ fn sorted_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> Vec<PublishedCou
     entries
 }
 
+fn sorted_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> Vec<PublishedCountEntry> {
+    OutcomeKind::ALL
+        .into_iter()
+        .map(|outcome| PublishedCountEntry {
+            label: outcome.as_str().to_string(),
+            count: counts.get(&outcome).copied().unwrap_or(0),
+        })
+        .collect()
+}
+
 fn sorted_origin_counts(counts: &BTreeMap<FailureOrigin, usize>) -> Vec<PublishedCountEntry> {
     let mut entries = FailureOrigin::ALL
         .into_iter()
@@ -414,6 +440,30 @@ fn build_published_status_artifact(
     execution_backend: ExecutionBackend,
     refresh_date: &str,
 ) -> PublishedStatusArtifact {
+    let success = summary
+        .summary
+        .counts_per_outcome
+        .get(&OutcomeKind::Success)
+        .copied()
+        .unwrap_or(0);
+    let not_implemented = summary
+        .summary
+        .counts_per_outcome
+        .get(&OutcomeKind::NotImplemented)
+        .copied()
+        .unwrap_or(0);
+    let crash = summary
+        .summary
+        .counts_per_outcome
+        .get(&OutcomeKind::Crash)
+        .copied()
+        .unwrap_or(0);
+    let bug = summary
+        .summary
+        .counts_per_outcome
+        .get(&OutcomeKind::Bug)
+        .copied()
+        .unwrap_or(0);
     PublishedStatusArtifact {
         fake_wasm_safe: PublishedStatusCount {
             passed: fake_counts.wasm_safe_total,
@@ -434,12 +484,35 @@ fn build_published_status_artifact(
                 ecma262: summary.pinned_revisions.ecma262.clone(),
                 test262: summary.pinned_revisions.test262.clone(),
             },
+            counts_per_outcome: sorted_outcome_counts(&summary.summary.counts_per_outcome),
             counts_per_kind: sorted_kind_counts(&summary.summary.counts_per_kind),
             counts_per_origin: sorted_origin_counts(&summary.summary.counts_per_origin),
             top_targets: top_target_entries(summary),
             snapshot_paths: PublishedSnapshotPaths {
                 json: summary.snapshot_paths.json_path.display().to_string(),
                 txt: summary.snapshot_paths.txt_path.display().to_string(),
+            },
+            goal: PublishedRealSuiteGoal {
+                name: "Full pinned Test262 green".to_string(),
+                denominator: "pinned-suite-total".to_string(),
+                target_total: summary.summary.total,
+                current_success: success,
+                remaining_to_green: not_implemented + crash + bug,
+                pass_rate: percent_string(success, summary.summary.total),
+                outcome_targets: vec![
+                    PublishedCountEntry {
+                        label: OutcomeKind::NotImplemented.as_str().to_string(),
+                        count: 0,
+                    },
+                    PublishedCountEntry {
+                        label: OutcomeKind::Crash.as_str().to_string(),
+                        count: 0,
+                    },
+                    PublishedCountEntry {
+                        label: OutcomeKind::Bug.as_str().to_string(),
+                        count: 0,
+                    },
+                ],
             },
         },
     }
@@ -478,8 +551,27 @@ fn render_published_status_text(artifact: &PublishedStatusArtifact) -> String {
     out.push_str(&format!("real_total={}\n", real.total));
     out.push_str(&format!("real_passed={}\n", real.passed));
     out.push_str(&format!("real_failed={}\n", real.failed));
+    out.push_str(&format!("goal={}\n", real.goal.name));
+    out.push_str(&format!(
+        "progress={}/{}\n",
+        real.goal.current_success, real.goal.target_total
+    ));
+    out.push_str(&format!(
+        "remaining_to_green={}\n",
+        real.goal.remaining_to_green
+    ));
+    out.push_str(&format!(
+        "burn_down: NotImplemented={} Crash={} Bug={}\n",
+        outcome_count(&real.counts_per_outcome, OutcomeKind::NotImplemented),
+        outcome_count(&real.counts_per_outcome, OutcomeKind::Crash),
+        outcome_count(&real.counts_per_outcome, OutcomeKind::Bug)
+    ));
     out.push_str(&format!("snapshot_json={}\n", real.snapshot_paths.json));
     out.push_str(&format!("snapshot_txt={}\n", real.snapshot_paths.txt));
+    out.push_str("outcomes:\n");
+    for entry in &real.counts_per_outcome {
+        out.push_str(&format!("  {}={}\n", entry.label, entry.count));
+    }
     out.push_str("failure_kinds:\n");
     for entry in &real.counts_per_kind {
         out.push_str(&format!("  {}={}\n", entry.label, entry.count));
@@ -532,6 +624,14 @@ fn percent_string(passed: usize, total: usize) -> String {
     format!("{:.1}%", (passed as f64 * 100.0) / total as f64)
 }
 
+fn outcome_count(entries: &[PublishedCountEntry], outcome: OutcomeKind) -> usize {
+    entries
+        .iter()
+        .find(|entry| entry.label == outcome.as_str())
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
 fn top_nonzero_labels(entries: &[PublishedCountEntry], limit: usize) -> String {
     let labels = entries
         .iter()
@@ -544,6 +644,14 @@ fn top_nonzero_labels(entries: &[PublishedCountEntry], limit: usize) -> String {
     } else {
         labels.join(", ")
     }
+}
+
+fn all_count_labels(entries: &[PublishedCountEntry]) -> String {
+    entries
+        .iter()
+        .map(|entry| format!("`{}={}`", entry.label, entry.count))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn top_target_labels(entries: &[PublishedTargetEntry], limit: usize) -> String {
@@ -572,7 +680,7 @@ fn render_current_status_block(artifact: &PublishedStatusArtifact) -> String {
         "not green"
     };
     format!(
-        "## Current Status\n<!-- porffor-status:start -->\nRust rewrite status must be read in layers, not one vanity number:\n- Fake wasm-safe Test262 subset: `{}/{}` green\n- Fake full Rust rewrite suite: `{}/{}` green\n- Pinned real Test262 baseline (`{}`, refreshed `{}`): `{}/{}` {} (`{}`)\n- Pinned revisions: `ecma262={}` `test262={}`\n- Biggest current real failing kinds: {}\n- Biggest current real failing origins: {}\n- Worst current real matrix targets: {}\n\nAs of `{}`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.\n\nStatus refresh commands:\n- `cargo test -p porffor-engine --quiet`\n- `cargo test -p porffor-cli --quiet`\n- `./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`\n- `./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262`\n- `./target/debug/porf test262 publish-status --execution-backend {}`\n\nWhen counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.\n<!-- porffor-status:end -->",
+        "## Current Status\n<!-- porffor-status:start -->\nRust rewrite status must be read in layers, not one vanity number:\n- Fake wasm-safe Test262 subset: `{}/{}` green\n- Fake full Rust rewrite suite: `{}/{}` green\n- Pinned real Test262 baseline (`{}`, refreshed `{}`): `{}/{}` {} (`{}`)\n- Real Test262 goal: Success={}/{} ({}); burn down NotImplemented={}, Crash={}, Bug={} to zero\n- Pinned revisions: `ecma262={}` `test262={}`\n- Current real outcomes: {}\n- Biggest current real failing kinds: {}\n- Biggest current real failing origins: {}\n- Worst current real matrix targets: {}\n- Published status artifacts: `{}` and `{}`\n\nAs of `{}`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.\n\nStatus refresh commands:\n- `cargo test -p porffor-engine --quiet`\n- `cargo test -p porffor-cli --quiet`\n- `./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`\n- `./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262`\n- `./scripts/publish-real-status-low-ram.sh {} codex-published-real`\n\nWhen counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.\n<!-- porffor-status:end -->",
         artifact.fake_wasm_safe.passed,
         artifact.fake_wasm_safe.total,
         artifact.fake_full.passed,
@@ -583,11 +691,20 @@ fn render_current_status_block(artifact: &PublishedStatusArtifact) -> String {
         real.total,
         real_status,
         percent_string(real.passed, real.total),
+        real.goal.current_success,
+        real.goal.target_total,
+        real.goal.pass_rate,
+        outcome_count(&real.counts_per_outcome, OutcomeKind::NotImplemented),
+        outcome_count(&real.counts_per_outcome, OutcomeKind::Crash),
+        outcome_count(&real.counts_per_outcome, OutcomeKind::Bug),
         real.pinned_revisions.ecma262,
         real.pinned_revisions.test262,
+        all_count_labels(&real.counts_per_outcome),
         top_nonzero_labels(&real.counts_per_kind, 3),
         top_nonzero_labels(&real.counts_per_origin, 3),
         top_target_labels(&real.top_targets, 3),
+        real.snapshot_paths.json,
+        real.snapshot_paths.txt,
         real.refresh_date,
         real.backend,
     )
@@ -684,10 +801,20 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                 let count = summary.counts_per_kind.get(&kind).copied().unwrap_or(0);
                 println!("{}: {}", kind.as_str(), count);
             }
+            println!("outcomes:");
+            for outcome in OutcomeKind::ALL {
+                let count = summary
+                    .counts_per_outcome
+                    .get(&outcome)
+                    .copied()
+                    .unwrap_or(0);
+                println!("  {}: {}", outcome.as_str(), count);
+            }
             for failure in summary.failures.iter().take(10) {
                 println!(
-                    "failure: {} [{}] {}",
+                    "failure: {} [{}:{}] {}",
                     failure.test_path,
+                    failure.outcome.as_str(),
                     failure.kind.as_str(),
                     failure.detail
                 );
@@ -701,6 +828,15 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("total: {}", report.total);
             println!("passed: {}", report.passed);
             println!("failed: {}", report.failed);
+            println!("outcomes:");
+            for outcome in OutcomeKind::ALL {
+                let count = summary
+                    .counts_per_outcome
+                    .get(&outcome)
+                    .copied()
+                    .unwrap_or(0);
+                println!("  {}: {}", outcome.as_str(), count);
+            }
             for bucket in report.buckets {
                 println!("bucket: {} ({})", bucket.kind.as_str(), bucket.total);
                 for (subtree, count) in bucket.top_subtrees.iter().take(5) {
@@ -725,6 +861,15 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             for kind in porffor_test262::FailureKind::ALL {
                 let count = report.counts_per_kind.get(&kind).copied().unwrap_or(0);
                 println!("{}: {}", kind.as_str(), count);
+            }
+            println!("outcomes:");
+            for outcome in OutcomeKind::ALL {
+                let count = report
+                    .counts_per_outcome
+                    .get(&outcome)
+                    .copied()
+                    .unwrap_or(0);
+                println!("  {}: {}", outcome.as_str(), count);
             }
             println!("origins:");
             for origin in porffor_test262::FailureOrigin::ALL {
@@ -799,6 +944,9 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             for entry in &artifact.real_suite.counts_per_kind {
                 println!("kind_{}: {}", entry.label, entry.count);
             }
+            for entry in &artifact.real_suite.counts_per_outcome {
+                println!("outcome_{}: {}", entry.label, entry.count);
+            }
             for entry in &artifact.real_suite.counts_per_origin {
                 println!("origin_{}: {}", entry.label, entry.count);
             }
@@ -822,6 +970,153 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                         "  {}: {}/{} passed",
                         entry.filter, entry.passed, entry.total
                     );
+                }
+            }
+            Ok(())
+        }
+        "progress-status" => {
+            if parsed.filter.is_some() {
+                return Err(
+                    "progress-status does not take a filter; it always reads the top-level matrix"
+                        .to_string(),
+                );
+            }
+            let progress = runner.load_aggregate_progress_summary(
+                &parsed.run_config.snapshot_name,
+                execution_backend,
+            )?;
+            let success = progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::Success)
+                .copied()
+                .unwrap_or(0);
+            let not_implemented = progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::NotImplemented)
+                .copied()
+                .unwrap_or(0);
+            let crash = progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::Crash)
+                .copied()
+                .unwrap_or(0);
+            let bug = progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::Bug)
+                .copied()
+                .unwrap_or(0);
+            let unobserved_total = progress.target_total.saturating_sub(progress.summary.total);
+            let remaining_to_green = unobserved_total + not_implemented + crash + bug;
+
+            println!("execution_backend: {}", execution_backend.as_str());
+            println!("complete={}", progress.complete);
+            println!(
+                "matrix_nodes_completed: {}",
+                progress.matrix_nodes_completed
+            );
+            println!("matrix_nodes_total: {}", progress.matrix_nodes_total);
+            println!("observed_total: {}", progress.summary.total);
+            println!("target_total: {}", progress.target_total);
+            println!("unobserved_total: {}", unobserved_total);
+            println!("current_success: {}", success);
+            println!(
+                "current_success_full: {}/{}",
+                success, progress.target_total
+            );
+            println!(
+                "remaining_observed_failures: {}",
+                not_implemented + crash + bug
+            );
+            println!("remaining_to_green: {}", remaining_to_green);
+            println!("manifest_hash: {}", progress.manifest_hash);
+            println!("pinned_ecma262: {}", progress.pinned_revisions.ecma262);
+            println!("pinned_test262: {}", progress.pinned_revisions.test262);
+            println!(
+                "snapshot_json: {}",
+                progress.snapshot_paths.json_path.display()
+            );
+            println!("outcomes:");
+            for outcome in OutcomeKind::ALL {
+                let count = progress
+                    .summary
+                    .counts_per_outcome
+                    .get(&outcome)
+                    .copied()
+                    .unwrap_or(0);
+                println!("  {}: {}", outcome.as_str(), count);
+            }
+            println!(
+                "burn_down: NotImplemented={} Crash={} Bug={}",
+                not_implemented, crash, bug
+            );
+            println!("not_run: {}", unobserved_total);
+            Ok(())
+        }
+        "triage-status" => {
+            if parsed.filter.is_some() {
+                return Err(
+                    "triage-status does not take a filter; it ranks completed failing matrix nodes"
+                        .to_string(),
+                );
+            }
+            let entries = runner
+                .load_matrix_triage_entries(&parsed.run_config.snapshot_name, execution_backend)?;
+            println!("execution_backend: {}", execution_backend.as_str());
+            println!("failing_nodes: {}", entries.len());
+            println!("ranking: Crash,Bug,NotImplemented,failed");
+            if entries.is_empty() {
+                println!("  none");
+            } else {
+                for entry in entries.iter().take(25) {
+                    println!(
+                        "node: {} filter={} passed={}/{} failed={} Crash={} Bug={} NotImplemented={}",
+                        entry.node_id,
+                        entry.filter,
+                        entry.passed,
+                        entry.total,
+                        entry.failed,
+                        entry.crash,
+                        entry.bug,
+                        entry.not_implemented
+                    );
+                }
+            }
+            Ok(())
+        }
+        "failure-details" => {
+            let node_selector = parsed.filter.as_deref().ok_or_else(|| {
+                "failure-details needs a matrix node id or exact filter".to_string()
+            })?;
+            let details = runner.load_matrix_failure_details(
+                &parsed.run_config.snapshot_name,
+                execution_backend,
+                node_selector,
+            )?;
+            println!("execution_backend: {}", execution_backend.as_str());
+            println!("node_id: {}", details.node_id);
+            println!("filter: {}", details.filter);
+            println!("matrix_path: {}", details.matrix_path.join("/"));
+            println!(
+                "passed: {}/{} failed={}",
+                details.passed, details.total, details.failed
+            );
+            println!("detail_groups: {}", details.groups.len());
+            for group in details.groups.iter().take(25) {
+                println!(
+                    "detail: count={} outcome={} kind={} origin={} hash={}",
+                    group.count,
+                    group.outcome.as_str(),
+                    group.kind.as_str(),
+                    group.origin.as_str(),
+                    group.detail_hash
+                );
+                println!("  {}", group.detail);
+                for test in &group.representative_tests {
+                    println!("  test: {}", test);
                 }
             }
             Ok(())

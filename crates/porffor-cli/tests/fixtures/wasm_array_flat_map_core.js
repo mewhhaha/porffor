@@ -44,6 +44,7 @@ let primitiveThis = 7;
 let primitiveThisResult = flatMap.call([0], mapperThis, primitiveThis);
 let nullThis = flatMap.call([0], mapperThis, null)[0];
 let undefinedThis = flatMap.call([0], mapperThis, undefined)[0];
+let depthOne = [1, 2, 3].flatMap(function (value) { return [[value * 2]]; });
 
 typeof flatMap === "function"
   && flatMap.name === "flatMap"
@@ -54,6 +55,16 @@ typeof flatMap === "function"
   && descriptor.configurable === true
   && sameArray([1, 2].flatMap(function (value) { return [value, value + 10]; }), [1, 11, 2, 12])
   && sameArray([1].flatMap(function () { return [nestedValue]; }), [nestedValue])
+  && depthOne.length === 3
+  && Array.isArray(depthOne[0])
+  && Array.isArray(depthOne[1])
+  && Array.isArray(depthOne[2])
+  && depthOne[0].length === 1
+  && depthOne[1].length === 1
+  && depthOne[2].length === 1
+  && depthOne[0][0] === 2
+  && depthOne[1][0] === 4
+  && depthOne[2][0] === 6
   && sameArray([1, 2].flatMap(function (value) { return value + 1; }), [2, 3])
   && sameArray([objectValue].flatMap(function (value) { return [value]; }), [objectValue])
   && sameArray([3, 4].flatMap(mapperReturnArgs), [3, 0, 2, 4, 1, 2])
@@ -64,6 +75,7 @@ typeof flatMap === "function"
   && throwsTypeError(function () { [1].flatMap(); })
   && throwsTypeError(function () { [1].flatMap(null); })
   && throwsTypeError(function () { [1].flatMap(1); })
+  && throwsTypeError(function () { new flatMap(function (value) { return [value]; }); })
   && throwsSentinel(function (sentinel) { [1].flatMap(function () { throw sentinel; }); })
   && sameArray(flatMap.call(true, function () { return [1]; }), [])
   && sameArray(flatMap.call(arrayLikeReceiver, function (value) { return [value]; }), [arrayLikeElement, 2]);
