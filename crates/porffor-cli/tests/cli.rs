@@ -1125,6 +1125,58 @@ fn run_wasm_backend_succeeds_for_htmldda_host_hook_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_typedarray_from_arraylike_length_abrupt_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_typedarray_from_arraylike_length_abrupt.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_typedarray_from_early_validation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_typedarray_from_early_validation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_typedarray_from_empty_construction_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_typedarray_from_empty_construction.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_string_symbol_hooks_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -2747,6 +2799,22 @@ fn run_wasm_backend_succeeds_for_supported_function_tostring_fixture() {
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_function_tostring.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_object_prototype_tostring_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_object_prototype_to_string.js"))
         .output()
         .expect("run command should run");
 

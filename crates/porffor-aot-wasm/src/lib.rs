@@ -308,6 +308,7 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         | StandardBuiltinId::ObjectIsExtensible
         | StandardBuiltinId::ObjectPreventExtensions
         | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+        | StandardBuiltinId::ObjectPrototypeToString
         | StandardBuiltinId::ReflectConstruct
         | StandardBuiltinId::ReflectGet
         | StandardBuiltinId::ReflectHas
@@ -342,6 +343,7 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
         | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
         | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+        | StandardBuiltinId::TypedArrayFrom
         | StandardBuiltinId::DataViewPrototypeGetUint8
         | StandardBuiltinId::DataViewPrototypeSetUint8
         | StandardBuiltinId::DataViewPrototypeGetInt8
@@ -860,6 +862,17 @@ impl StringPool {
             "search",
             "split",
             "concat",
+            "[object Undefined]",
+            "[object Null]",
+            "[object Boolean]",
+            "[object Number]",
+            "[object String]",
+            "[object Symbol]",
+            "[object Object]",
+            "[object Array]",
+            "[object Function]",
+            "[object Arguments]",
+            "[object BigInt]",
             "from",
             "flat",
             "push",
@@ -871,10 +884,13 @@ impl StringPool {
             "is",
             "isExtensible",
             "hasOwnProperty",
+            "toString",
             "$IsHTMLDDA",
             "Symbol.iterator",
             "Array.from iterator method must return object",
             "Array.from iterator method must be callable",
+            "TypedArray.from receiver is not a constructor",
+            "TypedArray.from mapper is not callable",
             "construct",
             "has",
             "isArray",
@@ -3963,18 +3979,22 @@ impl<'a> FunctionBuilder<'a> {
                     self.scratch_local,
                     function,
                 );
-                self.load_i64_to_local_from_offset(
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(TYPED_ARRAY_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.store_i64_const_at_offset(
                     object_local,
-                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                    payload_local,
+                    HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+                    ValueKind::Object.tag() as u64,
                     function,
                 );
-                function.instruction(&Instruction::GlobalGet(TYPED_ARRAY_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(self.scratch_local));
                 self.store_i64_local_at_offset(
-                    payload_local,
-                    HEAP_PROTOTYPE_OFFSET,
-                    self.scratch_local,
+                    object_local,
+                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                    prototype_object_local,
                     function,
                 );
                 self.emit_object_define_number_data_from_i64_const(
@@ -4118,6 +4138,22 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_object_local,
                     "hasOwnProperty",
                     has_own_property_meta,
+                    function,
+                )?;
+                let to_string_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectPrototypeToString.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.toString`",
+                        )
+                    })?;
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "toString",
+                    to_string_meta,
                     function,
                 )?;
                 self.release_temp_local(prototype_object_local);
@@ -4891,6 +4927,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ObjectIsExtensible
             | StandardBuiltinId::ObjectPreventExtensions
             | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+            | StandardBuiltinId::ObjectPrototypeToString
             | StandardBuiltinId::ProxyConstructor
             | StandardBuiltinId::ReflectConstruct
             | StandardBuiltinId::ReflectGet
@@ -4945,6 +4982,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
             | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
             | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+            | StandardBuiltinId::TypedArrayFrom
             | StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
             | StandardBuiltinId::ArraySpeciesGetter
             | StandardBuiltinId::StringPrototypeAnchor
@@ -5262,6 +5300,26 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_data(
+            prototype_local,
+            key_local,
+            constructor_local,
+            tag_local,
+            function,
+        )?;
+        let from_meta = self
+            .functions
+            .get(&StandardBuiltinId::TypedArrayFrom.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `TypedArray.from`",
+                )
+            })?;
+        self.emit_object_define_function_data(constructor_local, "from", from_meta, function)?;
 
         self.release_temp_local(tag_local);
         self.release_temp_local(key_local);
@@ -18650,6 +18708,47 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(key_tag_local);
                 self.release_temp_local(key_payload_local);
             }
+            StandardBuiltinId::ObjectPrototypeToString => {
+                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Object.prototype.toString receiver",
+                    )
+                })?;
+                let tag_payload_local = self.reserve_temp_local();
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("[object Object]"),
+                ));
+                function.instruction(&Instruction::LocalSet(tag_payload_local));
+
+                for (kind, tag) in [
+                    (ValueKind::Undefined, "[object Undefined]"),
+                    (ValueKind::Null, "[object Null]"),
+                    (ValueKind::Boolean, "[object Boolean]"),
+                    (ValueKind::Number, "[object Number]"),
+                    (ValueKind::String, "[object String]"),
+                    (ValueKind::Symbol, "[object Symbol]"),
+                    (ValueKind::Object, "[object Object]"),
+                    (ValueKind::Array, "[object Array]"),
+                    (ValueKind::Function, "[object Function]"),
+                    (ValueKind::Arguments, "[object Arguments]"),
+                    (ValueKind::BigInt, "[object BigInt]"),
+                ] {
+                    function.instruction(&Instruction::LocalGet(receiver_tag_local));
+                    function.instruction(&Instruction::I64Const(kind.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(self.strings.payload(tag)));
+                    function.instruction(&Instruction::LocalSet(tag_payload_local));
+                    function.instruction(&Instruction::End);
+                }
+
+                function.instruction(&Instruction::LocalGet(tag_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(tag_payload_local);
+            }
             StandardBuiltinId::ReflectConstruct => {
                 self.compile_reflect_construct_builtin(function)?;
             }
@@ -18732,16 +18831,97 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
-            StandardBuiltinId::ArrayFrom => {
+            StandardBuiltinId::ArrayFrom | StandardBuiltinId::TypedArrayFrom => {
                 let items_payload_local = self.reserve_temp_local();
                 let items_tag_local = self.reserve_temp_local();
+                let mapfn_payload_local = self.reserve_temp_local();
+                let mapfn_tag_local = self.reserve_temp_local();
+                let flags_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let method_payload_local = self.reserve_temp_local();
                 let method_tag_local = self.reserve_temp_local();
                 let iterator_payload_local = self.reserve_temp_local();
                 let iterator_tag_local = self.reserve_temp_local();
+                let length_payload_local = self.reserve_temp_local();
+                let length_tag_local = self.reserve_temp_local();
                 let error_payload_local = self.reserve_temp_local();
                 let error_tag_local = self.reserve_temp_local();
+                let argc_local = self.reserve_temp_local();
+                let argv_local = self.reserve_temp_local();
+
+                if builtin == StandardBuiltinId::TypedArrayFrom {
+                    let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing TypedArray.from receiver",
+                        )
+                    })?;
+                    let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing TypedArray.from receiver tag",
+                        )
+                    })?;
+
+                    function.instruction(&Instruction::LocalGet(this_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_load_function_constructable_flag(
+                        this_payload_local,
+                        flags_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(flags_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "TypedArray.from receiver is not a constructor",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::Else);
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "TypedArray.from receiver is not a constructor",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+
+                    function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::I64GtU);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_builtin_arg_to_locals(
+                        1,
+                        mapfn_payload_local,
+                        mapfn_tag_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(mapfn_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::LocalGet(mapfn_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "TypedArray.from mapper is not callable",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                }
 
                 self.emit_builtin_arg_to_locals(0, items_payload_local, items_tag_local, function);
                 function.instruction(&Instruction::Block(BlockType::Empty));
@@ -18813,6 +18993,116 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
+                if builtin == StandardBuiltinId::TypedArrayFrom {
+                    function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_object_read(
+                        items_payload_local,
+                        items_tag_local,
+                        items_payload_local,
+                        items_tag_local,
+                        key_local,
+                        length_payload_local,
+                        length_tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        length_payload_local,
+                        length_tag_local,
+                        function,
+                    )?;
+                    self.emit_value_to_number_payload(
+                        length_tag_local,
+                        length_payload_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalSet(length_payload_local));
+                    self.emit_return_current_completion_if_throw(function);
+                    function.instruction(&Instruction::LocalGet(length_payload_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(length_tag_local));
+                    self.emit_pre_evaluated_arg_vector(
+                        &[(length_payload_local, length_tag_local)],
+                        argc_local,
+                        argv_local,
+                        function,
+                    )?;
+                    let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing TypedArray.from receiver",
+                        )
+                    })?;
+                    let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing TypedArray.from receiver tag",
+                        )
+                    })?;
+                    self.emit_function_handle_construct_with_argv(
+                        this_payload_local,
+                        this_tag_local,
+                        this_payload_local,
+                        this_tag_local,
+                        argc_local,
+                        argv_local,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion_if_throw(function);
+                    function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_object_read(
+                        this_payload_local,
+                        this_tag_local,
+                        this_payload_local,
+                        this_tag_local,
+                        key_local,
+                        method_payload_local,
+                        method_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion_if_throw(function);
+                    self.emit_is_heap_object_like_tag_i32(method_tag_local, function);
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.store_i64_local_at_offset(
+                        self.result_local,
+                        HEAP_PROTOTYPE_OFFSET,
+                        method_payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_object_define_data(
+                        self.result_local,
+                        key_local,
+                        this_payload_local,
+                        this_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_object_define_data(
+                        self.result_local,
+                        key_local,
+                        this_payload_local,
+                        this_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::End);
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(error_payload_local));
                 self.emit_alloc_array_payload_with_length(
@@ -18825,13 +19115,20 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
                 self.release_temp_local(error_tag_local);
                 self.release_temp_local(error_payload_local);
+                self.release_temp_local(length_tag_local);
+                self.release_temp_local(length_payload_local);
                 self.release_temp_local(iterator_tag_local);
                 self.release_temp_local(iterator_payload_local);
                 self.release_temp_local(method_tag_local);
                 self.release_temp_local(method_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(flags_local);
+                self.release_temp_local(mapfn_tag_local);
+                self.release_temp_local(mapfn_payload_local);
                 self.release_temp_local(items_tag_local);
                 self.release_temp_local(items_payload_local);
             }
@@ -34607,6 +34904,31 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 if *hook_name == "toString" {
+                    let object_to_string_table_index = self
+                        .functions
+                        .get(&StandardBuiltinId::ObjectPrototypeToString.function_id())
+                        .map(|meta| meta.table_index)
+                        .ok_or_else(|| {
+                            EmitError::unsupported(
+                                "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.toString`",
+                            )
+                        })?;
+                    self.load_i64_to_local_from_offset(
+                        hook_value_payload,
+                        HEAP_FUNCTION_TABLE_INDEX_OFFSET,
+                        self.scratch_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(self.scratch_local));
+                    function
+                        .instruction(&Instruction::I64Const(object_to_string_table_index as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(hook_value_tag));
+                    function.instruction(&Instruction::Else);
+                }
+                if *hook_name == "toString" {
                     function.instruction(&Instruction::I64Const(1));
                     function.instruction(&Instruction::LocalSet(callable_to_string_local));
                 }
@@ -34628,6 +34950,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(primitive_result_local));
                 function.instruction(&Instruction::End);
+                if *hook_name == "toString" {
+                    function.instruction(&Instruction::End);
+                }
                 function.instruction(&Instruction::End);
                 if *hook_name == "toString" {
                     function.instruction(&Instruction::LocalGet(hook_value_tag));
@@ -39377,12 +39702,14 @@ fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectIsExtensible => 1,
         StandardBuiltinId::ObjectPreventExtensions => 1,
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
+        StandardBuiltinId::ObjectPrototypeToString => 0,
         StandardBuiltinId::ProxyConstructor => 2,
         StandardBuiltinId::ReflectConstruct => 2,
         StandardBuiltinId::ReflectGet => 2,
         StandardBuiltinId::ReflectHas => 2,
         StandardBuiltinId::ArrayConstructor => 1,
         StandardBuiltinId::ArrayFrom => 3,
+        StandardBuiltinId::TypedArrayFrom => 1,
         StandardBuiltinId::ArrayIsArray => 1,
         StandardBuiltinId::ArrayPrototypeFlat => 0,
         StandardBuiltinId::ArrayPrototypeFlatMap => 1,

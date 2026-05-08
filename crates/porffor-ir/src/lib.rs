@@ -113,6 +113,8 @@ pub const BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID: &str = "$builtin.Object.isEx
 pub const BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID: &str = "$builtin.Object.preventExtensions";
 pub const BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID: &str =
     "$builtin.Object.prototype.hasOwnProperty";
+pub const BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.toString";
 pub const BUILTIN_PROXY_FUNCTION_ID: &str = "$builtin.Proxy";
 pub const BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID: &str = "$builtin.Reflect.construct";
 pub const BUILTIN_REFLECT_GET_FUNCTION_ID: &str = "$builtin.Reflect.get";
@@ -164,6 +166,7 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.byteOffset.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.length.get";
+pub const BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.TypedArray.from";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.getUint8";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT8_FUNCTION_ID: &str =
@@ -427,6 +430,7 @@ pub enum StandardBuiltinId {
     ObjectIsExtensible,
     ObjectPreventExtensions,
     ObjectPrototypeHasOwnProperty,
+    ObjectPrototypeToString,
     ProxyConstructor,
     ReflectConstruct,
     ReflectGet,
@@ -461,6 +465,7 @@ pub enum StandardBuiltinId {
     TypedArrayPrototypeByteLengthGetter,
     TypedArrayPrototypeByteOffsetGetter,
     TypedArrayPrototypeLengthGetter,
+    TypedArrayFrom,
     DataViewPrototypeGetUint8,
     DataViewPrototypeSetUint8,
     DataViewPrototypeGetInt8,
@@ -648,6 +653,7 @@ impl StandardBuiltinId {
             | Self::ObjectIsExtensible
             | Self::ObjectPreventExtensions
             | Self::ObjectPrototypeHasOwnProperty
+            | Self::ObjectPrototypeToString
             | Self::ReflectConstruct
             | Self::ReflectGet
             | Self::ReflectHas
@@ -682,6 +688,7 @@ impl StandardBuiltinId {
             | Self::TypedArrayPrototypeByteLengthGetter
             | Self::TypedArrayPrototypeByteOffsetGetter
             | Self::TypedArrayPrototypeLengthGetter
+            | Self::TypedArrayFrom
             | Self::DataViewPrototypeGetUint8
             | Self::DataViewPrototypeSetUint8
             | Self::DataViewPrototypeGetInt8
@@ -765,6 +772,7 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible => "Object.isExtensible",
             Self::ObjectPreventExtensions => "Object.preventExtensions",
             Self::ObjectPrototypeHasOwnProperty => "Object.prototype.hasOwnProperty",
+            Self::ObjectPrototypeToString => "Object.prototype.toString",
             Self::ProxyConstructor => PROXY_NAME,
             Self::ReflectConstruct => "Reflect.construct",
             Self::ReflectGet => "Reflect.get",
@@ -805,6 +813,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter => "get TypedArray.prototype.byteLength",
             Self::TypedArrayPrototypeByteOffsetGetter => "get TypedArray.prototype.byteOffset",
             Self::TypedArrayPrototypeLengthGetter => "get TypedArray.prototype.length",
+            Self::TypedArrayFrom => "TypedArray.from",
             Self::DataViewPrototypeGetUint8 => "DataView.prototype.getUint8",
             Self::DataViewPrototypeSetUint8 => "DataView.prototype.setUint8",
             Self::DataViewPrototypeGetInt8 => "DataView.prototype.getInt8",
@@ -952,6 +961,9 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeHasOwnProperty => {
                 BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID.to_string()
             }
+            Self::ObjectPrototypeToString => {
+                BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
             Self::ProxyConstructor => BUILTIN_PROXY_FUNCTION_ID.to_string(),
             Self::ReflectConstruct => BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID.to_string(),
             Self::ReflectGet => BUILTIN_REFLECT_GET_FUNCTION_ID.to_string(),
@@ -1022,6 +1034,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeLengthGetter => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID.to_string()
             }
+            Self::TypedArrayFrom => BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID.to_string(),
             Self::DataViewPrototypeGetUint8 => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID.to_string()
             }
@@ -1279,6 +1292,7 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID => {
                 Some(Self::ObjectPrototypeHasOwnProperty)
             }
+            BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::ObjectPrototypeToString),
             BUILTIN_PROXY_FUNCTION_ID => Some(Self::ProxyConstructor),
             BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID => Some(Self::ReflectConstruct),
             BUILTIN_REFLECT_GET_FUNCTION_ID => Some(Self::ReflectGet),
@@ -1345,6 +1359,7 @@ impl StandardBuiltinId {
             BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeLengthGetter)
             }
+            BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID => Some(Self::TypedArrayFrom),
             BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeGetUint8)
             }
@@ -1599,6 +1614,7 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible,
             Self::ObjectPreventExtensions,
             Self::ObjectPrototypeHasOwnProperty,
+            Self::ObjectPrototypeToString,
             Self::ProxyConstructor,
             Self::ReflectConstruct,
             Self::ReflectGet,
@@ -1633,6 +1649,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter,
             Self::TypedArrayPrototypeByteOffsetGetter,
             Self::TypedArrayPrototypeLengthGetter,
+            Self::TypedArrayFrom,
             Self::DataViewPrototypeGetUint8,
             Self::DataViewPrototypeSetUint8,
             Self::DataViewPrototypeGetInt8,
@@ -1884,6 +1901,7 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible => Some("isExtensible"),
             Self::ObjectPreventExtensions => Some("preventExtensions"),
             Self::ObjectPrototypeHasOwnProperty => Some("hasOwnProperty"),
+            Self::ObjectPrototypeToString => Some("toString"),
             Self::ProxyConstructor => Some(PROXY_NAME),
             Self::ReflectConstruct => Some("construct"),
             Self::ReflectGet => Some("get"),
@@ -1918,6 +1936,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter => Some("get byteLength"),
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::TypedArrayPrototypeLengthGetter => Some("get length"),
+            Self::TypedArrayFrom => Some("from"),
             Self::DataViewPrototypeGetUint8 => Some("getUint8"),
             Self::DataViewPrototypeSetUint8 => Some("setUint8"),
             Self::DataViewPrototypeGetInt8 => Some("getInt8"),
@@ -6612,6 +6631,15 @@ impl<'a> ScriptLowerer<'a> {
             TYPED_ARRAY_LENGTH_TRACKING_SLOT.to_string(),
             ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
         );
+        properties.insert(
+            "constructor".to_string(),
+            ObjectShapeProperty::Data(ValueInfo {
+                kind: ValueKind::Function,
+                possible_kinds: KindSet::from_kind(ValueKind::Function),
+                heap_shape: Some(Self::function_heap_shape(true)),
+                function_targets: BTreeSet::new(),
+            }),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(prototype),
             properties,
@@ -7314,6 +7342,12 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ObjectPrototypeToString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ObjectPreventExtensions => (
                 ValueKind::Object,
                 Self::object_like_kind_set(),
@@ -7494,6 +7528,12 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
                 None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TypedArrayFrom => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Box::new(Self::empty_object_shape())),
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::DataViewConstructor => (
@@ -11991,6 +12031,14 @@ impl<'a> ScriptLowerer<'a> {
                                     "toString" => {
                                         Some(StandardBuiltinId::FunctionPrototypeToString)
                                     }
+                                    "from"
+                                        if Self::is_typed_array_constructor_target(&receiver)
+                                            || receiver
+                                                .possible_kinds
+                                                .contains(ValueKind::Function) =>
+                                    {
+                                        Some(StandardBuiltinId::TypedArrayFrom)
+                                    }
                                     "push"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
@@ -12411,6 +12459,22 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                     let (args, mut info) = self.lower_call_args(&function_id, args);
+                    if StandardBuiltinId::from_function_id(&function_id)
+                        == Some(StandardBuiltinId::TypedArrayFrom)
+                    {
+                        if let Some(constructor_builtin) =
+                            receiver.function_targets.iter().find_map(|function_id| {
+                                StandardBuiltinId::from_function_id(function_id)
+                                    .filter(|builtin| Self::is_typed_array_constructor(*builtin))
+                            })
+                        {
+                            info = Self::value_info_from_shape(Some(
+                                Self::typed_array_instance_shape_for_constructor(
+                                    constructor_builtin,
+                                ),
+                            ));
+                        }
+                    }
                     if StandardBuiltinId::from_function_id(&function_id)
                         == Some(StandardBuiltinId::StringPrototypeSubstr)
                     {
@@ -13364,6 +13428,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ObjectPrototypeHasOwnProperty => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            StandardBuiltinId::ObjectPrototypeToString => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::ProxyConstructor => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
@@ -13521,6 +13586,12 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TypedArrayPrototypeLengthGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
+            StandardBuiltinId::TypedArrayFrom => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Box::new(Self::empty_object_shape())),
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor

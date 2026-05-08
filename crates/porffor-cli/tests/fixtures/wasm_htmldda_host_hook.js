@@ -31,6 +31,17 @@ try {
 }
 if (!threw) throw "Array.from iterator";
 
+for (let i = 0; i < 2; i++) {
+  let TypedArray = i === 0 ? Uint8Array : Float32Array;
+  threw = false;
+  try {
+    TypedArray.from(items);
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) throw "TypedArray.from iterator";
+}
+
 let prototypeGetterCalled = false;
 Object.defineProperty($262.IsHTMLDDA, "prototype", {
   get() {
