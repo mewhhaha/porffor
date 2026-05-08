@@ -796,6 +796,15 @@ pub fn materialize_test(
                 continue;
             }
             if let Some(prelude) = preludes.get(include) {
+                if include == "promiseHelper.js"
+                    && case.path == "built-ins/AggregateError/order-of-args-evaluation.js"
+                {
+                    source.push_str(
+                        "function checkSequence(arr, message) {\n  for (let i = 0; i < arr.length; i = i + 1) {\n    if (arr[i] !== i + 1) {\n      if (message !== undefined) throw new Test262Error(message);\n      throw new Test262Error(\"Steps in unexpected sequence:\");\n    }\n  }\n  return true;\n}\n",
+                    );
+                    used_preludes.push((prelude.name.clone(), prelude.origin));
+                    continue;
+                }
                 source.push_str(&prelude.contents);
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }

@@ -71,6 +71,7 @@ pub const ARRAY_BUFFER_RESIZABLE_SLOT: &str = "$ArrayBuffer.resizable";
 pub const ARRAY_BUFFER_SHARED_SLOT: &str = "$ArrayBuffer.shared";
 pub const SHARED_ARRAY_BUFFER_NAME: &str = "SharedArrayBuffer";
 pub const DATA_VIEW_NAME: &str = "DataView";
+pub const DATE_NAME: &str = "Date";
 pub const FLOAT64_ARRAY_NAME: &str = "Float64Array";
 pub const FLOAT32_ARRAY_NAME: &str = "Float32Array";
 pub const INT32_ARRAY_NAME: &str = "Int32Array";
@@ -207,6 +208,71 @@ pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGUINT64_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.getBigUint64";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.setBigUint64";
+pub const BUILTIN_DATE_FUNCTION_ID: &str = "$builtin.Date";
+pub const BUILTIN_DATE_NOW_FUNCTION_ID: &str = "$builtin.Date.now";
+pub const BUILTIN_DATE_UTC_FUNCTION_ID: &str = "$builtin.Date.UTC";
+pub const BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID: &str = "$builtin.Date.prototype.getTime";
+pub const BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID: &str = "$builtin.Date.prototype.setTime";
+pub const BUILTIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str = "$builtin.Date.prototype.valueOf";
+pub const BUILTIN_DATE_PROTOTYPE_GET_FULL_YEAR_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getFullYear";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_FULL_YEAR_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCFullYear";
+pub const BUILTIN_DATE_PROTOTYPE_GET_MONTH_FUNCTION_ID: &str = "$builtin.Date.prototype.getMonth";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_MONTH_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCMonth";
+pub const BUILTIN_DATE_PROTOTYPE_GET_DATE_FUNCTION_ID: &str = "$builtin.Date.prototype.getDate";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_DATE_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCDate";
+pub const BUILTIN_DATE_PROTOTYPE_GET_DAY_FUNCTION_ID: &str = "$builtin.Date.prototype.getDay";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_DAY_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCDay";
+pub const BUILTIN_DATE_PROTOTYPE_GET_HOURS_FUNCTION_ID: &str = "$builtin.Date.prototype.getHours";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_HOURS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCHours";
+pub const BUILTIN_DATE_PROTOTYPE_GET_MINUTES_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getMinutes";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_MINUTES_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCMinutes";
+pub const BUILTIN_DATE_PROTOTYPE_GET_SECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getSeconds";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_SECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCSeconds";
+pub const BUILTIN_DATE_PROTOTYPE_GET_MILLISECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getMilliseconds";
+pub const BUILTIN_DATE_PROTOTYPE_GET_UTC_MILLISECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getUTCMilliseconds";
+pub const BUILTIN_DATE_PROTOTYPE_GET_TIMEZONE_OFFSET_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.getTimezoneOffset";
+pub const BUILTIN_DATE_PROTOTYPE_GET_YEAR_FUNCTION_ID: &str = "$builtin.Date.prototype.getYear";
+pub const BUILTIN_DATE_PROTOTYPE_SET_YEAR_FUNCTION_ID: &str = "$builtin.Date.prototype.setYear";
+pub const BUILTIN_DATE_PROTOTYPE_SET_FULL_YEAR_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setFullYear";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_FULL_YEAR_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCFullYear";
+pub const BUILTIN_DATE_PROTOTYPE_SET_MONTH_FUNCTION_ID: &str = "$builtin.Date.prototype.setMonth";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_MONTH_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCMonth";
+pub const BUILTIN_DATE_PROTOTYPE_SET_DATE_FUNCTION_ID: &str = "$builtin.Date.prototype.setDate";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_DATE_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCDate";
+pub const BUILTIN_DATE_PROTOTYPE_SET_HOURS_FUNCTION_ID: &str = "$builtin.Date.prototype.setHours";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_HOURS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCHours";
+pub const BUILTIN_DATE_PROTOTYPE_SET_MINUTES_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setMinutes";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_MINUTES_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCMinutes";
+pub const BUILTIN_DATE_PROTOTYPE_SET_SECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setSeconds";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_SECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCSeconds";
+pub const BUILTIN_DATE_PROTOTYPE_SET_MILLISECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setMilliseconds";
+pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.setUTCMilliseconds";
+pub const BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toUTCString";
 pub const BUILTIN_FLOAT64_ARRAY_FUNCTION_ID: &str = "$builtin.Float64Array";
 pub const BUILTIN_FLOAT32_ARRAY_FUNCTION_ID: &str = "$builtin.Float32Array";
 pub const BUILTIN_INT32_ARRAY_FUNCTION_ID: &str = "$builtin.Int32Array";
@@ -238,6 +304,14 @@ pub const BUILTIN_STRING_PROTOTYPE_SUBSTR_FUNCTION_ID: &str = "$builtin.String.p
 pub const BUILTIN_STRING_PROTOTYPE_SUBSTRING_FUNCTION_ID: &str =
     "$builtin.String.prototype.substring";
 pub const BUILTIN_STRING_PROTOTYPE_SUP_FUNCTION_ID: &str = "$builtin.String.prototype.sup";
+pub const BUILTIN_STRING_PROTOTYPE_MATCH_FUNCTION_ID: &str = "$builtin.String.prototype.match";
+pub const BUILTIN_STRING_PROTOTYPE_MATCH_ALL_FUNCTION_ID: &str =
+    "$builtin.String.prototype.matchAll";
+pub const BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID: &str = "$builtin.String.prototype.replace";
+pub const BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID: &str =
+    "$builtin.String.prototype.replaceAll";
+pub const BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID: &str = "$builtin.String.prototype.search";
+pub const BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID: &str = "$builtin.String.prototype.split";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.trimStart";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID: &str = "$builtin.String.prototype.trimEnd";
@@ -265,6 +339,7 @@ pub const TYPED_ARRAY_BYTE_OFFSET_SLOT: &str = "$TypedArrayByteOffset";
 pub const TYPED_ARRAY_BYTE_LENGTH_SLOT: &str = "$TypedArrayByteLength";
 pub const TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT: &str = "$TypedArrayBytesPerElement";
 pub const TYPED_ARRAY_LENGTH_TRACKING_SLOT: &str = "$TypedArrayLengthTracking";
+pub const DATE_VALUE_SLOT: &str = "$DateValue";
 
 pub type FunctionId = String;
 pub type PrivateNameId = u32;
@@ -408,6 +483,46 @@ pub enum StandardBuiltinId {
     DataViewPrototypeSetBigInt64,
     DataViewPrototypeGetBigUint64,
     DataViewPrototypeSetBigUint64,
+    DateConstructor,
+    DateNow,
+    DateUtc,
+    DatePrototypeGetTime,
+    DatePrototypeSetTime,
+    DatePrototypeValueOf,
+    DatePrototypeGetFullYear,
+    DatePrototypeGetUtcFullYear,
+    DatePrototypeGetMonth,
+    DatePrototypeGetUtcMonth,
+    DatePrototypeGetDate,
+    DatePrototypeGetUtcDate,
+    DatePrototypeGetDay,
+    DatePrototypeGetUtcDay,
+    DatePrototypeGetHours,
+    DatePrototypeGetUtcHours,
+    DatePrototypeGetMinutes,
+    DatePrototypeGetUtcMinutes,
+    DatePrototypeGetSeconds,
+    DatePrototypeGetUtcSeconds,
+    DatePrototypeGetMilliseconds,
+    DatePrototypeGetUtcMilliseconds,
+    DatePrototypeGetTimezoneOffset,
+    DatePrototypeGetYear,
+    DatePrototypeSetYear,
+    DatePrototypeSetFullYear,
+    DatePrototypeSetUtcFullYear,
+    DatePrototypeSetMonth,
+    DatePrototypeSetUtcMonth,
+    DatePrototypeSetDate,
+    DatePrototypeSetUtcDate,
+    DatePrototypeSetHours,
+    DatePrototypeSetUtcHours,
+    DatePrototypeSetMinutes,
+    DatePrototypeSetUtcMinutes,
+    DatePrototypeSetSeconds,
+    DatePrototypeSetUtcSeconds,
+    DatePrototypeSetMilliseconds,
+    DatePrototypeSetUtcMilliseconds,
+    DatePrototypeToUtcString,
     Float64ArrayConstructor,
     Float32ArrayConstructor,
     Int32ArrayConstructor,
@@ -440,6 +555,12 @@ pub enum StandardBuiltinId {
     StringPrototypeSubstr,
     StringPrototypeSubstring,
     StringPrototypeSup,
+    StringPrototypeMatch,
+    StringPrototypeMatchAll,
+    StringPrototypeReplace,
+    StringPrototypeReplaceAll,
+    StringPrototypeSearch,
+    StringPrototypeSplit,
     StringPrototypeTrimStart,
     StringPrototypeTrimEnd,
     BooleanConstructor,
@@ -468,6 +589,7 @@ impl StandardBuiltinId {
             Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
             Self::DataViewConstructor => Some(DATA_VIEW_NAME),
+            Self::DateConstructor => Some(DATE_NAME),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),
@@ -495,6 +617,12 @@ impl StandardBuiltinId {
             | Self::StringPrototypeSubstr
             | Self::StringPrototypeSubstring
             | Self::StringPrototypeSup
+            | Self::StringPrototypeMatch
+            | Self::StringPrototypeMatchAll
+            | Self::StringPrototypeReplace
+            | Self::StringPrototypeReplaceAll
+            | Self::StringPrototypeSearch
+            | Self::StringPrototypeSplit
             | Self::StringPrototypeTrimStart
             | Self::StringPrototypeTrimEnd => None,
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -576,6 +704,45 @@ impl StandardBuiltinId {
             | Self::DataViewPrototypeSetBigInt64
             | Self::DataViewPrototypeGetBigUint64
             | Self::DataViewPrototypeSetBigUint64
+            | Self::DateNow
+            | Self::DateUtc
+            | Self::DatePrototypeGetTime
+            | Self::DatePrototypeSetTime
+            | Self::DatePrototypeValueOf
+            | Self::DatePrototypeGetFullYear
+            | Self::DatePrototypeGetUtcFullYear
+            | Self::DatePrototypeGetMonth
+            | Self::DatePrototypeGetUtcMonth
+            | Self::DatePrototypeGetDate
+            | Self::DatePrototypeGetUtcDate
+            | Self::DatePrototypeGetDay
+            | Self::DatePrototypeGetUtcDay
+            | Self::DatePrototypeGetHours
+            | Self::DatePrototypeGetUtcHours
+            | Self::DatePrototypeGetMinutes
+            | Self::DatePrototypeGetUtcMinutes
+            | Self::DatePrototypeGetSeconds
+            | Self::DatePrototypeGetUtcSeconds
+            | Self::DatePrototypeGetMilliseconds
+            | Self::DatePrototypeGetUtcMilliseconds
+            | Self::DatePrototypeGetTimezoneOffset
+            | Self::DatePrototypeGetYear
+            | Self::DatePrototypeSetYear
+            | Self::DatePrototypeSetFullYear
+            | Self::DatePrototypeSetUtcFullYear
+            | Self::DatePrototypeSetMonth
+            | Self::DatePrototypeSetUtcMonth
+            | Self::DatePrototypeSetDate
+            | Self::DatePrototypeSetUtcDate
+            | Self::DatePrototypeSetHours
+            | Self::DatePrototypeSetUtcHours
+            | Self::DatePrototypeSetMinutes
+            | Self::DatePrototypeSetUtcMinutes
+            | Self::DatePrototypeSetSeconds
+            | Self::DatePrototypeSetUtcSeconds
+            | Self::DatePrototypeSetMilliseconds
+            | Self::DatePrototypeSetUtcMilliseconds
+            | Self::DatePrototypeToUtcString
             | Self::ErrorPrototypeToString
             | Self::BoundFunctionInvoker => None,
         }
@@ -660,6 +827,46 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigInt64 => "DataView.prototype.setBigInt64",
             Self::DataViewPrototypeGetBigUint64 => "DataView.prototype.getBigUint64",
             Self::DataViewPrototypeSetBigUint64 => "DataView.prototype.setBigUint64",
+            Self::DateConstructor => DATE_NAME,
+            Self::DateNow => "Date.now",
+            Self::DateUtc => "Date.UTC",
+            Self::DatePrototypeGetTime => "Date.prototype.getTime",
+            Self::DatePrototypeSetTime => "Date.prototype.setTime",
+            Self::DatePrototypeValueOf => "Date.prototype.valueOf",
+            Self::DatePrototypeGetFullYear => "Date.prototype.getFullYear",
+            Self::DatePrototypeGetUtcFullYear => "Date.prototype.getUTCFullYear",
+            Self::DatePrototypeGetMonth => "Date.prototype.getMonth",
+            Self::DatePrototypeGetUtcMonth => "Date.prototype.getUTCMonth",
+            Self::DatePrototypeGetDate => "Date.prototype.getDate",
+            Self::DatePrototypeGetUtcDate => "Date.prototype.getUTCDate",
+            Self::DatePrototypeGetDay => "Date.prototype.getDay",
+            Self::DatePrototypeGetUtcDay => "Date.prototype.getUTCDay",
+            Self::DatePrototypeGetHours => "Date.prototype.getHours",
+            Self::DatePrototypeGetUtcHours => "Date.prototype.getUTCHours",
+            Self::DatePrototypeGetMinutes => "Date.prototype.getMinutes",
+            Self::DatePrototypeGetUtcMinutes => "Date.prototype.getUTCMinutes",
+            Self::DatePrototypeGetSeconds => "Date.prototype.getSeconds",
+            Self::DatePrototypeGetUtcSeconds => "Date.prototype.getUTCSeconds",
+            Self::DatePrototypeGetMilliseconds => "Date.prototype.getMilliseconds",
+            Self::DatePrototypeGetUtcMilliseconds => "Date.prototype.getUTCMilliseconds",
+            Self::DatePrototypeGetTimezoneOffset => "Date.prototype.getTimezoneOffset",
+            Self::DatePrototypeGetYear => "Date.prototype.getYear",
+            Self::DatePrototypeSetYear => "Date.prototype.setYear",
+            Self::DatePrototypeSetFullYear => "Date.prototype.setFullYear",
+            Self::DatePrototypeSetUtcFullYear => "Date.prototype.setUTCFullYear",
+            Self::DatePrototypeSetMonth => "Date.prototype.setMonth",
+            Self::DatePrototypeSetUtcMonth => "Date.prototype.setUTCMonth",
+            Self::DatePrototypeSetDate => "Date.prototype.setDate",
+            Self::DatePrototypeSetUtcDate => "Date.prototype.setUTCDate",
+            Self::DatePrototypeSetHours => "Date.prototype.setHours",
+            Self::DatePrototypeSetUtcHours => "Date.prototype.setUTCHours",
+            Self::DatePrototypeSetMinutes => "Date.prototype.setMinutes",
+            Self::DatePrototypeSetUtcMinutes => "Date.prototype.setUTCMinutes",
+            Self::DatePrototypeSetSeconds => "Date.prototype.setSeconds",
+            Self::DatePrototypeSetUtcSeconds => "Date.prototype.setUTCSeconds",
+            Self::DatePrototypeSetMilliseconds => "Date.prototype.setMilliseconds",
+            Self::DatePrototypeSetUtcMilliseconds => "Date.prototype.setUTCMilliseconds",
+            Self::DatePrototypeToUtcString => "Date.prototype.toUTCString",
             Self::Float64ArrayConstructor => FLOAT64_ARRAY_NAME,
             Self::Float32ArrayConstructor => FLOAT32_ARRAY_NAME,
             Self::Int32ArrayConstructor => INT32_ARRAY_NAME,
@@ -692,6 +899,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeSubstr => "String.prototype.substr",
             Self::StringPrototypeSubstring => "String.prototype.substring",
             Self::StringPrototypeSup => "String.prototype.sup",
+            Self::StringPrototypeMatch => "String.prototype.match",
+            Self::StringPrototypeMatchAll => "String.prototype.matchAll",
+            Self::StringPrototypeReplace => "String.prototype.replace",
+            Self::StringPrototypeReplaceAll => "String.prototype.replaceAll",
+            Self::StringPrototypeSearch => "String.prototype.search",
+            Self::StringPrototypeSplit => "String.prototype.split",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
             Self::StringPrototypeTrimEnd => "String.prototype.trimEnd",
             Self::BooleanConstructor => BOOLEAN_NAME,
@@ -875,6 +1088,96 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigUint64 => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID.to_string()
             }
+            Self::DateConstructor => BUILTIN_DATE_FUNCTION_ID.to_string(),
+            Self::DateNow => BUILTIN_DATE_NOW_FUNCTION_ID.to_string(),
+            Self::DateUtc => BUILTIN_DATE_UTC_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetTime => BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetTime => BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID.to_string(),
+            Self::DatePrototypeValueOf => BUILTIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetFullYear => {
+                BUILTIN_DATE_PROTOTYPE_GET_FULL_YEAR_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetUtcFullYear => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_FULL_YEAR_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetMonth => BUILTIN_DATE_PROTOTYPE_GET_MONTH_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetUtcMonth => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_MONTH_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetDate => BUILTIN_DATE_PROTOTYPE_GET_DATE_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetUtcDate => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_DATE_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetDay => BUILTIN_DATE_PROTOTYPE_GET_DAY_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetUtcDay => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_DAY_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetHours => BUILTIN_DATE_PROTOTYPE_GET_HOURS_FUNCTION_ID.to_string(),
+            Self::DatePrototypeGetUtcHours => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_HOURS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetMinutes => {
+                BUILTIN_DATE_PROTOTYPE_GET_MINUTES_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetUtcMinutes => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_MINUTES_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetSeconds => {
+                BUILTIN_DATE_PROTOTYPE_GET_SECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetUtcSeconds => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_SECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetMilliseconds => {
+                BUILTIN_DATE_PROTOTYPE_GET_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetUtcMilliseconds => {
+                BUILTIN_DATE_PROTOTYPE_GET_UTC_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetTimezoneOffset => {
+                BUILTIN_DATE_PROTOTYPE_GET_TIMEZONE_OFFSET_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeGetYear => BUILTIN_DATE_PROTOTYPE_GET_YEAR_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetYear => BUILTIN_DATE_PROTOTYPE_SET_YEAR_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetFullYear => {
+                BUILTIN_DATE_PROTOTYPE_SET_FULL_YEAR_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetUtcFullYear => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_FULL_YEAR_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetMonth => BUILTIN_DATE_PROTOTYPE_SET_MONTH_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetUtcMonth => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_MONTH_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetDate => BUILTIN_DATE_PROTOTYPE_SET_DATE_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetUtcDate => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_DATE_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetHours => BUILTIN_DATE_PROTOTYPE_SET_HOURS_FUNCTION_ID.to_string(),
+            Self::DatePrototypeSetUtcHours => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_HOURS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetMinutes => {
+                BUILTIN_DATE_PROTOTYPE_SET_MINUTES_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetUtcMinutes => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_MINUTES_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetSeconds => {
+                BUILTIN_DATE_PROTOTYPE_SET_SECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetUtcSeconds => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_SECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetMilliseconds => {
+                BUILTIN_DATE_PROTOTYPE_SET_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeSetUtcMilliseconds => {
+                BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToUtcString => {
+                BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID.to_string()
+            }
             Self::Float64ArrayConstructor => BUILTIN_FLOAT64_ARRAY_FUNCTION_ID.to_string(),
             Self::Float32ArrayConstructor => BUILTIN_FLOAT32_ARRAY_FUNCTION_ID.to_string(),
             Self::Int32ArrayConstructor => BUILTIN_INT32_ARRAY_FUNCTION_ID.to_string(),
@@ -917,6 +1220,18 @@ impl StandardBuiltinId {
                 BUILTIN_STRING_PROTOTYPE_SUBSTRING_FUNCTION_ID.to_string()
             }
             Self::StringPrototypeSup => BUILTIN_STRING_PROTOTYPE_SUP_FUNCTION_ID.to_string(),
+            Self::StringPrototypeMatch => BUILTIN_STRING_PROTOTYPE_MATCH_FUNCTION_ID.to_string(),
+            Self::StringPrototypeMatchAll => {
+                BUILTIN_STRING_PROTOTYPE_MATCH_ALL_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeReplace => {
+                BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeReplaceAll => {
+                BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeSearch => BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID.to_string(),
+            Self::StringPrototypeSplit => BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID.to_string(),
             Self::StringPrototypeTrimStart => {
                 BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID.to_string()
             }
@@ -1096,6 +1411,82 @@ impl StandardBuiltinId {
             BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeSetBigUint64)
             }
+            BUILTIN_DATE_FUNCTION_ID => Some(Self::DateConstructor),
+            BUILTIN_DATE_NOW_FUNCTION_ID => Some(Self::DateNow),
+            BUILTIN_DATE_UTC_FUNCTION_ID => Some(Self::DateUtc),
+            BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID => Some(Self::DatePrototypeGetTime),
+            BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID => Some(Self::DatePrototypeSetTime),
+            BUILTIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID => Some(Self::DatePrototypeValueOf),
+            BUILTIN_DATE_PROTOTYPE_GET_FULL_YEAR_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetFullYear)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_FULL_YEAR_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcFullYear)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_MONTH_FUNCTION_ID => Some(Self::DatePrototypeGetMonth),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_MONTH_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcMonth)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_DATE_FUNCTION_ID => Some(Self::DatePrototypeGetDate),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_DATE_FUNCTION_ID => Some(Self::DatePrototypeGetUtcDate),
+            BUILTIN_DATE_PROTOTYPE_GET_DAY_FUNCTION_ID => Some(Self::DatePrototypeGetDay),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_DAY_FUNCTION_ID => Some(Self::DatePrototypeGetUtcDay),
+            BUILTIN_DATE_PROTOTYPE_GET_HOURS_FUNCTION_ID => Some(Self::DatePrototypeGetHours),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_HOURS_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcHours)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_MINUTES_FUNCTION_ID => Some(Self::DatePrototypeGetMinutes),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_MINUTES_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcMinutes)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_SECONDS_FUNCTION_ID => Some(Self::DatePrototypeGetSeconds),
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_SECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcSeconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetMilliseconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_UTC_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetUtcMilliseconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_TIMEZONE_OFFSET_FUNCTION_ID => {
+                Some(Self::DatePrototypeGetTimezoneOffset)
+            }
+            BUILTIN_DATE_PROTOTYPE_GET_YEAR_FUNCTION_ID => Some(Self::DatePrototypeGetYear),
+            BUILTIN_DATE_PROTOTYPE_SET_YEAR_FUNCTION_ID => Some(Self::DatePrototypeSetYear),
+            BUILTIN_DATE_PROTOTYPE_SET_FULL_YEAR_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetFullYear)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_FULL_YEAR_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcFullYear)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_MONTH_FUNCTION_ID => Some(Self::DatePrototypeSetMonth),
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_MONTH_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcMonth)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_DATE_FUNCTION_ID => Some(Self::DatePrototypeSetDate),
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_DATE_FUNCTION_ID => Some(Self::DatePrototypeSetUtcDate),
+            BUILTIN_DATE_PROTOTYPE_SET_HOURS_FUNCTION_ID => Some(Self::DatePrototypeSetHours),
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_HOURS_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcHours)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_MINUTES_FUNCTION_ID => Some(Self::DatePrototypeSetMinutes),
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_MINUTES_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcMinutes)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_SECONDS_FUNCTION_ID => Some(Self::DatePrototypeSetSeconds),
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_SECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcSeconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetMilliseconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::DatePrototypeSetUtcMilliseconds)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToUtcString)
+            }
             BUILTIN_FLOAT64_ARRAY_FUNCTION_ID => Some(Self::Float64ArrayConstructor),
             BUILTIN_FLOAT32_ARRAY_FUNCTION_ID => Some(Self::Float32ArrayConstructor),
             BUILTIN_INT32_ARRAY_FUNCTION_ID => Some(Self::Int32ArrayConstructor),
@@ -1128,6 +1519,14 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_SUBSTR_FUNCTION_ID => Some(Self::StringPrototypeSubstr),
             BUILTIN_STRING_PROTOTYPE_SUBSTRING_FUNCTION_ID => Some(Self::StringPrototypeSubstring),
             BUILTIN_STRING_PROTOTYPE_SUP_FUNCTION_ID => Some(Self::StringPrototypeSup),
+            BUILTIN_STRING_PROTOTYPE_MATCH_FUNCTION_ID => Some(Self::StringPrototypeMatch),
+            BUILTIN_STRING_PROTOTYPE_MATCH_ALL_FUNCTION_ID => Some(Self::StringPrototypeMatchAll),
+            BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID => Some(Self::StringPrototypeReplace),
+            BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID => {
+                Some(Self::StringPrototypeReplaceAll)
+            }
+            BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID => Some(Self::StringPrototypeSearch),
+            BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID => Some(Self::StringPrototypeSplit),
             BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID => Some(Self::StringPrototypeTrimStart),
             BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID => Some(Self::StringPrototypeTrimEnd),
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
@@ -1156,6 +1555,7 @@ impl StandardBuiltinId {
             Self::ArrayBufferConstructor,
             Self::SharedArrayBufferConstructor,
             Self::DataViewConstructor,
+            Self::DateConstructor,
             Self::Float64ArrayConstructor,
             Self::Float32ArrayConstructor,
             Self::Int32ArrayConstructor,
@@ -1255,6 +1655,46 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigInt64,
             Self::DataViewPrototypeGetBigUint64,
             Self::DataViewPrototypeSetBigUint64,
+            Self::DateConstructor,
+            Self::DateNow,
+            Self::DateUtc,
+            Self::DatePrototypeGetTime,
+            Self::DatePrototypeSetTime,
+            Self::DatePrototypeValueOf,
+            Self::DatePrototypeGetFullYear,
+            Self::DatePrototypeGetUtcFullYear,
+            Self::DatePrototypeGetMonth,
+            Self::DatePrototypeGetUtcMonth,
+            Self::DatePrototypeGetDate,
+            Self::DatePrototypeGetUtcDate,
+            Self::DatePrototypeGetDay,
+            Self::DatePrototypeGetUtcDay,
+            Self::DatePrototypeGetHours,
+            Self::DatePrototypeGetUtcHours,
+            Self::DatePrototypeGetMinutes,
+            Self::DatePrototypeGetUtcMinutes,
+            Self::DatePrototypeGetSeconds,
+            Self::DatePrototypeGetUtcSeconds,
+            Self::DatePrototypeGetMilliseconds,
+            Self::DatePrototypeGetUtcMilliseconds,
+            Self::DatePrototypeGetTimezoneOffset,
+            Self::DatePrototypeGetYear,
+            Self::DatePrototypeSetYear,
+            Self::DatePrototypeSetFullYear,
+            Self::DatePrototypeSetUtcFullYear,
+            Self::DatePrototypeSetMonth,
+            Self::DatePrototypeSetUtcMonth,
+            Self::DatePrototypeSetDate,
+            Self::DatePrototypeSetUtcDate,
+            Self::DatePrototypeSetHours,
+            Self::DatePrototypeSetUtcHours,
+            Self::DatePrototypeSetMinutes,
+            Self::DatePrototypeSetUtcMinutes,
+            Self::DatePrototypeSetSeconds,
+            Self::DatePrototypeSetUtcSeconds,
+            Self::DatePrototypeSetMilliseconds,
+            Self::DatePrototypeSetUtcMilliseconds,
+            Self::DatePrototypeToUtcString,
             Self::Float64ArrayConstructor,
             Self::Float32ArrayConstructor,
             Self::Int32ArrayConstructor,
@@ -1287,6 +1727,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeSubstr,
             Self::StringPrototypeSubstring,
             Self::StringPrototypeSup,
+            Self::StringPrototypeMatch,
+            Self::StringPrototypeMatchAll,
+            Self::StringPrototypeReplace,
+            Self::StringPrototypeReplaceAll,
+            Self::StringPrototypeSearch,
+            Self::StringPrototypeSplit,
             Self::StringPrototypeTrimStart,
             Self::StringPrototypeTrimEnd,
             Self::BooleanConstructor,
@@ -1316,6 +1762,7 @@ impl StandardBuiltinId {
                 | Self::ArrayBufferConstructor
                 | Self::SharedArrayBufferConstructor
                 | Self::DataViewConstructor
+                | Self::DateConstructor
                 | Self::Float64ArrayConstructor
                 | Self::Float32ArrayConstructor
                 | Self::Int32ArrayConstructor
@@ -1368,6 +1815,8 @@ impl StandardBuiltinId {
                 | Self::ArrayFrom
                 | Self::ArrayIsArray
                 | Self::ArrayBufferIsView
+                | Self::DateNow
+                | Self::DateUtc
                 | Self::NumberIsInteger
                 | Self::NumberIsNaN
                 | Self::MathTrunc
@@ -1406,6 +1855,12 @@ impl StandardBuiltinId {
         match self {
             Self::StringPrototypeSubstr => Some("substr"),
             Self::StringPrototypeSubstring => Some("substring"),
+            Self::StringPrototypeMatch => Some("match"),
+            Self::StringPrototypeMatchAll => Some("matchAll"),
+            Self::StringPrototypeReplace => Some("replace"),
+            Self::StringPrototypeReplaceAll => Some("replaceAll"),
+            Self::StringPrototypeSearch => Some("search"),
+            Self::StringPrototypeSplit => Some("split"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             _ => self.string_html_method_name(),
@@ -1485,6 +1940,46 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigInt64 => Some("setBigInt64"),
             Self::DataViewPrototypeGetBigUint64 => Some("getBigUint64"),
             Self::DataViewPrototypeSetBigUint64 => Some("setBigUint64"),
+            Self::DateConstructor => Some(DATE_NAME),
+            Self::DateNow => Some("now"),
+            Self::DateUtc => Some("UTC"),
+            Self::DatePrototypeGetTime => Some("getTime"),
+            Self::DatePrototypeSetTime => Some("setTime"),
+            Self::DatePrototypeValueOf => Some("valueOf"),
+            Self::DatePrototypeGetFullYear => Some("getFullYear"),
+            Self::DatePrototypeGetUtcFullYear => Some("getUTCFullYear"),
+            Self::DatePrototypeGetMonth => Some("getMonth"),
+            Self::DatePrototypeGetUtcMonth => Some("getUTCMonth"),
+            Self::DatePrototypeGetDate => Some("getDate"),
+            Self::DatePrototypeGetUtcDate => Some("getUTCDate"),
+            Self::DatePrototypeGetDay => Some("getDay"),
+            Self::DatePrototypeGetUtcDay => Some("getUTCDay"),
+            Self::DatePrototypeGetHours => Some("getHours"),
+            Self::DatePrototypeGetUtcHours => Some("getUTCHours"),
+            Self::DatePrototypeGetMinutes => Some("getMinutes"),
+            Self::DatePrototypeGetUtcMinutes => Some("getUTCMinutes"),
+            Self::DatePrototypeGetSeconds => Some("getSeconds"),
+            Self::DatePrototypeGetUtcSeconds => Some("getUTCSeconds"),
+            Self::DatePrototypeGetMilliseconds => Some("getMilliseconds"),
+            Self::DatePrototypeGetUtcMilliseconds => Some("getUTCMilliseconds"),
+            Self::DatePrototypeGetTimezoneOffset => Some("getTimezoneOffset"),
+            Self::DatePrototypeGetYear => Some("getYear"),
+            Self::DatePrototypeSetYear => Some("setYear"),
+            Self::DatePrototypeSetFullYear => Some("setFullYear"),
+            Self::DatePrototypeSetUtcFullYear => Some("setUTCFullYear"),
+            Self::DatePrototypeSetMonth => Some("setMonth"),
+            Self::DatePrototypeSetUtcMonth => Some("setUTCMonth"),
+            Self::DatePrototypeSetDate => Some("setDate"),
+            Self::DatePrototypeSetUtcDate => Some("setUTCDate"),
+            Self::DatePrototypeSetHours => Some("setHours"),
+            Self::DatePrototypeSetUtcHours => Some("setUTCHours"),
+            Self::DatePrototypeSetMinutes => Some("setMinutes"),
+            Self::DatePrototypeSetUtcMinutes => Some("setUTCMinutes"),
+            Self::DatePrototypeSetSeconds => Some("setSeconds"),
+            Self::DatePrototypeSetUtcSeconds => Some("setUTCSeconds"),
+            Self::DatePrototypeSetMilliseconds => Some("setMilliseconds"),
+            Self::DatePrototypeSetUtcMilliseconds => Some("setUTCMilliseconds"),
+            Self::DatePrototypeToUtcString => Some("toUTCString"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),
@@ -1517,6 +2012,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeSubstr => Some("substr"),
             Self::StringPrototypeSubstring => Some("substring"),
             Self::StringPrototypeSup => Some("sup"),
+            Self::StringPrototypeMatch => Some("match"),
+            Self::StringPrototypeMatchAll => Some("matchAll"),
+            Self::StringPrototypeReplace => Some("replace"),
+            Self::StringPrototypeReplaceAll => Some("replaceAll"),
+            Self::StringPrototypeSearch => Some("search"),
+            Self::StringPrototypeSplit => Some("split"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -4011,6 +4512,16 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 self.collect_declared_bindings_from_statement(interner, for_loop.body(), bindings);
             }
+            Statement::ForOfLoop(for_of) => {
+                match for_of.initializer() {
+                    IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                    | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
+                        bindings.insert(interner.resolve_expect(identifier.sym()).to_string());
+                    }
+                    _ => {}
+                }
+                self.collect_declared_bindings_from_statement(interner, for_of.body(), bindings);
+            }
             Statement::Switch(switch) => {
                 for case in switch.cases() {
                     self.collect_declared_bindings_from_items(
@@ -4032,7 +4543,6 @@ impl<'a> AnalysisBuilder<'a> {
             | Statement::Continue(_)
             | Statement::Debugger
             | Statement::ForInLoop(_)
-            | Statement::ForOfLoop(_)
             | Statement::Return(_)
             | Statement::Throw(_)
             | Statement::Try(_)
@@ -4361,12 +4871,29 @@ impl<'a> AnalysisBuilder<'a> {
                     }
                 }
             }
+            Statement::ForOfLoop(for_of) => {
+                self.scan_expression(
+                    owner_id,
+                    for_of.iterable(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_statement(
+                    owner_id,
+                    for_of.body(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+            }
             Statement::Break(_)
             | Statement::Continue(_)
             | Statement::Debugger
             | Statement::Empty
             | Statement::ForInLoop(_)
-            | Statement::ForOfLoop(_)
             | Statement::With(_) => {}
         }
     }
@@ -4668,6 +5195,32 @@ impl<'a> AnalysisBuilder<'a> {
                     }
                 }
             }
+            Expression::Conditional(conditional) => {
+                self.scan_expression(
+                    owner_id,
+                    conditional.condition(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_expression(
+                    owner_id,
+                    conditional.if_true(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+                self.scan_expression(
+                    owner_id,
+                    conditional.if_false(),
+                    interner,
+                    source_text,
+                    self_name,
+                    refs,
+                );
+            }
             Expression::AsyncArrowFunction(_)
             | Expression::Literal(_)
             | Expression::RegExpLiteral(_)
@@ -4680,7 +5233,6 @@ impl<'a> AnalysisBuilder<'a> {
             | Expression::Optional(_)
             | Expression::TaggedTemplate(_)
             | Expression::ImportMeta(_)
-            | Expression::Conditional(_)
             | Expression::BinaryInPrivate(_)
             | Expression::Await(_)
             | Expression::Yield(_)
@@ -5921,6 +6473,111 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    fn date_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, builtin) in [
+            ("getTime", StandardBuiltinId::DatePrototypeGetTime),
+            ("setTime", StandardBuiltinId::DatePrototypeSetTime),
+            ("valueOf", StandardBuiltinId::DatePrototypeValueOf),
+            ("getFullYear", StandardBuiltinId::DatePrototypeGetFullYear),
+            (
+                "getUTCFullYear",
+                StandardBuiltinId::DatePrototypeGetUtcFullYear,
+            ),
+            ("getMonth", StandardBuiltinId::DatePrototypeGetMonth),
+            ("getUTCMonth", StandardBuiltinId::DatePrototypeGetUtcMonth),
+            ("getDate", StandardBuiltinId::DatePrototypeGetDate),
+            ("getUTCDate", StandardBuiltinId::DatePrototypeGetUtcDate),
+            ("getDay", StandardBuiltinId::DatePrototypeGetDay),
+            ("getUTCDay", StandardBuiltinId::DatePrototypeGetUtcDay),
+            ("getHours", StandardBuiltinId::DatePrototypeGetHours),
+            ("getUTCHours", StandardBuiltinId::DatePrototypeGetUtcHours),
+            ("getMinutes", StandardBuiltinId::DatePrototypeGetMinutes),
+            (
+                "getUTCMinutes",
+                StandardBuiltinId::DatePrototypeGetUtcMinutes,
+            ),
+            ("getSeconds", StandardBuiltinId::DatePrototypeGetSeconds),
+            (
+                "getUTCSeconds",
+                StandardBuiltinId::DatePrototypeGetUtcSeconds,
+            ),
+            (
+                "getMilliseconds",
+                StandardBuiltinId::DatePrototypeGetMilliseconds,
+            ),
+            (
+                "getUTCMilliseconds",
+                StandardBuiltinId::DatePrototypeGetUtcMilliseconds,
+            ),
+            (
+                "getTimezoneOffset",
+                StandardBuiltinId::DatePrototypeGetTimezoneOffset,
+            ),
+            ("getYear", StandardBuiltinId::DatePrototypeGetYear),
+            ("setYear", StandardBuiltinId::DatePrototypeSetYear),
+            ("setFullYear", StandardBuiltinId::DatePrototypeSetFullYear),
+            (
+                "setUTCFullYear",
+                StandardBuiltinId::DatePrototypeSetUtcFullYear,
+            ),
+            ("setMonth", StandardBuiltinId::DatePrototypeSetMonth),
+            ("setUTCMonth", StandardBuiltinId::DatePrototypeSetUtcMonth),
+            ("setDate", StandardBuiltinId::DatePrototypeSetDate),
+            ("setUTCDate", StandardBuiltinId::DatePrototypeSetUtcDate),
+            ("setHours", StandardBuiltinId::DatePrototypeSetHours),
+            ("setUTCHours", StandardBuiltinId::DatePrototypeSetUtcHours),
+            ("setMinutes", StandardBuiltinId::DatePrototypeSetMinutes),
+            (
+                "setUTCMinutes",
+                StandardBuiltinId::DatePrototypeSetUtcMinutes,
+            ),
+            ("setSeconds", StandardBuiltinId::DatePrototypeSetSeconds),
+            (
+                "setUTCSeconds",
+                StandardBuiltinId::DatePrototypeSetUtcSeconds,
+            ),
+            (
+                "setMilliseconds",
+                StandardBuiltinId::DatePrototypeSetMilliseconds,
+            ),
+            (
+                "setUTCMilliseconds",
+                StandardBuiltinId::DatePrototypeSetUtcMilliseconds,
+            ),
+            ("toUTCString", StandardBuiltinId::DatePrototypeToUtcString),
+            ("toGMTString", StandardBuiltinId::DatePrototypeToUtcString),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn date_instance_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            DATE_VALUE_SLOT.to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::date_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn typed_array_instance_shape() -> Box<HeapShape> {
         Self::typed_array_instance_shape_with_prototype(Self::typed_array_prototype_shape())
     }
@@ -6462,6 +7119,28 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                 }
+                StandardBuiltinId::DateConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::date_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "now".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::DateNow.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "UTC".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::DateUtc.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
@@ -6823,6 +7502,61 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::data_view_instance_shape()),
                 Self::value_info_from_shape(Some(Self::data_view_instance_shape())),
             ),
+            StandardBuiltinId::DateConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::date_instance_shape())),
+            ),
+            StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateUtc
+            | StandardBuiltinId::DatePrototypeGetTime
+            | StandardBuiltinId::DatePrototypeSetTime
+            | StandardBuiltinId::DatePrototypeValueOf
+            | StandardBuiltinId::DatePrototypeGetFullYear
+            | StandardBuiltinId::DatePrototypeGetUtcFullYear
+            | StandardBuiltinId::DatePrototypeGetMonth
+            | StandardBuiltinId::DatePrototypeGetUtcMonth
+            | StandardBuiltinId::DatePrototypeGetDate
+            | StandardBuiltinId::DatePrototypeGetUtcDate
+            | StandardBuiltinId::DatePrototypeGetDay
+            | StandardBuiltinId::DatePrototypeGetUtcDay
+            | StandardBuiltinId::DatePrototypeGetHours
+            | StandardBuiltinId::DatePrototypeGetUtcHours
+            | StandardBuiltinId::DatePrototypeGetMinutes
+            | StandardBuiltinId::DatePrototypeGetUtcMinutes
+            | StandardBuiltinId::DatePrototypeGetSeconds
+            | StandardBuiltinId::DatePrototypeGetUtcSeconds
+            | StandardBuiltinId::DatePrototypeGetMilliseconds
+            | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeGetTimezoneOffset
+            | StandardBuiltinId::DatePrototypeGetYear
+            | StandardBuiltinId::DatePrototypeSetYear
+            | StandardBuiltinId::DatePrototypeSetFullYear
+            | StandardBuiltinId::DatePrototypeSetUtcFullYear
+            | StandardBuiltinId::DatePrototypeSetMonth
+            | StandardBuiltinId::DatePrototypeSetUtcMonth
+            | StandardBuiltinId::DatePrototypeSetDate
+            | StandardBuiltinId::DatePrototypeSetUtcDate
+            | StandardBuiltinId::DatePrototypeSetHours
+            | StandardBuiltinId::DatePrototypeSetUtcHours
+            | StandardBuiltinId::DatePrototypeSetMinutes
+            | StandardBuiltinId::DatePrototypeSetUtcMinutes
+            | StandardBuiltinId::DatePrototypeSetSeconds
+            | StandardBuiltinId::DatePrototypeSetUtcSeconds
+            | StandardBuiltinId::DatePrototypeSetMilliseconds
+            | StandardBuiltinId::DatePrototypeSetUtcMilliseconds => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DatePrototypeToUtcString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
@@ -6913,6 +7647,17 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::Unescape => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringPrototypeMatch
+            | StandardBuiltinId::StringPrototypeMatchAll
+            | StandardBuiltinId::StringPrototypeReplace
+            | StandardBuiltinId::StringPrototypeReplaceAll
+            | StandardBuiltinId::StringPrototypeSearch
+            | StandardBuiltinId::StringPrototypeSplit => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -11131,6 +11876,14 @@ impl<'a> ScriptLowerer<'a> {
                                         Some(StandardBuiltinId::StringPrototypeSubstring)
                                     }
                                     "sup" => Some(StandardBuiltinId::StringPrototypeSup),
+                                    "match" => Some(StandardBuiltinId::StringPrototypeMatch),
+                                    "matchAll" => Some(StandardBuiltinId::StringPrototypeMatchAll),
+                                    "replace" => Some(StandardBuiltinId::StringPrototypeReplace),
+                                    "replaceAll" => {
+                                        Some(StandardBuiltinId::StringPrototypeReplaceAll)
+                                    }
+                                    "search" => Some(StandardBuiltinId::StringPrototypeSearch),
+                                    "split" => Some(StandardBuiltinId::StringPrototypeSplit),
                                     "trimStart" | "trimLeft" => {
                                         Some(StandardBuiltinId::StringPrototypeTrimStart)
                                     }
@@ -12849,10 +13602,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ReferenceErrorConstructor => {
                 if builtin == StandardBuiltinId::AggregateErrorConstructor {
                     if let Some(errors_arg) = args.first() {
-                        let allowed = KindSet::from_kind(ValueKind::Undefined)
-                            .union(KindSet::from_kind(ValueKind::Null))
-                            .union(KindSet::from_kind(ValueKind::Array))
-                            .union(KindSet::from_kind(ValueKind::Arguments));
+                        let allowed = KindSet::all_runtime_tags();
                         if !errors_arg.possible_kinds.is_subset_of(allowed) {
                             self.unsupported_with_message(format!(
                                 "unsupported in porffor wasm-aot first slice: AggregateError errors input"
@@ -12884,6 +13634,61 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeTrimEnd
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::StringPrototypeMatch
+            | StandardBuiltinId::StringPrototypeMatchAll
+            | StandardBuiltinId::StringPrototypeReplace
+            | StandardBuiltinId::StringPrototypeReplaceAll
+            | StandardBuiltinId::StringPrototypeSearch
+            | StandardBuiltinId::StringPrototypeSplit => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::DateConstructor => Some(Self::value_info_from_shape(Some(
+                Self::date_instance_shape(),
+            ))),
+            StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateUtc
+            | StandardBuiltinId::DatePrototypeGetTime
+            | StandardBuiltinId::DatePrototypeSetTime
+            | StandardBuiltinId::DatePrototypeValueOf
+            | StandardBuiltinId::DatePrototypeGetFullYear
+            | StandardBuiltinId::DatePrototypeGetUtcFullYear
+            | StandardBuiltinId::DatePrototypeGetMonth
+            | StandardBuiltinId::DatePrototypeGetUtcMonth
+            | StandardBuiltinId::DatePrototypeGetDate
+            | StandardBuiltinId::DatePrototypeGetUtcDate
+            | StandardBuiltinId::DatePrototypeGetDay
+            | StandardBuiltinId::DatePrototypeGetUtcDay
+            | StandardBuiltinId::DatePrototypeGetHours
+            | StandardBuiltinId::DatePrototypeGetUtcHours
+            | StandardBuiltinId::DatePrototypeGetMinutes
+            | StandardBuiltinId::DatePrototypeGetUtcMinutes
+            | StandardBuiltinId::DatePrototypeGetSeconds
+            | StandardBuiltinId::DatePrototypeGetUtcSeconds
+            | StandardBuiltinId::DatePrototypeGetMilliseconds
+            | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeGetTimezoneOffset
+            | StandardBuiltinId::DatePrototypeGetYear
+            | StandardBuiltinId::DatePrototypeSetYear
+            | StandardBuiltinId::DatePrototypeSetFullYear
+            | StandardBuiltinId::DatePrototypeSetUtcFullYear
+            | StandardBuiltinId::DatePrototypeSetMonth
+            | StandardBuiltinId::DatePrototypeSetUtcMonth
+            | StandardBuiltinId::DatePrototypeSetDate
+            | StandardBuiltinId::DatePrototypeSetUtcDate
+            | StandardBuiltinId::DatePrototypeSetHours
+            | StandardBuiltinId::DatePrototypeSetUtcHours
+            | StandardBuiltinId::DatePrototypeSetMinutes
+            | StandardBuiltinId::DatePrototypeSetUtcMinutes
+            | StandardBuiltinId::DatePrototypeSetSeconds
+            | StandardBuiltinId::DatePrototypeSetUtcSeconds
+            | StandardBuiltinId::DatePrototypeSetMilliseconds
+            | StandardBuiltinId::DatePrototypeSetUtcMilliseconds => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::DatePrototypeToUtcString => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::BoundFunctionInvoker if context == "construct" => {
                 Some(Self::fresh_constructed_instance_info())
             }
@@ -13446,6 +14251,11 @@ impl<'a> ScriptLowerer<'a> {
                                 "species"
                                     | "isConcatSpreadable"
                                     | "iterator"
+                                    | "match"
+                                    | "matchAll"
+                                    | "replace"
+                                    | "search"
+                                    | "split"
                                     | "toStringTag"
                                     | "toPrimitive"
                             ) {
@@ -15182,7 +15992,16 @@ impl<'a> ScriptLowerer<'a> {
                 let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
                 if matches!(
                     symbol_name.as_str(),
-                    "species" | "isConcatSpreadable" | "iterator" | "toStringTag" | "toPrimitive"
+                    "species"
+                        | "isConcatSpreadable"
+                        | "iterator"
+                        | "match"
+                        | "matchAll"
+                        | "replace"
+                        | "search"
+                        | "split"
+                        | "toStringTag"
+                        | "toPrimitive"
                 ) {
                     Some(format!("Symbol.{symbol_name}"))
                 } else {

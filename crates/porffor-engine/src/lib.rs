@@ -796,6 +796,352 @@ mod tests {
     }
 
     #[test]
+    fn wasm_backend_supports_string_symbol_hook_dispatch() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function IsHTMLDDA() { return null; }
+Object.defineProperty(IsHTMLDDA, "$IsHTMLDDA", { value: true });
+var $262 = { IsHTMLDDA: IsHTMLDDA };
+var total = 0;
+function check(method, name, symbol, expectedArgs) {
+  var target = $262.IsHTMLDDA;
+  var gets = 0;
+  Object.defineProperty(target, symbol, {
+    get: function() {
+      gets += 1;
+      return function() {
+        if (this !== target) throw "this";
+        if (arguments.length !== expectedArgs) throw "argc";
+        if (arguments[0] !== "") throw "arg0";
+        return null;
+      };
+    },
+    configurable: true
+  });
+  if (method.call("", target) !== null) throw name;
+  if (gets !== 1) throw "gets";
+  total += gets;
+}
+check(String.prototype.match, "match", Symbol.match, 1);
+check(String.prototype.matchAll, "matchAll", Symbol.matchAll, 1);
+check(String.prototype.replace, "replace", Symbol.replace, 2);
+check(String.prototype.replaceAll, "replaceAll", Symbol.replace, 2);
+check(String.prototype.search, "search", Symbol.search, 1);
+check(String.prototype.split, "split", Symbol.split, 2);
+total;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should dispatch String.prototype symbol hooks");
+        assert!(outcome.note.contains("number(6"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_annexb_date_legacy_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var total = 0;
+if (new Date(1899, 0).getYear() !== -1) throw "getYear 1899";
+if (new Date(1970, 0).getYear() !== 70) throw "getYear 1970";
+if (new Date({}).getYear() === new Date({}).getYear()) throw "invalid getYear";
+var d = new Date(1970, 1, 2, 3, 4, 5);
+var expected = new Date(1971, 1, 2, 3, 4, 5).valueOf();
+if (d.setYear(71) !== expected) throw "setYear relative";
+if (d.valueOf() !== expected) throw "setYear value";
+d = new Date(1970, 0);
+d.setYear(2000);
+if (d.getFullYear() !== 2000) throw "setYear absolute";
+d = new Date(0);
+if (d.setYear(NaN) === d.setYear(NaN)) throw "setYear NaN";
+d = new Date(0);
+if (d.setYear() === d.setYear()) throw "setYear undefined";
+var threw = 0;
+try { Date.prototype.getYear.call({}); } catch (e) { if (e.name === "TypeError") threw += 1; }
+try { Date.prototype.setYear.call(null, 1); } catch (e) { if (e.name === "TypeError") threw += 1; }
+if (threw !== 2) throw "receiver TypeError";
+if (Date.prototype.toGMTString !== Date.prototype.toUTCString) throw "GMT alias";
+if (Date.prototype.getYear.length !== 0 || Date.prototype.setYear.length !== 1) throw "length";
+if (Date.prototype.getYear.name !== "getYear" || Date.prototype.setYear.name !== "setYear") throw "name";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should support AnnexB Date legacy methods");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_date_core_time_values_and_timezone_offset() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (Date.now() !== 0) throw "Date.now deterministic";
+if (new Date(6.54321).valueOf() !== 6) throw "positive TimeClip";
+if (new Date(-6.54321).valueOf() !== -6) throw "negative TimeClip";
+if (new Date(-0).valueOf() !== 0) throw "negative zero TimeClip";
+if (1 / new Date(-0).valueOf() !== Infinity) throw "positive zero TimeClip";
+if (new Date(Infinity).valueOf() === new Date(Infinity).valueOf()) throw "Infinity TimeClip";
+if (new Date(-Infinity).valueOf() === new Date(-Infinity).valueOf()) throw "-Infinity TimeClip";
+if (new Date(2016, 0, 1, 0, 0, 0, -1).getFullYear() !== 2015) throw "ms underflow";
+if (new Date(2016, 11, 31, 23, 59, 59, 1000).getFullYear() !== 2017) throw "ms overflow";
+if (new Date(0).getTimezoneOffset() !== 0) throw "timezone offset";
+if (new Date(NaN).getTimezoneOffset() === new Date(NaN).getTimezoneOffset()) throw "invalid timezone offset";
+var threw = 0;
+try { Date.prototype.getTimezoneOffset.call({}); } catch (e) { if (e.name === "TypeError") threw += 1; }
+try { new Date().getTimezoneOffset.prototype; } catch (e) {}
+if (threw !== 1) throw "timezone receiver";
+if (Date.prototype.getTimezoneOffset.length !== 0) throw "timezone length";
+if (Date.prototype.getTimezoneOffset.name !== "getTimezoneOffset") throw "timezone name";
+var constructThrew = 0;
+try { new Date.prototype.getTimezoneOffset(); } catch (e) { if (e.name === "TypeError") constructThrew = 1; }
+if (constructThrew !== 1) throw "timezone construct";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should support Date core time values");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_date_component_getters() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function check(date, year, month, day, weekDay, hour, minute, second, ms, label) {
+  if (date.getUTCFullYear() !== year) throw label + " utc year";
+  if (date.getUTCMonth() !== month) throw label + " utc month";
+  if (date.getUTCDate() !== day) throw label + " utc date";
+  if (date.getUTCDay() !== weekDay) throw label + " utc day";
+  if (date.getUTCHours() !== hour) throw label + " utc hours";
+  if (date.getUTCMinutes() !== minute) throw label + " utc minutes";
+  if (date.getUTCSeconds() !== second) throw label + " utc seconds";
+  if (date.getUTCMilliseconds() !== ms) throw label + " utc ms";
+  if (date.getFullYear() !== year) throw label + " local year";
+  if (date.getMonth() !== month) throw label + " local month";
+  if (date.getDate() !== day) throw label + " local date";
+  if (date.getDay() !== weekDay) throw label + " local day";
+  if (date.getHours() !== hour) throw label + " local hours";
+  if (date.getMinutes() !== minute) throw label + " local minutes";
+  if (date.getSeconds() !== second) throw label + " local seconds";
+  if (date.getMilliseconds() !== ms) throw label + " local ms";
+}
+check(new Date(0), 1970, 0, 1, 4, 0, 0, 0, 0, "epoch");
+check(new Date(-1), 1969, 11, 31, 3, 23, 59, 59, 999, "negative");
+check(new Date(951868799999), 2000, 1, 29, 2, 23, 59, 59, 999, "leap boundary");
+check(new Date(951868800000), 2000, 2, 1, 3, 0, 0, 0, 0, "march boundary");
+var invalid = new Date(NaN);
+if (invalid.getUTCMonth() === invalid.getUTCMonth()) throw "invalid utc month";
+if (invalid.getDate() === invalid.getDate()) throw "invalid local date";
+var threw = 0;
+try { Date.prototype.getUTCMonth.call({}); } catch (e) { if (e.name === "TypeError") threw += 1; }
+try { Date.prototype.getMilliseconds.call(null); } catch (e) { if (e.name === "TypeError") threw += 1; }
+if (threw !== 2) throw "receiver TypeError";
+function meta(fn, name) {
+  if (fn.length !== 0) throw name + " length";
+  if (fn.name !== name) throw name + " name";
+  var constructThrew = 0;
+  try { new fn(); } catch (e) { if (e.name === "TypeError") constructThrew = 1; }
+  if (constructThrew !== 1) throw name + " construct";
+}
+meta(Date.prototype.getUTCFullYear, "getUTCFullYear");
+meta(Date.prototype.getUTCMonth, "getUTCMonth");
+meta(Date.prototype.getUTCDate, "getUTCDate");
+meta(Date.prototype.getUTCDay, "getUTCDay");
+meta(Date.prototype.getUTCHours, "getUTCHours");
+meta(Date.prototype.getUTCMinutes, "getUTCMinutes");
+meta(Date.prototype.getUTCSeconds, "getUTCSeconds");
+meta(Date.prototype.getUTCMilliseconds, "getUTCMilliseconds");
+meta(Date.prototype.getMonth, "getMonth");
+meta(Date.prototype.getDate, "getDate");
+meta(Date.prototype.getDay, "getDay");
+meta(Date.prototype.getHours, "getHours");
+meta(Date.prototype.getMinutes, "getMinutes");
+meta(Date.prototype.getSeconds, "getSeconds");
+meta(Date.prototype.getMilliseconds, "getMilliseconds");
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should support Date component getters");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_date_component_setters() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(a, b, label) {
+  if (a.valueOf() !== b.valueOf()) throw label;
+}
+var d = new Date(0);
+if (d.setUTCFullYear(2000, 1, 29) !== 951782400000) throw "setUTCFullYear return";
+if (d.getUTCFullYear() !== 2000 || d.getUTCMonth() !== 1 || d.getUTCDate() !== 29) throw "setUTCFullYear value";
+d = new Date(0);
+if (d.setUTCMonth(12) !== 31536000000) throw "month overflow";
+if (d.getUTCFullYear() !== 1971 || d.getUTCMonth() !== 0 || d.getUTCDate() !== 1) throw "month overflow value";
+d = new Date(2000, 0, 1);
+d.setUTCDate(0);
+if (d.getUTCFullYear() !== 1999 || d.getUTCMonth() !== 11 || d.getUTCDate() !== 31) throw "date underflow";
+d = new Date(0);
+d.setUTCHours(1, 2, 3, 4);
+if (d.getUTCHours() !== 1 || d.getUTCMinutes() !== 2 || d.getUTCSeconds() !== 3 || d.getUTCMilliseconds() !== 4) throw "setUTCHours";
+d.setUTCMinutes(10);
+if (d.getUTCHours() !== 1 || d.getUTCMinutes() !== 10 || d.getUTCSeconds() !== 3 || d.getUTCMilliseconds() !== 4) throw "setUTCMinutes default";
+d.setUTCSeconds(60);
+if (d.getUTCMinutes() !== 11 || d.getUTCSeconds() !== 0) throw "seconds overflow";
+d.setUTCMilliseconds(-1);
+if (d.getUTCSeconds() !== 59 || d.getUTCMilliseconds() !== 999) throw "ms underflow";
+
+same(new Date(new Date(0).setFullYear(2001, 2, 4)), new Date(new Date(0).setUTCFullYear(2001, 2, 4)), "local full year");
+same(new Date(new Date(0).setMonth(5, 6)), new Date(new Date(0).setUTCMonth(5, 6)), "local month");
+same(new Date(new Date(0).setDate(7)), new Date(new Date(0).setUTCDate(7)), "local date");
+same(new Date(new Date(0).setHours(8, 9, 10, 11)), new Date(new Date(0).setUTCHours(8, 9, 10, 11)), "local hours");
+same(new Date(new Date(0).setMinutes(12, 13, 14)), new Date(new Date(0).setUTCMinutes(12, 13, 14)), "local minutes");
+same(new Date(new Date(0).setSeconds(15, 16)), new Date(new Date(0).setUTCSeconds(15, 16)), "local seconds");
+same(new Date(new Date(0).setMilliseconds(17)), new Date(new Date(0).setUTCMilliseconds(17)), "local ms");
+
+d = new Date(NaN);
+if (d.setUTCFullYear(2000) !== 946684800000) throw "invalid full year return";
+if (d.getUTCFullYear() !== 2000 || d.getUTCMonth() !== 0 || d.getUTCDate() !== 1) throw "invalid full year value";
+d = new Date(NaN);
+if (d.setUTCMonth(0) === d.setUTCMonth(0)) throw "invalid month stays NaN";
+if (d.valueOf() === d.valueOf()) throw "invalid month stored";
+
+var order = "";
+d = new Date(0);
+try {
+  Date.prototype.setUTCFullYear.call({}, { valueOf: function() { order += "x"; return 1; } });
+} catch (e) { if (e.name === "TypeError") order += "t"; }
+if (order !== "t") throw "receiver before coercion";
+
+d = new Date(2000, 0, 31);
+d.setUTCMonth({ valueOf: function() { d.setUTCDate(1); return 1; } });
+if (d.getUTCFullYear() !== 2000 || d.getUTCMonth() !== 2 || d.getUTCDate() !== 2) throw "old value defaults";
+
+order = "";
+d = new Date(0);
+d.setUTCHours(
+  { valueOf: function() { order += "h"; return 1; } },
+  { valueOf: function() { order += "m"; return 2; } },
+  { valueOf: function() { order += "s"; return 3; } },
+  { valueOf: function() { order += "n"; return 4; } }
+);
+if (order !== "hmsn") throw "coercion order";
+
+var threw = 0;
+try { Date.prototype.setUTCDate.call(null, 1); } catch (e) { if (e.name === "TypeError") threw += 1; }
+try { new Date.prototype.setUTCSeconds(); } catch (e) { if (e.name === "TypeError") threw += 1; }
+if (threw !== 2) throw "errors";
+function meta(fn, name, length) {
+  if (fn.length !== length) throw name + " length";
+  if (fn.name !== name) throw name + " name";
+  var desc = Object.getOwnPropertyDescriptor(Date.prototype, name);
+  if (desc.enumerable || !desc.writable || !desc.configurable) throw name + " descriptor";
+}
+meta(Date.prototype.setUTCFullYear, "setUTCFullYear", 3);
+meta(Date.prototype.setUTCMonth, "setUTCMonth", 2);
+meta(Date.prototype.setUTCDate, "setUTCDate", 1);
+meta(Date.prototype.setUTCHours, "setUTCHours", 4);
+meta(Date.prototype.setUTCMinutes, "setUTCMinutes", 3);
+meta(Date.prototype.setUTCSeconds, "setUTCSeconds", 2);
+meta(Date.prototype.setUTCMilliseconds, "setUTCMilliseconds", 1);
+meta(Date.prototype.setFullYear, "setFullYear", 3);
+meta(Date.prototype.setMonth, "setMonth", 2);
+meta(Date.prototype.setDate, "setDate", 1);
+meta(Date.prototype.setHours, "setHours", 4);
+meta(Date.prototype.setMinutes, "setMinutes", 3);
+meta(Date.prototype.setSeconds, "setSeconds", 2);
+meta(Date.prototype.setMilliseconds, "setMilliseconds", 1);
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should support Date component setters");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_supports_date_utc_and_decimal_exponent_to_number() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(actual, expected, label) {
+  if (actual !== expected) throw label;
+}
+same(Date.UTC(1970), 0, "year only");
+same(Date.UTC(1970, 0, 1, 0, 0, 0, 1), 1, "full args");
+same(Date.UTC(1970, 12, 1), 31536000000, "month overflow");
+same(Date.UTC(1970, 0, 0), -86400000, "date underflow");
+same(Date.UTC(0, 0, 1), -2208988800000, "year remap");
+if (Date.UTC() === Date.UTC()) throw "missing year NaN";
+if (Date.UTC(1970, NaN) === Date.UTC(1970, NaN)) throw "NaN arg";
+same(Date.UTC(275760, 8, 13), 8640000000000000, "clip max");
+if (Date.UTC(275760, 8, 14) === Date.UTC(275760, 8, 14)) throw "clip overflow";
+var order = "";
+Date.UTC({ valueOf: function() { order += "y"; return 1970; } }, { valueOf: function() { order += "m"; return 0; } });
+if (order !== "ym") throw "coercion order";
+var symbolThrew = 0;
+try { Date.UTC(Symbol("x")); } catch (e) { symbolThrew = 1; }
+if (symbolThrew !== 1) throw "symbol";
+if (Date.UTC.length !== 7 || Date.UTC.name !== "UTC") throw "metadata";
+var desc = Object.getOwnPropertyDescriptor(Date, "UTC");
+if (desc.enumerable || !desc.writable || !desc.configurable) throw "descriptor";
+var constructThrew = 0;
+try { new Date.UTC(); } catch (e) { constructThrew = 1; }
+if (constructThrew !== 1) throw "construct";
+
+same(Number("   +00200.000E-0002\t"), 2, "trimmed exponent");
+same(Number("1e3"), 1000, "positive exponent");
+same(Number("1E-3"), 0.001, "negative exponent");
+if (Number("not a number") === Number("not a number")) throw "malformed text";
+if (Number("1e") === Number("1e")) throw "missing exponent digits";
+if (Number("1e+") === Number("1e+")) throw "missing signed exponent digits";
+if (Number("1e-") === Number("1e-")) throw "missing negative exponent digits";
+if (Number("e1") === Number("e1")) throw "missing significand";
+var d = new Date(0);
+same(d.setTime("   +00200.000E-0002\t"), 2, "setTime exponent");
+d = new Date(0);
+same(d.setUTCMilliseconds("   +00200.000E-0002\t"), 2, "setter exponent");
+d = new Date(0);
+if (d.setYear("not a number") === d.setYear("not a number")) throw "setYear malformed return";
+if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should support Date.UTC and decimal exponent ToNumber");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
     fn wasm_backend_supports_remainder() {
         let outcome = engine()
             .run_script(
@@ -2660,6 +3006,27 @@ mod tests {
             (
                 "let e = AggregateError([1, undefined, 3], \"x\"); e.errors[1];",
                 "undefined(undefined)",
+            ),
+            (
+                "let cause = { marker: 1 }; new Error(\"m\", { cause: cause }).cause === cause;",
+                "boolean(true)",
+            ),
+            (
+                "let cause = { marker: 1 }; new AggregateError([], \"m\", { cause: cause }).cause === cause;",
+                "boolean(true)",
+            ),
+            (
+                "Object.prototype.hasOwnProperty.call(new AggregateError([], \"m\"), \"cause\");",
+                "boolean(false)",
+            ),
+            ("AggregateError.length;", "number(2)"),
+            (
+                "Object.getPrototypeOf(AggregateError) === Error;",
+                "boolean(true)",
+            ),
+            (
+                "AggregateError.prototype.constructor === AggregateError;",
+                "boolean(true)",
             ),
             (
                 "AggregateError === globalThis.AggregateError;",
