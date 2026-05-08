@@ -40088,7 +40088,7 @@ fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
         }
-        StatementIr::ForOfArray { body, .. } => 1 + count_statement_lexicals(body),
+        StatementIr::ForOfArray { body, .. } => 2 + count_statement_lexicals(body),
         StatementIr::Switch { cases, .. } => cases
             .iter()
             .map(|case| count_block_lexicals(&case.body))
