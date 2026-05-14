@@ -22,6 +22,24 @@ Status refresh commands:
 
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
 
+## Current Capabilities
+Rust Wasm-AOT currently compiles a limited but useful JavaScript subset. Treat this as a tested capability map, not a spec-completeness claim. Programs are most likely to work when they stay close to the repo fixtures under `crates/porffor-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262 cases under `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
+
+Currently covered areas include:
+- Basic expressions, arithmetic, comparisons, logical/nullish operators, updates, `typeof`, and `void`.
+- `var` and lexical bindings, globals, `globalThis`, implicit globals, and common global resolution paths.
+- Control flow: `if`, `switch`, `while`, `do while`, `for`, labels, `break`, and `continue`.
+- Functions: declarations, expressions, arrows, recursion, closures, default/rest parameters, `arguments`, and common `this` binding cases.
+- Objects: literals, property reads/writes, methods, accessors, prototypes, `Object.create`, `Object.getPrototypeOf`, and `instanceof`.
+- Arrays: literals, indexed reads/writes, `length`, growth, holes/sparse basics, `Array.isArray`, and focused coverage for `concat`, `flat`, `flatMap`, `map`, `forEach`, and species-sensitive paths.
+- Exceptions and abrupt completion: `throw`, `try/catch/finally`, `return`/`finally` interactions, and basic native error objects.
+- Constructors/classes: `new`, `new.target`, constructor return objects, bound constructors, class call errors, and some derived/null-heritage behavior.
+- Builtins: focused support for `Function.prototype.call/apply/bind/toString`, boxed primitives, `Number`, `String`, `Boolean`, `Error` family basics, selected Annex B string/global helpers, and basic Date behavior.
+- Binary data APIs: `ArrayBuffer`, `SharedArrayBuffer` rejection paths, `DataView` numeric accessors, typed-array indexed writes/accessors, and empty `%TypedArray%.from([])` construction.
+- Harness/host-oriented helpers used by tests, such as `print` and selected host hooks.
+
+Expected weak or missing areas include full real Test262 coverage, modules, async/generators, broad iterator semantics, Proxy, RegExp-heavy behavior, Intl, full descriptor/species semantics, complete typed arrays, complete Date/Temporal behavior, and many edge cases around exotic objects and cross-realm behavior.
+
 ## Design
 Porffor is a very unique JS engine, due many wildly different approaches. It is seriously limited, but what it can do, it does pretty well. Key differences:
 - 100% AOT compiled (no JIT or interpreter)
@@ -31,7 +49,7 @@ Porffor is a very unique JS engine, due many wildly different approaches. It is 
 Porffor is primarily built from scratch, the only thing that is not is the parser (using [Acorn](https://github.com/acornjs/acorn)). Binaryen/etc is not used, we make final wasm binaries ourself. You could imagine it as compiling a language which is a sub (some things unsupported) and super (new/custom apis) set of javascript. Not based on any particular spec version.
 
 ## Usage
-Expect nothing to work! Only very limited JS is currently supported. See files in `bench` for examples.
+Expect arbitrary JavaScript to fail. The Rust Wasm-AOT path supports the limited subset described in [Current Capabilities](#current-capabilities); see `bench`, `crates/porffor-cli/tests/fixtures/wasm_*.js`, and the fake wasm-safe Test262 fixtures for examples of programs that currently compile.
 
 ### Install
 **`npm install -g porffor@latest`**. It's that easy (hopefully) :)

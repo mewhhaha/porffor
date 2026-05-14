@@ -73,7 +73,9 @@ assert.notSameValue = function (actual, unexpected, message) {
     message = message + 'Expected SameValue(' + __porfAssertToString(actual) + ', ' + __porfAssertToString(unexpected) + ') to be false';
     throw message;
   };
-assert.throws = __porfAssertThrows;
+assert.throws = function (expectedErrorConstructor, func, message) {
+  return __porfAssertThrows(expectedErrorConstructor, func, message);
+};
 function __porfAssertCompareArray(actual, expected, message) {
     if (actual.length !== expected.length) {
       throw message || 'Expected arrays to have the same length';
@@ -88,6 +90,20 @@ function __porfAssertCompareArray(actual, expected, message) {
     }
 }
 assert.compareArray = __porfAssertCompareArray;
+function compareArray(actual, expected) {
+    if (actual.length !== expected.length) {
+      return false;
+    }
+
+    var index = 0;
+    while (index < actual.length) {
+      if (!__porfAssertIsSameValue(actual[index], expected[index])) {
+        return false;
+      }
+      index = index + 1;
+    }
+    return true;
+}
 
 /// sta-preamble.js
 function Test262Error(message) {
@@ -152,9 +168,7 @@ var $262 = {
   gc: function () {
     gc();
   },
-  detachArrayBuffer: function (buffer) {
-    __porfDetachArrayBuffer(buffer);
-  },
+  detachArrayBuffer: __porfDetachArrayBuffer,
   evalScript: function () {
     __porfUnsupportedHost('evalScript');
   },
@@ -348,35 +362,67 @@ function verifyCallableProperty(obj, name, functionName, functionLength, desc) {
   });
 }
 
+var verifyPrimordialCallableProperty = verifyCallableProperty;
+
 /// testTypedArray.js
-var floatArrayConstructors = [];
-var nonClampedIntArrayConstructors = [];
-var intArrayConstructors = [];
-var typedArrayConstructors = [];
+var floatArrayConstructors = [
+  Float64Array,
+  Float32Array
+];
+var nonClampedIntArrayConstructors = [
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array
+];
+var intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);
+var typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);
 var bigIntArrayConstructors = [];
 var allTypedArrayConstructors = typedArrayConstructors;
 var TypedArray = Object.getPrototypeOf(Int8Array);
-var nonAtomicsFriendlyTypedArrayConstructors = [];
+var nonAtomicsFriendlyTypedArrayConstructors = floatArrayConstructors.concat([Uint8ClampedArray]);
+var __porfCurrentTypedArrayConstructorIsFloat = false;
+var __porfFloatAndWordTypedArrayConstructors = "__porfFloatAndWordTypedArrayConstructors";
 
 function makePassthrough(TA, primitiveOrIterable) {
   return primitiveOrIterable;
 }
 
+function __porfCallTypedArrayConstructorCallback(f, TA, argFactory) {
+  f(TA, argFactory);
+}
+
 function testWithTypedArrayConstructors(f, selected) {
   var passthrough = function (value) { return value; };
-  f(Float64Array, passthrough);
-  f(Float32Array, passthrough);
-  f(Int32Array, passthrough);
-  f(Int16Array, passthrough);
-  f(Int8Array, passthrough);
-  f(Uint32Array, passthrough);
-  f(Uint16Array, passthrough);
-  f(Uint8Array, passthrough);
-  f(Uint8ClampedArray, passthrough);
+  if (selected === undefined) {
+    testWithTypedArrayConstructors(f, floatArrayConstructors);
+    testWithTypedArrayConstructors(f, intArrayConstructors);
+    return;
+  }
+  if (selected === floatArrayConstructors) {
+    __porfCurrentTypedArrayConstructorIsFloat = true;
+    __porfCallTypedArrayConstructorCallback(f, Float64Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Float32Array, passthrough);
+    return;
+  }
+  if (selected === intArrayConstructors) {
+    __porfCurrentTypedArrayConstructorIsFloat = false;
+    __porfCallTypedArrayConstructorCallback(f, Int32Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Int16Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Int8Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint32Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint16Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint8Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint8ClampedArray, passthrough);
+    return;
+  }
+  throw "testWithTypedArrayConstructors selected set unsupported in wasm-aot harness";
 }
 
 function testWithAllTypedArrayConstructors(f, selected) {
-  testWithTypedArrayConstructors(f);
+  testWithTypedArrayConstructors(f, selected);
 }
 
 function testWithBigIntTypedArrayConstructors(f, selected) {
@@ -386,8 +432,62 @@ function testWithAtomicsFriendlyTypedArrayConstructors(f) {
   testWithTypedArrayConstructors(f, nonClampedIntArrayConstructors);
 }
 
+function isFloatTypedArrayConstructor(TA) {
+  return __porfCurrentTypedArrayConstructorIsFloat;
+}
+
+function __porfTypedArrayConversionExpected(expected, TA) {
+  if (TA === Float64Array) {
+    return expected.Float64;
+  }
+  if (TA === Float32Array) {
+    return expected.Float32;
+  }
+  if (TA === Int32Array) {
+    return expected.Int32;
+  }
+  if (TA === Int16Array) {
+    return expected.Int16;
+  }
+  if (TA === Int8Array) {
+    return expected.Int8;
+  }
+  if (TA === Uint32Array) {
+    return expected.Uint32;
+  }
+  if (TA === Uint16Array) {
+    return expected.Uint16;
+  }
+  if (TA === Uint8Array) {
+    return expected.Uint8;
+  }
+  return expected.Uint8Clamped;
+}
+
+function testTypedArrayConversions(byteConversionValues, fn) {
+  var values = byteConversionValues.values;
+  var expected = byteConversionValues.expected;
+
+  var ctorIndex = 0;
+  while (ctorIndex < typedArrayConstructors.length) {
+    var TA = typedArrayConstructors[ctorIndex];
+    var expectedValues = __porfTypedArrayConversionExpected(expected, TA);
+    var index = 0;
+    while (index < values.length) {
+      var exp = expectedValues[index];
+      var initial = 0;
+      if (exp === 0) {
+        initial = 1;
+      }
+      fn(TA, values[index], exp, initial);
+      index = index + 1;
+    }
+    ctorIndex = ctorIndex + 1;
+  }
+}
+
 function testWithNonAtomicsFriendlyTypedArrayConstructors(f) {
-  testWithTypedArrayConstructors(f, nonAtomicsFriendlyTypedArrayConstructors);
+  throw "testWithNonAtomicsFriendlyTypedArrayConstructors unsupported in wasm-aot harness";
 }
 
 /// resizableArrayBufferUtils.js

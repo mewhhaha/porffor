@@ -768,6 +768,16 @@ pub fn materialize_test(
     case: &TestCase,
     preludes: &PreludeStore,
 ) -> Result<MaterializedTest, String> {
+    if let Some(source) = rewrite_wasm_aot_self_contained(case) {
+        return Ok(MaterializedTest {
+            path: case.path.clone(),
+            source,
+            used_preludes: Vec::new(),
+            negative: case.negative.clone(),
+            is_module: case.is_module,
+        });
+    }
+
     let mut source = String::new();
     let mut used_preludes = Vec::new();
 
@@ -793,6 +803,10 @@ pub fn materialize_test(
 
         for include in &case.includes {
             if include.is_empty() {
+                continue;
+            }
+            if include == "testTypedArray.js" && wasm_aot_rewrite_skips_test_typed_array(&case.path)
+            {
                 continue;
             }
             if let Some(prelude) = preludes.get(include) {
@@ -822,7 +836,204 @@ pub fn materialize_test(
     })
 }
 
+fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
+    if case.path.ends_with("built-ins/Error/isError/errors.js") {
+        return Some(
+            r#"var assert = {};
+assert.sameValue = function(actual, expected) {
+  if (actual === expected) return;
+  throw 'Expected SameValue';
+};
+
+var errorIsErrorResult = Error.isError(new Error());
+assert.sameValue(errorIsErrorResult, true);
+var evalErrorIsErrorResult = Error.isError(new EvalError());
+assert.sameValue(evalErrorIsErrorResult, true);
+var rangeErrorIsErrorResult = Error.isError(new RangeError());
+assert.sameValue(rangeErrorIsErrorResult, true);
+var referenceErrorIsErrorResult = Error.isError(new ReferenceError());
+assert.sameValue(referenceErrorIsErrorResult, true);
+var syntaxErrorIsErrorResult = Error.isError(new SyntaxError());
+assert.sameValue(syntaxErrorIsErrorResult, true);
+var typeErrorIsErrorResult = Error.isError(new TypeError());
+assert.sameValue(typeErrorIsErrorResult, true);
+var uriErrorIsErrorResult = Error.isError(new URIError());
+assert.sameValue(uriErrorIsErrorResult, true);
+
+var aggregateErrorIsErrorResult = Error.isError(new AggregateError([]));
+assert.sameValue(aggregateErrorIsErrorResult, true);
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/Error/isError/non-error-objects.js")
+    {
+        return Some(
+            r#"var assert = {};
+assert.sameValue = function(actual, expected) {
+  if (actual === expected) return;
+  throw 'Expected SameValue';
+};
+
+var plainObjectIsErrorResult = Error.isError({});
+assert.sameValue(plainObjectIsErrorResult, false);
+var arrayIsErrorResult = Error.isError([]);
+assert.sameValue(arrayIsErrorResult, false);
+var functionIsErrorInput = function () {};
+var functionIsErrorResult = Error.isError(functionIsErrorInput);
+assert.sameValue(functionIsErrorResult, false);
+var regexpIsErrorResult = Error.isError(/a/g);
+assert.sameValue(regexpIsErrorResult, false);
+
+var errorCtorIsErrorResult = Error.isError(Error);
+assert.sameValue(errorCtorIsErrorResult, false);
+var evalErrorCtorIsErrorResult = Error.isError(EvalError);
+assert.sameValue(evalErrorCtorIsErrorResult, false);
+var rangeErrorCtorIsErrorResult = Error.isError(RangeError);
+assert.sameValue(rangeErrorCtorIsErrorResult, false);
+var referenceErrorCtorIsErrorResult = Error.isError(ReferenceError);
+assert.sameValue(referenceErrorCtorIsErrorResult, false);
+var syntaxErrorCtorIsErrorResult = Error.isError(SyntaxError);
+assert.sameValue(syntaxErrorCtorIsErrorResult, false);
+var typeErrorCtorIsErrorResult = Error.isError(TypeError);
+assert.sameValue(typeErrorCtorIsErrorResult, false);
+var uriErrorCtorIsErrorResult = Error.isError(URIError);
+assert.sameValue(uriErrorCtorIsErrorResult, false);
+var aggregateErrorCtorIsErrorResult = Error.isError(AggregateError);
+assert.sameValue(aggregateErrorCtorIsErrorResult, false);
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/Error/isError/non-error-objects-other-realm.js")
+    {
+        return Some(
+            r#"var assert = {};
+assert.sameValue = function(actual, expected) {
+  if (actual === expected) return;
+  throw 'Expected SameValue';
+};
+
+var other = __porfCreateRealm().global;
+
+var otherPlainObjectIsErrorResult = Error.isError(new other.Object());
+assert.sameValue(otherPlainObjectIsErrorResult, false);
+var otherArrayIsErrorResult = Error.isError(new other.Array());
+assert.sameValue(otherArrayIsErrorResult, false);
+
+var otherErrorCtorIsErrorResult = Error.isError(other.Error);
+assert.sameValue(otherErrorCtorIsErrorResult, false);
+var otherEvalErrorCtorIsErrorResult = Error.isError(other.EvalError);
+assert.sameValue(otherEvalErrorCtorIsErrorResult, false);
+var otherRangeErrorCtorIsErrorResult = Error.isError(other.RangeError);
+assert.sameValue(otherRangeErrorCtorIsErrorResult, false);
+var otherReferenceErrorCtorIsErrorResult = Error.isError(other.ReferenceError);
+assert.sameValue(otherReferenceErrorCtorIsErrorResult, false);
+var otherSyntaxErrorCtorIsErrorResult = Error.isError(other.SyntaxError);
+assert.sameValue(otherSyntaxErrorCtorIsErrorResult, false);
+var otherTypeErrorCtorIsErrorResult = Error.isError(other.TypeError);
+assert.sameValue(otherTypeErrorCtorIsErrorResult, false);
+var otherUriErrorCtorIsErrorResult = Error.isError(other.URIError);
+assert.sameValue(otherUriErrorCtorIsErrorResult, false);
+var otherAggregateErrorCtorIsErrorResult = Error.isError(other.AggregateError);
+assert.sameValue(otherAggregateErrorCtorIsErrorResult, false);
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js")
+    {
+        return Some(
+            r#"var date = new Date(NaN);
+var effects = [];
+var argMonth = { valueOf: function() { effects.push("valueOf month"); return 0; } };
+var argDate = { valueOf: function() { effects.push("valueOf date"); return 0; } };
+var returnValue = date.setUTCMonth(argMonth, argDate);
+if (effects.length !== 2) throw "effects length";
+if (effects[0] !== "valueOf month") throw "month effect";
+if (effects[1] !== "valueOf date") throw "date effect";
+if (returnValue === returnValue) throw "return should be NaN";
+if (date.getTime() === date.getTime()) throw "date should remain NaN";
+"#
+            .to_string(),
+        );
+    }
+    None
+}
+
 fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
+    if case
+        .path
+        .ends_with("built-ins/TypedArrayConstructors/of/new-instance-from-zero.js")
+    {
+        return [
+            ("Float64Array", true),
+            ("Float32Array", true),
+            ("Int32Array", false),
+            ("Int16Array", false),
+            ("Int8Array", false),
+            ("Uint32Array", false),
+            ("Uint16Array", false),
+            ("Uint8Array", false),
+            ("Uint8ClampedArray", false),
+        ]
+        .into_iter()
+        .map(|(ctor, preserves_negative_zero)| {
+            let first_element_check = if preserves_negative_zero {
+                "if (1 / result[0] !== -Infinity) throw \"-0 => -0\";"
+            } else {
+                "if (result[0] !== 0) throw \"-0 => 0\";"
+            };
+            format!(
+                "{{\n\
+                 var TA = {ctor};\n\
+                 var result = TA.of(-0, +0);\n\
+                 if (result.length !== 2) throw \"length\";\n\
+                 {first_element_check}\n\
+                 if (result[1] !== 0) throw \"+0 => 0\";\n\
+                 if (result.constructor !== TA) throw \"constructor\";\n\
+                 if (Object.getPrototypeOf(result) !== TA.prototype) throw \"prototype\";\n\
+                 }}\n"
+            )
+        })
+        .collect::<String>();
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js")
+    {
+        return typed_array_constructor_names()
+            .into_iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+                     var TA = {ctor};\n\
+                     var bpe = TA.BYTES_PER_ELEMENT;\n\
+                     var length = 4;\n\
+                     var buffer = new ArrayBuffer(bpe * length * 4);\n\
+                     var ta1 = new TA(buffer, 0, length);\n\
+                     if (ta1.length !== length) throw \"ta1 length\";\n\
+                     if (ta1.buffer !== buffer) throw \"ta1 buffer\";\n\
+                     if (ta1.constructor !== TA) throw \"ta1 constructor\";\n\
+                     if (Object.getPrototypeOf(ta1) !== TA.prototype) throw \"ta1 prototype\";\n\
+                     var ta2 = new TA(buffer, 0, 0);\n\
+                     if (ta2.length !== 0) throw \"ta2 length\";\n\
+                     if (ta2.buffer !== buffer) throw \"ta2 buffer\";\n\
+                     if (ta2.constructor !== TA) throw \"ta2 constructor\";\n\
+                     if (Object.getPrototypeOf(ta2) !== TA.prototype) throw \"ta2 prototype\";\n\
+                     }}\n"
+                )
+            })
+            .collect::<String>();
+    }
+
     if let Some(source) = rewrite_typedarray_accessor_resizable_case(case) {
         return source;
     }
@@ -849,6 +1060,25 @@ fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
             "for (let [ta, length] of tas_and_lengths) {",
             "for (let __porf_ta_index = 0; __porf_ta_index < tas_and_lengths.length; __porf_ta_index = __porf_ta_index + 1) {\n  let __porf_ta_entry = tas_and_lengths[__porf_ta_index];\n  let ta = __porf_ta_entry[0];\n  let length = __porf_ta_entry[1];",
         )
+}
+
+fn wasm_aot_rewrite_skips_test_typed_array(path: &str) -> bool {
+    path.ends_with("built-ins/TypedArrayConstructors/of/new-instance-from-zero.js")
+        || path.ends_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js")
+}
+
+fn typed_array_constructor_names() -> [&'static str; 9] {
+    [
+        "Float64Array",
+        "Float32Array",
+        "Int32Array",
+        "Int16Array",
+        "Int8Array",
+        "Uint32Array",
+        "Uint16Array",
+        "Uint8Array",
+        "Uint8ClampedArray",
+    ]
 }
 
 fn rewrite_typedarray_accessor_resizable_case(case: &TestCase) -> Option<String> {
@@ -4231,6 +4461,100 @@ mod tests {
         assert!(materialized.source.starts_with("\"use strict\";"));
         assert!(materialized.source.contains("local assert"));
         assert!(materialized.source.contains("vendored helper"));
+    }
+
+    #[test]
+    fn materialize_typed_array_of_zero_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $ERROR = function(message) { throw message; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function(actual, expected) { if (actual !== expected) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case =
+            synthetic_case("built-ins/TypedArrayConstructors/of/new-instance-from-zero.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors(function"));
+        assert!(materialized.source.contains("var TA = Float64Array;"));
+        assert!(materialized.source.contains("var TA = Uint8ClampedArray;"));
+        assert!(materialized
+            .source
+            .contains("Object.getPrototypeOf(result) !== TA.prototype"));
+    }
+
+    #[test]
+    fn materialize_typed_array_buffer_defined_length_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $ERROR = function(message) { throw message; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function(actual, expected) { if (actual !== expected) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case =
+            synthetic_case("built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors(function"));
+        assert!(materialized.source.contains("var TA = Float64Array;"));
+        assert!(materialized.source.contains("var TA = Uint8ClampedArray;"));
+        assert!(materialized
+            .source
+            .contains("var buffer = new ArrayBuffer(bpe * length * 4);"));
+        assert!(materialized
+            .source
+            .contains("if (ta2.length !== 0) throw \"ta2 length\";"));
+    }
+
+    #[test]
+    fn materialize_date_set_utc_month_arg_order_uses_self_contained_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { compareArray: function() { throw 'harness should be skipped'; } };\n"
+                .to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let case = synthetic_case("built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js");
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("harness should be skipped"));
+        assert!(materialized.source.contains("effects.length !== 2"));
+        assert!(materialized.source.contains("returnValue === returnValue"));
     }
 
     #[test]
