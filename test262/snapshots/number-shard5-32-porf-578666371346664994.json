@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-5/32",
+  "total": 11,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 2,
+    "NotImplemented": 1,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/MAX_SAFE_INTEGER.js",
+      "duration_ms": 34767
+    },
+    {
+      "path": "built-ins/Number/isFinite/prop-desc.js",
+      "duration_ms": 32744
+    },
+    {
+      "path": "built-ins/Number/prototype/valueOf/S15.7.4.4_A2_T01.js",
+      "duration_ms": 24766
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-hil-hds-nsl-hds.js",
+      "duration_ms": 23372
+    },
+    {
+      "path": "built-ins/Number/prototype/toFixed/S15.7.4.5_A1.1_T02.js",
+      "duration_ms": 22986
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A30.js",
+      "duration_ms": 22789
+    },
+    {
+      "path": "built-ins/Number/prototype/toPrecision/this-is-0-precision-is-gter-than-1.js",
+      "duration_ms": 22373
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-18.js",
+      "duration_ms": 22368
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T26.js",
+      "duration_ms": 22214
+    },
+    {
+      "path": "built-ins/Number/S15.7.5_A1_T02.js",
+      "duration_ms": 22211
+    }
+  ],
+  "timeout_list": [
+    "built-ins/Number/MAX_SAFE_INTEGER.js",
+    "built-ins/Number/isFinite/prop-desc.js"
+  ],
+  "failures": [
+    {
+      "test_path": "built-ins/Number/MAX_SAFE_INTEGER.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 34767ms",
+      "detail_hash": 16030909180219574031
+    },
+    {
+      "test_path": "built-ins/Number/isFinite/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 32744ms",
+      "detail_hash": 1212961602039749881
+    },
+    {
+      "test_path": "built-ins/Number/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Number/MAX_SAFE_INTEGER.js",
+    "built-ins/Number/S15.7.5_A1_T02.js",
+    "built-ins/Number/S9.3.1_A30.js",
+    "built-ins/Number/isFinite/prop-desc.js",
+    "built-ins/Number/proto-from-ctor-realm.js",
+    "built-ins/Number/prototype/toFixed/S15.7.4.5_A1.1_T02.js",
+    "built-ins/Number/prototype/toPrecision/this-is-0-precision-is-gter-than-1.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T26.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-18.js",
+    "built-ins/Number/prototype/valueOf/S15.7.4.4_A2_T01.js",
+    "built-ins/Number/string-numeric-separator-literal-hil-hds-nsl-hds.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 12337816177995103040,
+  "run_kind": "shard-5/16",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Math/log2/prop-desc.js",
+      "duration_ms": 36215
+    },
+    {
+      "path": "built-ins/Math/hypot/length.js",
+      "duration_ms": 34238
+    },
+    {
+      "path": "built-ins/Math/atan2/length.js",
+      "duration_ms": 33883
+    },
+    {
+      "path": "built-ins/Math/min/length.js",
+      "duration_ms": 33555
+    },
+    {
+      "path": "built-ins/Math/cosh/prop-desc.js",
+      "duration_ms": 33331
+    },
+    {
+      "path": "built-ins/Math/trunc/prop-desc.js",
+      "duration_ms": 33296
+    },
+    {
+      "path": "built-ins/Math/round/name.js",
+      "duration_ms": 33080
+    },
+    {
+      "path": "built-ins/Math/sumPrecise/name.js",
+      "duration_ms": 32885
+    },
+    {
+      "path": "built-ins/Math/pow/prop-desc.js",
+      "duration_ms": 32479
+    },
+    {
+      "path": "built-ins/Math/sinh/length.js",
+      "duration_ms": 32470
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Math/LN2/prop-desc.js",
+    "built-ins/Math/abs/absolute-value.js",
+    "built-ins/Math/acosh/name.js",
+    "built-ins/Math/asinh/not-a-constructor.js",
+    "built-ins/Math/atan2/length.js",
+    "built-ins/Math/ceil/S15.8.2.6_A3.js",
+    "built-ins/Math/clz32/nan.js",
+    "built-ins/Math/cosh/prop-desc.js",
+    "built-ins/Math/f16round/name.js",
+    "built-ins/Math/fround/Math.fround_NaN.js",
+    "built-ins/Math/hypot/length.js",
+    "built-ins/Math/log/not-a-constructor.js",
+    "built-ins/Math/log2/prop-desc.js",
+    "built-ins/Math/min/length.js",
+    "built-ins/Math/pow/applying-the-exp-operator_A2.js",
+    "built-ins/Math/pow/prop-desc.js",
+    "built-ins/Math/round/name.js",
+    "built-ins/Math/sinh/length.js",
+    "built-ins/Math/sumPrecise/name.js",
+    "built-ins/Math/tan/not-a-constructor.js",
+    "built-ins/Math/trunc/prop-desc.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

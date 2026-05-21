@@ -1,0 +1,103 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-2/10",
+  "total": 8,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/asUintN/bits-toindex-toprimitive.js",
+      "duration_ms": 36657
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/name.js",
+      "duration_ms": 29525
+    },
+    {
+      "path": "built-ins/BigInt/name.js",
+      "duration_ms": 29260
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/asIntN.js",
+      "duration_ms": 28673
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/radix-err.js",
+      "duration_ms": 22557
+    },
+    {
+      "path": "built-ins/BigInt/prototype/proto.js",
+      "duration_ms": 20587
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/return.js",
+      "duration_ms": 20539
+    },
+    {
+      "path": "built-ins/BigInt/constructor-from-binary-string.js",
+      "duration_ms": 10307
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/constructor-from-binary-string.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: bigint literal outside 64-bit DataView slice. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14028094319409686107
+    },
+    {
+      "test_path": "built-ins/BigInt/prototype/toString/radix-err.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@227572)",
+      "detail_hash": 10614974867872004398
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/asIntN.js",
+    "built-ins/BigInt/asIntN/name.js",
+    "built-ins/BigInt/asUintN/bits-toindex-toprimitive.js",
+    "built-ins/BigInt/constructor-from-binary-string.js",
+    "built-ins/BigInt/name.js",
+    "built-ins/BigInt/prototype/proto.js",
+    "built-ins/BigInt/prototype/toString/radix-err.js",
+    "built-ins/BigInt/prototype/valueOf/return.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

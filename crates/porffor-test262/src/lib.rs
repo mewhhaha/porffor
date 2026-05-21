@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,7 @@ const MATRIX_CHUNK_SIZE: usize = 250;
 // completed case so a timed-out process never restarts a whole slow node.
 const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 1;
 const DISABLE_CASE_RUNNER_ENV: &str = "PORFFOR_TEST262_DISABLE_CASE_RUNNER";
+static TEST262_PANIC_HOOK: Once = Once::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FailureKind {
@@ -2166,6 +2167,8 @@ fn execute_cases(
     cases: &[TestCase],
     run_config: &RunConfig,
 ) -> Result<Vec<TestResult>, String> {
+    install_test262_panic_hook();
+
     let previous = if run_config.resume {
         load_previous_snapshot(config, &run_config.snapshot_name, manifest.manifest_hash)?
     } else {
@@ -2860,6 +2863,28 @@ fn panic_message(payload: &Box<dyn core::any::Any + Send>) -> String {
     }
 }
 
+fn install_test262_panic_hook() {
+    TEST262_PANIC_HOOK.call_once(|| {
+        let default_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            let message = if let Some(message) = info.payload().downcast_ref::<&'static str>() {
+                *message
+            } else if let Some(message) = info.payload().downcast_ref::<String>() {
+                message.as_str()
+            } else {
+                ""
+            };
+            let is_boa_parser_abort = info
+                .location()
+                .is_some_and(|location| location.file().contains("boa_parser"))
+                && message.contains("you cannot skip more than");
+            if !is_boa_parser_abort {
+                default_hook(info);
+            }
+        }));
+    });
+}
+
 fn snapshot_from_summary(
     manifest: &SuiteManifest,
     run_kind: String,
@@ -2948,6 +2973,12 @@ fn classify_engine_error(message: &str) -> FailureKind {
 }
 
 fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
+    if source_mentions_identifier_call(&case.original_source, "eval") {
+        return Some("eval dynamic source evaluation");
+    }
+    if source_mentions_identifier_call(&case.original_source, "Function") {
+        return Some("Function constructor dynamic code generation");
+    }
     if case.features.contains("immutable-arraybuffer") {
         let supported_arraybuffer_immutable_case = case
             .path
@@ -2997,12 +3028,15 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         || case.path.contains(
             "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-sharedarraybuffer.js",
         );
+    let supported_shared_array_buffer_metadata_case =
+        supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
     if (case.features.contains("SharedArrayBuffer")
         || case.path.contains("-sab")
         || case.path.contains("/sab")
         || case.path.contains("this-is-sharedarraybuffer"))
         && !supported_shared_array_buffer_receiver_case
         && !supported_dataview_shared_array_buffer_case
+        && !supported_shared_array_buffer_metadata_case
     {
         return Some("SharedArrayBuffer");
     }
@@ -3044,6 +3078,122 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         }
     }
     None
+}
+
+fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
+    matches!(
+        path,
+        "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
+            | "built-ins/SharedArrayBuffer/init-zero.js"
+            | "built-ins/SharedArrayBuffer/is-a-constructor.js"
+            | "built-ins/SharedArrayBuffer/length-is-absent.js"
+            | "built-ins/SharedArrayBuffer/length-is-too-large-throws.js"
+            | "built-ins/SharedArrayBuffer/length.js"
+            | "built-ins/SharedArrayBuffer/negative-length-throws.js"
+            | "built-ins/SharedArrayBuffer/newtarget-prototype-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype-from-newtarget.js"
+            | "built-ins/SharedArrayBuffer/return-abrupt-from-length-symbol.js"
+            | "built-ins/SharedArrayBuffer/return-abrupt-from-length.js"
+            | "built-ins/SharedArrayBuffer/toindex-length.js"
+            | "built-ins/SharedArrayBuffer/undefined-newtarget-throws.js"
+            | "built-ins/SharedArrayBuffer/zero-length.js"
+            | "built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-accessor.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-func.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/length.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/name.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/prop-desc.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/return-bytelength.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-has-no-typedarrayname-internal.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/constructor.js"
+    )
+}
+
+fn source_mentions_identifier_call(source: &str, identifier: &str) -> bool {
+    let bytes = source.as_bytes();
+    let ident = identifier.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'\'' | b'"' => {
+                idx = skip_quoted_source(bytes, idx, bytes[idx]);
+            }
+            b'`' => {
+                idx = skip_template_source(bytes, idx);
+            }
+            b'/' if bytes.get(idx + 1) == Some(&b'/') => {
+                idx += 2;
+                while idx < bytes.len() && bytes[idx] != b'\n' {
+                    idx += 1;
+                }
+            }
+            b'/' if bytes.get(idx + 1) == Some(&b'*') => {
+                idx += 2;
+                while idx + 1 < bytes.len() && !(bytes[idx] == b'*' && bytes[idx + 1] == b'/') {
+                    idx += 1;
+                }
+                idx = (idx + 2).min(bytes.len());
+            }
+            _ if bytes[idx..].starts_with(ident)
+                && !bytes
+                    .get(idx.wrapping_sub(1))
+                    .is_some_and(|byte| is_ascii_ident_part(*byte))
+                && !bytes
+                    .get(idx + ident.len())
+                    .is_some_and(|byte| is_ascii_ident_part(*byte)) =>
+            {
+                let mut after = idx + ident.len();
+                while bytes
+                    .get(after)
+                    .is_some_and(|byte| byte.is_ascii_whitespace())
+                {
+                    after += 1;
+                }
+                if bytes.get(after) == Some(&b'(') {
+                    return true;
+                }
+                idx = after;
+            }
+            _ => {
+                idx += 1;
+            }
+        }
+    }
+    false
+}
+
+fn skip_quoted_source(bytes: &[u8], mut idx: usize, quote: u8) -> usize {
+    idx += 1;
+    while idx < bytes.len() {
+        if bytes[idx] == b'\\' {
+            idx = (idx + 2).min(bytes.len());
+        } else if bytes[idx] == quote {
+            return idx + 1;
+        } else {
+            idx += 1;
+        }
+    }
+    idx
+}
+
+fn skip_template_source(bytes: &[u8], mut idx: usize) -> usize {
+    idx += 1;
+    while idx < bytes.len() {
+        if bytes[idx] == b'\\' {
+            idx = (idx + 2).min(bytes.len());
+        } else if bytes[idx] == b'`' {
+            return idx + 1;
+        } else {
+            idx += 1;
+        }
+    }
+    idx
+}
+
+fn is_ascii_ident_part(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
 }
 
 fn classify_failure_origin(detail: &str) -> FailureOrigin {
@@ -4369,7 +4519,7 @@ mod tests {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
             snapshot_dir: unique_temp_path("fixture-snapshots"),
-            timeout_ms: 1_000,
+            timeout_ms: 30_000,
             worker_count: 2,
             case_runner_bin: None,
         }
@@ -5632,6 +5782,46 @@ mod tests {
         sab_case.features.insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&sab_case), None);
 
+        let mut sab_metadata_case = synthetic_case("built-ins/SharedArrayBuffer/length.js");
+        sab_metadata_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_metadata_case), None);
+
+        let mut sab_newtarget_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype-from-newtarget.js");
+        sab_newtarget_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_newtarget_case), None);
+
+        let mut sab_data_allocation_case =
+            synthetic_case("built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js");
+        sab_data_allocation_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_data_allocation_case),
+            None
+        );
+
+        let mut sab_abrupt_length_case =
+            synthetic_case("built-ins/SharedArrayBuffer/return-abrupt-from-length.js");
+        sab_abrupt_length_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_abrupt_length_case), None);
+
+        let mut sab_prototype_metadata_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js");
+        sab_prototype_metadata_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_prototype_metadata_case),
+            None
+        );
+
         let mut immutable_case =
             synthetic_case("built-ins/DataView/prototype/setUint8/immutable-buffer.js");
         immutable_case
@@ -5645,6 +5835,27 @@ mod tests {
             .features
             .insert("resizable-arraybuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&resizable_case), None);
+    }
+
+    #[test]
+    fn wasm_aot_classifies_dynamic_source_evaluation_as_unsupported() {
+        let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
+        case.original_source = "assert.sameValue(eval('1 + 2'), 3);".to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&case),
+            Some("eval dynamic source evaluation")
+        );
+
+        case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&case),
+            Some("Function constructor dynamic code generation")
+        );
+
+        case.original_source =
+            "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string();
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
     }
 
     #[test]

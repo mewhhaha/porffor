@@ -1,6 +1,7 @@
 use boa_ast::scope::Scope;
 use boa_interner::Interner;
 use boa_parser::{Parser, Source};
+use std::panic::{self, AssertUnwindSafe};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseGoal {
@@ -81,16 +82,23 @@ pub fn parse(
         Source::from_bytes(source_text.as_bytes())
     };
 
-    match options.goal {
-        ParseGoal::Script => {
-            Parser::new(source)
-                .parse_script(&scope, &mut interner)
-                .map_err(|err| ParseError::new(format!("parse error: {err}")))?;
-        }
-        ParseGoal::Module => {
-            Parser::new(source)
-                .parse_module(&scope, &mut interner)
-                .map_err(|err| ParseError::new(format!("parse error: {err}")))?;
+    let parsed = panic::catch_unwind(AssertUnwindSafe(|| match options.goal {
+        ParseGoal::Script => Parser::new(source)
+            .parse_script(&scope, &mut interner)
+            .map(|_| ()),
+        ParseGoal::Module => Parser::new(source)
+            .parse_module(&scope, &mut interner)
+            .map(|_| ()),
+    }));
+
+    match parsed {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => return Err(ParseError::new(format!("parse error: {err}"))),
+        Err(payload) => {
+            return Err(ParseError::new(format!(
+                "parse unsupported by current frontend: parser aborted while handling source ({})",
+                parser_abort_message(&payload)
+            )));
         }
     }
 
@@ -100,6 +108,17 @@ pub fn parse(
         source_text,
     })
 }
+
+fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string abort payload".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +142,19 @@ mod tests {
         let err = parse("if (true {", ParseOptions::script())
             .expect_err("unbalanced delimiters should fail");
         assert!(err.message().contains("parse error"));
+    }
+
+    #[test]
+    fn parser_abort_becomes_parse_error() {
+        let source = r#"
+var ref = async (aFalse = falseCount +=1, aString = stringCount += 1, aNaN = nanCount += 1, a0 = zeroCount += 1, aNull = nullCount += 1, aObj = objCount +=1) => {};
+"#;
+
+        let result = std::panic::catch_unwind(|| parse(source, ParseOptions::script()));
+        let parsed = result.expect("frontend parser boundary should not unwind");
+        if let Err(err) = parsed {
+            assert!(err.message().contains("parse unsupported"));
+        }
     }
 
     #[test]

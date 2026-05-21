@@ -1,0 +1,103 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-7/10",
+  "total": 8,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/asUintN/bigint-tobigint-errors.js",
+      "duration_ms": 45171
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/bits-toindex-errors.js",
+      "duration_ms": 32877
+    },
+    {
+      "path": "built-ins/BigInt/prop-desc.js",
+      "duration_ms": 29688
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/name.js",
+      "duration_ms": 28957
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/cross-realm.js",
+      "duration_ms": 21096
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/not-a-constructor.js",
+      "duration_ms": 20350
+    },
+    {
+      "path": "built-ins/BigInt/constructor-integer.js",
+      "duration_ms": 19594
+    },
+    {
+      "path": "built-ins/BigInt/wrapper-object-ordinary-toprimitive.js",
+      "duration_ms": 15830
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/prototype/valueOf/cross-realm.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@245984)",
+      "detail_hash": 17747673879607912294
+    },
+    {
+      "test_path": "built-ins/BigInt/wrapper-object-ordinary-toprimitive.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: numeric update on non-number binding. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 16856958815691629294
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/bits-toindex-errors.js",
+    "built-ins/BigInt/asUintN/bigint-tobigint-errors.js",
+    "built-ins/BigInt/asUintN/not-a-constructor.js",
+    "built-ins/BigInt/constructor-integer.js",
+    "built-ins/BigInt/prop-desc.js",
+    "built-ins/BigInt/prototype/toString/name.js",
+    "built-ins/BigInt/prototype/valueOf/cross-realm.js",
+    "built-ins/BigInt/wrapper-object-ordinary-toprimitive.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

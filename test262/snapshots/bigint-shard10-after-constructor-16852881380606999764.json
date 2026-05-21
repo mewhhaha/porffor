@@ -1,0 +1,90 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-10/10",
+  "total": 7,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/prototype/constructor.js",
+      "duration_ms": 30599
+    },
+    {
+      "path": "built-ins/BigInt/is-a-constructor.js",
+      "duration_ms": 22269
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/not-a-constructor.js",
+      "duration_ms": 22127
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/prototype-call.js",
+      "duration_ms": 22028
+    },
+    {
+      "path": "built-ins/BigInt/constructor-coercion.js",
+      "duration_ms": 21436
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/bits-toindex.js",
+      "duration_ms": 20793
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/bigint-tobigint.js",
+      "duration_ms": 10712
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/asUintN/bigint-tobigint.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: bigint literal outside 64-bit DataView slice. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14028094319409686107
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/bits-toindex.js",
+    "built-ins/BigInt/asUintN/bigint-tobigint.js",
+    "built-ins/BigInt/constructor-coercion.js",
+    "built-ins/BigInt/is-a-constructor.js",
+    "built-ins/BigInt/prototype/constructor.js",
+    "built-ins/BigInt/prototype/toString/prototype-call.js",
+    "built-ins/BigInt/prototype/valueOf/not-a-constructor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

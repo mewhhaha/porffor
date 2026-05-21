@@ -1,0 +1,95 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-3/10",
+  "total": 8,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/asIntN/bigint-tobigint-errors.js",
+      "duration_ms": 45921
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/bits-toindex-wrapped-values.js",
+      "duration_ms": 22444
+    },
+    {
+      "path": "built-ins/BigInt/nan-throws-rangeerror.js",
+      "duration_ms": 22388
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/this-value-invalid-object-throws.js",
+      "duration_ms": 22329
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/radix-tointegerorinfinity-throws-symbol.js",
+      "duration_ms": 21428
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/not-a-constructor.js",
+      "duration_ms": 21359
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toLocaleString/not-a-constructor.js",
+      "duration_ms": 21306
+    },
+    {
+      "path": "built-ins/BigInt/constructor-from-decimal-string.js",
+      "duration_ms": 10468
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/constructor-from-decimal-string.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: bigint literal outside 64-bit DataView slice. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14028094319409686107
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/bigint-tobigint-errors.js",
+    "built-ins/BigInt/asIntN/not-a-constructor.js",
+    "built-ins/BigInt/asUintN/bits-toindex-wrapped-values.js",
+    "built-ins/BigInt/constructor-from-decimal-string.js",
+    "built-ins/BigInt/nan-throws-rangeerror.js",
+    "built-ins/BigInt/prototype/toLocaleString/not-a-constructor.js",
+    "built-ins/BigInt/prototype/toString/radix-tointegerorinfinity-throws-symbol.js",
+    "built-ins/BigInt/prototype/valueOf/this-value-invalid-object-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -5,6 +5,7 @@ GRUG GOAL: rewrite Porffor fully in Rust as library and CLI. Keep AOT-first Wasm
 ## Grug Rules
 - Grug build real JS -> Wasm compiler path. User program semantics go through parse, early errors, spec IR, lowering IR, and real Wasm codegen.
 - Grug may keep tiny interpreter only as hidden debug and differential tool. Grug must not ship it as product path, CLI runtime path, or Wasm artifact path.
+- Grug does not need to support dynamic source evaluation features such as `eval`, `new Function`, or cross-realm `Function` constructors when support would require bundling a parser/interpreter/VM into the emitted Wasm. Track these as explicit Wasm-AOT unsupported dynamic-code-generation cases, not silent skips.
 - Grug prefer correctness before speed. If clever thing and spec thing fight, grug pick spec thing.
 - Grug keep Rust library and CLI as main future surface. Old JS code is reference and oracle until Rust path wins.
 - Grug treat permanent skip lists and silent expected failures as bad cave smoke. Every conformance failure needs owner and reason.

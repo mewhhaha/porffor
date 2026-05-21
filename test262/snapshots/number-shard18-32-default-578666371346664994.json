@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-18/32",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/S9.3.1_A6_T2.js",
+      "duration_ms": 24663
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A4_T01.js",
+      "duration_ms": 24518
+    },
+    {
+      "path": "built-ins/Number/string-hex-literal-invalid.js",
+      "duration_ms": 23603
+    },
+    {
+      "path": "built-ins/Number/string-octal-literal.js",
+      "duration_ms": 23530
+    },
+    {
+      "path": "built-ins/Number/prototype/toFixed/toFixed-tonumber-throws-typeerror-symbol.js",
+      "duration_ms": 23366
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-3.js",
+      "duration_ms": 23186
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T07.js",
+      "duration_ms": 22437
+    },
+    {
+      "path": "built-ins/Number/prototype/S15.7.4_A3.7.js",
+      "duration_ms": 22300
+    },
+    {
+      "path": "built-ins/Number/isNaN/nan.js",
+      "duration_ms": 21870
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A13.js",
+      "duration_ms": 21485
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/POSITIVE_INFINITY/S15.7.3.6_A1.js",
+    "built-ins/Number/S9.3.1_A13.js",
+    "built-ins/Number/S9.3.1_A6_T2.js",
+    "built-ins/Number/isNaN/nan.js",
+    "built-ins/Number/prototype/S15.7.4_A3.7.js",
+    "built-ins/Number/prototype/toFixed/toFixed-tonumber-throws-typeerror-symbol.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T07.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A4_T01.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-3.js",
+    "built-ins/Number/string-hex-literal-invalid.js",
+    "built-ins/Number/string-octal-literal.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

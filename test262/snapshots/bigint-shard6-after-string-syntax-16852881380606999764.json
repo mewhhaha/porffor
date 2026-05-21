@@ -1,0 +1,95 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-6/10",
+  "total": 8,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/constructor-from-string-syntax-errors.js",
+      "duration_ms": 30376
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/length.js",
+      "duration_ms": 28938
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/name.js",
+      "duration_ms": 28746
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/thisbigintvalue-not-valid-throws.js",
+      "duration_ms": 28668
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/asUintN.js",
+      "duration_ms": 28045
+    },
+    {
+      "path": "built-ins/BigInt/parseInt/nonexistent.js",
+      "duration_ms": 21236
+    },
+    {
+      "path": "built-ins/BigInt/valueof-throws.js",
+      "duration_ms": 20755
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/bigint-tobigint.js",
+      "duration_ms": 10476
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/asIntN/bigint-tobigint.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: bigint literal outside 64-bit DataView slice. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14028094319409686107
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/bigint-tobigint.js",
+    "built-ins/BigInt/asUintN/asUintN.js",
+    "built-ins/BigInt/asUintN/name.js",
+    "built-ins/BigInt/constructor-from-string-syntax-errors.js",
+    "built-ins/BigInt/parseInt/nonexistent.js",
+    "built-ins/BigInt/prototype/toString/length.js",
+    "built-ins/BigInt/prototype/toString/thisbigintvalue-not-valid-throws.js",
+    "built-ins/BigInt/valueof-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

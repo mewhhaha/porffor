@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-25/32",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/isSafeInteger/name.js",
+      "duration_ms": 31725
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/name.js",
+      "duration_ms": 31639
+    },
+    {
+      "path": "built-ins/Number/S15.7.2.1_A2.js",
+      "duration_ms": 23880
+    },
+    {
+      "path": "built-ins/Number/prototype/toExponential/not-a-constructor.js",
+      "duration_ms": 22622
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T14.js",
+      "duration_ms": 22445
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-dd-dot-dd-ep-sign-plus-dd-nsl-dd.js",
+      "duration_ms": 22337
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A2.js",
+      "duration_ms": 22262
+    },
+    {
+      "path": "built-ins/Number/prototype/toPrecision/infinity.js",
+      "duration_ms": 22146
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-36.js",
+      "duration_ms": 21871
+    },
+    {
+      "path": "built-ins/Number/S9.3_A4.1_T1.js",
+      "duration_ms": 21739
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/S15.7.2.1_A2.js",
+    "built-ins/Number/S9.3.1_A2.js",
+    "built-ins/Number/S9.3_A4.1_T1.js",
+    "built-ins/Number/isSafeInteger/name.js",
+    "built-ins/Number/prototype/toExponential/not-a-constructor.js",
+    "built-ins/Number/prototype/toPrecision/infinity.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T14.js",
+    "built-ins/Number/prototype/toString/name.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-36.js",
+    "built-ins/Number/string-numeric-separator-literal-dd-dot-dd-ep-sign-plus-dd-nsl-dd.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

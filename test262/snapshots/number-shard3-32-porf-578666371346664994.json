@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-3/32",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/prototype/valueOf/S15.7.4.4_A1_T01.js",
+      "duration_ms": 23723
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-hil-hd-nsl-hds.js",
+      "duration_ms": 23589
+    },
+    {
+      "path": "built-ins/Number/S15.7.3_A8.js",
+      "duration_ms": 23361
+    },
+    {
+      "path": "built-ins/Number/parseInt/not-a-constructor.js",
+      "duration_ms": 23323
+    },
+    {
+      "path": "built-ins/Number/isFinite/nan.js",
+      "duration_ms": 22649
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A29.js",
+      "duration_ms": 22290
+    },
+    {
+      "path": "built-ins/Number/prototype/toPrecision/return-values.js",
+      "duration_ms": 22172
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-16.js",
+      "duration_ms": 22160
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T24.js",
+      "duration_ms": 22028
+    },
+    {
+      "path": "built-ins/Number/prototype/toExponential/undefined-fractiondigits.js",
+      "duration_ms": 21989
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/15.7.4-1.js",
+    "built-ins/Number/S15.7.3_A8.js",
+    "built-ins/Number/S9.3.1_A29.js",
+    "built-ins/Number/isFinite/nan.js",
+    "built-ins/Number/parseInt/not-a-constructor.js",
+    "built-ins/Number/prototype/toExponential/undefined-fractiondigits.js",
+    "built-ins/Number/prototype/toPrecision/return-values.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T24.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-16.js",
+    "built-ins/Number/prototype/valueOf/S15.7.4.4_A1_T01.js",
+    "built-ins/Number/string-numeric-separator-literal-hil-hd-nsl-hds.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

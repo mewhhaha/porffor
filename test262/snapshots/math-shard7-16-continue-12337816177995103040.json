@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 12337816177995103040,
+  "run_kind": "shard-7/16",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Math/tanh/length.js",
+      "duration_ms": 29132
+    },
+    {
+      "path": "built-ins/Math/round/prop-desc.js",
+      "duration_ms": 29059
+    },
+    {
+      "path": "built-ins/Math/abs/name.js",
+      "duration_ms": 28975
+    },
+    {
+      "path": "built-ins/Math/sumPrecise/prop-desc.js",
+      "duration_ms": 28969
+    },
+    {
+      "path": "built-ins/Math/clz32/prop-desc.js",
+      "duration_ms": 28915
+    },
+    {
+      "path": "built-ins/Math/f16round/prop-desc.js",
+      "duration_ms": 28900
+    },
+    {
+      "path": "built-ins/Math/fround/length.js",
+      "duration_ms": 28871
+    },
+    {
+      "path": "built-ins/Math/LOG10E/prop-desc.js",
+      "duration_ms": 28138
+    },
+    {
+      "path": "built-ins/Math/acosh/not-a-constructor.js",
+      "duration_ms": 21055
+    },
+    {
+      "path": "built-ins/Math/sinh/not-a-constructor.js",
+      "duration_ms": 20913
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Math/LOG10E/prop-desc.js",
+    "built-ins/Math/abs/name.js",
+    "built-ins/Math/acosh/not-a-constructor.js",
+    "built-ins/Math/atan/S15.8.2.4_A1.js",
+    "built-ins/Math/atan2/not-a-constructor.js",
+    "built-ins/Math/ceil/S15.8.2.6_A5.js",
+    "built-ins/Math/clz32/prop-desc.js",
+    "built-ins/Math/exp/S15.8.2.8_A2.js",
+    "built-ins/Math/f16round/prop-desc.js",
+    "built-ins/Math/fround/length.js",
+    "built-ins/Math/hypot/not-a-constructor.js",
+    "built-ins/Math/log10/Log10-specialVals.js",
+    "built-ins/Math/max/Math.max_each-element-coerced.js",
+    "built-ins/Math/min/not-a-constructor.js",
+    "built-ins/Math/pow/applying-the-exp-operator_A21.js",
+    "built-ins/Math/proto.js",
+    "built-ins/Math/round/prop-desc.js",
+    "built-ins/Math/sinh/not-a-constructor.js",
+    "built-ins/Math/sumPrecise/prop-desc.js",
+    "built-ins/Math/tanh/length.js",
+    "built-ins/Math/trunc/trunc-specialVals.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

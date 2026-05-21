@@ -592,7 +592,16 @@ mod tests {
                 realm: engine.realm.clone(),
             },
         );
-        let linker = Linker::new(&wasmi_engine);
+        let mut linker = Linker::new(&wasmi_engine);
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_PRINT_LINE_UTF8,
+                |_caller: Caller<'_, WasmHostState>, _ptr: i32, _len: i32| -> Result<(), Trap> {
+                    Ok(())
+                },
+            )
+            .expect("host print import should link");
         let instance = linker
             .instantiate(&mut store, &module)
             .expect("instance should instantiate")
@@ -716,6 +725,120 @@ mod tests {
                 },
             )
             .expect("template expression legacy octal string literal should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_parses_decimal_exponents_with_combined_scale() {
+        let outcome = engine()
+            .run_script(
+                "JSON.parse('1.1e-1') === 0.11 && parseFloat('1.1e-1') === 0.11 && parseFloat('1.23e1') === 12.3;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("decimal exponent parse should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_json_parse_duplicate_proto_literal_property() {
+        let outcome = engine()
+            .run_script(
+                "var value = JSON.parse('{\"__proto__\": 1, \"__proto__\": 2}'); typeof value === 'object' && value.__proto__ === 2;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("JSON.parse duplicate __proto__ should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_json_parse_reviver_uses_root_wrapper_this() {
+        let outcome = engine()
+            .run_script(
+                "var wrapper; JSON.parse('2', function() { wrapper = this; }); var isEnumerable = Function.prototype.call.bind(Object.prototype.propertyIsEnumerable); function enumCheck(obj, name) { var seen = false; for (var key in obj) { if (key === name) { seen = true; break; } } return seen && Object.prototype.hasOwnProperty.call(obj, name) && isEnumerable(obj, name); } function configurableCheck(obj, name) { delete obj[name]; return !Object.prototype.hasOwnProperty.call(obj, name); } typeof wrapper === 'object' && Object.getPrototypeOf(wrapper) === Object.prototype && Object.getOwnPropertyNames(wrapper).length === 1 && wrapper[''] === 2 && enumCheck(wrapper, '') && configurableCheck(wrapper, '');",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("JSON.parse reviver wrapper should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_json_parse_reviver_context_sources_for_static_json() {
+        let outcome = engine()
+            .run_script(
+                "var ok = true; var result = JSON.parse('[1.0,\"2\",true,null,{\"x\":1}]', function(k, v, c) { if (k === '0') ok = ok && c.source === '1.0'; if (k === '1') ok = ok && c.source === '\"2\"'; if (k === '2') ok = ok && c.source === 'true'; if (k === '3') ok = ok && c.source === 'null'; if (k === 'x') ok = ok && c.source === '1'; if (k === '4') ok = ok && typeof v === 'object' && v.x === 1 && Object.getOwnPropertyNames(c).length === 0; if (k === '') ok = ok && Object.getOwnPropertyNames(c).length === 0; return v; }); ok && result.length === 5 && result[0] === 1 && result[1] === '2' && result[2] === true && result[3] === null && result[4].x === 1;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("JSON.parse reviver context sources should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_has_own_checks_to_object_before_key() {
+        let outcome = engine()
+            .run_script(
+                "var calls = 0; var key = { toString: function() { calls = calls + 1; throw 'key'; } }; var ok = false; try { Object.hasOwn(undefined, key); } catch (e) { ok = e.name === 'TypeError'; } ok && calls === 0 && Object.hasOwn({x: 1}, 'x');",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.hasOwn ToObject ordering case should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_get_own_property_names_to_object_string() {
+        let outcome = engine()
+            .run_script(
+                "var empty = Object.getOwnPropertyNames(''); var text = Object.getOwnPropertyNames('ab'); var boxed = new String('abc'); boxed[5] = 'de'; var boxedNames = Object.getOwnPropertyNames(boxed); var arrNames = Object.getOwnPropertyNames([0, 1, 2]); var arrWithAccessor = [0, 1, 2]; Object.defineProperty(arrWithAccessor, 'ownProperty', { get: function() { return 'ownArray'; }, configurable: true }); var arrAccessorNames = Object.getOwnPropertyNames(arrWithAccessor); var accessorFound = false; for (var p in arrAccessorNames) { if (arrAccessorNames[p] === 'ownProperty') { accessorFound = true; } } var arrWithDot = [0, 1, 2]; arrWithDot.ownProperty = 'ownArray'; var arrDotNames = Object.getOwnPropertyNames(arrWithDot); var arrOrder = []; arrOrder.a = 1; Object.defineProperty(arrOrder, 'length', { value: 2 }); var arrOrderNames = Object.getOwnPropertyNames(arrOrder); var threw = false; try { Object.getOwnPropertyNames(undefined); } catch (e) { threw = e.name === 'TypeError'; } empty.length === 1 && empty[0] === 'length' && text.length === 3 && text[0] === '0' && text[1] === '1' && text[2] === 'length' && boxedNames.length === 5 && boxedNames[0] === '0' && boxedNames[1] === '1' && boxedNames[2] === '2' && boxedNames[3] === '5' && boxedNames[4] === 'length' && arrNames.length === 4 && arrNames[0] === '0' && arrNames[1] === '1' && arrNames[2] === '2' && arrNames[3] === 'length' && arrAccessorNames.length === 5 && arrAccessorNames[0] === '0' && arrAccessorNames[1] === '1' && arrAccessorNames[2] === '2' && arrAccessorNames[3] === 'length' && arrAccessorNames[4] === 'ownProperty' && accessorFound && arrDotNames.length === 5 && arrDotNames[0] === '0' && arrDotNames[1] === '1' && arrDotNames[2] === '2' && arrDotNames[3] === 'length' && arrDotNames[4] === 'ownProperty' && arrWithDot.ownProperty === 'ownArray' && arrOrderNames.length === 2 && arrOrderNames[0] === 'length' && arrOrderNames[1] === 'a' && threw;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.getOwnPropertyNames ToObject string case should run");
         assert!(
             outcome.note.contains("boolean(true)"),
             "note: {}",
@@ -1478,8 +1601,8 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
     }
 
     #[test]
-    fn wasm_backend_rejects_property_access_on_dynamic_target() {
-        let err = engine()
+    fn wasm_backend_lowers_property_access_on_dynamic_target() {
+        let outcome = engine()
             .run_script(
                 "let v; if (true) { v = 1; } else { v = { x: 1 }; } v.x;",
                 CompileOptions::default(),
@@ -1488,14 +1611,166 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
                     ..RunOptions::default()
                 },
             )
-            .expect_err("dynamic property access should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice"));
+            .expect("dynamic property access should run");
+        assert!(outcome.note.contains("undefined(undefined)"));
     }
 
     #[test]
-    fn wasm_backend_rejects_method_calls_and_array_length_brackets() {
+    fn wasm_backend_proxy_get_missing_trap_falls_back_to_object_target() {
+        for (source, expected) in [
+            (
+                "let p = new Proxy({ attr: 1 }, { get: undefined }); p.attr;",
+                "number(1)",
+            ),
+            (
+                "let p = new Proxy({ attr: 1 }, { get: undefined }); p.foo;",
+                "undefined(undefined)",
+            ),
+            (
+                "let target = { get attr() { return this; } }; let p = Object.create(new Proxy(target, {})); p.attr === p;",
+                "boolean(true)",
+            ),
+            (
+                "let a = [1, 2, 3]; let p = new Proxy(new Proxy(a, {}), { get: undefined }); p.length;",
+                "number(3)",
+            ),
+            (
+                "let a = [1, 2, 3]; let p = new Proxy(new Proxy(a, {}), { get: undefined }); p[1];",
+                "number(2)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("proxy get missing-trap case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_proxy_get_non_callable_trap_throws_type_error() {
+        let err = engine()
+            .run_script(
+                "let p = new Proxy({}, { get: {} }); p.attr;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("non-callable proxy get trap should throw");
+        assert!(err.message().contains("uncaught throw: TypeError"));
+    }
+
+    #[test]
+    fn wasm_backend_proxy_revocable_get_after_revoke_throws_type_error() {
+        let err = engine()
+            .run_script(
+                "let p = Proxy.revocable({}, {}); p.revoke(); p.proxy.attr;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("revoked proxy get should throw");
+        assert!(err.message().contains("uncaught throw: TypeError"));
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_proxy_constructor() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let OProxy = __porfCreateRealm().global.Proxy;
+let p = new OProxy({ attr: 7 }, {});
+(typeof OProxy) + ":" + (OProxy === Proxy) + ":" + (p.attr === 7);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should expose Proxy constructor");
+        assert!(
+            outcome.note.contains("string(function:true:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_get_null_trap_forwards_to_proxy_target_get() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let stringTarget = new Proxy(new String("str"), {});
+let stringProxy = new Proxy(stringTarget, { get: null });
+let sym = Symbol();
+let target = new Proxy({}, {
+  get: function(_target, key) {
+    switch (key) {
+      case sym: return 1;
+      case "10": return 2;
+      case "foo": return 3;
+    }
+  },
+});
+let proxy = new Proxy(target, { get: null });
+(stringProxy[0] === "s") + ":" + (proxy[sym] === 1) + ":" + (proxy[10] === 2) + ":" + (Object.create(proxy).foo === 3);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("null proxy get trap should forward to proxy target get");
+        assert!(
+            outcome.note.contains("string(true:true:true:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_get_enforces_non_configurable_target_invariants() {
+        for source in [
+            "let target = {}; Object.defineProperty(target, 'attr', { configurable: false, writable: false, value: 1 }); let p = new Proxy(target, { get() { return 2; } }); p.attr;",
+            "let target = {}; Object.defineProperty(target, 'attr', { configurable: false, get: undefined }); let p = new Proxy(target, { get() { return 2; } }); p.attr;",
+        ] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_err();
+            assert!(
+                err.message().contains("uncaught throw: TypeError"),
+                "source: {source}, error: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_runtime_throws_for_non_callable_method_and_keeps_array_length_brackets() {
         let method_err = engine()
             .run_script(
                 "let obj = { f: 1 }; obj.f();",
@@ -1505,10 +1780,8 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
                     ..RunOptions::default()
                 },
             )
-            .expect_err("method call should stay unsupported");
-        assert!(method_err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice: indirect call"));
+            .expect_err("non-callable method should throw");
+        assert!(method_err.message().contains("uncaught throw: TypeError"));
 
         let length_outcome = engine()
             .run_script(
@@ -1854,6 +2127,18 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
             )
             .expect("top-level lexical should stay off global object");
         assert!(lexical_not_global.note.contains("undefined(undefined"));
+
+        let lexical_not_own_property = engine()
+            .run_script(
+                "let x = 1; \"x\" in globalThis;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("top-level lexical should not define global object property");
+        assert!(lexical_not_own_property.note.contains("boolean(false"));
 
         let default_this = engine()
             .run_script(
@@ -2617,7 +2902,6 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
     fn wasm_backend_rejects_non_constructable_new_and_instanceof_tails() {
         for source in [
             "new.target;",
-            "let o = { get x() { return 1; } }; new o.x();",
             "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
         ] {
             let err = engine()
@@ -2644,6 +2928,7 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
         for source in [
             "try { new (() => 1)(); } catch (e) { e.name; }",
             "try { let o = { f() {} }; new o.f(); } catch (e) { e.name; }",
+            "try { let o = { get x() { return 1; } }; new o.x(); } catch (e) { e.name; }",
             "try { new print(); } catch (e) { e.name; }",
         ] {
             let outcome = engine()

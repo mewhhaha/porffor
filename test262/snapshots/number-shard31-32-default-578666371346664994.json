@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-31/32",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/prototype/toPrecision/prop-desc.js",
+      "duration_ms": 30218
+    },
+    {
+      "path": "built-ins/Number/S15.7.3_A4.js",
+      "duration_ms": 22268
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-dot-dd-nsl-dds-ep.js",
+      "duration_ms": 21438
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-8.js",
+      "duration_ms": 21287
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T20.js",
+      "duration_ms": 21194
+    },
+    {
+      "path": "built-ins/Number/prototype/toExponential/this-is-0-fractiondigits-is-0.js",
+      "duration_ms": 21137
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-12.js",
+      "duration_ms": 21044
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/safe-integers.js",
+      "duration_ms": 20931
+    },
+    {
+      "path": "built-ins/Number/isFinite/finite-numbers.js",
+      "duration_ms": 20738
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A25.js",
+      "duration_ms": 20625
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/S15.7.3_A4.js",
+    "built-ins/Number/S9.3.1_A25.js",
+    "built-ins/Number/isFinite/finite-numbers.js",
+    "built-ins/Number/isSafeInteger/safe-integers.js",
+    "built-ins/Number/prototype/toExponential/this-is-0-fractiondigits-is-0.js",
+    "built-ins/Number/prototype/toPrecision/prop-desc.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T20.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-12.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-8.js",
+    "built-ins/Number/string-numeric-separator-literal-dot-dd-nsl-dds-ep.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

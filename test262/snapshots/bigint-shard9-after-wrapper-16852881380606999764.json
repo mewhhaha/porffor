@@ -1,0 +1,90 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-9/10",
+  "total": 7,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/prototype/Symbol.toStringTag.js",
+      "duration_ms": 28797
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/name.js",
+      "duration_ms": 28773
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/prop-desc.js",
+      "duration_ms": 28500
+    },
+    {
+      "path": "built-ins/BigInt/infinity-throws-rangeerror.js",
+      "duration_ms": 21641
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/bits-toindex-wrapped-values.js",
+      "duration_ms": 21123
+    },
+    {
+      "path": "built-ins/BigInt/asUintN/bigint-tobigint-wrapped-values.js",
+      "duration_ms": 20167
+    },
+    {
+      "path": "built-ins/BigInt/call-value-of-when-to-string-present.js",
+      "duration_ms": 19599
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/prototype/Symbol.toStringTag.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
+      "detail_hash": 4157586038938152846
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/bits-toindex-wrapped-values.js",
+    "built-ins/BigInt/asUintN/bigint-tobigint-wrapped-values.js",
+    "built-ins/BigInt/call-value-of-when-to-string-present.js",
+    "built-ins/BigInt/infinity-throws-rangeerror.js",
+    "built-ins/BigInt/prototype/Symbol.toStringTag.js",
+    "built-ins/BigInt/prototype/toString/prop-desc.js",
+    "built-ins/BigInt/prototype/valueOf/name.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

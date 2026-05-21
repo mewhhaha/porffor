@@ -1,0 +1,126 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-2/32",
+  "total": 11,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 3,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/prototype/toString/prop-desc.js",
+      "duration_ms": 33099
+    },
+    {
+      "path": "built-ins/Number/parseInt.js",
+      "duration_ms": 32259
+    },
+    {
+      "path": "built-ins/Number/isFinite/name.js",
+      "duration_ms": 31953
+    },
+    {
+      "path": "built-ins/Number/prototype/toPrecision/return-abrupt-tointeger-precision.js",
+      "duration_ms": 24687
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-hil-hd-nsl-hd.js",
+      "duration_ms": 23359
+    },
+    {
+      "path": "built-ins/Number/S15.7.3_A7.js",
+      "duration_ms": 22325
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-15.js",
+      "duration_ms": 22134
+    },
+    {
+      "path": "built-ins/Number/prototype/toExponential/tointeger-fractiondigits.js",
+      "duration_ms": 21757
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A28.js",
+      "duration_ms": 21601
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T23.js",
+      "duration_ms": 21423
+    }
+  ],
+  "timeout_list": [
+    "built-ins/Number/isFinite/name.js",
+    "built-ins/Number/parseInt.js",
+    "built-ins/Number/prototype/toString/prop-desc.js"
+  ],
+  "failures": [
+    {
+      "test_path": "built-ins/Number/isFinite/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 31953ms",
+      "detail_hash": 12929522014653822720
+    },
+    {
+      "test_path": "built-ins/Number/parseInt.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 32259ms",
+      "detail_hash": 2672036904389117878
+    },
+    {
+      "test_path": "built-ins/Number/prototype/toString/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 33099ms",
+      "detail_hash": 6079864632563559840
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Number/15.7.3-2.js",
+    "built-ins/Number/S15.7.3_A7.js",
+    "built-ins/Number/S9.3.1_A28.js",
+    "built-ins/Number/isFinite/name.js",
+    "built-ins/Number/parseInt.js",
+    "built-ins/Number/prototype/toExponential/tointeger-fractiondigits.js",
+    "built-ins/Number/prototype/toPrecision/return-abrupt-tointeger-precision.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T23.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-15.js",
+    "built-ins/Number/prototype/toString/prop-desc.js",
+    "built-ins/Number/string-numeric-separator-literal-hil-hd-nsl-hd.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-14/32",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+      "duration_ms": 32683
+    },
+    {
+      "path": "built-ins/Number/isInteger/prop-desc.js",
+      "duration_ms": 32556
+    },
+    {
+      "path": "built-ins/Number/prototype/toFixed/prop-desc.js",
+      "duration_ms": 32318
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A3_T01.js",
+      "duration_ms": 27180
+    },
+    {
+      "path": "built-ins/Number/return-abrupt-tonumber-value-symbol.js",
+      "duration_ms": 25988
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-oil-ods-nsl-ods.js",
+      "duration_ms": 23993
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-26.js",
+      "duration_ms": 23202
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A1.js",
+      "duration_ms": 22623
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T03.js",
+      "duration_ms": 22235
+    },
+    {
+      "path": "built-ins/Number/prototype/S15.7.4_A3.3.js",
+      "duration_ms": 22185
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+    "built-ins/Number/S9.3.1_A1.js",
+    "built-ins/Number/S9.3.1_A5_T1.js",
+    "built-ins/Number/isInteger/prop-desc.js",
+    "built-ins/Number/prototype/S15.7.4_A3.3.js",
+    "built-ins/Number/prototype/toFixed/prop-desc.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T03.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A3_T01.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-26.js",
+    "built-ins/Number/return-abrupt-tonumber-value-symbol.js",
+    "built-ins/Number/string-numeric-separator-literal-oil-ods-nsl-ods.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 2020102566352541541,
+  "run_kind": "full",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/isSafeInteger/prop-desc.js",
+      "duration_ms": 28854
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/name.js",
+      "duration_ms": 28830
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/length.js",
+      "duration_ms": 28546
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/not-a-constructor.js",
+      "duration_ms": 20920
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/safe-integers.js",
+      "duration_ms": 20392
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/not-safe-integer.js",
+      "duration_ms": 20364
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/not-integer.js",
+      "duration_ms": 20330
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/nan.js",
+      "duration_ms": 20096
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/infinity.js",
+      "duration_ms": 19831
+    },
+    {
+      "path": "built-ins/Number/isSafeInteger/arg-is-not-number.js",
+      "duration_ms": 19753
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/isSafeInteger/arg-is-not-number.js",
+    "built-ins/Number/isSafeInteger/infinity.js",
+    "built-ins/Number/isSafeInteger/length.js",
+    "built-ins/Number/isSafeInteger/name.js",
+    "built-ins/Number/isSafeInteger/nan.js",
+    "built-ins/Number/isSafeInteger/not-a-constructor.js",
+    "built-ins/Number/isSafeInteger/not-integer.js",
+    "built-ins/Number/isSafeInteger/not-safe-integer.js",
+    "built-ins/Number/isSafeInteger/prop-desc.js",
+    "built-ins/Number/isSafeInteger/safe-integers.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,103 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 16852881380606999764,
+  "run_kind": "shard-1/10",
+  "total": 8,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/BigInt/asUintN/bits-toindex-errors.js",
+      "duration_ms": 32330
+    },
+    {
+      "path": "built-ins/BigInt/prototype/valueOf/prop-desc.js",
+      "duration_ms": 29720
+    },
+    {
+      "path": "built-ins/BigInt/prototype/prop-desc.js",
+      "duration_ms": 29131
+    },
+    {
+      "path": "built-ins/BigInt/length.js",
+      "duration_ms": 28993
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/length.js",
+      "duration_ms": 28232
+    },
+    {
+      "path": "built-ins/BigInt/constructor-empty-string.js",
+      "duration_ms": 19757
+    },
+    {
+      "path": "built-ins/BigInt/prototype/toString/radix-2-to-36.js",
+      "duration_ms": 12709
+    },
+    {
+      "path": "built-ins/BigInt/asIntN/arithmetic.js",
+      "duration_ms": 10220
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/BigInt/asIntN/arithmetic.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: bigint literal outside 64-bit DataView slice. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14028094319409686107
+    },
+    {
+      "test_path": "built-ins/BigInt/prototype/toString/radix-2-to-36.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: property access on non-object target. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 12732032328188621135
+    }
+  ],
+  "completed_paths": [
+    "built-ins/BigInt/asIntN/arithmetic.js",
+    "built-ins/BigInt/asIntN/length.js",
+    "built-ins/BigInt/asUintN/bits-toindex-errors.js",
+    "built-ins/BigInt/constructor-empty-string.js",
+    "built-ins/BigInt/length.js",
+    "built-ins/BigInt/prototype/prop-desc.js",
+    "built-ins/BigInt/prototype/toString/radix-2-to-36.js",
+    "built-ins/BigInt/prototype/valueOf/prop-desc.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

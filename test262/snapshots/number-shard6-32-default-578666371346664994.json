@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-6/32",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+      "duration_ms": 30122
+    },
+    {
+      "path": "built-ins/Number/prototype/toPrecision/this-type-not-number-or-number-object.js",
+      "duration_ms": 30065
+    },
+    {
+      "path": "built-ins/Number/prototype/toFixed/S15.7.4.5_A1.3_T01.js",
+      "duration_ms": 24363
+    },
+    {
+      "path": "built-ins/Number/prototype/valueOf/S15.7.4.4_A2_T02.js",
+      "duration_ms": 23782
+    },
+    {
+      "path": "built-ins/Number/prototype/15.7.3.1-2.js",
+      "duration_ms": 22565
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-hil-od-nsl-od-one-of.js",
+      "duration_ms": 22425
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T27.js",
+      "duration_ms": 22398
+    },
+    {
+      "path": "built-ins/Number/isInteger/arg-is-not-number.js",
+      "duration_ms": 22331
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-19.js",
+      "duration_ms": 22271
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A31.js",
+      "duration_ms": 22139
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+    "built-ins/Number/S15.7.5_A1_T03.js",
+    "built-ins/Number/S9.3.1_A31.js",
+    "built-ins/Number/isInteger/arg-is-not-number.js",
+    "built-ins/Number/prototype/15.7.3.1-2.js",
+    "built-ins/Number/prototype/toFixed/S15.7.4.5_A1.3_T01.js",
+    "built-ins/Number/prototype/toPrecision/this-type-not-number-or-number-object.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T27.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-19.js",
+    "built-ins/Number/prototype/valueOf/S15.7.4.4_A2_T02.js",
+    "built-ins/Number/string-numeric-separator-literal-hil-od-nsl-od-one-of.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

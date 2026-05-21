@@ -394,17 +394,35 @@ function __porfCallTypedArrayConstructorCallback(f, TA, argFactory) {
   f(TA, argFactory);
 }
 
-function testWithTypedArrayConstructors(f, selected) {
+function testWithTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
   var passthrough = function (value) { return value; };
-  if (selected === undefined) {
-    testWithTypedArrayConstructors(f, floatArrayConstructors);
-    testWithTypedArrayConstructors(f, intArrayConstructors);
+  if (includeArgFactories !== undefined && includeArgFactories !== null) {
+    if (includeArgFactories.length !== 1 || includeArgFactories[0] !== "passthrough") {
+      throw "no arg factories match include and exclude in wasm-aot harness";
+    }
+  }
+  if (excludeArgFactories !== undefined && excludeArgFactories !== null && excludeArgFactories.length > 0) {
+    throw "no arg factories match include and exclude in wasm-aot harness";
+  }
+  if (selected === undefined || selected === null || selected === typedArrayConstructors) {
+    testWithTypedArrayConstructors(f, floatArrayConstructors, includeArgFactories, excludeArgFactories);
+    testWithTypedArrayConstructors(f, intArrayConstructors, includeArgFactories, excludeArgFactories);
     return;
   }
   if (selected === floatArrayConstructors) {
     __porfCurrentTypedArrayConstructorIsFloat = true;
     __porfCallTypedArrayConstructorCallback(f, Float64Array, passthrough);
     __porfCallTypedArrayConstructorCallback(f, Float32Array, passthrough);
+    return;
+  }
+  if (selected === nonClampedIntArrayConstructors) {
+    __porfCurrentTypedArrayConstructorIsFloat = false;
+    __porfCallTypedArrayConstructorCallback(f, Int32Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Int16Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Int8Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint32Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint16Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, Uint8Array, passthrough);
     return;
   }
   if (selected === intArrayConstructors) {
@@ -421,8 +439,8 @@ function testWithTypedArrayConstructors(f, selected) {
   throw "testWithTypedArrayConstructors selected set unsupported in wasm-aot harness";
 }
 
-function testWithAllTypedArrayConstructors(f, selected) {
-  testWithTypedArrayConstructors(f, selected);
+function testWithAllTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
+  testWithTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories);
 }
 
 function testWithBigIntTypedArrayConstructors(f, selected) {

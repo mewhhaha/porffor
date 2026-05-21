@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "6b0b30ebbe433c76ee15925cb629d3e2ce47c14f"
+  },
+  "manifest_hash": 578666371346664994,
+  "run_kind": "shard-20/32",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Number/POSITIVE_INFINITY/prop-desc.js",
+      "duration_ms": 33853
+    },
+    {
+      "path": "built-ins/Number/prototype/prop-desc.js",
+      "duration_ms": 32286
+    },
+    {
+      "path": "built-ins/Number/prototype/toLocaleString/length.js",
+      "duration_ms": 31903
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A4_T03.js",
+      "duration_ms": 24562
+    },
+    {
+      "path": "built-ins/Number/string-numeric-separator-literal-bil-bd-nsl-bds.js",
+      "duration_ms": 23730
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/S15.7.4.2_A2_T09.js",
+      "duration_ms": 23582
+    },
+    {
+      "path": "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-31.js",
+      "duration_ms": 23396
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A8.js",
+      "duration_ms": 21699
+    },
+    {
+      "path": "built-ins/Number/S9.3.1_A15.js",
+      "duration_ms": 21671
+    },
+    {
+      "path": "built-ins/Number/isNaN/not-nan.js",
+      "duration_ms": 21545
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Number/POSITIVE_INFINITY/prop-desc.js",
+    "built-ins/Number/S9.3.1_A15.js",
+    "built-ins/Number/S9.3.1_A8.js",
+    "built-ins/Number/isNaN/not-nan.js",
+    "built-ins/Number/prototype/prop-desc.js",
+    "built-ins/Number/prototype/toLocaleString/length.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A2_T09.js",
+    "built-ins/Number/prototype/toString/S15.7.4.2_A4_T03.js",
+    "built-ins/Number/prototype/toString/numeric-literal-tostring-radix-31.js",
+    "built-ins/Number/string-numeric-separator-literal-bil-bd-nsl-bds.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}
