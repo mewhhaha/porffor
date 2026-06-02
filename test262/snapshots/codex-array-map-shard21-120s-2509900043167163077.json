@@ -1,0 +1,100 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 2509900043167163077,
+  "run_kind": "shard-21/24",
+  "total": 9,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-4-6.js",
+      "duration_ms": 28276
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-9-9.js",
+      "duration_ms": 19683
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-b-4.js",
+      "duration_ms": 19094
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-5-6.js",
+      "duration_ms": 18750
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-3-20.js",
+      "duration_ms": 18448
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-23.js",
+      "duration_ms": 18095
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-2-14.js",
+      "duration_ms": 18010
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-28.js",
+      "duration_ms": 17907
+    },
+    {
+      "path": "built-ins/Array/prototype/map/resizable-buffer.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Array/prototype/map/resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Array/prototype/map/15.4.4.19-2-14.js",
+    "built-ins/Array/prototype/map/15.4.4.19-3-20.js",
+    "built-ins/Array/prototype/map/15.4.4.19-4-6.js",
+    "built-ins/Array/prototype/map/15.4.4.19-5-6.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-b-4.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-28.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-23.js",
+    "built-ins/Array/prototype/map/15.4.4.19-9-9.js",
+    "built-ins/Array/prototype/map/resizable-buffer.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

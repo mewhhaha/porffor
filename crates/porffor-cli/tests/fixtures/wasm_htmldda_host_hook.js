@@ -1,16 +1,9 @@
-function IsHTMLDDA() {
+function __porfIsHTMLDDA() {
   return null;
 }
 
-Object.defineProperty(IsHTMLDDA, "$IsHTMLDDA", {
-  value: true,
-  writable: false,
-  enumerable: false,
-  configurable: false
-});
-
 var $262 = {
-  IsHTMLDDA: IsHTMLDDA
+  IsHTMLDDA: __porfIsHTMLDDA
 };
 
 if ($262.IsHTMLDDA === undefined) throw "strict undefined";

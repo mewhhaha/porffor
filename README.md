@@ -1,9 +1,20 @@
-# Porffor &nbsp;<sup><sub>/ˈpɔrfɔr/ &nbsp;*(poor-for)*</sup></sub>
-A from-scratch experimental **AOT** optimizing JS/TS -> Wasm/C engine/compiler/runtime in JS. Research project, not yet intended for serious use.<br>
+# Porffor <sup><sub>/ˈpɔrfɔr/ *(poor-for)*</sub></sup>
 
-<img src="https://github.com/CanadaHonk/porffor/assets/19228318/de8ad753-8ce3-4dcd-838e-f4d49452f8f8" alt="Screenshot of terminal showing Porffor running and compiling a hello world" width="60%">
+Porffor is a Rust rewrite of the original Porffor experiment: a JavaScript-to-Wasm
+AOT compiler, library, CLI, and conformance harness. It is still a research
+project and not ready for general JavaScript workloads.
+
+The product path is direct JavaScript compilation. User programs must go through
+parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Porffor
+does not count "compile a JavaScript interpreter or VM to Wasm and feed source
+into it" as success.
+
+The older JavaScript implementation is still in the repository as reference
+material and as an oracle while the Rust path catches up. Treat the Rust crates
+and `porf` CLI under `crates/` as the current development surface.
 
 ## Current Status
+<!-- porffor-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
 - Fake wasm-safe Test262 subset: `187/187` green
 - Fake full Rust rewrite suite: `190/190` green
@@ -21,159 +32,149 @@ Status refresh commands:
 - `./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real`
 
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
+<!-- porffor-status:end -->
+
+## Rust Workspace
+
+- `crates/porffor-front`: parser boundary and source-unit handling.
+- `crates/porffor-ir`: spec-shaped IR, diagnostics, and lowering metadata.
+- `crates/porffor-runtime`: realms and host hooks.
+- `crates/porffor-aot-wasm`: primary direct JS -> Wasm backend.
+- `crates/porffor-engine`: public Rust library API.
+- `crates/porffor-cli`: clean-break `porf` command.
+- `crates/porffor-test262`: Test262 discovery, execution, snapshots, taxonomy, and README status publishing.
+- `crates/porffor-spec-exec`: reference/spec execution backend used for conformance work.
+- `crates/porffor-backend-c` and `crates/porffor-backend-native`: scaffolds, not product-ready emitters.
+
+Supporting directories:
+
+- `docs/rust-rewrite`: rewrite notes, architecture invariants, and conformance taxonomy.
+- `test262`: pinned real Test262 checkout, local harness files, and snapshots.
+- `scripts`: repo maintenance and low-RAM real-suite publication scripts.
+- `compiler`, `runtime`, and `package.json`: legacy JavaScript implementation and npm-facing files inherited from the previous project.
+- `vendor`: vendored Rust dependencies used by the rewrite.
+
+## CLI
+
+Build the Rust CLI:
+
+```sh
+cargo build -p porffor-cli
+```
+
+Run the built binary directly:
+
+```sh
+./target/debug/porf --help
+./target/debug/porf inspect crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/porf run --execution-backend wasm crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/porf build wasm crates/porffor-cli/tests/fixtures/hello.js
+```
+
+Or run it through Cargo:
+
+```sh
+cargo run -p porffor-cli -- inspect crates/porffor-cli/tests/fixtures/hello.js
+```
+
+Current commands:
+
+- `run [--execution-backend spec|wasm] <file>` runs a script through the Rust engine. `spec` is the default reference backend; `wasm` is the AOT Wasm backend.
+- `build wasm <file>` compiles JavaScript directly to a Wasm artifact and prints the artifact summary.
+- `build c <file>` and `build native <file>` exist as CLI surfaces but currently fail with scaffold errors.
+- `inspect <file>` prints the parser/lowering pipeline summary and invariants.
+- `test262 ...` drives the fake fixture suite, pinned real suite, status snapshots, triage, and README status publication.
+- `repl` is reserved for the Rust REPL and is not implemented yet.
+
+The npm `porf` entry in `package.json` still points at the inherited JavaScript
+runtime. Do not use it as the source of truth for the Rust rewrite.
+
+## Conformance
+
+The conformance goal is literal full pinned Test262 green for the Rust path, with
+fake-suite progress kept separate from real-suite progress.
+
+Useful local checks:
+
+```sh
+cargo test -p porffor-engine --quiet
+cargo test -p porffor-cli --quiet
+./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
+./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+```
+
+For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
+checkpoints one node per process and only publishes after verified completion:
+
+```sh
+./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
+./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
+```
+
+Useful status and triage commands:
+
+```sh
+./target/debug/porf test262 progress-status --execution-backend wasm-aot
+./target/debug/porf test262 triage-status --execution-backend wasm-aot
+./target/debug/porf test262 failure-details language/wasm --execution-backend wasm-aot
+```
 
 ## Current Capabilities
-Rust Wasm-AOT currently compiles a limited but useful JavaScript subset. Treat this as a tested capability map, not a spec-completeness claim. Programs are most likely to work when they stay close to the repo fixtures under `crates/porffor-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262 cases under `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
+
+Rust Wasm-AOT currently compiles a limited but useful JavaScript subset. Treat
+this as a tested capability map, not a spec-completeness claim. Programs are
+most likely to work when they stay close to the fixtures under
+`crates/porffor-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262
+cases under
+`crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
 Currently covered areas include:
+
 - Basic expressions, arithmetic, comparisons, logical/nullish operators, updates, `typeof`, and `void`.
 - `var` and lexical bindings, globals, `globalThis`, implicit globals, and common global resolution paths.
 - Control flow: `if`, `switch`, `while`, `do while`, `for`, labels, `break`, and `continue`.
 - Functions: declarations, expressions, arrows, recursion, closures, default/rest parameters, `arguments`, and common `this` binding cases.
 - Objects: literals, property reads/writes, methods, accessors, prototypes, `Object.create`, `Object.getPrototypeOf`, and `instanceof`.
-- Arrays: literals, indexed reads/writes, `length`, growth, holes/sparse basics, `Array.isArray`, and focused coverage for `concat`, `flat`, `flatMap`, `map`, `forEach`, and species-sensitive paths.
+- Arrays: literals, indexed reads/writes, `length`, growth, holes/sparse basics, `Array.isArray`, and focused coverage for `concat`, `flat`, `flatMap`, `every`, `some`, `filter`, `map`, `forEach`, `keys`, `entries`, `values`, and species-sensitive paths.
 - Exceptions and abrupt completion: `throw`, `try/catch/finally`, `return`/`finally` interactions, and basic native error objects.
 - Constructors/classes: `new`, `new.target`, constructor return objects, bound constructors, class call errors, and some derived/null-heritage behavior.
 - Builtins: focused support for `Function.prototype.call/apply/bind/toString`, boxed primitives, `Number`, `String`, `Boolean`, `Error` family basics, selected Annex B string/global helpers, and basic Date behavior.
 - Binary data APIs: `ArrayBuffer`, `SharedArrayBuffer` rejection paths, `DataView` numeric accessors, typed-array indexed writes/accessors, and empty `%TypedArray%.from([])` construction.
 - Harness/host-oriented helpers used by tests, such as `print` and selected host hooks.
 
-Expected weak or missing areas include full real Test262 coverage, modules, async/generators, broad iterator semantics, Proxy, RegExp-heavy behavior, Intl, full descriptor/species semantics, complete typed arrays, complete Date/Temporal behavior, and many edge cases around exotic objects and cross-realm behavior.
+Expected weak or missing areas include full real Test262 coverage, modules,
+async/generators, broad iterator semantics, Proxy, RegExp-heavy behavior, Intl,
+full descriptor/species semantics, complete typed arrays, complete Date/Temporal
+behavior, and many edge cases around exotic objects and cross-realm behavior.
 
-## Design
-Porffor is a very unique JS engine, due many wildly different approaches. It is seriously limited, but what it can do, it does pretty well. Key differences:
-- 100% AOT compiled (no JIT or interpreter)
-- Zero constant runtime/preluded code
-- Least Wasm imports possible (only I/O)
+Dynamic source evaluation features such as `eval`, `new Function`, and
+cross-realm `Function` constructors are explicit Wasm-AOT unsupported cases
+when supporting them would require bundling a parser, interpreter, or VM into
+the emitted Wasm artifact.
 
-Porffor is primarily built from scratch, the only thing that is not is the parser (using [Acorn](https://github.com/acornjs/acorn)). Binaryen/etc is not used, we make final wasm binaries ourself. You could imagine it as compiling a language which is a sub (some things unsupported) and super (new/custom apis) set of javascript. Not based on any particular spec version.
+## Architecture Invariants
 
-## Usage
-Expect arbitrary JavaScript to fail. The Rust Wasm-AOT path supports the limited subset described in [Current Capabilities](#current-capabilities); see `bench`, `crates/porffor-cli/tests/fixtures/wasm_*.js`, and the fake wasm-safe Test262 fixtures for examples of programs that currently compile.
+- Product compilation is `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
+- `build wasm` must emit compiled user-program semantics and lowered builtins, not a generic evaluator blob.
+- Debug/reference execution may exist for differential testing, but it is not the product CLI runtime path and must not be shipped as the Wasm artifact strategy.
+- Permanent silent skips and unowned expected failures are not acceptable conformance accounting.
+- README conformance numbers are maintained with `porf test262 publish-status` or the low-RAM publication script, not by hand-editing status totals.
 
-### Install
-**`npm install -g porffor@latest`**. It's that easy (hopefully) :)
+## Development
 
-### Trying a REPL
-**`porf`**. Just run it with no script file argument.
+Start with focused package tests while working, then widen only when the change
+touches shared behavior:
 
-### Running a JS file
-**`porf path/to/script.js`**
+```sh
+cargo test -p porffor-engine --quiet
+cargo test -p porffor-cli --quiet
+cargo test -p porffor-test262 --quiet
+```
 
-### Compiling to Wasm
-**`porf wasm path/to/script.js out.wasm`**. Currently it does not use an import standard like WASI, so it is mostly unusable on its own.
+The workspace forbids unsafe Rust through workspace lints. Keep changes scoped
+to the Rust path unless a legacy file is being used deliberately as an oracle or
+fixture source.
 
-### Compiling to native binaries
-> [!WARNING]
-> Compiling to native binaries uses [2c](#2c), Porffor's own Wasm -> C compiler, which is experimental.
+## The Name
 
-**`porf native path/to/script.js out(.exe)`**. You can specify the compiler with `--compiler=clang|gcc|zig` (`clang` by default), and which optimization level to use with `--cO=Ofast|O3|O2|O1|O0` (`Ofast` by default). Output binaries are also stripped by default.
-
-### Compiling to C
-> [!WARNING]
-> Compiling to C uses [2c](#2c), Porffor's own Wasm -> C compiler, which is experimental.
-
-**`porf c path/to/script.js (out.c)`**. When not including an output file, it will be printed to stdout instead.
-
-### Profiling a JS file
-> [!WARNING]
-> Experimental WIP feature!
-
-**`porf profile path/to/script.js`**
-
-### Debugging a JS file
-> [!WARNING]
-> Very experimental WIP feature!
-
-**`porf debug path/to/script.js`**
-
-<!-- ### Debugging the compiled Wasm of a JS file
-> [!WARNING]
-> Very experimental WIP feature!
-
-**`porf dissect path/to/script.js`** -->
-
-
-### Options
-- `--parser=acorn|@babel/parser|meriyah|hermes-parser` (default: `acorn`) to set which parser to use
-- `--parse-types` to enable parsing type annotations/typescript. if `-parser` is unset, changes default to `@babel/parser`. does not type check
-- `--opt-types` to perform optimizations using type annotations as compiler hints. does not type check
-- `--valtype=i32|f64` (default: `f64`) to set valtype
-- `-O0` to disable opt
-- `-O1` (default) to enable basic opt (simplify insts, treeshake wasm imports)
-- `-O2` to enable advanced opt (partial evaluation). unstable!
-
-## Current limitations
-- Limited async support (`Promise` and `await` have known bugs)
-- No variables between scopes (except args and globals)
-- No `eval()`/`Function()` etc (since it is AOT)
-
-## Sub-engines
-
-<!-- ### Asur
-Asur is Porffor's own Wasm engine; it is an intentionally simple interpreter written in JS. It is very WIP. See [its readme](asur/README.md) for more details. -->
-
-### 2c
-2c is Porffor's own Wasm -> C compiler, using generated Wasm bytecode and internal info to generate specific and efficient C code. Little boilerplate/preluded code or required external files, just for CLI binaries (not like wasm2c very much).
-
-## Versioning
-Porffor uses a unique versioning system, here's an example: `0.48.7`. Let's break it down:
-1. `0` - major, always `0` as Porffor is not ready yet
-2. `48` - minor, total Test262 pass percentage (rounded half down, eg `49.4%` -> `48`, `49.5%` -> `49`)
-3. `7` - micro, build number for that minor (incremented each git push)
-
-## Performance
-*For the features it supports most of the time*, Porffor is *blazingly fast* compared to most interpreters and common engines running without JIT. For those with JIT, it is usually slower by default, but can catch up with compiler arguments and typed input, even more so when compiling to native binaries.
-
-## Codebase
-- `compiler`: contains the compiler itself
-  - `builtins`: built-in apis written in typescript
-  - `2c.js`: custom wasm-to-c engine
-  - `assemble.js`: assembles wasm ops and metadata into a spec-compliant wasm module/file
-  - `builtins.js`: all manually written built-ins of the engine (spec, custom. vars, funcs)
-  - `builtins_precompiled.js`: generated builtins from the `builtins/` folder
-  - `codegen.js`: code (wasm) generation, ast -> wasm. The bulk of the effort
-  - `cyclone.js`: wasm partial constant evaluator (it is fast and dangerous hence "cyclone")
-  - `disassemble.js`: wasm disassembler using internal debug info
-  - `encoding.js`: utils for encoding things as bytes as wasm expects
-  - `expression.js`: mapping most operators to an opcode (advanced are as built-ins eg `f64_%`)
-  - `havoc.js`: wasm rewrite library (it wreaks havoc upon wasm bytecode hence "havoc")
-  - `index.js`: doing all the compiler steps, takes code in, wasm out
-  - `opt.js`: self-made wasm bytecode optimizer
-  - `parse.js`: parser simply wrapping acorn (or other acorn-like parsers)
-  - `pgo.js`: a profile guided optimizer
-  - `precompile.js`: the tool to generate `builtins_precompied.js`
-  - `prefs.js`: a utility to read command line arguments
-  - `prototype.js`: some builtin prototype functions (~legacy)
-  - `types.js`: definitions for each of the builtin types
-  - `wasmSpec.js`: "enums"/info from wasm spec
-  - `wrap.js`: wrapper for compiler which instantiates and produces nice exports
-
-- `runtime`: contains utils for running JS with the compiler
-  - `index.js`: the main file, you probably want to use this
-  - `repl.js`: basic repl (uses `node:repl`)
-
-- `test262`: test262 runner and utils
-
-## Usecases
-Currently, Porffor is seriously limited in features and functionality, however it has some key benefits:
-- Safety. As Porffor is written in JS, a memory-safe language\*, and compiles JS to Wasm, a fully sandboxed environment\*, it is quite safe. (\* These rely on the underlying implementations being secure. You could also run Wasm, or even Porffor itself, with an interpreter instead of a JIT for bonus security points too.)
-- Compiling JS to native binaries. This is still very early!
-- Inline Wasm for when you want to beat the compiler in performance, or just want fine grained functionality.
-- Potential for SIMD operations and other lower level concepts.
-- More in future probably?
-
-## Wasm proposals used
-Porffor intentionally does not use Wasm proposals which are not commonly implemented yet (eg GC) so it can be used in as many places as possible.
-
-- Multi-value **(required)**
-- Non-trapping float-to-int conversions **(required)**
-- Bulk memory operations (optional, can get away without sometimes)
-- Exception handling (optional, only for errors)
-- Tail calls (opt-in, off by default)
-
-## The name
-`purple` in Welsh is `porffor`. Why purple?
-- No other JS engine is purple colored
-- Purple is pretty cool
-- Purple apparently represents "ambition", which is one word to describe this project
+`porffor` means `purple` in Welsh.

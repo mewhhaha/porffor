@@ -1469,6 +1469,22 @@ fn run_wasm_backend_succeeds_for_captured_arguments_length_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_for_in_array_key_capture_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_for_in_array_key_capture.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_json_parse_invalid_literal_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -1482,6 +1498,42 @@ fn run_wasm_backend_succeeds_for_json_parse_invalid_literal_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_json_parse_reviver_array_getter_throw.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_json_parse_reviver_forward_modification_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_json_parse_reviver_forward_modification.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
 }
 
 #[test]
@@ -2981,6 +3033,54 @@ fn run_wasm_backend_succeeds_for_supported_array_map_core_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_supported_array_filter_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_filter_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_every_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_every_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_some_core_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_some_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_array_map_species_core_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -3003,6 +3103,56 @@ fn run_wasm_backend_succeeds_for_supported_array_map_species_target_writes_fixtu
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_array_map_species_target_writes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_map_resizable_typedarray_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_map_resizable_typedarray.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_values_resizable_typedarray_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_values_resizable_typedarray.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_array_keys_entries_resizable_typedarray_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_array_keys_entries_resizable_typedarray.js",
+        ))
         .output()
         .expect("run command should run");
 

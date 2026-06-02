@@ -1,0 +1,91 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 2509900043167163077,
+  "run_kind": "shard-4/24",
+  "total": 9,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-iii-1.js",
+      "duration_ms": 33255
+    },
+    {
+      "path": "built-ins/Array/prototype/map/create-proto-from-ctor-realm-array.js",
+      "duration_ms": 26815
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-3-29.js",
+      "duration_ms": 23375
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-6.js",
+      "duration_ms": 18017
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-10.js",
+      "duration_ms": 17372
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-5-11.js",
+      "duration_ms": 17093
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-3.js",
+      "duration_ms": 17083
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-2-5.js",
+      "duration_ms": 16117
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-1-12.js",
+      "duration_ms": 14833
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Array/prototype/map/15.4.4.19-1-12.js",
+    "built-ins/Array/prototype/map/15.4.4.19-2-5.js",
+    "built-ins/Array/prototype/map/15.4.4.19-3-29.js",
+    "built-ins/Array/prototype/map/15.4.4.19-5-11.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-3.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-10.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-6.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-iii-1.js",
+    "built-ins/Array/prototype/map/create-proto-from-ctor-realm-array.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

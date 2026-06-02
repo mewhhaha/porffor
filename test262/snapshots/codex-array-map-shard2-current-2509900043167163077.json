@@ -1,0 +1,102 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 2509900043167163077,
+  "run_kind": "shard-2/24",
+  "total": 9,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 1,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/map/create-non-array-invalid-len.js",
+      "duration_ms": 33307
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-8.js",
+      "duration_ms": 19526
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-b-9.js",
+      "duration_ms": 18184
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-4.js",
+      "duration_ms": 17527
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-5-1.js",
+      "duration_ms": 17512
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-1.js",
+      "duration_ms": 17148
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-3-25.js",
+      "duration_ms": 16781
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-2-3.js",
+      "duration_ms": 12618
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-1-10.js",
+      "duration_ms": 11120
+    }
+  ],
+  "timeout_list": [
+    "built-ins/Array/prototype/map/create-non-array-invalid-len.js"
+  ],
+  "failures": [
+    {
+      "test_path": "built-ins/Array/prototype/map/create-non-array-invalid-len.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 33307ms",
+      "detail_hash": 7170220502459600346
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Array/prototype/map/15.4.4.19-1-10.js",
+    "built-ins/Array/prototype/map/15.4.4.19-2-3.js",
+    "built-ins/Array/prototype/map/15.4.4.19-3-25.js",
+    "built-ins/Array/prototype/map/15.4.4.19-5-1.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-1.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-b-9.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-4.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-8.js",
+    "built-ins/Array/prototype/map/create-non-array-invalid-len.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

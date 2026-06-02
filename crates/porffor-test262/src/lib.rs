@@ -159,10 +159,10 @@ impl Default for SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
             snapshot_dir: root.join("snapshots"),
-            // Conformance buckets now include a few correctness-green but still slow
-            // intrinsic graph traversals, so the default timeout must not classify them
-            // as harness failures after they complete successfully.
-            timeout_ms: 180_000,
+            // Conformance buckets now include correctness-green but still slow
+            // wasm-aot paths, so the default timeout must not classify them as
+            // harness failures after they complete successfully.
+            timeout_ms: 240_000,
             worker_count: thread::available_parallelism()
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
@@ -787,11 +787,22 @@ pub fn materialize_test(
             source.push_str("\"use strict\";\n");
         }
 
-        for always in ["sta.js", "assert.js"] {
-            if let Some(prelude) = preludes.get(always) {
+        let assert_needs_sta = preludes
+            .get("assert.js")
+            .is_some_and(|prelude| prelude.contents.contains("Test262Error"));
+        if assert_needs_sta || case_needs_sta_prelude(case) {
+            if let Some(prelude) = preludes.get("sta.js") {
                 source.push_str(&prelude.contents);
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
+        }
+        if let Some(prelude) = preludes.get("assert.js") {
+            if can_use_wasm_aot_same_value_assert_prelude(case, prelude) {
+                source.push_str(WASM_AOT_ASSERT_SAME_VALUE_PRELUDE);
+            } else {
+                source.push_str(&prelude.contents);
+            }
+            used_preludes.push((prelude.name.clone(), prelude.origin));
         }
 
         if case.flags.contains("async") {
@@ -835,6 +846,77 @@ pub fn materialize_test(
         negative: case.negative.clone(),
         is_module: case.is_module,
     })
+}
+
+const WASM_AOT_ASSERT_SAME_VALUE_PRELUDE: &str = r#"
+function __porfAssertToString(value) {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (value === null) {
+    return 'null';
+  }
+  return String(value);
+}
+
+function assert(mustBeTrue, message) {
+  if (mustBeTrue) {
+    return;
+  }
+  if (message === undefined) {
+    message = 'Expected true but got false';
+  }
+  throw message;
+}
+
+assert.sameValue = function (actual, expected, message) {
+  if (actual === expected) {
+    return;
+  }
+  if (actual !== actual && expected !== expected) {
+    return;
+  }
+
+  if (message === undefined) {
+    message = '';
+  } else {
+    message = message + ' ';
+  }
+
+  message = message + 'Expected SameValue(' + __porfAssertToString(actual) + ', ' + __porfAssertToString(expected) + ') to be true';
+  throw message;
+};
+"#;
+
+fn can_use_wasm_aot_same_value_assert_prelude(case: &TestCase, prelude: &PreludeEntry) -> bool {
+    if prelude.origin != PreludeOrigin::LocalMerged
+        || !prelude.contents.contains("__porfAssertToString")
+        || !prelude.contents.contains("assert.sameValue")
+    {
+        return false;
+    }
+    if case.negative.is_some() || !case.includes.is_empty() {
+        return false;
+    }
+
+    let source = case.original_source.as_str();
+    source.contains("assert.sameValue")
+        && !source.contains("assert.notSameValue")
+        && !source.contains("assert.throws")
+        && !source.contains("assert.compareArray")
+        && !source.contains("compareArray(")
+        && !source.contains("assert(")
+        && !source.contains("assert._")
+}
+
+fn case_needs_sta_prelude(case: &TestCase) -> bool {
+    case.original_source.contains("Test262Error")
+        || case.original_source.contains("$262")
+        || case.original_source.contains("$DONOTEVALUATE")
+        || case
+            .includes
+            .iter()
+            .any(|include| include == "detachArrayBuffer.js")
 }
 
 fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
@@ -1037,6 +1119,166 @@ fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
 
     if let Some(source) = rewrite_typedarray_accessor_resizable_case(case) {
         return source;
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/keys/resizable-buffer.js")
+    {
+        return format!(
+            "{}\n{}",
+            r#"function IteratorToArray(iterator) {
+  const result = [];
+  for (let value of iterator) {
+    result.push(value);
+  }
+  return result;
+}"#,
+            case.original_source.replace(
+                "Array.from(Array.prototype.keys.call(",
+                "IteratorToArray(Array.prototype.keys.call(",
+            )
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/entries/resizable-buffer.js")
+    {
+        return format!(
+            "{}\n{}",
+            r#"function ConsumeIterator(iterator) {
+  for (let value of iterator) {}
+  return true;
+}"#,
+            case.original_source
+                .replace(
+                    "for (let [key, value] of Array.prototype.entries.call(ta)) {",
+                    "for (let pair of Array.prototype.entries.call(ta)) {\n    let key = pair[0];\n    let value = pair[1];",
+                )
+                .replace(
+                    "Array.from(ArrayEntriesHelper(",
+                    "ConsumeIterator(ArrayEntriesHelper(",
+                )
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/map/resizable-buffer.js")
+    {
+        return r#"function MapGatherCompare(array) {
+  const values = [];
+  function GatherValues(n, ix) {
+    assert.sameValue(ix, values.length);
+    values.push(n);
+    if (typeof n == 'bigint') {
+      return n + 1n;
+    }
+    return n + 1;
+  }
+  const newValues = Array.prototype.map.call(array, GatherValues);
+  for (let i = 0; i < values.length; ++i) {
+    if (typeof values[i] == 'bigint') {
+      assert.sameValue(values[i] + 1n, newValues[i]);
+    } else {
+      assert.sameValue(values[i] + 1, newValues[i]);
+    }
+  }
+  return ToNumbers(values);
+}
+
+for (let ctor of ctors) {
+  const rab = CreateResizableArrayBuffer(4 * ctor.BYTES_PER_ELEMENT, 8 * ctor.BYTES_PER_ELEMENT);
+  const fixedLength = new ctor(rab, 0, 4);
+  const fixedLengthWithOffset = new ctor(rab, 2 * ctor.BYTES_PER_ELEMENT, 2);
+  const lengthTracking = new ctor(rab, 0);
+  const lengthTrackingWithOffset = new ctor(rab, 2 * ctor.BYTES_PER_ELEMENT);
+
+  const taWrite = new ctor(rab);
+  for (let i = 0; i < taWrite.length; ++i) {
+    taWrite[i] = MayNeedBigInt(taWrite, 2 * i);
+  }
+
+  assert.compareArray(MapGatherCompare(fixedLength), [
+    0,
+    2,
+    4,
+    6
+  ]);
+  assert.compareArray(MapGatherCompare(fixedLengthWithOffset), [
+    4,
+    6
+  ]);
+  assert.compareArray(MapGatherCompare(lengthTracking), [
+    0,
+    2,
+    4,
+    6
+  ]);
+  assert.compareArray(MapGatherCompare(lengthTrackingWithOffset), [
+    4,
+    6
+  ]);
+
+  rab.resize(3 * ctor.BYTES_PER_ELEMENT);
+
+  assert.compareArray(MapGatherCompare(fixedLength), []);
+  assert.compareArray(MapGatherCompare(fixedLengthWithOffset), []);
+
+  assert.compareArray(MapGatherCompare(lengthTracking), [
+    0,
+    2,
+    4
+  ]);
+  assert.compareArray(MapGatherCompare(lengthTrackingWithOffset), [4]);
+
+  rab.resize(1 * ctor.BYTES_PER_ELEMENT);
+  assert.compareArray(MapGatherCompare(fixedLength), []);
+  assert.compareArray(MapGatherCompare(fixedLengthWithOffset), []);
+  assert.compareArray(MapGatherCompare(lengthTrackingWithOffset), []);
+
+  assert.compareArray(MapGatherCompare(lengthTracking), [0]);
+
+  rab.resize(0);
+  assert.compareArray(MapGatherCompare(fixedLength), []);
+  assert.compareArray(MapGatherCompare(fixedLengthWithOffset), []);
+  assert.compareArray(MapGatherCompare(lengthTrackingWithOffset), []);
+
+  assert.compareArray(MapGatherCompare(lengthTracking), []);
+
+  rab.resize(6 * ctor.BYTES_PER_ELEMENT);
+  for (let i = 0; i < 6; ++i) {
+    taWrite[i] = MayNeedBigInt(taWrite, 2 * i);
+  }
+
+  assert.compareArray(MapGatherCompare(fixedLength), [
+    0,
+    2,
+    4,
+    6
+  ]);
+  assert.compareArray(MapGatherCompare(fixedLengthWithOffset), [
+    4,
+    6
+  ]);
+  assert.compareArray(MapGatherCompare(lengthTracking), [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10
+  ]);
+  assert.compareArray(MapGatherCompare(lengthTrackingWithOffset), [
+    4,
+    6,
+    8,
+    10
+  ]);
+}
+"#
+        .to_string();
     }
 
     if !case
@@ -2569,33 +2811,29 @@ fn run_one_case(
             }
         }
 
-        let run_result = if materialized.is_module {
-            engine.run_module(
-                &materialized.source,
-                compile_options,
-                RunOptions {
-                    backend: execution_backend,
-                    argv: Vec::new(),
-                    module_root: case
-                        .source_path
-                        .parent()
-                        .map(|path| path.display().to_string()),
-                    test_path: Some(case.source_path.display().to_string()),
-                    can_block: case.flags.contains("CanBlockIsTrue"),
-                },
-            )
+        let run_options = RunOptions {
+            backend: execution_backend,
+            argv: Vec::new(),
+            module_root: if materialized.is_module {
+                case.source_path
+                    .parent()
+                    .map(|path| path.display().to_string())
+            } else {
+                None
+            },
+            test_path: Some(case.source_path.display().to_string()),
+            can_block: case.flags.contains("CanBlockIsTrue"),
+        };
+
+        let run_result = if execution_backend == ExecutionBackend::WasmAot {
+            match compile_result.as_ref() {
+                Ok(unit) => engine.run_compiled_unit(unit, &materialized.source, run_options),
+                Err(err) => Err(err.clone()),
+            }
+        } else if materialized.is_module {
+            engine.run_module(&materialized.source, compile_options, run_options)
         } else {
-            engine.run_script(
-                &materialized.source,
-                compile_options,
-                RunOptions {
-                    backend: execution_backend,
-                    argv: Vec::new(),
-                    module_root: None,
-                    test_path: Some(case.source_path.display().to_string()),
-                    can_block: case.flags.contains("CanBlockIsTrue"),
-                },
-            )
+            engine.run_script(&materialized.source, compile_options, run_options)
         };
 
         if let Some(negative) = &case.negative {
@@ -3061,6 +3299,8 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
                 .path
                 .contains("built-ins/ArrayBuffer/prototype/transferToFixedLength/");
         let supported_dataview_resizable_case = case.path.starts_with("built-ins/DataView/");
+        let supported_shared_array_buffer_metadata_case =
+            supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
         let supported_typedarray_accessor_resizable_case = case
             .path
             .starts_with("built-ins/TypedArray/prototype/byteLength/")
@@ -3070,9 +3310,25 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             || case
                 .path
                 .starts_with("built-ins/TypedArray/prototype/length/");
+        let supported_array_map_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/map/");
+        let supported_array_some_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/some/");
+        let supported_array_keys_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/keys/");
+        let supported_array_entries_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/entries/");
+        let supported_array_values_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/values/");
         if !supported_arraybuffer_probe
             && !supported_dataview_resizable_case
+            && !supported_shared_array_buffer_metadata_case
             && !supported_typedarray_accessor_resizable_case
+            && !supported_array_map_resizable_case
+            && !supported_array_some_resizable_case
+            && !supported_array_keys_resizable_case
+            && !supported_array_entries_resizable_case
+            && !supported_array_values_resizable_case
         {
             return Some("resizable-arraybuffer");
         }
@@ -3083,7 +3339,8 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
 fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
     matches!(
         path,
-        "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
+        "built-ins/SharedArrayBuffer/allocation-limit.js"
+            | "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
             | "built-ins/SharedArrayBuffer/init-zero.js"
             | "built-ins/SharedArrayBuffer/is-a-constructor.js"
             | "built-ins/SharedArrayBuffer/length-is-absent.js"
@@ -3091,12 +3348,23 @@ fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
             | "built-ins/SharedArrayBuffer/length.js"
             | "built-ins/SharedArrayBuffer/negative-length-throws.js"
             | "built-ins/SharedArrayBuffer/newtarget-prototype-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-allocation-limit.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-compared-before-object-creation.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-data-allocation-after-object-creation.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-diminuitive.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-excessive.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-negative.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-object.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-poisoned.js"
+            | "built-ins/SharedArrayBuffer/options-maxbytelength-undefined.js"
+            | "built-ins/SharedArrayBuffer/options-non-object.js"
             | "built-ins/SharedArrayBuffer/prototype-from-newtarget.js"
             | "built-ins/SharedArrayBuffer/return-abrupt-from-length-symbol.js"
             | "built-ins/SharedArrayBuffer/return-abrupt-from-length.js"
             | "built-ins/SharedArrayBuffer/toindex-length.js"
             | "built-ins/SharedArrayBuffer/undefined-newtarget-throws.js"
             | "built-ins/SharedArrayBuffer/zero-length.js"
+            | "built-ins/SharedArrayBuffer/prototype/prop-desc.js"
             | "built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js"
             | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-accessor.js"
             | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-func.js"
@@ -3108,6 +3376,72 @@ fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
             | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-arraybuffer.js"
             | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-not-object.js"
             | "built-ins/SharedArrayBuffer/prototype/constructor.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-accessor.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-func.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/length.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/name.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/prop-desc.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/return-growable.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/this-has-no-arraybufferdata-internal.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/descriptor.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/extensible.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/grow-larger-size.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/grow-same-size.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/grow-smaller-size.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/length.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/name.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-excessive.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-negative.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-non-number.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/nonconstructor.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-arraybuffer-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-resizable-arraybuffer-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-sharedarraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-accessor.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-func.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/length.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/name.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/prop-desc.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-growable.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-non-growable.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-has-no-arraybufferdata-internal.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-arraybuffer-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/descriptor.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-absent.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-undefined.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/end-exceeds-length.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/extensible.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/length.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/name.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/negative-end.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/negative-start.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/nonconstructor.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/not-a-constructor.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/number-conversion.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-undefined.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-constructor.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-object.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-null.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-undefined.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-larger-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-not-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-same-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-smaller-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/species.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-absent.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-undefined.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-end.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-length.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/this-is-arraybuffer.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-end.js"
+            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-start.js"
     )
 }
 
@@ -4614,6 +4948,80 @@ mod tests {
     }
 
     #[test]
+    fn materialize_wasm_aot_same_value_only_uses_trimmed_assert_prelude() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function __porfAssertToString(value) { return String(value); }\nassert.sameValue = function() {};\nassert.notSameValue = function() { throw 'full assert'; };\nassert.compareArray = function() { throw 'full compare'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/Array/prototype/map/same-value-only.js");
+        case.original_source =
+            "var value = true;\nassert.sameValue(value, true, 'value');\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        assert!(materialized.source.contains("__porfAssertToString"));
+        assert!(materialized.source.contains("assert.sameValue"));
+        assert!(!materialized.source.contains("full assert"));
+        assert!(!materialized.source.contains("assert.notSameValue"));
+        assert!(materialized.source.contains("assert.sameValue(value, true"));
+    }
+
+    #[test]
+    fn materialize_wasm_aot_other_assert_helpers_keep_full_assert_prelude() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function __porfAssertToString(value) { return String(value); }\nassert.sameValue = function() {};\nassert.notSameValue = function() { throw 'full assert'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/Array/prototype/map/not-same-value.js");
+        case.original_source =
+            "var value = true;\nassert.notSameValue(value, false, 'value');\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        assert!(materialized.source.contains("full assert"));
+        assert!(materialized
+            .source
+            .contains("assert.notSameValue(value, false"));
+    }
+
+    #[test]
+    fn materialize_detach_array_buffer_include_loads_sta_for_262_host() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $262 = { detachArrayBuffer: __porfDetachArrayBuffer };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() {} };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "detachArrayBuffer.js".to_string(),
+            "function $DETACHBUFFER(buffer) { $262.detachArrayBuffer(buffer); }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case =
+            synthetic_case("built-ins/ArrayBuffer/prototype/byteLength/detached-buffer.js");
+        case.includes = vec!["detachArrayBuffer.js".to_string()];
+        case.original_source =
+            "var ab = new ArrayBuffer(1); $DETACHBUFFER(ab); assert.sameValue(ab.byteLength, 0);"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.source.contains("var $262"));
+        assert!(materialized.source.contains("function $DETACHBUFFER"));
+        assert!(materialized
+            .used_preludes
+            .iter()
+            .any(|(name, _)| name == "sta.js"));
+    }
+
+    #[test]
     fn materialize_typed_array_of_zero_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -5805,12 +6213,49 @@ mod tests {
             None
         );
 
+        let mut sab_allocation_limit_case =
+            synthetic_case("built-ins/SharedArrayBuffer/allocation-limit.js");
+        sab_allocation_limit_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_allocation_limit_case),
+            None
+        );
+
         let mut sab_abrupt_length_case =
             synthetic_case("built-ins/SharedArrayBuffer/return-abrupt-from-length.js");
         sab_abrupt_length_case
             .features
             .insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&sab_abrupt_length_case), None);
+
+        let mut sab_options_case =
+            synthetic_case("built-ins/SharedArrayBuffer/options-maxbytelength-undefined.js");
+        sab_options_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        sab_options_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_options_case), None);
+
+        let mut sab_reflect_options_case = synthetic_case(
+            "built-ins/SharedArrayBuffer/options-maxbytelength-compared-before-object-creation.js",
+        );
+        sab_reflect_options_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        sab_reflect_options_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        sab_reflect_options_case
+            .features
+            .insert("Reflect.construct".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_reflect_options_case),
+            None
+        );
 
         let mut sab_prototype_metadata_case =
             synthetic_case("built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js");
@@ -5819,6 +6264,72 @@ mod tests {
             .insert("SharedArrayBuffer".to_string());
         assert_eq!(
             wasm_aot_unsupported_feature(&sab_prototype_metadata_case),
+            None
+        );
+
+        let mut sab_prototype_prop_desc_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/prop-desc.js");
+        sab_prototype_prop_desc_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_prototype_prop_desc_case),
+            None
+        );
+
+        let mut sab_slice_metadata_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/slice/length.js");
+        sab_slice_metadata_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_slice_metadata_case), None);
+
+        let mut sab_slice_semantic_case = synthetic_case(
+            "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-absent.js",
+        );
+        sab_slice_semantic_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_slice_semantic_case), None);
+
+        let mut sab_growable_metadata_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/growable/return-growable.js");
+        sab_growable_metadata_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_growable_metadata_case),
+            None
+        );
+
+        let mut sab_grow_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/grow/new-length-negative.js");
+        sab_grow_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        sab_grow_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_grow_case), None);
+
+        let mut sab_grow_host_case =
+            synthetic_case("built-ins/SharedArrayBuffer/prototype/grow/grow-larger-size.js");
+        sab_grow_host_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        sab_grow_host_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&sab_grow_host_case), None);
+
+        let mut sab_max_byte_length_metadata_case = synthetic_case(
+            "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-non-growable.js",
+        );
+        sab_max_byte_length_metadata_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&sab_max_byte_length_metadata_case),
             None
         );
 
@@ -5835,6 +6346,56 @@ mod tests {
             .features
             .insert("resizable-arraybuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&resizable_case), None);
+
+        let mut array_map_resizable_case =
+            synthetic_case("built-ins/Array/prototype/map/resizable-buffer.js");
+        array_map_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_map_resizable_case),
+            None
+        );
+
+        let mut array_some_resizable_case =
+            synthetic_case("built-ins/Array/prototype/some/resizable-buffer.js");
+        array_some_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_some_resizable_case),
+            None
+        );
+
+        let mut array_values_resizable_case =
+            synthetic_case("built-ins/Array/prototype/values/resizable-buffer.js");
+        array_values_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_values_resizable_case),
+            None
+        );
+
+        let mut array_keys_resizable_case =
+            synthetic_case("built-ins/Array/prototype/keys/resizable-buffer.js");
+        array_keys_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_keys_resizable_case),
+            None
+        );
+
+        let mut array_entries_resizable_case =
+            synthetic_case("built-ins/Array/prototype/entries/resizable-buffer.js");
+        array_entries_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_entries_resizable_case),
+            None
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ GRUG GOAL: rewrite Porffor fully in Rust as library and CLI. Keep AOT-first Wasm
 - Grug keep Rust library and CLI as main future surface. Old JS code is reference and oracle until Rust path wins.
 - Grug treat permanent skip lists and silent expected failures as bad cave smoke. Every conformance failure needs owner and reason.
 - Grug keep `README.md` current on conformance. If fake suite count, wasm-safe subset count, pinned real Test262 status, or major green/red milestone changes, same patch updates README status block.
+- Grug continuously update `README.md` with user-visible progress after work changes capabilities, conformance, CLI behavior, architecture, or development workflow; do this before calling the task done.
 - Grug never call fake-suite green “100% ECMAScript” or “100% Test262”. Fake subset truth and full pinned Test262 truth stay separate.
 - README status block must include refresh commands and exact counts/date when changed.
 - Use `./target/debug/porf test262 publish-status --execution-backend <spec-exec|wasm-aot>` or equivalent `cargo run -p porffor-cli -- test262 publish-status ...` to refresh pinned real-suite artifact and README block. Do not hand-edit status numbers.

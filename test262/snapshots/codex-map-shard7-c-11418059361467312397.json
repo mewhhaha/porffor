@@ -1,0 +1,62 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 11418059361467312397,
+  "run_kind": "full",
+  "total": 1,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 1,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/map/length.js",
+      "duration_ms": 30018
+    }
+  ],
+  "timeout_list": [
+    "built-ins/Array/prototype/map/length.js"
+  ],
+  "failures": [
+    {
+      "test_path": "built-ins/Array/prototype/map/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 30018ms",
+      "detail_hash": 581367589969305123
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Array/prototype/map/length.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

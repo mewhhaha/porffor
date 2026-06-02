@@ -1,0 +1,86 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 10417240869168546298,
+  "run_kind": "full",
+  "total": 8,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AbstractModuleSource/prototype/Symbol.toStringTag.js",
+      "duration_ms": 38781
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/prototype/constructor.js",
+      "duration_ms": 38390
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/prototype.js",
+      "duration_ms": 37705
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/name.js",
+      "duration_ms": 37690
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/length.js",
+      "duration_ms": 37648
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/throw-from-constructor.js",
+      "duration_ms": 23402
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/prototype/proto.js",
+      "duration_ms": 13929
+    },
+    {
+      "path": "built-ins/AbstractModuleSource/proto.js",
+      "duration_ms": 13574
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/AbstractModuleSource/length.js",
+    "built-ins/AbstractModuleSource/name.js",
+    "built-ins/AbstractModuleSource/proto.js",
+    "built-ins/AbstractModuleSource/prototype.js",
+    "built-ins/AbstractModuleSource/prototype/Symbol.toStringTag.js",
+    "built-ins/AbstractModuleSource/prototype/constructor.js",
+    "built-ins/AbstractModuleSource/prototype/proto.js",
+    "built-ins/AbstractModuleSource/throw-from-constructor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,91 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "4d91e50fe6a0aa5bbed391c9209ae67f4b46611a"
+  },
+  "manifest_hash": 2509900043167163077,
+  "run_kind": "shard-3/24",
+  "total": 9,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/map/create-non-array.js",
+      "duration_ms": 34872
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-3-28.js",
+      "duration_ms": 29719
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-5.js",
+      "duration_ms": 19614
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-i-1.js",
+      "duration_ms": 17974
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-9.js",
+      "duration_ms": 17724
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-8-2.js",
+      "duration_ms": 17481
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-5-10.js",
+      "duration_ms": 17388
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-1-11.js",
+      "duration_ms": 12527
+    },
+    {
+      "path": "built-ins/Array/prototype/map/15.4.4.19-2-4.js",
+      "duration_ms": 11328
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Array/prototype/map/15.4.4.19-1-11.js",
+    "built-ins/Array/prototype/map/15.4.4.19-2-4.js",
+    "built-ins/Array/prototype/map/15.4.4.19-3-28.js",
+    "built-ins/Array/prototype/map/15.4.4.19-5-10.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-2.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-1.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-i-5.js",
+    "built-ins/Array/prototype/map/15.4.4.19-8-c-ii-9.js",
+    "built-ins/Array/prototype/map/create-non-array.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

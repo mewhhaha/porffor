@@ -275,7 +275,7 @@ impl Engine {
         Ok(CompilationUnit { source, ir })
     }
 
-    fn run_compiled_unit(
+    pub fn run_compiled_unit(
         &self,
         unit: &CompilationUnit,
         source: &str,
@@ -699,16 +699,18 @@ mod tests {
     fn wasm_backend_keeps_raw_string_payloads_stable() {
         let (payload, kind, completion, pre_main_bytes, post_main_prefix, bytes) =
             run_wasm_raw("\",\";");
+        let mut expected_prefix = vec![b' '; 11];
+        expected_prefix.extend_from_slice(b"\n: ,u");
         assert_eq!(kind, ValueKind::String);
         assert_eq!(completion, 0);
-        assert_eq!(payload, (((4099u64) << 32) | 1) as i64);
+        assert_eq!(payload, (((4110u64) << 32) | 1) as i64);
         assert_eq!(
             pre_main_bytes.expect("pre-main bytes should exist")[..16].to_vec(),
-            b" : ,undefinednul".to_vec()
+            expected_prefix
         );
         assert_eq!(
             post_main_prefix.expect("post-main bytes should exist")[..16].to_vec(),
-            b" : ,undefinednul".to_vec()
+            expected_prefix
         );
         assert_eq!(bytes.expect("string bytes should exist"), b",".to_vec());
     }
@@ -763,6 +765,25 @@ mod tests {
                 },
             )
             .expect("JSON.parse duplicate __proto__ should run");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_json_parse_structural_validator_accepts_nested_keywords() {
+        let outcome = engine()
+            .run_script(
+                "function valid(text) { try { JSON.parse(text); return true; } catch (e) { return false; } } function invalid(text) { try { JSON.parse(text); return false; } catch (e) { return e instanceof SyntaxError; } } var zero = '{\"a\":0}'; var leading = '{\"a\":013}'; var trailing = '{\"a\":true} \"extra\"'; var doubleColon = '{\"a\"::true}'; valid('{\"a\":true}') && valid('{\"a\":false}') && valid('{\"a\":null}') && valid(zero) && invalid('{\"a\":tru}') && invalid('{\"a\":fals}') && invalid('{\"a\":nul}') && invalid('{\"a\":true,}') && invalid(leading) && invalid(trailing) && invalid(doubleColon);",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("JSON.parse nested keyword validation should run");
         assert!(
             outcome.note.contains("boolean(true)"),
             "note: {}",
@@ -1372,6 +1393,25 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
     }
 
     #[test]
+    fn wasm_backend_supports_high_sparse_array_indexes() {
+        let outcome = engine()
+            .run_script(
+                "let a = [1]; a[50000] = 2; let b = a.map(function(v) { return v + 1; }); b.length + \"|\" + b[0] + \"|\" + b[50000];",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should preserve high sparse array indexes");
+        assert!(
+            outcome.note.contains("string(50001|2|3)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_supports_missing_heap_reads() {
         let object_outcome = engine()
             .run_script(
@@ -1672,6 +1712,343 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
             )
             .expect_err("non-callable proxy get trap should throw");
         assert!(err.message().contains("uncaught throw: TypeError"));
+    }
+
+    #[test]
+    fn wasm_backend_proxy_get_trap_receives_well_known_symbol_key() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let seen = "";
+let target = { next: function() { return { done: true }; } };
+let p = new Proxy(target, {
+  get: function(target, key, receiver) {
+    if (String(key) === "Symbol.iterator") {
+      seen = (typeof key) + ":" + (key === Symbol.iterator);
+    }
+    return Reflect.get(target, key, receiver);
+  }
+});
+Iterator.from(p);
+seen;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("proxy get trap should receive Symbol.iterator as a symbol");
+        assert!(
+            outcome.note.contains("string(symbol:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_iterator_from_iterable_primitives() {
+        let outcome = engine()
+            .run_script(
+                r#"
+Number.prototype[Symbol.iterator] = function* () {
+  let i = 0;
+  let target = this >>> 0;
+  while (i < target) {
+    yield i;
+    ++i;
+  }
+};
+
+let primitiveThrows = "no";
+try {
+  Iterator.from(5);
+} catch (e) {
+  primitiveThrows = e instanceof TypeError ? "typeerror" : e.name;
+}
+
+function numberArraySnapshot(array) {
+  return array.length + ":" + array[0] + "," + array[1] + "," + array[2] + "," + array[3] + "," + array[4];
+}
+
+let numberArray = numberArraySnapshot(Array.from(5));
+let boxedNumberArray = numberArraySnapshot(Array.from(Iterator.from(new Number(5))));
+let stringResult = Array.from(Iterator.from("string"));
+let stringArray = stringResult.length + ":" + stringResult[0] + stringResult[1] + stringResult[2] + stringResult[3] + stringResult[4] + stringResult[5];
+
+const originalStringIterator = String.prototype[Symbol.iterator];
+let observedType;
+Object.defineProperty(String.prototype, Symbol.iterator, {
+  get() {
+    "use strict";
+    observedType = typeof this;
+    return originalStringIterator;
+  },
+});
+Iterator.from("");
+let firstObservedType = observedType;
+Iterator.from(new String(""));
+let secondObservedType = observedType;
+
+numberArray + "|" + primitiveThrows + "|" + boxedNumberArray + "|" + stringArray + "|" + firstObservedType + "," + secondObservedType;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Iterator.from primitive iterable cases should run");
+        assert!(
+            outcome
+                .note
+                .contains("string(5:0,1,2,3,4|typeerror|5:0,1,2,3,4|6:string|string,object)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_symbol_iterator_next() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let array = new Int8Array([3, 1, 2]);
+let iterator = array[Symbol.iterator]();
+let first = iterator.next();
+let second = iterator.next();
+let third = iterator.next();
+let exhausted = iterator.next();
+let repeated = iterator.next();
+let clamped = new Uint8ClampedArray([255, 1, 2]);
+let clampedIterator = clamped[Symbol.iterator]();
+let clampedFirst = clampedIterator.next();
+first.value + ":" + first.done + "|" +
+second.value + ":" + second.done + "|" +
+third.value + ":" + third.done + "|" +
+typeof exhausted.value + ":" + exhausted.done + "|" +
+typeof repeated.value + ":" + repeated.done + "|" +
+clampedFirst.value + ":" + clampedFirst.done;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("typed array Symbol.iterator next should run");
+        assert!(
+            outcome.note.contains(
+                "string(3:false|1:false|2:false|undefined:true|undefined:true|255:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_is_generic_for_objects_and_boxed_booleans() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var obj = {};
+obj.push = Array.prototype.push;
+var firstLen = obj.push(-1);
+var first = firstLen + ":" + obj.length + ":" + obj["0"];
+
+obj.length = null;
+var nullLen = obj.push(-7);
+var afterNull = nullLen + ":" + obj.length + ":" + obj["0"];
+
+obj.length = 4294967296;
+var largeLen = obj.push("x", "y");
+var afterLarge =
+  largeLen + ":" + obj.length + ":" + obj["4294967296"] + ":" + obj["4294967297"] + ":" + (obj["0"] === -7);
+
+var boolLen = Array.prototype.push.call(true);
+var stringThrow = "no";
+try {
+  Array.prototype.push.call("");
+} catch (e) {
+  stringThrow = e.name;
+}
+first + "|" + afterNull + "|" + afterLarge + "|" + boolLen + "|" + stringThrow;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.push generic object cases should run");
+        assert!(
+            outcome
+                .note
+                .contains("string(1:1:-1|1:1:-7|4294967298:4294967298:x:y:true|0|TypeError)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_respects_non_writable_array_length() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var zero = [];
+Object.defineProperty(zero, "length", { writable: false });
+var zeroThrow = "no";
+try {
+  zero.push();
+} catch (e) {
+  zeroThrow = e.name;
+}
+
+var one = [];
+Object.defineProperty(one, "length", { writable: false });
+var oneThrow = "no";
+try {
+  one.push(1);
+} catch (e) {
+  oneThrow = e.name;
+}
+
+zeroThrow + ":" + zero.length + "|" + oneThrow + ":" + one.length + ":" + (one[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.push should catch non-writable length TypeErrors");
+        assert!(
+            outcome
+                .note
+                .contains("string(TypeError:0|TypeError:0:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_preserves_max_array_length_boundary_property() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+array.length = 4294967295;
+var first = array.push();
+var caught = "no";
+try {
+  array.push("x");
+} catch (e) {
+  caught = e.name + ":" + (e instanceof RangeError);
+}
+caught + "|" + first + "|" + array.length + "|" + array[4294967295] + "|" + array["4294967295"];
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.push should store the boundary property before RangeError");
+        assert!(
+            outcome
+                .note
+                .contains("string(RangeError:true|4294967295|4294967295|x|x)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_calls_inherited_index_setter_before_length_write() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+var callCount = 0;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    callCount += 1;
+    Object.defineProperty(array, "length", { writable: false });
+  },
+  configurable: true
+});
+
+var caught = "no";
+try {
+  array.push(1);
+} catch (e) {
+  caught = e.name;
+}
+delete Array.prototype[0];
+caught + ":" + array.length + ":" + callCount + ":" + (array[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.push should honor inherited index setters");
+        assert!(
+            outcome.note.contains("string(TypeError:0:1:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_respects_frozen_array_length() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var empty = [];
+Object.freeze(empty);
+var emptyThrow = "no";
+try {
+  empty.push();
+} catch (e) {
+  emptyThrow = e.name;
+}
+
+var array = [];
+var callCount = 0;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    Object.freeze(array);
+    callCount += 1;
+  },
+  configurable: true
+});
+
+var inheritedThrow = "no";
+try {
+  array.push(1);
+} catch (e) {
+  inheritedThrow = e.name;
+}
+delete Array.prototype[0];
+emptyThrow + ":" + empty.length + ":" + (empty[0] === undefined) + "|" +
+  inheritedThrow + ":" + array.length + ":" + callCount + ":" + (array[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.push should respect Object.freeze length integrity");
+        assert!(
+            outcome
+                .note
+                .contains("string(TypeError:0:true|TypeError:0:1:true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -3004,6 +3381,10 @@ let proxy = new Proxy(target, { get: null });
     #[test]
     fn wasm_backend_supports_phase_twenty_three_exception_core() {
         for (source, expected) in [
+            (
+                "var x = 0; try { x = 1; } catch (e) { x = 2; } x;",
+                "number(1)",
+            ),
             ("try { throw 1; } catch (e) { e; }", "number(1)"),
             (
                 "var x; try { throw 1; } catch (e) { x = e; } x;",
@@ -3016,6 +3397,22 @@ let proxy = new Proxy(target, { get: null });
             (
                 "try { throw undefined; } catch (e) { e; }",
                 "undefined(undefined)",
+            ),
+            (
+                "var arr = []; Object.defineProperty(arr, \"1\", { get: function() { return 42; }, configurable: true }); [arr[1]].join(\"|\");",
+                "string(42)",
+            ),
+            (
+                "var arr = []; Object.defineProperty(arr, \"1\", { get: function() { throw new RangeError(\"x\"); }, configurable: true }); try { arr[1]; } catch (e) { e.name; }",
+                "string(RangeError)",
+            ),
+            (
+                "var arr = []; Object.defineProperty(arr, \"1\", { get: function() { throw new RangeError(\"x\"); }, configurable: true }); try { arr.map(function(v) { return v; }); } catch (e) { e.name; }",
+                "string(RangeError)",
+            ),
+            (
+                "var obj = { 0: 11, length: 2 }; Object.defineProperty(obj, \"1\", { get: function() { throw new RangeError(\"x\"); }, configurable: true }); try { Array.prototype.map.call(obj, function(v) { return v; }); } catch (e) { e.name; }",
+                "string(RangeError)",
             ),
             (
                 "try { let x = 1; class C {} throw x; } catch (e) { e; }",
@@ -3341,6 +3738,351 @@ let proxy = new Proxy(target, { get: null });
                 outcome.note
             );
         }
+    }
+
+    #[test]
+    fn wasm_backend_propagates_aggregate_error_iterator_getter_throw() {
+        let source = "function E(message) { this.message = message; } let it = { get [Symbol.iterator]() { throw new E(\"boom\"); } }; try { new AggregateError(it); } catch (e) { e instanceof E && e.constructor === E && e.message === \"boom\"; }";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("AggregateError iterator getter throw should run: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_emits_arraybuffer_bytelength_getter_for_property_access() {
+        let outcome = engine()
+            .run_script(
+                "new ArrayBuffer(42).byteLength;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("ArrayBuffer byteLength property access should run: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("number(42)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_emits_arraybuffer_resize_for_closure_method_call() {
+        let source = "const rab = new ArrayBuffer(64, { maxByteLength: 1024 }); let called = false; let threw = false; try { (() => rab.resize({ valueOf() { called = true; throw new TypeError(); }}))(); } catch (e) { threw = e instanceof TypeError; } called + '|' + threw;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("ArrayBuffer resize method call in closure should run: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_validates_slice_named_function_property_reads() {
+        let source = "let o = { slice() { return 1; } }; typeof o.slice === 'function' && ArrayBuffer.prototype.slice.length === 2;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("slice-named function property reads should validate and run: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_map_result_indexes_are_ordinary_data_properties() {
+        let source = "var r = [1, 2, 3].map(function(v, i) { return i + 10; }); var before = Object.keys(r).join(','); var d = Object.getOwnPropertyDescriptor(r, 1); r[1] = 42; delete r[2]; before + '|' + r[1] + '|' + r[2] + '|' + d.writable + '|' + d.enumerable + '|' + d.configurable + '|' + Object.keys(r).join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.map result descriptors should run: {err:?}")
+            });
+        assert!(
+            outcome
+                .note
+                .contains("string(0,1,2|42|undefined|true|true|true|0,1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_map_visits_arguments_indexes() {
+        let source = "function callbackfn(val, idx, obj) { return val + ':' + idx + ':' + Object.prototype.toString.call(obj); } var r = (function(a, b) { return Array.prototype.map.call(arguments, callbackfn); })(9, 11); r.length + '|' + r[0] + '|' + r[1] + '|' + Object.keys(r).join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.map should visit Arguments indexes: {err:?}")
+            });
+        assert!(
+            outcome
+                .note
+                .contains("string(2|9:0:[object Arguments]|11:1:[object Arguments]|0,1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_map_rechecks_prototype_holes_after_getter_side_effects() {
+        let source = "function callbackfn(val, idx) { return idx === 1 && val === 6.99 ? false : true; } var arr = [0, , 2]; Object.defineProperty(arr, '0', { get: function() { Object.defineProperty(Array.prototype, '1', { get: function() { return 6.99; }, configurable: true }); return 0; }, configurable: true }); var r = arr.map(callbackfn); delete Array.prototype[1]; r[0] + '|' + r[1] + '|' + r[2] + '|' + Object.keys(r).join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.map should re-check prototype holes: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(true|false|true|0,1,2)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_flat_map_uses_real_builtin_and_compact_target_indexes() {
+        let source = "var a = [1, 2].flatMap(function(e) { return [e, e * 2]; }); var b = [1, 2].flatMap(function(e) { return e * 2; }); var c = [, 1].flatMap(function(e) { return e; }); function E() {} var threw = false; try { [].flatMap.call({ get length() { throw new E(); } }, function(e) { return e; }); } catch (e) { threw = e instanceof E; } var d = Array.prototype.flatMap.call(true, function() { return 1; }); a.length + '|' + a[0] + '|' + a[1] + '|' + a[2] + '|' + a[3] + '|' + b.length + '|' + b[0] + '|' + b[1] + '|' + c.length + '|' + c[0] + '|' + c[1] + '|' + Object.keys(c).join(',') + '|' + threw + '|' + d.length;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.flatMap should run through the real Wasm builtin: {err:?}")
+            });
+        assert!(
+            outcome
+                .note
+                .contains("string(4|1|2|2|4|2|2|4|1|1|undefined|0|true|0)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_boxes_boolean_receiver() {
+        let source = "var t = Array.prototype.concat.call(true); var f = Array.prototype.concat.call(false); t.length + '|' + (t[0] instanceof Boolean) + '|' + f.length + '|' + (f[0] instanceof Boolean);";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.concat should box Boolean receivers: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(1|true|1|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_spreads_arguments_without_changing_length() {
+        let source = "var args = (function(a, b, c) { return arguments; })(1, 2, 3); args[Symbol.isConcatSpreadable] = true; var r = [].concat(args, args); Object.defineProperty(args, 'length', { value: 6 }); var s = [].concat(args); r.length + '|' + r[0] + '|' + r[1] + '|' + r[2] + '|' + r[3] + '|' + r[4] + '|' + r[5] + '|' + args.length + '|' + s.length + '|' + s[0] + '|' + s[1] + '|' + s[2] + '|' + s[3] + '|' + s[4] + '|' + s[5];";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.concat should spread Arguments objects: {err:?}")
+            });
+        assert!(
+            outcome
+                .note
+                .contains("string(6|1|2|3|1|2|3|6|6|1|2|3|undefined|undefined|undefined)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_spreads_string_wrapper_by_utf16_code_unit() {
+        let source = "var str = new String('yuck\\uD83D\\uDCA9'); str[Symbol.isConcatSpreadable] = true; var s = [].concat(str); s.length + '|' + s[0] + s[1] + s[2] + s[3] + '|' + (s[4] === '\\uD83D') + '|' + (s[5] === '\\uDCA9');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Array.prototype.concat should spread String wrappers by UTF-16 code unit: {err:?}"
+                )
+            });
+        assert!(
+            outcome.note.contains("string(6|yuck|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_copies_inherited_array_indexes_as_own_properties() {
+        let source = "Array.prototype[1] = 1; var x = [0]; x.length = 2; var a = x.concat(); Object.prototype[1] = 1; Object.prototype.length = 2; Object.prototype.concat = Array.prototype.concat; var y = { 0: 0 }; var b = y.concat(); a[0] + '|' + a[1] + '|' + a.hasOwnProperty('1') + '|' + (b[0] === y) + '|' + b[1] + '|' + b.hasOwnProperty('1');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.concat should copy inherited array indexes: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(0|1|true|true|1|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_propagates_is_concat_spreadable_getter_throw() {
+        let source = "function E() {} var o = {}; Object.defineProperty(o, Symbol.isConcatSpreadable, { get: function() { throw new E(); } }); var caught = false; try { Array.prototype.concat.call(o); } catch (e) { caught = e instanceof E; } caught;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Array.prototype.concat should propagate spreadability getter throws: {err:?}"
+                )
+            });
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_spreads_typed_array_from_dynamic_constructor() {
+        let source = "function check(type) { var ta = new type(2); for (var i = 0; i < 2; ++i) { ta[i] = i + 1; } ta[Symbol.isConcatSpreadable] = true; var r = [].concat(ta); return r.length === 2 && r[0] === 1 && r[1] === 2 && r.hasOwnProperty('1'); } check(Uint16Array) + '|' + check(Uint32Array) + '|' + check(Float64Array);";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Array.prototype.concat should spread typed arrays built through dynamic constructors: {err:?}"
+                )
+            });
+        assert!(
+            outcome.note.contains("string(true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_ignores_cross_realm_array_species() {
+        let source = "var array = []; var callCount = 0; var OArray = __porfCreateRealm().global.Array; var speciesDesc = { get: function() { callCount += 1; } }; array.constructor = OArray; Object.defineProperty(Array, Symbol.species, speciesDesc); Object.defineProperty(OArray, Symbol.species, speciesDesc); var result = array.concat(); (Object.getPrototypeOf(result) === Array.prototype) + '|' + callCount;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Array.prototype.concat should ignore cross-realm intrinsic Array species: {err:?}"
+                )
+            });
+        assert!(
+            outcome.note.contains("string(true|0)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]

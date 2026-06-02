@@ -154,13 +154,6 @@ Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
   configurable: true
 });
 
-Object.defineProperty(__porfIsHTMLDDA, "$IsHTMLDDA", {
-  value: true,
-  writable: false,
-  enumerable: false,
-  configurable: false
-});
-
 var $262 = {
   global: globalThis,
   AbstractModuleSource: AbstractModuleSource,
@@ -509,6 +502,14 @@ function testWithNonAtomicsFriendlyTypedArrayConstructors(f) {
 }
 
 /// resizableArrayBufferUtils.js
+function BigInt64Array() {
+  __porfUnsupportedHost('BigInt64Array');
+}
+
+function BigUint64Array() {
+  __porfUnsupportedHost('BigUint64Array');
+}
+
 const ctors = [
   Uint8Array,
   Int8Array,
@@ -545,4 +546,55 @@ function ToNumbers(array) {
 
 function MayNeedBigInt(ta, n) {
   return n;
+}
+
+function CreateRabForTest(ctor) {
+  const rab = CreateResizableArrayBuffer(4 * ctor.BYTES_PER_ELEMENT, 8 * ctor.BYTES_PER_ELEMENT);
+  const taWrite = new ctor(rab);
+  for (let i = 0; i < 4; ++i) {
+    taWrite[i] = MayNeedBigInt(taWrite, 2 * i);
+  }
+  return rab;
+}
+
+function CollectValuesAndResize(n, values, rab, resizeAfter, resizeTo) {
+  if (typeof n == 'bigint') {
+    values.push(Number(n));
+  } else {
+    values.push(n);
+  }
+  if (values.length == resizeAfter) {
+    rab.resize(resizeTo);
+  }
+  return true;
+}
+
+function TestIterationAndResize(iterable, expected, rab, resizeAfter, newByteLength) {
+  var values = [];
+  var resized = false;
+  var arrayValues = false;
+
+  for (let value of iterable) {
+    if (Array.isArray(value)) {
+      arrayValues = true;
+      values.push([
+        value[0],
+        Number(value[1])
+      ]);
+    } else {
+      values.push(Number(value));
+    }
+    if (!resized && values.length == resizeAfter) {
+      rab.resize(newByteLength);
+      resized = true;
+    }
+  }
+  if (!arrayValues) {
+    assert.compareArray([].concat(values), expected, "TestIterationAndResize: list of iterated values");
+  } else {
+    for (let i = 0; i < expected.length; i++) {
+      assert.compareArray(values[i], expected[i], "TestIterationAndResize: list of iterated lists of values");
+    }
+  }
+  assert(resized, "TestIterationAndResize: resize condition should have been hit");
 }
