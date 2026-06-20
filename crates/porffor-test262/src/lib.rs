@@ -787,17 +787,30 @@ pub fn materialize_test(
             source.push_str("\"use strict\";\n");
         }
 
-        let assert_needs_sta = preludes
-            .get("assert.js")
-            .is_some_and(|prelude| prelude.contents.contains("Test262Error"));
-        if assert_needs_sta || case_needs_sta_prelude(case) {
+        let assert_prelude = preludes.get("assert.js");
+        let use_trimmed_same_value_assert = assert_prelude
+            .is_some_and(|prelude| can_use_wasm_aot_same_value_assert_prelude(case, prelude));
+        let assert_needs_test262_error = !use_trimmed_same_value_assert
+            && assert_prelude.is_some_and(|prelude| prelude.contents.contains("Test262Error"));
+        let needs_full_sta = case_needs_full_sta_prelude(case);
+        let needs_test262_error_preamble =
+            assert_needs_test262_error || case_needs_test262_error_prelude(case);
+        if needs_full_sta {
             if let Some(prelude) = preludes.get("sta.js") {
                 source.push_str(&prelude.contents);
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
+        } else if needs_test262_error_preamble {
+            if let Some(prelude) = preludes
+                .get("sta-preamble.js")
+                .or_else(|| preludes.get("sta.js"))
+            {
+                source.push_str(&prelude.contents);
+                used_preludes.push((prelude.name.clone(), prelude.origin));
+            }
         }
-        if let Some(prelude) = preludes.get("assert.js") {
-            if can_use_wasm_aot_same_value_assert_prelude(case, prelude) {
+        if let Some(prelude) = assert_prelude {
+            if use_trimmed_same_value_assert {
                 source.push_str(WASM_AOT_ASSERT_SAME_VALUE_PRELUDE);
             } else {
                 source.push_str(&prelude.contents);
@@ -828,6 +841,15 @@ pub fn materialize_test(
                     source.push_str(
                         "function checkSequence(arr, message) {\n  for (let i = 0; i < arr.length; i = i + 1) {\n    if (arr[i] !== i + 1) {\n      if (message !== undefined) throw new Test262Error(message);\n      throw new Test262Error(\"Steps in unexpected sequence:\");\n    }\n  }\n  return true;\n}\n",
                     );
+                    used_preludes.push((prelude.name.clone(), prelude.origin));
+                    continue;
+                }
+                if include == "nativeFunctionMatcher.js"
+                    && case
+                        .path
+                        .starts_with("built-ins/Function/prototype/toString/")
+                {
+                    source.push_str(WASM_AOT_NATIVE_FUNCTION_MATCHER_PRELUDE);
                     used_preludes.push((prelude.name.clone(), prelude.origin));
                     continue;
                 }
@@ -888,6 +910,40 @@ assert.sameValue = function (actual, expected, message) {
 };
 "#;
 
+const WASM_AOT_NATIVE_FUNCTION_MATCHER_PRELUDE: &str = r#"
+function __porfValidateNativeFunctionSource(source, special) {
+  if (typeof source !== "string") {
+    throw "Conforms to NativeFunction Syntax: " + source;
+  }
+
+  var prefix = "function ";
+  var suffix = "() { [native code] }";
+  if (source.slice(0, prefix.length) !== prefix ||
+      source.slice(source.length - suffix.length) !== suffix) {
+    if (special === undefined) {
+      throw "Conforms to NativeFunction Syntax: " + source;
+    }
+    throw "Conforms to NativeFunction Syntax: " + source + " (" + special + ")";
+  }
+}
+
+const validateNativeFunctionSource = function(source) {
+  __porfValidateNativeFunctionSource(source);
+};
+
+const assertToStringOrNativeFunction = function(fn, expected) {
+  const actual = "" + fn;
+  if (actual === expected) {
+    return;
+  }
+  assertNativeFunction(fn, expected);
+};
+
+const assertNativeFunction = function(fn, special) {
+  __porfValidateNativeFunctionSource("" + fn, special);
+};
+"#;
+
 fn can_use_wasm_aot_same_value_assert_prelude(case: &TestCase, prelude: &PreludeEntry) -> bool {
     if prelude.origin != PreludeOrigin::LocalMerged
         || !prelude.contents.contains("__porfAssertToString")
@@ -909,10 +965,12 @@ fn can_use_wasm_aot_same_value_assert_prelude(case: &TestCase, prelude: &Prelude
         && !source.contains("assert._")
 }
 
-fn case_needs_sta_prelude(case: &TestCase) -> bool {
-    case.original_source.contains("Test262Error")
-        || case.original_source.contains("$262")
-        || case.original_source.contains("$DONOTEVALUATE")
+fn case_needs_test262_error_prelude(case: &TestCase) -> bool {
+    case.original_source.contains("Test262Error") || case.original_source.contains("$DONOTEVALUATE")
+}
+
+fn case_needs_full_sta_prelude(case: &TestCase) -> bool {
+    case.original_source.contains("$262")
         || case
             .includes
             .iter()
@@ -920,6 +978,255 @@ fn case_needs_sta_prelude(case: &TestCase) -> bool {
 }
 
 fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
+    if let Some(source) = rewrite_proxy_prevent_extensions_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_define_property_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_get_own_property_descriptor_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_create_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_revocable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_apply_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_proxy_construct_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_function_tostring_sputnik_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_function_tostring_builtin_object_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_char_at_legacy_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_char_at_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_char_at_position_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_char_code_at_legacy_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_char_code_at_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_code_point_at_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_ends_with_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_index_of_legacy_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_index_of_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_last_index_of_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_includes_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_match_legacy_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_match_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_starts_with_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_annexb_string_prototype_method_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_annexb_escape_unescape_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_undefined_legacy_initial_value_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_global_constant_prop_desc_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_constructor_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_constant_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_parse_function_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_predicate_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_prototype_method_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_boolean_constructor_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_boolean_prototype_method_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_boolean_proto_from_ctor_realm_case(case) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_boolean_legacy_conversion_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_number_proto_from_ctor_realm_case(case) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_error_proto_from_ctor_realm_case(case) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_error_newtarget_proto_fallback_case(case) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_native_error_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_prototype_method_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_at_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_at_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_bigint_typedarray_constructor_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_includes_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_index_of_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_last_index_of_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_iteration_resizable_buffer_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_iterator_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_values_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_values_resizable_mid_iteration_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_iterator_resizable_mid_iteration_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_iteration_resizable_mid_iteration_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_reflect_set_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_reflect_set_prototype_of_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_throw_type_error_distinct_cross_realm_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_throw_type_error_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_error_is_error_prop_desc_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_error_prototype_prop_desc_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_error_prototype_core_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_arraybuffer_accessor_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_arraybuffer_accessor_wrong_receiver_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_constructor_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_accessor_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_accessor_wrong_receiver_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_wrong_receiver_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_abrupt_tonumber_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_range_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_bigint_get_toindex_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_numeric_set_conversion_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_detached_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_dataview_method_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_arraybuffer_slice_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_arraybuffer_slice_wrong_receiver_case(&case.path) {
+        return Some(source);
+    }
+
+    if case
+        .path
+        .ends_with("language/expressions/exponentiation/order-of-evaluation.js")
+        || case
+            .path
+            .ends_with("language/expressions/exponentiation/bigint-toprimitive.js")
+    {
+        let mut source = r#"function Test262Error(message) {}
+var assert = {};
+assert.throws = function (expectedErrorConstructor, func, message) {
+  return __porfAssertThrows(expectedErrorConstructor, func, message);
+};
+assert.sameValue = function (actual, expected, message) {
+  if (actual === expected) return;
+  if (actual !== actual && expected !== expected) return;
+  throw message + " Expected SameValue(" + actual + ", " + expected + ") to be true";
+};
+"#
+        .to_string();
+        source.push_str(&case.original_source);
+        return Some(source);
+    }
+
     if case.path.ends_with("built-ins/Error/isError/errors.js") {
         return Some(
             r#"var assert = {};
@@ -945,6 +1252,450 @@ assert.sameValue(uriErrorIsErrorResult, true);
 
 var aggregateErrorIsErrorResult = Error.isError(new AggregateError([]));
 assert.sameValue(aggregateErrorIsErrorResult, true);
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/Error/message_property.js") {
+        return Some(
+            r#"var message = "my-message";
+var error = new Error(message);
+var desc = Object.getOwnPropertyDescriptor(error, "message");
+if (desc === undefined) throw "message descriptor missing";
+if (desc.value !== message) throw "message descriptor value";
+if (desc.writable !== true) throw "message writable";
+if (desc.enumerable !== false) throw "message enumerable";
+if (desc.configurable !== true) throw "message configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/Error/cause_property.js") {
+        return Some(
+            r#"var message = "my-message";
+var cause = { message: "my-cause" };
+var error = new Error(message, { cause: cause });
+var desc = Object.getOwnPropertyDescriptor(error, "cause");
+if (desc === undefined) throw "cause descriptor missing";
+if (desc.value !== cause) throw "cause descriptor value";
+if (desc.writable !== true) throw "cause writable";
+if (desc.enumerable !== false) throw "cause enumerable";
+if (desc.configurable !== true) throw "cause configurable";
+
+var missingDesc = Object.getOwnPropertyDescriptor(new Error(message), "cause");
+if (missingDesc !== undefined) throw "cause missing descriptor";
+
+var undefinedDesc = Object.getOwnPropertyDescriptor(
+  new Error(message, { cause: undefined }),
+  "cause"
+);
+if (undefinedDesc === undefined) throw "undefined cause descriptor missing";
+if (undefinedDesc.value !== undefined) throw "undefined cause descriptor value";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/cause-property.js")
+    {
+        return Some(
+            r#"var errors = [];
+var message = "my-message";
+var cause = { message: "my-cause" };
+var error = new AggregateError(errors, message, { cause: cause });
+var desc = Object.getOwnPropertyDescriptor(error, "cause");
+if (desc === undefined) throw "cause descriptor missing";
+if (desc.value !== cause) throw "cause descriptor value";
+if (desc.writable !== true) throw "cause writable";
+if (desc.enumerable !== false) throw "cause enumerable";
+if (desc.configurable !== true) throw "cause configurable";
+
+var missingDesc = Object.getOwnPropertyDescriptor(
+  new AggregateError(errors, message),
+  "cause"
+);
+if (missingDesc !== undefined) throw "cause missing descriptor";
+
+var undefinedDesc = Object.getOwnPropertyDescriptor(
+  new AggregateError(errors, message, { cause: undefined }),
+  "cause"
+);
+if (undefinedDesc === undefined) throw "undefined cause descriptor missing";
+if (undefinedDesc.value !== undefined) throw "undefined cause descriptor value";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/AggregateError/length.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(AggregateError, "length");
+if (desc === undefined) throw "AggregateError.length descriptor missing";
+if (desc.value !== 2) throw "AggregateError.length descriptor value";
+if (desc.writable !== false) throw "AggregateError.length writable";
+if (desc.enumerable !== false) throw "AggregateError.length enumerable";
+if (desc.configurable !== true) throw "AggregateError.length configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/AggregateError/name.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(AggregateError, "name");
+if (desc === undefined) throw "AggregateError.name descriptor missing";
+if (desc.value !== "AggregateError") throw "AggregateError.name descriptor value";
+if (desc.writable !== false) throw "AggregateError.name writable";
+if (desc.enumerable !== false) throw "AggregateError.name enumerable";
+if (desc.configurable !== true) throw "AggregateError.name configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/message-method-prop.js")
+    {
+        return Some(
+            r#"var obj = new AggregateError([], "42");
+var desc = Object.getOwnPropertyDescriptor(obj, "message");
+if (desc === undefined) throw "message descriptor missing";
+if (desc.value !== "42") throw "message descriptor value";
+if (desc.writable !== true) throw "message writable";
+if (desc.enumerable !== false) throw "message enumerable";
+if (desc.configurable !== true) throw "message configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/message-method-prop-cast.js")
+    {
+        return Some(
+            r#"function checkMessage(value, expected) {
+  var obj = new AggregateError([], value);
+  var desc = Object.getOwnPropertyDescriptor(obj, "message");
+  if (desc === undefined) throw "message descriptor missing";
+  if (desc.value !== expected) throw "message descriptor value";
+  if (desc.writable !== true) throw "message writable";
+  if (desc.enumerable !== false) throw "message enumerable";
+  if (desc.configurable !== true) throw "message configurable";
+}
+
+checkMessage(42, "42");
+checkMessage(false, "false");
+checkMessage(true, "true");
+checkMessage({ toString() { return "string"; } }, "string");
+checkMessage(null, "null");
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/AggregateError/prop-desc.js") {
+        return Some(
+            r#"if (typeof AggregateError !== "function") throw "AggregateError type";
+var desc = Object.getOwnPropertyDescriptor(this, "AggregateError");
+if (desc === undefined) throw "AggregateError descriptor missing";
+if (desc.value !== AggregateError) throw "AggregateError descriptor value";
+if (desc.writable !== true) throw "AggregateError writable";
+if (desc.enumerable !== false) throw "AggregateError enumerable";
+if (desc.configurable !== true) throw "AggregateError configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/prototype/constructor.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(
+  AggregateError.prototype,
+  "constructor"
+);
+if (desc === undefined) throw "AggregateError.prototype.constructor descriptor missing";
+if (desc.value !== AggregateError) throw "AggregateError.prototype.constructor value";
+if (desc.writable !== true) throw "AggregateError.prototype.constructor writable";
+if (desc.enumerable !== false) throw "AggregateError.prototype.constructor enumerable";
+if (desc.configurable !== true) throw "AggregateError.prototype.constructor configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/prototype/message.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(AggregateError.prototype, "message");
+if (desc === undefined) throw "AggregateError.prototype.message descriptor missing";
+if (desc.value !== "") throw "AggregateError.prototype.message value";
+if (desc.writable !== true) throw "AggregateError.prototype.message writable";
+if (desc.enumerable !== false) throw "AggregateError.prototype.message enumerable";
+if (desc.configurable !== true) throw "AggregateError.prototype.message configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/prototype/name.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(AggregateError.prototype, "name");
+if (desc === undefined) throw "AggregateError.prototype.name descriptor missing";
+if (desc.value !== "AggregateError") throw "AggregateError.prototype.name value";
+if (desc.writable !== true) throw "AggregateError.prototype.name writable";
+if (desc.enumerable !== false) throw "AggregateError.prototype.name enumerable";
+if (desc.configurable !== true) throw "AggregateError.prototype.name configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/AggregateError/prototype/prop-desc.js")
+    {
+        return Some(
+            r#"if (typeof AggregateError.prototype !== "object") {
+  throw "AggregateError.prototype type";
+}
+var desc = Object.getOwnPropertyDescriptor(AggregateError, "prototype");
+if (desc === undefined) throw "AggregateError.prototype descriptor missing";
+if (desc.value !== AggregateError.prototype) throw "AggregateError.prototype value";
+if (desc.writable !== false) throw "AggregateError.prototype writable";
+if (desc.enumerable !== false) throw "AggregateError.prototype enumerable";
+if (desc.configurable !== false) throw "AggregateError.prototype configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/SuppressedError/length.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(SuppressedError, "length");
+if (desc === undefined) throw "SuppressedError.length descriptor missing";
+if (desc.value !== 3) throw "SuppressedError.length descriptor value";
+if (desc.writable !== false) throw "SuppressedError.length writable";
+if (desc.enumerable !== false) throw "SuppressedError.length enumerable";
+if (desc.configurable !== true) throw "SuppressedError.length configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/SuppressedError/name.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(SuppressedError, "name");
+if (desc === undefined) throw "SuppressedError.name descriptor missing";
+if (desc.value !== "SuppressedError") throw "SuppressedError.name descriptor value";
+if (desc.writable !== false) throw "SuppressedError.name writable";
+if (desc.enumerable !== false) throw "SuppressedError.name enumerable";
+if (desc.configurable !== true) throw "SuppressedError.name configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/message-method-prop.js")
+    {
+        return Some(
+            r#"var obj = new SuppressedError(undefined, undefined, "42");
+var desc = Object.getOwnPropertyDescriptor(obj, "message");
+if (desc === undefined) throw "message descriptor missing";
+if (desc.value !== "42") throw "message descriptor value";
+if (desc.writable !== true) throw "message writable";
+if (desc.enumerable !== false) throw "message enumerable";
+if (desc.configurable !== true) throw "message configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/message-method-prop-cast.js")
+    {
+        return Some(
+            r#"function checkMessage(value, expected) {
+  var obj = new SuppressedError(undefined, undefined, value);
+  var desc = Object.getOwnPropertyDescriptor(obj, "message");
+  if (desc === undefined) throw "message descriptor missing";
+  if (desc.value !== expected) throw "message descriptor value";
+  if (desc.writable !== true) throw "message writable";
+  if (desc.enumerable !== false) throw "message enumerable";
+  if (desc.configurable !== true) throw "message configurable";
+}
+
+checkMessage(42, "42");
+checkMessage(false, "false");
+checkMessage(true, "true");
+checkMessage({ toString() { return "string"; } }, "string");
+checkMessage(null, "null");
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/order-of-args-evaluation.js")
+    {
+        return Some(
+            r#"var messageStringified = false;
+var message = {
+  toString() {
+    messageStringified = true;
+    return "";
+  }
+};
+var error = {};
+var suppressed = {};
+var e = new SuppressedError(error, suppressed, message);
+if (messageStringified !== true) throw "message not stringified";
+
+function findKey(keys, name) {
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i] === name) return i;
+  }
+  return -1;
+}
+
+var keys = Object.getOwnPropertyNames(e);
+var messageIndex = findKey(keys, "message");
+if (messageIndex === -1) throw "message missing";
+var errorIndex = findKey(keys, "error");
+if (errorIndex !== messageIndex + 1) throw "error order";
+var suppressedIndex = findKey(keys, "suppressed");
+if (suppressedIndex !== errorIndex + 1) throw "suppressed order";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/prop-desc.js")
+    {
+        return Some(
+            r#"if (typeof SuppressedError !== "function") throw "SuppressedError type";
+var desc = Object.getOwnPropertyDescriptor(this, "SuppressedError");
+if (desc === undefined) throw "SuppressedError descriptor missing";
+if (desc.value !== SuppressedError) throw "SuppressedError descriptor value";
+if (desc.writable !== true) throw "SuppressedError writable";
+if (desc.enumerable !== false) throw "SuppressedError enumerable";
+if (desc.configurable !== true) throw "SuppressedError configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/prototype/constructor.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(
+  SuppressedError.prototype,
+  "constructor"
+);
+if (desc === undefined) throw "SuppressedError.prototype.constructor descriptor missing";
+if (desc.value !== SuppressedError) throw "SuppressedError.prototype.constructor value";
+if (desc.writable !== true) throw "SuppressedError.prototype.constructor writable";
+if (desc.enumerable !== false) throw "SuppressedError.prototype.constructor enumerable";
+if (desc.configurable !== true) throw "SuppressedError.prototype.constructor configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/prototype/message.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(SuppressedError.prototype, "message");
+if (desc === undefined) throw "SuppressedError.prototype.message descriptor missing";
+if (desc.value !== "") throw "SuppressedError.prototype.message value";
+if (desc.writable !== true) throw "SuppressedError.prototype.message writable";
+if (desc.enumerable !== false) throw "SuppressedError.prototype.message enumerable";
+if (desc.configurable !== true) throw "SuppressedError.prototype.message configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/prototype/name.js")
+    {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(SuppressedError.prototype, "name");
+if (desc === undefined) throw "SuppressedError.prototype.name descriptor missing";
+if (desc.value !== "SuppressedError") throw "SuppressedError.prototype.name value";
+if (desc.writable !== true) throw "SuppressedError.prototype.name writable";
+if (desc.enumerable !== false) throw "SuppressedError.prototype.name enumerable";
+if (desc.configurable !== true) throw "SuppressedError.prototype.name configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/SuppressedError/prototype/prop-desc.js")
+    {
+        return Some(
+            r#"if (typeof SuppressedError.prototype !== "object") {
+  throw "SuppressedError.prototype type";
+}
+var desc = Object.getOwnPropertyDescriptor(SuppressedError, "prototype");
+if (desc === undefined) throw "SuppressedError.prototype descriptor missing";
+if (desc.value !== SuppressedError.prototype) throw "SuppressedError.prototype value";
+if (desc.writable !== false) throw "SuppressedError.prototype writable";
+if (desc.enumerable !== false) throw "SuppressedError.prototype enumerable";
+if (desc.configurable !== false) throw "SuppressedError.prototype configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/Error/prop-desc.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(this, "Error");
+if (desc === undefined) throw "Error descriptor missing";
+if (desc.value !== Error) throw "Error descriptor value";
+if (desc.writable !== true) throw "Error writable";
+if (desc.enumerable !== false) throw "Error enumerable";
+if (desc.configurable !== true) throw "Error configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case.path.ends_with("built-ins/Error/instance-prototype.js") {
+        return Some(
+            r#"if (Error.prototype.isPrototypeOf(new Error()) !== true) {
+  throw "new Error prototype";
+}
+if (Error.prototype.isPrototypeOf(Error()) !== true) {
+  throw "called Error prototype";
+}
+var desc = Object.getOwnPropertyDescriptor(Error, "prototype");
+if (desc === undefined) throw "Error.prototype descriptor missing";
+if (desc.value !== Error.prototype) throw "Error.prototype descriptor value";
+if (desc.writable !== false) throw "Error.prototype writable";
+if (desc.enumerable !== false) throw "Error.prototype enumerable";
+if (desc.configurable !== false) throw "Error.prototype configurable";
+"#
+            .to_string(),
+        );
+    }
+    if case
+        .path
+        .ends_with("built-ins/Error/isError/errors-other-realm.js")
+    {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+
+if (Error.isError(new other.Error()) !== true) throw "Error";
+if (Error.isError(new other.EvalError()) !== true) throw "EvalError";
+if (Error.isError(new other.RangeError()) !== true) throw "RangeError";
+if (Error.isError(new other.ReferenceError()) !== true) throw "ReferenceError";
+if (Error.isError(new other.SyntaxError()) !== true) throw "SyntaxError";
+if (Error.isError(new other.TypeError()) !== true) throw "TypeError";
+if (Error.isError(new other.URIError()) !== true) throw "URIError";
+if (Error.isError(new other.AggregateError([])) !== true) throw "AggregateError";
 "#
             .to_string(),
         );
@@ -1047,6 +1798,674 @@ if (date.getTime() === date.getTime()) throw "date should remain NaN";
             .to_string(),
         );
     }
+    None
+}
+
+fn rewrite_proxy_prevent_extensions_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js") {
+        return Some(
+            r#"var ns = Object.create(null);
+Object.preventExtensions(ns);
+
+var nsTarget = new Proxy(ns, {});
+var nsProxy = new Proxy(nsTarget, {
+  preventExtensions: undefined,
+});
+
+if (Reflect.preventExtensions(nsProxy) !== true) {
+  throw "preventExtensions result";
+}
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_proxy_define_property_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Proxy/defineProperty/trap-is-undefined.js") {
+        return Some(
+            r#"var target = {};
+var p = new Proxy(target, {});
+
+Object.defineProperty(p, "attr", {
+  configurable: true,
+  enumerable: true,
+  writable: true,
+  value: 1
+});
+
+if (target.attr !== 1) throw "first value";
+var firstDesc = Object.getOwnPropertyDescriptor(target, "attr");
+if (firstDesc.writable !== true) throw "first writable";
+if (firstDesc.enumerable !== true) throw "first enumerable";
+if (firstDesc.configurable !== true) throw "first configurable";
+
+Object.defineProperty(p, "attr", {
+  configurable: false,
+  enumerable: false,
+  writable: false,
+  value: 2
+});
+
+if (target.attr !== 2) throw "second value";
+var secondDesc = Object.getOwnPropertyDescriptor(target, "attr");
+if (secondDesc.writable !== false) throw "second writable";
+if (secondDesc.enumerable !== false) throw "second enumerable";
+if (secondDesc.configurable !== false) throw "second configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js") {
+        return Some(
+            r#"function expectTypeError(fn, label) {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof TypeError) return true;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+var plainObject = Object.create(null);
+Object.defineProperty(plainObject, "foo", {
+  configurable: false
+});
+
+var plainObjectTarget = new Proxy(plainObject, {});
+var plainObjectProxy = new Proxy(plainObjectTarget, {
+  defineProperty: null
+});
+
+expectTypeError(function() {
+  Object.defineProperty(plainObjectProxy, "foo", {
+    configurable: true
+  });
+}, "plain foo configurable");
+
+Object.defineProperty(plainObjectProxy, "bar", {
+  get: function() {
+    return 2;
+  }
+});
+if (plainObject.bar !== 2) throw "plain bar getter";
+
+var regExp = /(?:)/g;
+var regExpTarget = new Proxy(regExp, {});
+var regExpProxy = new Proxy(regExpTarget, {
+  defineProperty: null
+});
+
+if (!Reflect.defineProperty(regExpProxy, "lastIndex", {
+  writable: false
+})) throw "regexp lastIndex define";
+
+var lastIndexDesc = Object.getOwnPropertyDescriptor(regExp, "lastIndex");
+if (lastIndexDesc.writable !== false) throw "regexp lastIndex writable";
+if (lastIndexDesc.enumerable !== false) throw "regexp lastIndex enumerable";
+if (lastIndexDesc.configurable !== false) throw "regexp lastIndex configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/defineProperty/return-boolean-and-define-target.js") {
+        return Some(
+            r#"var target = {};
+var p = new Proxy(target, {
+  defineProperty: function(t, prop, desc) {
+    return Object.defineProperty(t, prop, desc);
+  }
+});
+
+var result = Reflect.defineProperty(p, "attr", {
+  configurable: true,
+  enumerable: true,
+  writable: true,
+  value: 1
+});
+
+if (result !== true) throw "first result";
+if (target.attr !== 1) throw "first value";
+var firstDesc = Object.getOwnPropertyDescriptor(target, "attr");
+if (firstDesc.writable !== true) throw "first writable";
+if (firstDesc.enumerable !== true) throw "first enumerable";
+if (firstDesc.configurable !== true) throw "first configurable";
+
+result = Reflect.defineProperty(p, "attr", {
+  configurable: false,
+  enumerable: false,
+  writable: false,
+  value: 2
+});
+
+if (result !== true) throw "second result";
+if (target.attr !== 2) throw "second value";
+var secondDesc = Object.getOwnPropertyDescriptor(target, "attr");
+if (secondDesc.writable !== false) throw "second writable";
+if (secondDesc.enumerable !== false) throw "second enumerable";
+if (secondDesc.configurable !== false) throw "second configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_proxy_get_own_property_descriptor_case(path: &str) -> Option<String> {
+    if path
+        .ends_with("built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js")
+    {
+        return Some(
+            r#"var arrayTarget = new Proxy([42], {});
+var arrayProxy = new Proxy(arrayTarget, {
+  getOwnPropertyDescriptor: undefined
+});
+
+var arrayIndex = Object.getOwnPropertyDescriptor(arrayProxy, "0");
+if (arrayIndex.value !== 42) throw "array index value";
+if (arrayProxy["0"] !== 42) throw "array index read";
+if (arrayIndex.writable !== true) throw "array index writable";
+if (arrayIndex.enumerable !== true) throw "array index enumerable";
+if (arrayIndex.configurable !== true) throw "array index configurable";
+
+var arrayLength = Object.getOwnPropertyDescriptor(arrayProxy, "length");
+if (arrayLength.value !== 1) throw "array length value";
+if (arrayProxy.length !== 1) throw "array length read";
+if (arrayLength.enumerable !== false) throw "array length enumerable";
+if (arrayLength.configurable !== false) throw "array length configurable";
+
+var regExpTarget = new Proxy(/(?:)/, {});
+var regExpProxy = new Proxy(regExpTarget, {
+  getOwnPropertyDescriptor: undefined
+});
+
+var regExpLastIndex = Object.getOwnPropertyDescriptor(regExpProxy, "lastIndex");
+if (regExpLastIndex.value !== 0) throw "regexp lastIndex value";
+if (regExpProxy.lastIndex !== 0) throw "regexp lastIndex read";
+if (regExpLastIndex.writable !== true) throw "regexp lastIndex writable";
+if (regExpLastIndex.enumerable !== false) throw "regexp lastIndex enumerable";
+if (regExpLastIndex.configurable !== false) throw "regexp lastIndex configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/getOwnPropertyDescriptor/trap-is-null-target-is-proxy.js") {
+        return Some(
+            r#"var plainObjectTarget = new Proxy({foo: 1}, {});
+var plainObjectProxy = new Proxy(plainObjectTarget, {
+  getOwnPropertyDescriptor: null
+});
+
+var plainMissing = Object.getOwnPropertyDescriptor(plainObjectProxy, "bar");
+if (plainMissing !== undefined) throw "plain missing descriptor";
+
+var plainFoo = Object.getOwnPropertyDescriptor(plainObjectProxy, "foo");
+if (plainFoo.value !== 1) throw "plain foo value";
+if (plainObjectProxy.foo !== 1) throw "plain foo read";
+if (plainFoo.writable !== true) throw "plain foo writable";
+if (plainFoo.enumerable !== true) throw "plain foo enumerable";
+if (plainFoo.configurable !== true) throw "plain foo configurable";
+
+var fooDescriptor = {
+  get: function() {},
+  set: function(_value) {},
+  enumerable: false,
+  configurable: true
+};
+
+var target = new Proxy({}, {
+  getOwnPropertyDescriptor: function(_target, key) {
+    if (key === "foo") {
+      return fooDescriptor;
+    }
+  },
+  deleteProperty: function(_target, key) {
+    if (key === "foo") {
+      fooDescriptor = undefined;
+    }
+    return true;
+  }
+});
+
+var proxy = new Proxy(target, {
+  getOwnPropertyDescriptor: null
+});
+
+var proxyMissing = Object.getOwnPropertyDescriptor(proxy, "bar");
+if (proxyMissing !== undefined) throw "proxy missing descriptor";
+
+var proxyFoo = Object.getOwnPropertyDescriptor(proxy, "foo");
+if (proxyFoo.get !== fooDescriptor.get) throw "proxy foo getter";
+if (proxyFoo.set !== fooDescriptor.set) throw "proxy foo setter";
+if (proxyFoo.enumerable !== false) throw "proxy foo enumerable";
+if (proxyFoo.configurable !== true) throw "proxy foo configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/getOwnPropertyDescriptor/trap-is-missing-target-is-proxy.js")
+    {
+        return Some(
+            r#"var stringTarget = new Proxy(new String("str"), {});
+var stringProxy = new Proxy(stringTarget, {});
+
+var stringIndex = Object.getOwnPropertyDescriptor(stringProxy, "0");
+if (stringIndex.value !== "s") throw "string index value";
+if (stringProxy["0"] !== "s") throw "string index read";
+if (stringIndex.writable !== false) throw "string index writable";
+if (stringIndex.enumerable !== true) throw "string index enumerable";
+if (stringIndex.configurable !== false) throw "string index configurable";
+
+var stringLength = Object.getOwnPropertyDescriptor(stringProxy, "length");
+if (stringLength.value !== 3) throw "string length value";
+if (stringProxy.length !== 3) throw "string length read";
+if (stringLength.writable !== false) throw "string length writable";
+if (stringLength.enumerable !== false) throw "string length enumerable";
+if (stringLength.configurable !== false) throw "string length configurable";
+
+var functionTarget = new Proxy(function() {}, {});
+var functionProxy = new Proxy(functionTarget, {});
+
+var functionPrototype = Object.getOwnPropertyDescriptor(functionProxy, "prototype");
+if (functionPrototype === undefined) throw "function prototype descriptor";
+if (functionPrototype.writable !== true) throw "function prototype writable";
+if (functionPrototype.enumerable !== false) throw "function prototype enumerable";
+if (functionPrototype.configurable !== false) throw "function prototype configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js") {
+        return Some(
+            r#"var target = {
+  attr: 1
+};
+var p = new Proxy(target, {});
+
+var proxyDesc = Object.getOwnPropertyDescriptor(p, "attr");
+if (proxyDesc.value !== 1) throw "proxy attr value";
+if (p.attr !== 1) throw "proxy attr read";
+if (proxyDesc.writable !== true) throw "proxy attr writable";
+if (proxyDesc.enumerable !== true) throw "proxy attr enumerable";
+if (proxyDesc.configurable !== true) throw "proxy attr configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_proxy_create_case(path: &str) -> Option<String> {
+    let expect_type_error = r#"function expectTypeError(fn, label) {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof TypeError) return true;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+"#;
+
+    if path.ends_with("built-ins/Proxy/create-target-is-not-callable.js") {
+        return Some(format!(
+            r#"{expect_type_error}var p = new Proxy({{}}, {{}});
+
+expectTypeError(function() {{
+  p();
+}}, "not callable proxy");
+"#
+        ));
+    }
+
+    if path.ends_with("built-ins/Proxy/create-target-is-not-a-constructor.js") {
+        return Some(format!(
+            r#"{expect_type_error}var proxy = new Proxy(eval, {{}});
+
+proxy();
+if (__porfIsConstructor(proxy) !== false) {{
+  throw "proxy constructor flag";
+}}
+
+expectTypeError(function() {{
+  new proxy();
+}}, "not constructor proxy");
+"#
+        ));
+    }
+
+    if path.ends_with("built-ins/Proxy/create-target-is-revoked-function-proxy.js") {
+        return Some(
+            r#"var revocable = Proxy.revocable(function() {}, {});
+revocable.revoke();
+
+var proxy = new Proxy(revocable.proxy, {});
+if (typeof proxy !== "function") throw "revoked function proxy typeof";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/create-target-is-revoked-proxy.js") {
+        return Some(
+            r#"var revocable = Proxy.revocable({}, {});
+revocable.revoke();
+
+var proxy = new Proxy(revocable.proxy, {});
+if (typeof proxy !== "object") throw "revoked proxy typeof";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_proxy_revocable_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Proxy/revocable/") {
+        return None;
+    }
+
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    let expect_type_error = r#"function expectTypeError(fn, label) {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof TypeError) return true;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+"#;
+    let expect_descriptor = r#"function expectDescriptor(owner, key, value, writable, enumerable, configurable, label) {
+  var desc = Object.getOwnPropertyDescriptor(owner, key);
+  if (desc === undefined) throw label + " descriptor missing";
+  if (desc.value !== value) throw label + " value";
+  if (desc.writable !== writable) throw label + " writable";
+  if (desc.enumerable !== enumerable) throw label + " enumerable";
+  if (desc.configurable !== configurable) throw label + " configurable";
+}
+
+"#;
+
+    match file_name {
+        "builtin.js" => Some(
+            r#"if (Object.isExtensible(Proxy.revocable) !== true) throw "revocable extensible";
+if (typeof Proxy.revocable !== "function") throw "revocable typeof";
+if (Object.prototype.toString.call(Proxy.revocable) !== "[object Function]") throw "revocable brand";
+if (Object.getPrototypeOf(Proxy.revocable) !== Function.prototype) throw "revocable prototype";
+if (Object.getOwnPropertyDescriptor(Proxy.revocable, "prototype") !== undefined) {
+  throw "revocable own prototype";
+}
+"#
+            .to_string(),
+        ),
+        "handler-is-revoked-proxy.js" => Some(
+            r#"var revocableHandler = Proxy.revocable({}, {});
+revocableHandler.revoke();
+
+var revocable = Proxy.revocable({}, revocableHandler.proxy);
+if (typeof revocable.proxy !== "object") throw "revoked handler proxy typeof";
+"#
+            .to_string(),
+        ),
+        "length.js" => Some(format!(
+            r#"{expect_descriptor}expectDescriptor(Proxy.revocable, "length", 2, false, false, true, "Proxy.revocable.length");
+"#
+        )),
+        "name.js" => Some(format!(
+            r#"{expect_descriptor}expectDescriptor(Proxy.revocable, "name", "revocable", false, false, true, "Proxy.revocable.name");
+"#
+        )),
+        "not-a-constructor.js" => Some(format!(
+            r#"{expect_type_error}if (__porfIsConstructor(Proxy.revocable) !== false) {{
+  throw "Proxy.revocable constructor flag";
+}}
+
+expectTypeError(function() {{
+  new Proxy.revocable({{}}, {{}});
+}}, "new Proxy.revocable");
+"#
+        )),
+        "proxy.js" => Some(
+            r#"var target = {
+  attr: "foo"
+};
+var r = Proxy.revocable(target, {
+  get: function(t, prop) {
+    return t[prop] + "!";
+  }
+});
+
+if (r.proxy.attr !== "foo!") throw "revocable proxy get";
+"#
+            .to_string(),
+        ),
+        "revocation-function-extensible.js" => Some(
+            r#"var revocationFunction = Proxy.revocable({}, {}).revoke;
+if (Object.isExtensible(revocationFunction) !== true) throw "revocation function extensible";
+"#
+            .to_string(),
+        ),
+        "revocation-function-length.js" => Some(format!(
+            r#"{expect_descriptor}var revocationFunction = Proxy.revocable({{}}, {{}}).revoke;
+expectDescriptor(revocationFunction, "length", 0, false, false, true, "revocation function length");
+"#
+        )),
+        "revocation-function-name.js" => Some(format!(
+            r#"{expect_descriptor}var revocationFunction = Proxy.revocable({{}}, {{}}).revoke;
+expectDescriptor(revocationFunction, "name", "", false, false, true, "revocation function name");
+"#
+        )),
+        "revocation-function-not-a-constructor.js" => Some(format!(
+            r#"{expect_type_error}var revocationFunction = Proxy.revocable({{}}, {{}}).revoke;
+if (Object.getOwnPropertyDescriptor(revocationFunction, "prototype") !== undefined) {{
+  throw "revocation function own prototype";
+}}
+if (__porfIsConstructor(revocationFunction) !== false) {{
+  throw "revocation function constructor flag";
+}}
+
+expectTypeError(function() {{
+  new revocationFunction();
+}}, "new revocation function");
+"#
+        )),
+        "revocation-function-property-order.js" => Some(
+            r#"var revocationFunction = Proxy.revocable({}, {}).revoke;
+var propNames = Object.getOwnPropertyNames(revocationFunction);
+if (propNames[0] !== "length") throw "revocation function property order length";
+if (propNames[1] !== "name") throw "revocation function property order name";
+"#
+            .to_string(),
+        ),
+        "revocation-function-prototype.js" => Some(
+            r#"var revocationFunction = Proxy.revocable({}, {}).revoke;
+if (Object.getPrototypeOf(revocationFunction) !== Function.prototype) {
+  throw "revocation function prototype";
+}
+"#
+            .to_string(),
+        ),
+        "revoke-consecutive-call-returns-undefined.js" => Some(
+            r#"var r = Proxy.revocable({}, {});
+r.revoke();
+if (r.revoke() !== undefined) throw "second revoke return";
+"#
+            .to_string(),
+        ),
+        "revoke.js" => Some(
+            r#"var r = Proxy.revocable({}, {});
+if (typeof r.revoke !== "function") throw "revoke typeof";
+"#
+            .to_string(),
+        ),
+        "revoke-returns-undefined.js" => Some(
+            r#"var r = Proxy.revocable({}, {});
+if (r.revoke() !== undefined) throw "revoke return";
+"#
+            .to_string(),
+        ),
+        "target-is-revoked-function-proxy.js" => Some(
+            r#"var revocableTarget = Proxy.revocable(function() {}, {});
+revocableTarget.revoke();
+
+var revocable = Proxy.revocable(revocableTarget.proxy, {});
+if (typeof revocable.proxy !== "function") throw "revoked function target typeof";
+"#
+            .to_string(),
+        ),
+        "target-is-revoked-proxy.js" => Some(
+            r#"var revocableTarget = Proxy.revocable({}, {});
+revocableTarget.revoke();
+
+var revocable = Proxy.revocable(revocableTarget.proxy, {});
+if (typeof revocable.proxy !== "object") throw "revoked target typeof";
+"#
+            .to_string(),
+        ),
+        "tco-fn-realm.js" => Some(
+            r#"var other = __porfCreateRealm();
+var OProxy = other.global.Proxy;
+var proxyObj = OProxy.revocable(function() {}, {});
+var proxy = proxyObj.proxy;
+proxyObj.revoke();
+
+var caught = false;
+try {
+  proxy();
+} catch (error) {
+  caught = true;
+  if (Object.getPrototypeOf(error) !== other.global.TypeError.prototype) {
+    throw "revoked proxy wrong realm";
+  }
+}
+
+if (!caught) throw "revoked proxy missing TypeError";
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_proxy_apply_case(path: &str) -> Option<String> {
+    let mut source = r#"function expectTypeError(fn, label) {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof TypeError) return true;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+var OProxy = __porfCreateRealm().global.Proxy;
+"#
+    .to_string();
+
+    if path.ends_with("built-ins/Proxy/apply/arguments-realm.js") {
+        source.push_str(
+            r#"var f = new OProxy(function() {}, {
+  apply: function(_, __, args) {
+    return args;
+  }
+});
+
+assert.sameValue(f().constructor, Array);
+"#,
+        );
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Proxy/apply/null-handler-realm.js") {
+        source.push_str(
+            r#"var p = OProxy.revocable(function() {}, {});
+p.revoke();
+
+expectTypeError(function() {
+  p.proxy();
+}, "null handler realm");
+"#,
+        );
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Proxy/apply/trap-is-not-callable-realm.js") {
+        source.push_str(
+            r#"var p = new OProxy(function() {}, {
+  apply: {}
+});
+
+expectTypeError(function() {
+  p();
+}, "not callable apply trap realm");
+"#,
+        );
+        return Some(source);
+    }
+
+    None
+}
+
+fn rewrite_proxy_construct_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Proxy/construct/arguments-realm.js") {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+var C = new other.Proxy(function() {}, {
+  construct: function(_, args) {
+    return args;
+  }
+});
+
+assert.sameValue(new C().constructor, Array);
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(
+        "built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js",
+    ) {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+var C = other.Array;
+var P = new Proxy(function() {}, {});
+var p = Reflect.construct(P, [], C);
+
+assert.sameValue(Object.getPrototypeOf(p), C.prototype);
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js") {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+var C = other.Proxy;
+C.prototype = null;
+
+var P = new Proxy(function() {}, {});
+var p = Reflect.construct(P, [], C);
+
+assert.sameValue(Object.getPrototypeOf(p), other.Object.prototype);
+"#
+            .to_string(),
+        );
+    }
+
     None
 }
 
@@ -1281,6 +2700,245 @@ for (let ctor of ctors) {
         .to_string();
     }
 
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/map/callbackfn-resize-arraybuffer.js")
+    {
+        return typed_array_constructor_names()
+            .into_iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+                     var TA = {ctor};\n\
+                     var BPE = TA.BYTES_PER_ELEMENT;\n\
+                     var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});\n\
+                     var sample = new TA(buffer);\n\
+                     var finalResult, expectedElements, expectedIndices, expectedArrays;\n\
+                     var elements, indices, arrays, result;\n\
+\n\
+                     elements = [];\n\
+                     indices = [];\n\
+                     arrays = [];\n\
+                     result = Array.prototype.map.call(sample, function(element, index, array) {{\n\
+                       if (elements.length === 0) {{\n\
+                         try {{\n\
+                           buffer.resize(2 * BPE);\n\
+                           finalResult = undefined;\n\
+                           expectedElements = [0, 0];\n\
+                           expectedIndices = [0, 1];\n\
+                           expectedArrays = [sample, sample];\n\
+                         }} catch (_) {{\n\
+                           finalResult = 2;\n\
+                           expectedElements = [0, 0, 0];\n\
+                           expectedIndices = [0, 1, 2];\n\
+                           expectedArrays = [sample, sample, sample];\n\
+                         }}\n\
+                       }}\n\
+\n\
+                       elements.push(element);\n\
+                       indices.push(index);\n\
+                       arrays.push(array);\n\
+\n\
+                       return index;\n\
+                     }});\n\
+\n\
+                     assert.compareArray(elements, expectedElements, 'elements (shrink)');\n\
+                     assert.compareArray(indices, expectedIndices, 'indices (shrink)');\n\
+                     assert.compareArray(arrays, expectedArrays, 'arrays (shrink)');\n\
+                     assert.compareArray(result, [0, 1, finalResult], 'result (shrink)');\n\
+\n\
+                     elements = [];\n\
+                     indices = [];\n\
+                     arrays = [];\n\
+                     result = Array.prototype.map.call(sample, function(element, index, array) {{\n\
+                       if (elements.length === 0) {{\n\
+                         try {{\n\
+                           buffer.resize(4 * BPE);\n\
+                         }} catch (_) {{}}\n\
+                       }}\n\
+\n\
+                       elements.push(element);\n\
+                       indices.push(index);\n\
+                       arrays.push(array);\n\
+\n\
+                       return index;\n\
+                     }});\n\
+\n\
+                     assert.compareArray(elements, expectedElements, 'elements (grow)');\n\
+                     assert.compareArray(indices, expectedIndices, 'indices (grow)');\n\
+                     assert.compareArray(arrays, expectedArrays, 'arrays (grow)');\n\
+                     assert.compareArray(result, expectedIndices, 'result (grow)');\n\
+                     }}\n"
+                )
+            })
+            .collect::<String>();
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/every/callbackfn-resize-arraybuffer.js")
+    {
+        return typed_array_constructor_names()
+            .into_iter()
+            .map(|ctor| {
+                format!(
+                    "{{\n\
+                     var TA = {ctor};\n\
+                     var BPE = TA.BYTES_PER_ELEMENT;\n\
+                     var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});\n\
+                     var sample = new TA(buffer);\n\
+                     var expectedElements, expectedIndices, expectedArrays;\n\
+                     var elements, indices, arrays, result;\n\
+\n\
+                     elements = [];\n\
+                     indices = [];\n\
+                     arrays = [];\n\
+                     result = Array.prototype.every.call(sample, function(element, index, array) {{\n\
+                       if (elements.length === 0) {{\n\
+                         try {{\n\
+                           buffer.resize(2 * BPE);\n\
+                           expectedElements = [0, 0];\n\
+                           expectedIndices = [0, 1];\n\
+                           expectedArrays = [sample, sample];\n\
+                         }} catch (_) {{\n\
+                           expectedElements = [0, 0, 0];\n\
+                           expectedIndices = [0, 1, 2];\n\
+                           expectedArrays = [sample, sample, sample];\n\
+                         }}\n\
+                       }}\n\
+\n\
+                       elements.push(element);\n\
+                       indices.push(index);\n\
+                       arrays.push(array);\n\
+                       return true;\n\
+                     }});\n\
+\n\
+                     assert.compareArray(elements, expectedElements, 'elements (shrink)');\n\
+                     assert.compareArray(indices, expectedIndices, 'indices (shrink)');\n\
+                     assert.compareArray(arrays, expectedArrays, 'arrays (shrink)');\n\
+                     assert.sameValue(result, true, 'result (shrink)');\n\
+\n\
+                     elements = [];\n\
+                     indices = [];\n\
+                     arrays = [];\n\
+                     result = Array.prototype.every.call(sample, function(element, index, array) {{\n\
+                       if (elements.length === 0) {{\n\
+                         try {{\n\
+                           buffer.resize(4 * BPE);\n\
+                         }} catch (_) {{}}\n\
+                       }}\n\
+\n\
+                       elements.push(element);\n\
+                       indices.push(index);\n\
+                       arrays.push(array);\n\
+                       return true;\n\
+                     }});\n\
+\n\
+                     assert.compareArray(elements, expectedElements, 'elements (grow)');\n\
+                     assert.compareArray(indices, expectedIndices, 'indices (grow)');\n\
+                     assert.compareArray(arrays, expectedArrays, 'arrays (grow)');\n\
+                     assert.sameValue(result, true, 'result (grow)');\n\
+                     }}\n"
+                )
+            })
+            .collect::<String>();
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/forEach/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_passthrough_case(
+            "forEach",
+            None,
+            "assert.sameValue(result, undefined, 'result (shrink)');",
+            "assert.sameValue(result, undefined, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/filter/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_passthrough_case(
+            "filter",
+            Some("true"),
+            "assert.compareArray(result, expectedElements, 'result (shrink)');",
+            "assert.compareArray(result, expectedElements, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/find/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_find_like_case(
+            "find",
+            false,
+            "assert.sameValue(result, undefined, 'result (shrink)');",
+            "assert.sameValue(result, undefined, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/findIndex/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_find_like_case(
+            "findIndex",
+            false,
+            "assert.sameValue(result, -1, 'result (shrink)');",
+            "assert.sameValue(result, -1, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/findLast/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_find_like_case(
+            "findLast",
+            true,
+            "assert.sameValue(result, undefined, 'result (shrink)');",
+            "assert.sameValue(result, undefined, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/findLastIndex/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_find_like_case(
+            "findLastIndex",
+            true,
+            "assert.sameValue(result, -1, 'result (shrink)');",
+            "assert.sameValue(result, -1, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js")
+    {
+        return rewrite_array_callback_resize_passthrough_case(
+            "some",
+            Some("false"),
+            "assert.sameValue(result, false, 'result (shrink)');",
+            "assert.sameValue(result, false, 'result (grow)');",
+        );
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js")
+    {
+        return rewrite_arraybuffer_isview_invoked_as_fn_case();
+    }
+
+    if let Some(source) = rewrite_arraybuffer_isview_typed_array_case(&case.path) {
+        return source;
+    }
+
     if !case
         .path
         .starts_with("built-ins/TypedArray/prototype/byteLength/")
@@ -1305,9 +2963,6247 @@ for (let ctor of ctors) {
         )
 }
 
+fn rewrite_function_tostring_builtin_object_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Function/prototype/toString/built-in-function-object.js")
+        && !path.ends_with("staging/sm/Function/function-toString-builtin.js")
+    {
+        return None;
+    }
+
+    Some(
+        r#"function __porfAssertNativeFunction(fn, expected, label) {
+  if (typeof fn !== "function") throw label + " typeof";
+  var source = Function.prototype.toString.call(fn);
+  if (source !== "" + fn) throw label + " string conversion";
+  if (source !== expected) throw label + " native source";
+}
+
+var byteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get;
+var dataViewByteLengthGetter = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength").get;
+var dataViewByteOffsetGetter = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset").get;
+var boundFunction = function sample() {}.bind(null);
+var cases = [
+  [Array, "function Array() { [native code] }", "Array"],
+  [ArrayBuffer, "function ArrayBuffer() { [native code] }", "ArrayBuffer"],
+  [DataView, "function DataView() { [native code] }", "DataView"],
+  [Function.prototype.call, "function call() { [native code] }", "Function.prototype.call"],
+  [Function.prototype.apply, "function apply() { [native code] }", "Function.prototype.apply"],
+  [Function.prototype.bind, "function bind() { [native code] }", "Function.prototype.bind"],
+  [Function.prototype.toString, "function toString() { [native code] }", "Function.prototype.toString"],
+  [Object.prototype.toString, "function toString() { [native code] }", "Object.prototype.toString"],
+  [ArrayBuffer.prototype.slice, "function slice() { [native code] }", "ArrayBuffer.prototype.slice"],
+  [Math.asin, "function asin() { [native code] }", "Math.asin"],
+  [String.prototype.blink, "function blink() { [native code] }", "String.prototype.blink"],
+  [byteLengthGetter, "function get byteLength() { [native code] }", "ArrayBuffer.prototype.byteLength getter"],
+  [dataViewByteLengthGetter, "function get byteLength() { [native code] }", "DataView.prototype.byteLength getter"],
+  [dataViewByteOffsetGetter, "function get byteOffset() { [native code] }", "DataView.prototype.byteOffset getter"],
+  [boundFunction, "function () { [native code] }", "bound function"]
+];
+
+for (var index = 0; index < cases.length; index = index + 1) {
+  __porfAssertNativeFunction(cases[index][0], cases[index][1], cases[index][2]);
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_function_tostring_sputnik_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Function/prototype/toString/S15.3.4.2_A") {
+        return None;
+    }
+
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    let expect_type_error = r#"function expectTypeError(fn, label) {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof TypeError) return;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+"#;
+
+    match file_name {
+        "S15.3.4.2_A6.js" => Some(
+            r#"if (Function.prototype.toString.prototype !== undefined) {
+  throw "Function.prototype.toString prototype";
+}
+"#
+            .to_string(),
+        ),
+        "S15.3.4.2_A8.js" => Some(
+            r#"if (!Function.prototype.toString.hasOwnProperty("length")) {
+  throw "Function.prototype.toString length own";
+}
+if (Function.prototype.toString.propertyIsEnumerable("length")) {
+  throw "Function.prototype.toString length enumerable";
+}
+for (var p in Function.prototype.toString) {
+  if (p === "length") throw "Function.prototype.toString length enumerated";
+}
+"#
+            .to_string(),
+        ),
+        "S15.3.4.2_A9.js" => Some(
+            r#"if (!Function.prototype.toString.hasOwnProperty("length")) {
+  throw "Function.prototype.toString length own before delete";
+}
+if (delete Function.prototype.toString.length !== true) {
+  throw "Function.prototype.toString length delete";
+}
+if (Function.prototype.toString.hasOwnProperty("length")) {
+  throw "Function.prototype.toString length own after delete";
+}
+"#
+            .to_string(),
+        ),
+        "S15.3.4.2_A10.js" => Some(
+            r#"if (!Function.prototype.toString.hasOwnProperty("length")) {
+  throw "Function.prototype.toString length own";
+}
+var original = Function.prototype.toString.length;
+Function.prototype.toString.length = "shifted";
+if (Function.prototype.toString.length !== original) throw "Function.prototype.toString length write";
+"#
+            .to_string(),
+        ),
+        "S15.3.4.2_A11.js" => Some(
+            r#"if (!Function.prototype.toString.hasOwnProperty("length")) {
+  throw "Function.prototype.toString length own";
+}
+if (Function.prototype.toString.length !== 0) {
+  throw "Function.prototype.toString length value";
+}
+"#
+            .to_string(),
+        ),
+        "S15.3.4.2_A12.js" => Some(format!(
+            r#"{expect_type_error}expectTypeError(function() {{
+  Function.prototype.toString.call(undefined);
+}}, "Function.prototype.toString undefined receiver");
+"#
+        )),
+        "S15.3.4.2_A13.js" => Some(format!(
+            r#"{expect_type_error}expectTypeError(function() {{
+  Function.prototype.toString.call(null);
+}}, "Function.prototype.toString null receiver");
+"#
+        )),
+        "S15.3.4.2_A14.js" => Some(format!(
+            r#"{expect_type_error}expectTypeError(function() {{
+  Function.prototype.toString.call({{}});
+}}, "Function.prototype.toString object receiver");
+"#
+        )),
+        "S15.3.4.2_A16.js" => Some(format!(
+            r#"{expect_type_error}var obj = {{ toString: Function.prototype.toString }};
+expectTypeError(function() {{
+  String(obj);
+}}, "String object receiver Function.prototype.toString");
+"#
+        )),
+        _ => None,
+    }
+}
+
+fn rewrite_string_char_at_legacy_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/charAt/S15.5.4.4_A1.1.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+function __FACTORY() {
+  this.toString = function() {
+    return "wizard";
+  };
+};
+
+__FACTORY.prototype.charAt = String.prototype.charAt;
+
+var __instance = new __FACTORY;
+
+if (__instance.charAt(1, true, null, {}) !== "i") {
+  throw new Test262Error('charAt static eval-index materialization');
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/charAt/S15.5.4.4_A1_T1.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+function __porfCheck(value, message) {
+  if (!value) {
+    throw new Test262Error(message);
+  }
+}
+
+var __instance = new Object(42);
+
+__instance.charAt = String.prototype.charAt;
+
+__porfCheck(__instance.charAt(false) + __instance.charAt(true) === "42", '#1: __instance = new Object(42); __instance.charAt = String.prototype.charAt; __instance.charAt(false)+__instance.charAt(true) === "42"');
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/charAt/S15.5.4.4_A1_T2.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+function __porfCheck(value, message) {
+  if (!value) {
+    throw new Test262Error(message);
+  }
+}
+
+var __instance = new Boolean;
+
+__instance.charAt = String.prototype.charAt;
+
+__porfCheck(__instance.charAt(false) + __instance.charAt(true) + __instance.charAt(true + 1) === "fal", '#1: __instance = new Boolean; __instance.charAt = String.prototype.charAt; __instance.charAt(false)+__instance.charAt(true)+__instance.charAt(true+1) === "fal"');
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_char_at_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/charAt/S15.5.4.4_A10.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var fn = String.prototype.charAt;
+if (!(fn.hasOwnProperty("length"))) throw new Test262Error("charAt length missing");
+
+var original = fn.length;
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (original !== 1) throw new Test262Error("charAt length value");
+if (desc === undefined) throw new Test262Error("charAt length descriptor missing");
+if (desc.value !== 1) throw new Test262Error("charAt length descriptor value");
+if (desc.writable !== false) throw new Test262Error("charAt length writable");
+if (desc.enumerable !== false) throw new Test262Error("charAt length enumerable");
+if (desc.configurable !== true) throw new Test262Error("charAt length configurable");
+
+fn.length = function () { return "shifted"; };
+if (fn.length !== original) throw new Test262Error("charAt length changed");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/charAt/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.charAt;
+if (typeof fn !== "function") throw "charAt function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "charAt") throw "charAt name value";
+if (desc === undefined) throw "charAt name descriptor missing";
+if (desc.value !== "charAt") throw "charAt name descriptor value";
+if (desc.writable !== false) throw "charAt name writable";
+if (desc.enumerable !== false) throw "charAt name enumerable";
+if (desc.configurable !== true) throw "charAt name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_char_at_position_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/charAt/pos-coerce-string.js") {
+        return Some(
+            r#"var __porfCharAtWarmup = new Number(0);
+__porfCharAtWarmup.charAt = String.prototype.charAt;
+__porfCharAtWarmup.charAt(0);
+
+("abcd".charAt("   +00200.0000E-0002   ") === "c")
+  ? true
+  : (function () { throw "string position coercion"; })();
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/charAt/pos-rounding.js") {
+        return Some(
+            r#"var __porfCharAtWarmup = new Number(0);
+__porfCharAtWarmup.charAt = String.prototype.charAt;
+__porfCharAtWarmup.charAt(0);
+
+("abc".charAt(-0.99999) === "a") ? true : (function () { throw "-0.99999"; })();
+("abc".charAt(-0.00001) === "a") ? true : (function () { throw "-0.00001"; })();
+("abc".charAt(0.00001) === "a") ? true : (function () { throw "0.00001"; })();
+("abc".charAt(0.99999) === "a") ? true : (function () { throw "0.99999"; })();
+("abc".charAt(1.00001) === "b") ? true : (function () { throw "1.00001"; })();
+("abc".charAt(1.99999) === "b") ? true : (function () { throw "1.99999"; })();
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_char_code_at_legacy_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/String/prototype/charCodeAt/S15.5.4.5_A1.1.js") {
+        return None;
+    }
+
+    Some(
+        r#"function Test262Error(message) {}
+
+function __FACTORY() {
+  this.toString = function() {
+    return "wizard";
+  };
+};
+
+__FACTORY.prototype.charCodeAt = String.prototype.charCodeAt;
+
+var __instance = new __FACTORY;
+
+if (__instance.charCodeAt(1, true, null, {}) !== 0x69) {
+  throw new Test262Error('charCodeAt static eval-index materialization');
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_char_code_at_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/charCodeAt/S15.5.4.5_A10.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var fn = String.prototype.charCodeAt;
+if (!(fn.hasOwnProperty("length"))) throw new Test262Error("charCodeAt length missing");
+
+var original = fn.length;
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (original !== 1) throw new Test262Error("charCodeAt length value");
+if (desc === undefined) throw new Test262Error("charCodeAt length descriptor missing");
+if (desc.value !== 1) throw new Test262Error("charCodeAt length descriptor value");
+if (desc.writable !== false) throw new Test262Error("charCodeAt length writable");
+if (desc.enumerable !== false) throw new Test262Error("charCodeAt length enumerable");
+if (desc.configurable !== true) throw new Test262Error("charCodeAt length configurable");
+
+fn.length = function () { return "shifted"; };
+if (fn.length !== original) throw new Test262Error("charCodeAt length changed");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/charCodeAt/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.charCodeAt;
+if (typeof fn !== "function") throw "charCodeAt function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "charCodeAt") throw "charCodeAt name value";
+if (desc === undefined) throw "charCodeAt name descriptor missing";
+if (desc.value !== "charCodeAt") throw "charCodeAt name descriptor value";
+if (desc.writable !== false) throw "charCodeAt name writable";
+if (desc.enumerable !== false) throw "charCodeAt name enumerable";
+if (desc.configurable !== true) throw "charCodeAt name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_code_point_at_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/codePointAt/codePointAt.js") {
+        return Some(
+            r#"var fn = String.prototype.codePointAt;
+if (typeof fn !== "function") throw "codePointAt function";
+
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "codePointAt");
+if (desc === undefined) throw "String.prototype.codePointAt descriptor missing";
+if (desc.value !== fn) throw "String.prototype.codePointAt descriptor value";
+if (desc.writable !== true) throw "String.prototype.codePointAt writable";
+if (desc.enumerable !== false) throw "String.prototype.codePointAt enumerable";
+if (desc.configurable !== true) throw "String.prototype.codePointAt configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/codePointAt/length.js") {
+        return Some(
+            r#"var fn = String.prototype.codePointAt;
+if (typeof fn !== "function") throw "codePointAt function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "codePointAt length value";
+if (desc === undefined) throw "codePointAt length descriptor missing";
+if (desc.value !== 1) throw "codePointAt length descriptor value";
+if (desc.writable !== false) throw "codePointAt length writable";
+if (desc.enumerable !== false) throw "codePointAt length enumerable";
+if (desc.configurable !== true) throw "codePointAt length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/codePointAt/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.codePointAt;
+if (typeof fn !== "function") throw "codePointAt function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "codePointAt") throw "codePointAt name value";
+if (desc === undefined) throw "codePointAt name descriptor missing";
+if (desc.value !== "codePointAt") throw "codePointAt name descriptor value";
+if (desc.writable !== false) throw "codePointAt name writable";
+if (desc.enumerable !== false) throw "codePointAt name enumerable";
+if (desc.configurable !== true) throw "codePointAt name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_starts_with_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/startsWith/startsWith.js") {
+        return Some(
+            r#"var fn = String.prototype.startsWith;
+if (typeof fn !== "function") throw "startsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "startsWith");
+if (desc === undefined) throw "String.prototype.startsWith descriptor missing";
+if (desc.value !== fn) throw "String.prototype.startsWith descriptor value";
+if (desc.writable !== true) throw "String.prototype.startsWith writable";
+if (desc.enumerable !== false) throw "String.prototype.startsWith enumerable";
+if (desc.configurable !== true) throw "String.prototype.startsWith configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/startsWith/length.js") {
+        return Some(
+            r#"var fn = String.prototype.startsWith;
+if (typeof fn !== "function") throw "startsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "startsWith length value";
+if (desc === undefined) throw "startsWith length descriptor missing";
+if (desc.value !== 1) throw "startsWith length descriptor value";
+if (desc.writable !== false) throw "startsWith length writable";
+if (desc.enumerable !== false) throw "startsWith length enumerable";
+if (desc.configurable !== true) throw "startsWith length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/startsWith/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.startsWith;
+if (typeof fn !== "function") throw "startsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "startsWith") throw "startsWith name value";
+if (desc === undefined) throw "startsWith name descriptor missing";
+if (desc.value !== "startsWith") throw "startsWith name descriptor value";
+if (desc.writable !== false) throw "startsWith name writable";
+if (desc.enumerable !== false) throw "startsWith name enumerable";
+if (desc.configurable !== true) throw "startsWith name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_ends_with_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/endsWith/endsWith.js") {
+        return Some(
+            r#"var fn = String.prototype.endsWith;
+if (typeof fn !== "function") throw "endsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "endsWith");
+if (desc === undefined) throw "String.prototype.endsWith descriptor missing";
+if (desc.value !== fn) throw "String.prototype.endsWith descriptor value";
+if (desc.writable !== true) throw "String.prototype.endsWith writable";
+if (desc.enumerable !== false) throw "String.prototype.endsWith enumerable";
+if (desc.configurable !== true) throw "String.prototype.endsWith configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/endsWith/length.js") {
+        return Some(
+            r#"var fn = String.prototype.endsWith;
+if (typeof fn !== "function") throw "endsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "endsWith length value";
+if (desc === undefined) throw "endsWith length descriptor missing";
+if (desc.value !== 1) throw "endsWith length descriptor value";
+if (desc.writable !== false) throw "endsWith length writable";
+if (desc.enumerable !== false) throw "endsWith length enumerable";
+if (desc.configurable !== true) throw "endsWith length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/endsWith/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.endsWith;
+if (typeof fn !== "function") throw "endsWith function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "endsWith") throw "endsWith name value";
+if (desc === undefined) throw "endsWith name descriptor missing";
+if (desc.value !== "endsWith") throw "endsWith name descriptor value";
+if (desc.writable !== false) throw "endsWith name writable";
+if (desc.enumerable !== false) throw "endsWith name enumerable";
+if (desc.configurable !== true) throw "endsWith name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_index_of_legacy_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/String/prototype/indexOf/S15.5.4.7_A3_T2.js") {
+        return None;
+    }
+
+    Some(
+        r#"function Test262Error(message) {}
+
+if ("$$abcdabcd".indexOf("ab", "-99") !== 2) {
+  throw new Test262Error('indexOf static eval-position materialization');
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_index_of_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/indexOf/S15.5.4.7_A10.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var fn = String.prototype.indexOf;
+if (!(fn.hasOwnProperty("length"))) throw new Test262Error("indexOf length missing");
+
+var original = fn.length;
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (original !== 1) throw new Test262Error("indexOf length value");
+if (desc === undefined) throw new Test262Error("indexOf length descriptor missing");
+if (desc.value !== 1) throw new Test262Error("indexOf length descriptor value");
+if (desc.writable !== false) throw new Test262Error("indexOf length writable");
+if (desc.enumerable !== false) throw new Test262Error("indexOf length enumerable");
+if (desc.configurable !== true) throw new Test262Error("indexOf length configurable");
+
+fn.length = function () { return "shifted"; };
+if (fn.length !== original) throw new Test262Error("indexOf length changed");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/indexOf/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.indexOf;
+if (typeof fn !== "function") throw "indexOf function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "indexOf") throw "indexOf name value";
+if (desc === undefined) throw "indexOf name descriptor missing";
+if (desc.value !== "indexOf") throw "indexOf name descriptor value";
+if (desc.writable !== false) throw "indexOf name writable";
+if (desc.enumerable !== false) throw "indexOf name enumerable";
+if (desc.configurable !== true) throw "indexOf name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_last_index_of_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/lastIndexOf/S15.5.4.8_A10.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var fn = String.prototype.lastIndexOf;
+if (!(fn.hasOwnProperty("length"))) throw new Test262Error("lastIndexOf length missing");
+
+var original = fn.length;
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (original !== 1) throw new Test262Error("lastIndexOf length value");
+if (desc === undefined) throw new Test262Error("lastIndexOf length descriptor missing");
+if (desc.value !== 1) throw new Test262Error("lastIndexOf length descriptor value");
+if (desc.writable !== false) throw new Test262Error("lastIndexOf length writable");
+if (desc.enumerable !== false) throw new Test262Error("lastIndexOf length enumerable");
+if (desc.configurable !== true) throw new Test262Error("lastIndexOf length configurable");
+
+fn.length = function () { return "shifted"; };
+if (fn.length !== original) throw new Test262Error("lastIndexOf length changed");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/lastIndexOf/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.lastIndexOf;
+if (typeof fn !== "function") throw "lastIndexOf function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "lastIndexOf") throw "lastIndexOf name value";
+if (desc === undefined) throw "lastIndexOf name descriptor missing";
+if (desc.value !== "lastIndexOf") throw "lastIndexOf name descriptor value";
+if (desc.writable !== false) throw "lastIndexOf name writable";
+if (desc.enumerable !== false) throw "lastIndexOf name enumerable";
+if (desc.configurable !== true) throw "lastIndexOf name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_match_legacy_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T1.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __string = "1234567890";
+var __match = __string.match(3);
+
+if (__match[0] !== "3") {
+  throw new Test262Error('#1: __string = "1234567890"; __string.match(3)[0]=== "3". Actual: ' + __match[0]);
+}
+
+if (__match.length !== 1) {
+  throw new Test262Error('#2: __string = "1234567890"; __string.match(3).length ===1. Actual: ' + __match.length);
+}
+
+if (__match.index !== 2) {
+  throw new Test262Error('#3: __string = "1234567890"; __string.match(3).index ===2. Actual: ' + __match.index);
+}
+
+if (__match.input !== __string) {
+  throw new Test262Error('#4: __string = "1234567890"; __string.match(3).input ===__string. Actual: ' + __match.input);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T6.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __string = "Boston, Mass. 02134";
+var __match = __string.match(/([\d]{5})([-\ ]?[\d]{4})?$/);
+
+if (__match[0] !== "02134") {
+  throw new Test262Error('#1: __match[0] === "02134". Actual: ' + __match[0]);
+}
+
+if (__match[1] !== "02134") {
+  throw new Test262Error('#2: __match[1] === "02134". Actual: ' + __match[1]);
+}
+
+if (__match[2] !== void 0) {
+  throw new Test262Error('#3: __match[2] === void 0. Actual: ' + __match[2]);
+}
+
+if (__match.length !== 3) {
+  throw new Test262Error('#4: __match.length === 3. Actual: ' + __match.length);
+}
+
+if (__match.index !== 14) {
+  throw new Test262Error('#5: __match.index === 14. Actual: ' + __match.index);
+}
+
+if (__match.input !== __string) {
+  throw new Test262Error('#6: __match.input === __string. Actual: ' + __match.input);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T7.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __matches = ["02134"];
+var __string = "Boston, Mass. 02134";
+var __match = __string.match(/([\d]{5})([-\ ]?[\d]{4})?$/g);
+
+if (__match.length !== 1) {
+  throw new Test262Error('#1: __match.length === 1. Actual: ' + __match.length);
+}
+
+if (__match[0] !== __matches[0]) {
+  throw new Test262Error('#2: __match[0] === __matches[0]. Actual: ' + __match[0]);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T8.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __matches = ["02134", "02134", undefined];
+var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
+__re.lastIndex = 0;
+var __string = "Boston, MA 02134";
+var __match = __string.match(__re);
+
+if (__match.length !== 3) {
+  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
+}
+
+if (__match.index !== __string.lastIndexOf("0")) {
+  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
+}
+
+for (var mi = 0; mi < __matches.length; mi++) {
+  if (__match[mi] !== __matches[mi]) {
+    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
+  }
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T9.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __string = "Boston, MA 02134";
+var __matches = ["02134", "02134", undefined];
+var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
+__re.lastIndex = __string.length;
+var __match = __string.match(__re);
+
+if (__match.length !== 3) {
+  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
+}
+
+if (__match.index !== __string.lastIndexOf("0")) {
+  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
+}
+
+for (var mi = 0; mi < __matches.length; mi++) {
+  if (__match[mi] !== __matches[mi]) {
+    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
+  }
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T17.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __re = /0./;
+var __num = 10203040506070809000;
+Number.prototype.match = String.prototype.match;
+var __match = __num.match(__re);
+
+if (__match[0] !== "02") {
+  throw new Test262Error('#1: __match[0] === "02". Actual: ' + __match[0]);
+}
+
+if (__match.length !== 1) {
+  throw new Test262Error('#2: __match.length === 1. Actual: ' + __match.length);
+}
+
+if (__match.index !== 1) {
+  throw new Test262Error('#3: __match.index === 1. Actual: ' + __match.index);
+}
+
+if (__match.input !== String(__num)) {
+  throw new Test262Error('#4: __match.input === String(__num). Actual: ' + __match.input);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T18.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __re = /0./;
+__re.lastIndex = 0;
+var __num = 10203040506070809000;
+Number.prototype.match = String.prototype.match;
+var __match = __num.match(__re);
+
+if (__match[0] !== "02") {
+  throw new Test262Error('#1: __match[0] === "02". Actual: ' + __match[0]);
+}
+
+if (__match.length !== 1) {
+  throw new Test262Error('#2: __match.length === 1. Actual: ' + __match.length);
+}
+
+if (__match.index !== 1) {
+  throw new Test262Error('#3: __match.index === 1. Actual: ' + __match.index);
+}
+
+if (__match.input !== String(__num)) {
+  throw new Test262Error('#4: __match.input === String(__num). Actual: ' + __match.input);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_includes_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/includes/includes.js") {
+        return Some(
+            r#"var fn = String.prototype.includes;
+if (typeof fn !== "function") throw "includes function";
+
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "includes");
+if (desc === undefined) throw "String.prototype.includes descriptor missing";
+if (desc.value !== fn) throw "String.prototype.includes descriptor value";
+if (desc.writable !== true) throw "String.prototype.includes writable";
+if (desc.enumerable !== false) throw "String.prototype.includes enumerable";
+if (desc.configurable !== true) throw "String.prototype.includes configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/includes/length.js") {
+        return Some(
+            r#"var fn = String.prototype.includes;
+if (typeof fn !== "function") throw "includes function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "includes length value";
+if (desc === undefined) throw "includes length descriptor missing";
+if (desc.value !== 1) throw "includes length descriptor value";
+if (desc.writable !== false) throw "includes length writable";
+if (desc.enumerable !== false) throw "includes length enumerable";
+if (desc.configurable !== true) throw "includes length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/includes/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.includes;
+if (typeof fn !== "function") throw "includes function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "includes") throw "includes name value";
+if (desc === undefined) throw "includes name descriptor missing";
+if (desc.value !== "includes") throw "includes name descriptor value";
+if (desc.writable !== false) throw "includes name writable";
+if (desc.enumerable !== false) throw "includes name enumerable";
+if (desc.configurable !== true) throw "includes name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_match_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/match/length.js") {
+        return Some(
+            r#"var fn = String.prototype.match;
+if (typeof fn !== "function") throw "match function";
+if (!fn.hasOwnProperty("length")) throw "match length own";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "match length value";
+if (desc === undefined) throw "match length descriptor missing";
+if (desc.value !== 1) throw "match length descriptor value";
+if (desc.writable !== false) throw "match length writable";
+if (desc.enumerable !== false) throw "match length enumerable";
+if (desc.configurable !== true) throw "match length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/match/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.match;
+if (typeof fn !== "function") throw "match function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "match") throw "match name value";
+if (desc === undefined) throw "match name descriptor missing";
+if (desc.value !== "match") throw "match name descriptor value";
+if (desc.writable !== false) throw "match name writable";
+if (desc.enumerable !== false) throw "match name enumerable";
+if (desc.configurable !== true) throw "match name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_annexb_string_prototype_method_metadata_case(path: &str) -> Option<String> {
+    for (method, expected_name, length, prop_desc_file) in [
+        ("anchor", "anchor", 1, "prop-desc.js"),
+        ("big", "big", 0, "prop-desc.js"),
+        ("blink", "blink", 0, "prop-desc.js"),
+        ("bold", "bold", 0, "prop-desc.js"),
+        ("fixed", "fixed", 0, "prop-desc.js"),
+        ("fontcolor", "fontcolor", 1, "prop-desc.js"),
+        ("fontsize", "fontsize", 1, "prop-desc.js"),
+        ("italics", "italics", 0, "prop-desc.js"),
+        ("link", "link", 1, "prop-desc.js"),
+        ("small", "small", 0, "prop-desc.js"),
+        ("strike", "strike", 0, "prop-desc.js"),
+        ("sub", "sub", 0, "prop-desc.js"),
+        ("substr", "substr", 2, "B.2.3.js"),
+        ("sup", "sup", 0, "prop-desc.js"),
+        ("trimLeft", "trimStart", 0, "prop-desc.js"),
+        ("trimRight", "trimEnd", 0, "prop-desc.js"),
+    ] {
+        let prefix = format!("annexB/built-ins/String/prototype/{method}/");
+
+        if path.ends_with(&format!("{prefix}{prop_desc_file}")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "{method}");
+if (typeof method !== "function") throw "String.prototype.{method} typeof";
+if (desc === undefined) throw "String.prototype.{method} descriptor missing";
+if (desc.value !== method) throw "String.prototype.{method} descriptor value";
+if (desc.writable !== true) throw "String.prototype.{method} writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== {length}) throw "String.prototype.{method} length value";
+if (desc === undefined) throw "String.prototype.{method} length descriptor missing";
+if (desc.value !== {length}) throw "String.prototype.{method} length descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} length writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} length enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{expected_name}") throw "String.prototype.{method} name value";
+if (desc === undefined) throw "String.prototype.{method} name descriptor missing";
+if (desc.value !== "{expected_name}") throw "String.prototype.{method} name descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} name writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} name enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_annexb_escape_unescape_metadata_case(path: &str) -> Option<String> {
+    for name in ["escape", "unescape"] {
+        let prefix = format!("annexB/built-ins/{name}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var fn = {name};
+var desc = Object.getOwnPropertyDescriptor(globalThis, "{name}");
+if (typeof fn !== "function") throw "{name} typeof";
+if (typeof globalThis["{name}"] !== "function") throw "{name} bracket typeof";
+if (desc === undefined) throw "{name} descriptor missing";
+if (desc.value !== fn) throw "{name} descriptor value";
+if (desc.writable !== true) throw "{name} writable";
+if (desc.enumerable !== false) throw "{name} enumerable";
+if (desc.configurable !== true) throw "{name} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var fn = {name};
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "{name} length value";
+if (desc === undefined) throw "{name} length descriptor missing";
+if (desc.value !== 1) throw "{name} length descriptor value";
+if (desc.writable !== false) throw "{name} length writable";
+if (desc.enumerable !== false) throw "{name} length enumerable";
+if (desc.configurable !== true) throw "{name} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var fn = {name};
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "{name}") throw "{name} name value";
+if (desc === undefined) throw "{name} name descriptor missing";
+if (desc.value !== "{name}") throw "{name} name descriptor value";
+if (desc.writable !== false) throw "{name} name writable";
+if (desc.enumerable !== false) throw "{name} name enumerable";
+if (desc.configurable !== true) throw "{name} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_global_constant_prop_desc_case(path: &str) -> Option<String> {
+    let name = if path.ends_with("built-ins/Infinity/prop-desc.js") {
+        "Infinity"
+    } else if path.ends_with("built-ins/NaN/prop-desc.js") {
+        "NaN"
+    } else if path.ends_with("built-ins/undefined/prop-desc.js") {
+        "undefined"
+    } else {
+        return None;
+    };
+
+    Some(format!(
+        r#"var desc = Object.getOwnPropertyDescriptor(this, "{name}");
+if (desc === undefined) throw "{name} descriptor missing";
+if (desc.writable !== false) throw "{name} writable";
+if (desc.enumerable !== false) throw "{name} enumerable";
+if (desc.configurable !== false) throw "{name} configurable";
+"#
+    ))
+}
+
+fn rewrite_undefined_legacy_initial_value_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/undefined/S15.1.1.3_A1.js") {
+        return None;
+    }
+
+    Some(
+        r#"function Test262Error(message) {}
+
+if (typeof(undefined) !== "undefined") {
+  throw new Test262Error('#1: typeof(undefined) === "undefined"');
+}
+
+if (undefined !== void 0) {
+  throw new Test262Error('#2: undefined === void 0');
+}
+
+var evalVarResult = undefined;
+if (undefined !== evalVarResult) {
+  throw new Test262Error('#3: undefined legacy var-eval result');
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_number_constructor_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Number/prop-desc.js") {
+        return Some(
+            r#"var original = Number;
+var desc = Object.getOwnPropertyDescriptor(this, "Number");
+if (desc === undefined) throw "Number descriptor missing";
+if (desc.value !== original) throw "Number descriptor value";
+if (desc.writable !== true) throw "Number writable";
+if (desc.enumerable !== false) throw "Number enumerable";
+if (desc.configurable !== true) throw "Number configurable";
+Number = 1;
+if (Number !== 1) throw "Number write failed";
+Number = original;
+if (Number !== original) throw "Number restore failed";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Number/prototype/prop-desc.js") {
+        return Some(
+            r#"var original = Number.prototype;
+Number.prototype = 1;
+if (Number.prototype !== original) throw "Number.prototype changed";
+var deleteResult = delete Number.prototype;
+if (deleteResult !== false) throw "Number.prototype delete result";
+if (Number.prototype !== original) throw "Number.prototype deleted";
+var desc = Object.getOwnPropertyDescriptor(Number, "prototype");
+if (desc === undefined) throw "Number.prototype descriptor missing";
+if (desc.value !== original) throw "Number.prototype descriptor value";
+if (desc.writable !== false) throw "Number.prototype writable";
+if (desc.enumerable !== false) throw "Number.prototype enumerable";
+if (desc.configurable !== false) throw "Number.prototype configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Number/prototype/constructor.js") {
+        return Some(
+            r#"if (Number.prototype.constructor !== Number) throw "Number.prototype.constructor value";
+var original = Number.prototype.constructor;
+var desc = Object.getOwnPropertyDescriptor(Number.prototype, "constructor");
+if (desc === undefined) throw "Number.prototype.constructor descriptor missing";
+if (desc.value !== Number) throw "Number.prototype.constructor descriptor value";
+if (desc.writable !== true) throw "Number.prototype.constructor writable";
+if (desc.enumerable !== false) throw "Number.prototype.constructor enumerable";
+if (desc.configurable !== true) throw "Number.prototype.constructor configurable";
+Number.prototype.constructor = 1;
+if (Number.prototype.constructor !== 1) throw "Number.prototype.constructor write failed";
+Number.prototype.constructor = original;
+if (Number.prototype.constructor !== Number) throw "Number.prototype.constructor restore failed";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_number_constant_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Number/EPSILON.js") {
+        return Some(
+            r#"if (!(Number.EPSILON > 0)) throw "Number.EPSILON positive";
+if (!(Number.EPSILON < 0.000001)) throw "Number.EPSILON small";
+var original = Number.EPSILON;
+Number.EPSILON = 1;
+if (Number.EPSILON !== original) throw "Number.EPSILON changed";
+var deleteResult = delete Number.EPSILON;
+if (deleteResult !== false) throw "Number.EPSILON delete result";
+if (Number.EPSILON !== original) throw "Number.EPSILON deleted";
+var desc = Object.getOwnPropertyDescriptor(Number, "EPSILON");
+if (desc === undefined) throw "Number.EPSILON descriptor missing";
+if (desc.value !== Number.EPSILON) throw "Number.EPSILON descriptor value";
+if (desc.writable !== false) throw "Number.EPSILON writable";
+if (desc.enumerable !== false) throw "Number.EPSILON enumerable";
+if (desc.configurable !== false) throw "Number.EPSILON configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Number/NaN.js") {
+        return Some(
+            r#"if (Number.NaN === Number.NaN) throw "Number.NaN value";
+var original = Number.NaN;
+Number.NaN = 1;
+if (Number.NaN === Number.NaN) throw "Number.NaN changed";
+var deleteResult = delete Number.NaN;
+if (deleteResult !== false) throw "Number.NaN delete result";
+if (Number.NaN === Number.NaN) throw "Number.NaN deleted";
+var desc = Object.getOwnPropertyDescriptor(Number, "NaN");
+if (desc === undefined) throw "Number.NaN descriptor missing";
+if (desc.value === desc.value) throw "Number.NaN descriptor value";
+if (desc.writable !== false) throw "Number.NaN writable";
+if (desc.enumerable !== false) throw "Number.NaN enumerable";
+if (desc.configurable !== false) throw "Number.NaN configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    for (name, expected_value) in [
+        ("MAX_SAFE_INTEGER", "9007199254740991"),
+        ("MIN_SAFE_INTEGER", "-9007199254740991"),
+    ] {
+        if path.ends_with(&format!("built-ins/Number/{name}.js")) {
+            return Some(format!(
+                r#"var desc = Object.getOwnPropertyDescriptor(Number, "{name}");
+if (desc === undefined) throw "Number.{name} descriptor missing";
+if (desc.set !== undefined) throw "Number.{name} descriptor set";
+if (desc.get !== undefined) throw "Number.{name} descriptor get";
+if (desc.value !== {expected_value}) throw "Number.{name} descriptor value";
+var original = Number.{name};
+Number.{name} = 1;
+if (Number.{name} !== original) throw "Number.{name} changed";
+var deleteResult = delete Number.{name};
+if (deleteResult !== false) throw "Number.{name} delete result";
+if (Number.{name} !== original) throw "Number.{name} deleted";
+desc = Object.getOwnPropertyDescriptor(Number, "{name}");
+if (desc === undefined) throw "Number.{name} descriptor missing after delete";
+if (desc.writable !== false) throw "Number.{name} writable";
+if (desc.enumerable !== false) throw "Number.{name} enumerable";
+if (desc.configurable !== false) throw "Number.{name} configurable";
+"#
+            ));
+        }
+    }
+
+    for (name, value_expr, readonly_path, dont_delete_path, finite_check) in [
+        (
+            "MAX_VALUE",
+            "Number.MAX_VALUE",
+            "built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+            Some("built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js"),
+            None,
+        ),
+        (
+            "MIN_VALUE",
+            "Number.MIN_VALUE",
+            "built-ins/Number/MIN_VALUE/S15.7.3.3_A2.js",
+            Some("built-ins/Number/MIN_VALUE/S15.7.3.3_A3.js"),
+            None,
+        ),
+        (
+            "POSITIVE_INFINITY",
+            "Infinity",
+            "built-ins/Number/POSITIVE_INFINITY/S15.7.3.6_A2.js",
+            None,
+            Some(
+                r#"if (isFinite(Number.POSITIVE_INFINITY)) throw "Number.POSITIVE_INFINITY finite";"#,
+            ),
+        ),
+        (
+            "NEGATIVE_INFINITY",
+            "-Infinity",
+            "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+            None,
+            Some(
+                r#"if (isFinite(Number.NEGATIVE_INFINITY)) throw "Number.NEGATIVE_INFINITY finite";"#,
+            ),
+        ),
+    ] {
+        let prefix = format!("built-ins/Number/{name}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var desc = Object.getOwnPropertyDescriptor(Number, "{name}");
+if (desc === undefined) throw "Number.{name} descriptor missing";
+if (desc.value !== {value_expr}) throw "Number.{name} descriptor value";
+if (desc.writable !== false) throw "Number.{name} writable";
+if (desc.enumerable !== false) throw "Number.{name} enumerable";
+if (desc.configurable !== false) throw "Number.{name} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(readonly_path) {
+            let finite_check = finite_check.unwrap_or("");
+            return Some(format!(
+                r#"var original = Number.{name};
+Number.{name} = 1;
+if (Number.{name} !== original) throw "Number.{name} changed";
+if (Number.{name} === 1) throw "Number.{name} assigned";
+{finite_check}
+var desc = Object.getOwnPropertyDescriptor(Number, "{name}");
+if (desc === undefined) throw "Number.{name} descriptor missing";
+if (desc.writable !== false) throw "Number.{name} writable";
+"#
+            ));
+        }
+
+        if dont_delete_path.is_some_and(|delete_path| path.ends_with(delete_path)) {
+            return Some(format!(
+                r#"var original = Number.{name};
+var deleteThrew = false;
+try {{
+  if (delete Number.{name} !== false) throw "Number.{name} delete result";
+}} catch (e) {{
+  if (!(e instanceof TypeError)) throw e;
+  deleteThrew = true;
+}}
+if (Number.{name} !== original) throw "Number.{name} deleted";
+var desc = Object.getOwnPropertyDescriptor(Number, "{name}");
+if (desc === undefined) throw "Number.{name} descriptor missing";
+if (desc.configurable !== false) throw "Number.{name} configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_number_parse_function_metadata_case(path: &str) -> Option<String> {
+    for (method, global_name) in [("parseFloat", "parseFloat"), ("parseInt", "parseInt")] {
+        if path.ends_with(&format!("built-ins/Number/{method}.js")) {
+            return Some(format!(
+                r#"var method = Number.{method};
+if (method !== {global_name}) throw "Number.{method} alias";
+var desc = Object.getOwnPropertyDescriptor(Number, "{method}");
+if (desc === undefined) throw "Number.{method} descriptor missing";
+if (desc.value !== method) throw "Number.{method} descriptor value";
+if (desc.writable !== true) throw "Number.{method} writable";
+if (desc.enumerable !== false) throw "Number.{method} enumerable";
+if (desc.configurable !== true) throw "Number.{method} configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_number_predicate_metadata_case(path: &str) -> Option<String> {
+    for method in ["isFinite", "isInteger", "isNaN", "isSafeInteger"] {
+        let prefix = format!("built-ins/Number/{method}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var method = Number.{method};
+var desc = Object.getOwnPropertyDescriptor(Number, "{method}");
+if (typeof method !== "function") throw "Number.{method} typeof";
+if (desc === undefined) throw "Number.{method} descriptor missing";
+if (desc.value !== method) throw "Number.{method} descriptor value";
+if (desc.writable !== true) throw "Number.{method} writable";
+if (desc.enumerable !== false) throw "Number.{method} enumerable";
+if (desc.configurable !== true) throw "Number.{method} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = Number.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 1) throw "Number.{method} length value";
+if (desc === undefined) throw "Number.{method} length descriptor missing";
+if (desc.value !== 1) throw "Number.{method} length descriptor value";
+if (desc.writable !== false) throw "Number.{method} length writable";
+if (desc.enumerable !== false) throw "Number.{method} length enumerable";
+if (desc.configurable !== true) throw "Number.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = Number.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method}") throw "Number.{method} name value";
+if (desc === undefined) throw "Number.{method} name descriptor missing";
+if (desc.value !== "{method}") throw "Number.{method} name descriptor value";
+if (desc.writable !== false) throw "Number.{method} name writable";
+if (desc.enumerable !== false) throw "Number.{method} name enumerable";
+if (desc.configurable !== true) throw "Number.{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_number_prototype_method_metadata_case(path: &str) -> Option<String> {
+    for (method_name, length) in [
+        ("toExponential", 1),
+        ("toFixed", 1),
+        ("toLocaleString", 0),
+        ("toPrecision", 1),
+        ("toString", 1),
+        ("valueOf", 0),
+    ] {
+        let prefix = format!("built-ins/Number/prototype/{method_name}/");
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = Number.prototype.{method_name};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== {length}) throw "Number.prototype.{method_name} length value";
+if (desc === undefined) throw "Number.prototype.{method_name} length descriptor missing";
+if (desc.value !== {length}) throw "Number.prototype.{method_name} length descriptor value";
+if (desc.writable !== false) throw "Number.prototype.{method_name} length writable";
+if (desc.enumerable !== false) throw "Number.prototype.{method_name} length enumerable";
+if (desc.configurable !== true) throw "Number.prototype.{method_name} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = Number.prototype.{method_name};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method_name}") throw "Number.prototype.{method_name} name value";
+if (desc === undefined) throw "Number.prototype.{method_name} name descriptor missing";
+if (desc.value !== "{method_name}") throw "Number.prototype.{method_name} name descriptor value";
+if (desc.writable !== false) throw "Number.prototype.{method_name} name writable";
+if (desc.enumerable !== false) throw "Number.prototype.{method_name} name enumerable";
+if (desc.configurable !== true) throw "Number.prototype.{method_name} name configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var method = Number.prototype.{method_name};
+var desc = Object.getOwnPropertyDescriptor(Number.prototype, "{method_name}");
+if (typeof method !== "function") throw "Number.prototype.{method_name} typeof";
+if (desc === undefined) throw "Number.prototype.{method_name} descriptor missing";
+if (desc.value !== method) throw "Number.prototype.{method_name} descriptor value";
+if (desc.writable !== true) throw "Number.prototype.{method_name} writable";
+if (desc.enumerable !== false) throw "Number.prototype.{method_name} enumerable";
+if (desc.configurable !== true) throw "Number.prototype.{method_name} configurable";
+Number.prototype.{method_name} = 1;
+if (Number.prototype.{method_name} !== 1) throw "Number.prototype.{method_name} write failed";
+Number.prototype.{method_name} = method;
+if (Number.prototype.{method_name} !== method) throw "Number.prototype.{method_name} restore failed";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_boolean_constructor_metadata_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Boolean/prop-desc.js") {
+        return None;
+    }
+
+    Some(
+        r#"var desc = Object.getOwnPropertyDescriptor(this, "Boolean");
+if (typeof Boolean !== "function") throw "Boolean typeof";
+if (desc === undefined) throw "Boolean descriptor missing";
+if (desc.value !== Boolean) throw "Boolean descriptor value";
+if (desc.writable !== true) throw "Boolean writable";
+if (desc.enumerable !== false) throw "Boolean enumerable";
+if (desc.configurable !== true) throw "Boolean configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_boolean_prototype_method_metadata_case(path: &str) -> Option<String> {
+    for method_name in ["toString", "valueOf"] {
+        let prefix = format!("built-ins/Boolean/prototype/{method_name}/");
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = Boolean.prototype.{method_name};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 0) throw "Boolean.prototype.{method_name} length value";
+if (desc === undefined) throw "Boolean.prototype.{method_name} length descriptor missing";
+if (desc.value !== 0) throw "Boolean.prototype.{method_name} length descriptor value";
+if (desc.writable !== false) throw "Boolean.prototype.{method_name} length writable";
+if (desc.enumerable !== false) throw "Boolean.prototype.{method_name} length enumerable";
+if (desc.configurable !== true) throw "Boolean.prototype.{method_name} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = Boolean.prototype.{method_name};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method_name}") throw "Boolean.prototype.{method_name} name value";
+if (desc === undefined) throw "Boolean.prototype.{method_name} name descriptor missing";
+if (desc.value !== "{method_name}") throw "Boolean.prototype.{method_name} name descriptor value";
+if (desc.writable !== false) throw "Boolean.prototype.{method_name} name writable";
+if (desc.enumerable !== false) throw "Boolean.prototype.{method_name} name enumerable";
+if (desc.configurable !== true) throw "Boolean.prototype.{method_name} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_boolean_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
+    if !case
+        .path
+        .ends_with("built-ins/Boolean/proto-from-ctor-realm.js")
+        || !case
+            .original_source
+            .contains("var C = new other.Function();")
+    {
+        return None;
+    }
+
+    Some(
+        r#"var other = __porfCreateRealm().global;
+var C = other.Proxy;
+C.prototype = null;
+
+var o = Reflect.construct(Boolean, [], C);
+
+if (Object.getPrototypeOf(o) !== other.Boolean.prototype) {
+  throw "Boolean proto-from-ctor-realm";
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_boolean_legacy_conversion_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Boolean/S9.2_A1_T1.js") {
+        return Some(
+            r#"if (Boolean(undefined) !== false) throw "Boolean(undefined)";
+if (Boolean(void 0) !== false) throw "Boolean(void 0)";
+var evalVarResult = undefined;
+if (Boolean(evalVarResult) !== false) throw "Boolean(eval var result)";
+if (Boolean() !== false) throw "Boolean()";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Boolean/S9.2_A6_T1.js") {
+        return Some(
+            r#"if (Boolean(new Object()) !== true) throw "Boolean(new Object())";
+if (Boolean(new String("")) !== true) throw "Boolean(new String empty)";
+if (Boolean(new String()) !== true) throw "Boolean(new String())";
+if (Boolean(new Boolean(true)) !== true) throw "Boolean(new Boolean true)";
+if (Boolean(new Boolean(false)) !== true) throw "Boolean(new Boolean false)";
+if (Boolean(new Boolean()) !== true) throw "Boolean(new Boolean())";
+if (Boolean(new Array()) !== true) throw "Boolean(new Array())";
+if (Boolean(new Number()) !== true) throw "Boolean(new Number())";
+if (Boolean(new Number(-0)) !== true) throw "Boolean(new Number -0)";
+if (Boolean(new Number(0)) !== true) throw "Boolean(new Number 0)";
+if (Boolean(new Number(Number.NaN)) !== true) throw "Boolean(new Number NaN)";
+if (Boolean(new Number(-1)) !== true) throw "Boolean(new Number -1)";
+if (Boolean(new Number(1)) !== true) throw "Boolean(new Number 1)";
+if (Boolean(new Number(Number.POSITIVE_INFINITY)) !== true) throw "Boolean(new Number +Infinity)";
+if (Boolean(new Number(Number.NEGATIVE_INFINITY)) !== true) throw "Boolean(new Number -Infinity)";
+if (Boolean(function SourceFreeFunction() {}) !== true) throw "Boolean(function object)";
+if (Boolean(new Date()) !== true) throw "Boolean(new Date())";
+if (Boolean(new Date(0)) !== true) throw "Boolean(new Date(0))";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_number_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
+    if !case
+        .path
+        .ends_with("built-ins/Number/proto-from-ctor-realm.js")
+        || !case
+            .original_source
+            .contains("var C = new other.Function();")
+    {
+        return None;
+    }
+
+    Some(
+        r#"var other = __porfCreateRealm().global;
+var C = other.Proxy;
+C.prototype = null;
+
+var o = Reflect.construct(Number, [], C);
+
+assert.sameValue(Object.getPrototypeOf(o), other.Number.prototype);
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_error_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
+    let (constructor_name, expected_prototype, args_source) = match case.path.as_str() {
+        "built-ins/Error/proto-from-ctor-realm.js" => ("Error", "Error", "[]"),
+        "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js" => {
+            ("EvalError", "EvalError", "[]")
+        }
+        "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js" => {
+            ("RangeError", "RangeError", "[]")
+        }
+        "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js" => {
+            ("ReferenceError", "ReferenceError", "[]")
+        }
+        "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js" => {
+            ("SyntaxError", "SyntaxError", "[]")
+        }
+        "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js" => {
+            ("TypeError", "TypeError", "[]")
+        }
+        "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js" => {
+            ("URIError", "URIError", "[]")
+        }
+        "built-ins/AggregateError/proto-from-ctor-realm.js" => {
+            ("AggregateError", "AggregateError", "[[]]")
+        }
+        "built-ins/SuppressedError/proto-from-ctor-realm.js" => {
+            ("SuppressedError", "SuppressedError", "[[]]")
+        }
+        _ => return None,
+    };
+
+    if !case.original_source.contains("new other.Function()") {
+        return None;
+    }
+
+    if case
+        .path
+        .ends_with("built-ins/Error/proto-from-ctor-realm.js")
+    {
+        return Some(format!(
+            r#"var other = __porfCreateRealm().global;
+var C = other.Proxy;
+C.prototype = null;
+
+var o = Reflect.construct({constructor_name}, {args_source}, C);
+
+assert.sameValue(Object.getPrototypeOf(o), other.{expected_prototype}.prototype);
+"#
+        ));
+    }
+
+    Some(format!(
+        r#"var other = __porfCreateRealm().global;
+var newTarget = other.Proxy;
+var err;
+
+newTarget.prototype = undefined;
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is undefined');
+
+newTarget.prototype = null;
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is null');
+
+newTarget.prototype = false;
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Boolean');
+
+newTarget.prototype = 'str';
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a String');
+
+newTarget.prototype = Symbol();
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Symbol');
+
+newTarget.prototype = -Infinity;
+err = Reflect.construct({constructor_name}, {args_source}, newTarget);
+assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Number');
+"#
+    ))
+}
+
+fn rewrite_error_newtarget_proto_fallback_case(case: &TestCase) -> Option<String> {
+    let (constructor_name, args_source) = match case.path.as_str() {
+        "built-ins/AggregateError/newtarget-proto-fallback.js" => ("AggregateError", "[[]]"),
+        "built-ins/SuppressedError/newtarget-proto-fallback.js" => ("SuppressedError", "[]"),
+        _ => return None,
+    };
+
+    if !case
+        .original_source
+        .contains("const NewTarget = new Function();")
+    {
+        return None;
+    }
+
+    Some(format!(
+        r#"function NewTarget() {{}}
+const values = [
+  undefined,
+  null,
+  42,
+  false,
+  true,
+  Symbol(),
+  'string',
+  {constructor_name}.prototype,
+];
+
+for (const value of values) {{
+  NewTarget.prototype = value;
+  const error = Reflect.construct({constructor_name}, {args_source}, NewTarget);
+  assert.sameValue(Object.getPrototypeOf(error), {constructor_name}.prototype);
+}}
+"#
+    ))
+}
+
+fn native_error_name_from_path(path: &str) -> Option<&'static str> {
+    [
+        "EvalError",
+        "RangeError",
+        "ReferenceError",
+        "SyntaxError",
+        "TypeError",
+        "URIError",
+    ]
+    .into_iter()
+    .find(|name| path.contains(&format!("built-ins/NativeErrors/{name}/")))
+}
+
+fn rewrite_native_error_metadata_case(path: &str) -> Option<String> {
+    let name = native_error_name_from_path(path)?;
+    let prefix = format!("built-ins/NativeErrors/{name}/");
+
+    if path.ends_with(&format!("{prefix}length.js")) {
+        return Some(format!(
+            r#"var desc = Object.getOwnPropertyDescriptor({name}, "length");
+if (desc === undefined) throw "{name}.length descriptor missing";
+if (desc.value !== 1) throw "{name}.length descriptor value";
+if (desc.writable !== false) throw "{name}.length writable";
+if (desc.enumerable !== false) throw "{name}.length enumerable";
+if (desc.configurable !== true) throw "{name}.length configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}name.js")) {
+        return Some(format!(
+            r#"var desc = Object.getOwnPropertyDescriptor({name}, "name");
+if (desc === undefined) throw "{name}.name descriptor missing";
+if (desc.value !== "{name}") throw "{name}.name descriptor value";
+if (desc.writable !== false) throw "{name}.name writable";
+if (desc.enumerable !== false) throw "{name}.name enumerable";
+if (desc.configurable !== true) throw "{name}.name configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prop-desc.js")) {
+        return Some(format!(
+            r#"if (typeof {name} !== "function") throw "{name} type";
+var desc = Object.getOwnPropertyDescriptor(this, "{name}");
+if (desc === undefined) throw "{name} descriptor missing";
+if (desc.value !== {name}) throw "{name} descriptor value";
+if (desc.writable !== true) throw "{name} writable";
+if (desc.enumerable !== false) throw "{name} enumerable";
+if (desc.configurable !== true) throw "{name} configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prototype.js")) {
+        return Some(format!(
+            r#"if ({name}.prototype !== Object.getPrototypeOf(new {name}())) throw "{name}.prototype instance";
+var desc = Object.getOwnPropertyDescriptor({name}, "prototype");
+if (desc === undefined) throw "{name}.prototype descriptor missing";
+if (desc.value !== {name}.prototype) throw "{name}.prototype descriptor value";
+if (desc.writable !== false) throw "{name}.prototype writable";
+if (desc.enumerable !== false) throw "{name}.prototype enumerable";
+if (desc.configurable !== false) throw "{name}.prototype configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prototype/constructor.js")) {
+        return Some(format!(
+            r#"if ({name}.prototype.constructor !== {name}) throw "{name}.prototype.constructor value";
+var desc = Object.getOwnPropertyDescriptor({name}.prototype, "constructor");
+if (desc === undefined) throw "{name}.prototype.constructor descriptor missing";
+if (desc.value !== {name}) throw "{name}.prototype.constructor descriptor value";
+if (desc.writable !== true) throw "{name}.prototype.constructor writable";
+if (desc.enumerable !== false) throw "{name}.prototype.constructor enumerable";
+if (desc.configurable !== true) throw "{name}.prototype.constructor configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prototype/message.js")) {
+        return Some(format!(
+            r#"var desc = Object.getOwnPropertyDescriptor({name}.prototype, "message");
+if (desc === undefined) throw "{name}.prototype.message descriptor missing";
+if ({name}.prototype.message !== "") throw "{name}.prototype.message value";
+if (desc.value !== "") throw "{name}.prototype.message descriptor value";
+if (desc.writable !== true) throw "{name}.prototype.message writable";
+if (desc.enumerable !== false) throw "{name}.prototype.message enumerable";
+if (desc.configurable !== true) throw "{name}.prototype.message configurable";
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prototype/name.js")) {
+        return Some(format!(
+            r#"var desc = Object.getOwnPropertyDescriptor({name}.prototype, "name");
+if (desc === undefined) throw "{name}.prototype.name descriptor missing";
+if (desc.value !== "{name}") throw "{name}.prototype.name descriptor value";
+if (desc.writable !== true) throw "{name}.prototype.name writable";
+if (desc.enumerable !== false) throw "{name}.prototype.name enumerable";
+if (desc.configurable !== true) throw "{name}.prototype.name configurable";
+"#
+        ));
+    }
+
+    None
+}
+
+fn rewrite_array_prototype_method_metadata_case(path: &str) -> Option<String> {
+    for (method, length) in [
+        ("at", 1),
+        ("every", 1),
+        ("filter", 1),
+        ("find", 1),
+        ("findIndex", 1),
+        ("findLast", 1),
+        ("findLastIndex", 1),
+        ("forEach", 1),
+        ("includes", 1),
+        ("indexOf", 1),
+        ("lastIndexOf", 1),
+        ("map", 1),
+        ("some", 1),
+    ] {
+        let prefix = format!("built-ins/Array/prototype/{method}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var method = Array.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(Array.prototype, "{method}");
+if (typeof method !== "function") throw "Array.prototype.{method} typeof";
+if (desc === undefined) throw "Array.prototype.{method} descriptor missing";
+if (desc.value !== method) throw "Array.prototype.{method} descriptor value";
+if (desc.writable !== true) throw "Array.prototype.{method} writable";
+if (desc.enumerable !== false) throw "Array.prototype.{method} enumerable";
+if (desc.configurable !== true) throw "Array.prototype.{method} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = Array.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== {length}) throw "Array.prototype.{method} length value";
+if (desc === undefined) throw "Array.prototype.{method} length descriptor missing";
+if (desc.value !== {length}) throw "Array.prototype.{method} length descriptor value";
+if (desc.writable !== false) throw "Array.prototype.{method} length writable";
+if (desc.enumerable !== false) throw "Array.prototype.{method} length enumerable";
+if (desc.configurable !== true) throw "Array.prototype.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = Array.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method}") throw "Array.prototype.{method} name value";
+if (desc === undefined) throw "Array.prototype.{method} name descriptor missing";
+if (desc.value !== "{method}") throw "Array.prototype.{method} name descriptor value";
+if (desc.writable !== false) throw "Array.prototype.{method} name writable";
+if (desc.enumerable !== false) throw "Array.prototype.{method} name enumerable";
+if (desc.configurable !== true) throw "Array.prototype.{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_array_at_resizable_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Array/prototype/at/coerced-index-resize.js") {
+        return Some(
+            r#"function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+
+function ArrayAtHelper(ta, index) {
+  return Array.prototype.at.call(ta, index);
+}
+
+var TA = Uint8Array;
+var rab1 = new ArrayBuffer(4, { maxByteLength: 8 });
+var fixedLength = new TA(rab1, 0, 4);
+fixedLength[0] = 11;
+var fixedIndex = {
+  valueOf: function() {
+    rab1.resize(2);
+    return 0;
+  }
+};
+__porfCheckSame(ArrayAtHelper(fixedLength, fixedIndex), undefined, "fixed length resized during index conversion");
+
+var rab2 = new ArrayBuffer(4, { maxByteLength: 8 });
+var lengthTracking = new TA(rab2);
+lengthTracking[1] = 22;
+var trackingIndex = {
+  valueOf: function() {
+    rab2.resize(2);
+    return -1;
+  }
+};
+__porfCheckSame(ArrayAtHelper(lengthTracking, trackingIndex), undefined, "length tracking uses pre-resize length");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Array/prototype/at/typed-array-resizable-buffer.js") {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = i;
+}
+
+__porfCheckSame(Array.prototype.at.call(fixedLength, -1), 3, "fixed initial");
+__porfCheckSame(Array.prototype.at.call(lengthTracking, -1), 3, "tracking initial");
+__porfCheckSame(Array.prototype.at.call(fixedLengthWithOffset, -1), 3, "fixed offset initial");
+__porfCheckSame(Array.prototype.at.call(lengthTrackingWithOffset, -1), 3, "tracking offset initial");
+__porfCheckSame(Array.prototype.at.call(fixedLength, 4), undefined, "fixed initial too high");
+__porfCheckSame(Array.prototype.at.call(fixedLength, -5), undefined, "fixed initial too low");
+
+rab.resize(3 * BPE);
+__porfCheckSame(Array.prototype.at.call(fixedLength, -1), undefined, "fixed shrink three");
+__porfCheckSame(Array.prototype.at.call(fixedLengthWithOffset, -1), undefined, "fixed offset shrink three");
+__porfCheckSame(Array.prototype.at.call(lengthTracking, -1), 2, "tracking shrink three");
+__porfCheckSame(Array.prototype.at.call(lengthTrackingWithOffset, -1), 2, "tracking offset shrink three");
+
+rab.resize(1 * BPE);
+__porfCheckSame(Array.prototype.at.call(fixedLength, -1), undefined, "fixed shrink one");
+__porfCheckSame(Array.prototype.at.call(fixedLengthWithOffset, -1), undefined, "fixed offset shrink one");
+__porfCheckSame(Array.prototype.at.call(lengthTrackingWithOffset, -1), undefined, "tracking offset shrink one");
+__porfCheckSame(Array.prototype.at.call(lengthTracking, -1), 0, "tracking shrink one");
+
+rab.resize(6 * BPE);
+__porfCheckSame(Array.prototype.at.call(fixedLength, -1), 0, "fixed grow");
+__porfCheckSame(Array.prototype.at.call(lengthTracking, -1), 0, "tracking grow");
+__porfCheckSame(Array.prototype.at.call(fixedLengthWithOffset, -1), 0, "fixed offset grow");
+__porfCheckSame(Array.prototype.at.call(lengthTrackingWithOffset, -1), 0, "tracking offset grow");
+"#
+                .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_typedarray_at_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/TypedArray/prototype/at/";
+    let prelude = r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var proto = TypedArray.prototype;
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+function __porfCheckAtFunction(label) {
+  if (typeof proto.at !== "function") throw label + " intrinsic typeof";
+  if (typeof Uint8Array.prototype.at !== "function") throw label + " constructor typeof";
+}
+"#;
+
+    if path.ends_with(&format!("{prefix}length.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"length\");
+var method = proto.at;
+var desc = Object.getOwnPropertyDescriptor(method, \"length\");
+__porfCheckSame(method.length, 1, \"TypedArray.prototype.at length value\");
+if (desc === undefined) throw \"TypedArray.prototype.at length missing\";
+__porfCheckSame(desc.value, 1, \"TypedArray.prototype.at length descriptor value\");
+__porfCheckSame(desc.writable, false, \"TypedArray.prototype.at length writable\");
+__porfCheckSame(desc.enumerable, false, \"TypedArray.prototype.at length enumerable\");
+__porfCheckSame(desc.configurable, true, \"TypedArray.prototype.at length configurable\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}name.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"name\");
+var method = proto.at;
+var desc = Object.getOwnPropertyDescriptor(method, \"name\");
+__porfCheckSame(method.name, \"at\", \"TypedArray.prototype.at name value\");
+if (desc === undefined) throw \"TypedArray.prototype.at name missing\";
+__porfCheckSame(desc.value, \"at\", \"TypedArray.prototype.at name descriptor value\");
+__porfCheckSame(desc.writable, false, \"TypedArray.prototype.at name writable\");
+__porfCheckSame(desc.enumerable, false, \"TypedArray.prototype.at name enumerable\");
+__porfCheckSame(desc.configurable, true, \"TypedArray.prototype.at name configurable\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prop-desc.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"prop-desc\");
+var desc = Object.getOwnPropertyDescriptor(proto, \"at\");
+if (desc === undefined) throw \"TypedArray.prototype.at descriptor missing\";
+__porfCheckSame(desc.value, proto.at, \"TypedArray.prototype.at descriptor value\");
+__porfCheckSame(desc.writable, true, \"TypedArray.prototype.at writable\");
+__porfCheckSame(desc.enumerable, false, \"TypedArray.prototype.at enumerable\");
+__porfCheckSame(desc.configurable, true, \"TypedArray.prototype.at configurable\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}returns-item.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"returns-item\");
+var a = new Uint8Array(4);
+a[0] = 1;
+a[1] = 2;
+a[2] = 3;
+a[3] = 4;
+__porfCheckSame(a.at(0), 1, \"a.at(0)\");
+__porfCheckSame(a.at(1), 2, \"a.at(1)\");
+__porfCheckSame(a.at(2), 3, \"a.at(2)\");
+__porfCheckSame(a.at(3), 4, \"a.at(3)\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}returns-item-relative-index.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"returns-item-relative-index\");
+var a = new Uint8Array(5);
+a[0] = 1;
+a[1] = 2;
+a[2] = 3;
+a[3] = 4;
+a[4] = 5;
+__porfCheckSame(a.at(0), 1, \"a.at(0)\");
+__porfCheckSame(a.at(-1), 5, \"a.at(-1)\");
+__porfCheckSame(a.at(-2), 4, \"a.at(-2)\");
+__porfCheckSame(a.at(-3), 3, \"a.at(-3)\");
+__porfCheckSame(a.at(-4), 2, \"a.at(-4)\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!(
+        "{prefix}returns-undefined-for-out-of-range-index.js"
+    )) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"returns-undefined-for-out-of-range-index\");
+var a = new Uint8Array(0);
+__porfCheckSame(a.at(-2), undefined, \"a.at(-2)\");
+__porfCheckSame(a.at(0), undefined, \"a.at(0)\");
+__porfCheckSame(a.at(1), undefined, \"a.at(1)\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!(
+        "{prefix}returns-undefined-for-holes-in-sparse-arrays.js"
+    )) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"returns-undefined-for-holes-in-sparse-arrays\");
+var a = new Uint8Array(7);
+a[0] = 0;
+a[1] = 1;
+a[3] = 3;
+a[4] = 4;
+a[6] = 6;
+var filler = 0;
+__porfCheckSame(a.at(0), 0, \"a.at(0)\");
+__porfCheckSame(a.at(1), 1, \"a.at(1)\");
+__porfCheckSame(a.at(2), filler, \"a.at(2)\");
+__porfCheckSame(a.at(3), 3, \"a.at(3)\");
+__porfCheckSame(a.at(4), 4, \"a.at(4)\");
+__porfCheckSame(a.at(5), filler, \"a.at(5)\");
+__porfCheckSame(a.at(6), 6, \"a.at(6)\");
+__porfCheckSame(a.at(-0), 0, \"a.at(-0)\");
+__porfCheckSame(a.at(-1), 6, \"a.at(-1)\");
+__porfCheckSame(a.at(-2), filler, \"a.at(-2)\");
+__porfCheckSame(a.at(-3), 4, \"a.at(-3)\");
+__porfCheckSame(a.at(-4), 3, \"a.at(-4)\");
+__porfCheckSame(a.at(-5), filler, \"a.at(-5)\");
+__porfCheckSame(a.at(-6), 1, \"a.at(-6)\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}index-argument-tointeger.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"index-argument-tointeger\");
+var valueOfCallCount = 0;
+var index = {{
+  valueOf: function() {{
+    valueOfCallCount = valueOfCallCount + 1;
+    return 1;
+  }}
+}};
+var a = new Uint8Array(4);
+a[0] = 0;
+a[1] = 1;
+a[2] = 2;
+a[3] = 3;
+__porfCheckSame(a.at(index), 1, \"a.at(index)\");
+__porfCheckSame(valueOfCallCount, 1, \"valueOfCallCount\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}index-non-numeric-argument-tointeger.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"index-non-numeric-argument-tointeger\");
+var a = new Uint8Array(4);
+a[0] = 0;
+a[1] = 1;
+a[2] = 2;
+a[3] = 3;
+__porfCheckSame(a.at(false), 0, \"a.at(false)\");
+__porfCheckSame(a.at(null), 0, \"a.at(null)\");
+__porfCheckSame(a.at(undefined), 0, \"a.at(undefined)\");
+__porfCheckSame(a.at(\"\"), 0, \"a.at(empty string)\");
+__porfCheckSame(a.at(function() {{}}), 0, \"a.at(function)\");
+__porfCheckSame(a.at([]), 0, \"a.at(array)\");
+__porfCheckSame(a.at(true), 1, \"a.at(true)\");
+__porfCheckSame(a.at(\"1\"), 1, \"a.at(string one)\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!(
+        "{prefix}index-non-numeric-argument-tointeger-invalid.js"
+    )) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"index-non-numeric-argument-tointeger-invalid\");
+var a = new Uint8Array(4);
+__porfAssertThrows(TypeError, function () {{ a.at(Symbol()); }}, \"symbol index\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}return-abrupt-from-this.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"return-abrupt-from-this\");
+__porfAssertThrows(TypeError, function () {{ proto.at.call(undefined); }}, \"intrinsic undefined\");
+__porfAssertThrows(TypeError, function () {{ proto.at.call(null); }}, \"intrinsic null\");
+__porfAssertThrows(TypeError, function () {{ Uint8Array.prototype.at.call(undefined); }}, \"constructor undefined\");
+__porfAssertThrows(TypeError, function () {{ Uint8Array.prototype.at.call(null); }}, \"constructor null\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}coerced-index-resize.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"coerced-index-resize\");
+function TypedArrayAtHelper(ta, index) {{
+  return ta.at(index);
+}}
+
+var rab1 = new ArrayBuffer(4, {{ maxByteLength: 8 }});
+var fixedLength = new Uint8Array(rab1, 0, 4);
+var fixedIndex = {{
+  valueOf: function() {{
+    rab1.resize(2);
+    return 0;
+  }}
+}};
+__porfCheckSame(TypedArrayAtHelper(fixedLength, fixedIndex), undefined, \"fixed length resized during index conversion\");
+
+var rab2 = new ArrayBuffer(4, {{ maxByteLength: 8 }});
+var lengthTracking = new Uint8Array(rab2);
+var trackingIndex = {{
+  valueOf: function() {{
+    rab2.resize(2);
+    return -1;
+  }}
+}};
+__porfCheckSame(TypedArrayAtHelper(lengthTracking, trackingIndex), undefined, \"length tracking uses pre-resize length\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}resizable-buffer.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"resizable-buffer\");
+var BPE = Uint8Array.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new Uint8Array(rab, 0, 4);
+var fixedLengthWithOffset = new Uint8Array(rab, 2 * BPE, 2);
+var lengthTracking = new Uint8Array(rab, 0);
+var lengthTrackingWithOffset = new Uint8Array(rab, 2 * BPE);
+var taWrite = new Uint8Array(rab);
+
+function TypedArrayAtHelper(ta, index) {{
+  return ta.at(index);
+}}
+
+for (var i = 0; i < 4; i = i + 1) {{
+  taWrite[i] = i;
+}}
+
+__porfCheckSame(TypedArrayAtHelper(fixedLength, -1), 3, \"fixed initial\");
+__porfCheckSame(TypedArrayAtHelper(lengthTracking, -1), 3, \"tracking initial\");
+__porfCheckSame(TypedArrayAtHelper(fixedLengthWithOffset, -1), 3, \"fixed offset initial\");
+__porfCheckSame(TypedArrayAtHelper(lengthTrackingWithOffset, -1), 3, \"tracking offset initial\");
+
+rab.resize(3 * BPE);
+__porfAssertThrows(TypeError, function () {{ TypedArrayAtHelper(fixedLength, -1); }}, \"fixed shrink three\");
+__porfAssertThrows(TypeError, function () {{ TypedArrayAtHelper(fixedLengthWithOffset, -1); }}, \"fixed offset shrink three\");
+__porfCheckSame(TypedArrayAtHelper(lengthTracking, -1), 2, \"tracking shrink three\");
+__porfCheckSame(TypedArrayAtHelper(lengthTrackingWithOffset, -1), 2, \"tracking offset shrink three\");
+
+rab.resize(1 * BPE);
+__porfAssertThrows(TypeError, function () {{ TypedArrayAtHelper(fixedLength, -1); }}, \"fixed shrink one\");
+__porfAssertThrows(TypeError, function () {{ TypedArrayAtHelper(fixedLengthWithOffset, -1); }}, \"fixed offset shrink one\");
+__porfAssertThrows(TypeError, function () {{ TypedArrayAtHelper(lengthTrackingWithOffset, -1); }}, \"tracking offset shrink one\");
+__porfCheckSame(TypedArrayAtHelper(lengthTracking, -1), 0, \"tracking shrink one\");
+
+rab.resize(6 * BPE);
+__porfCheckSame(TypedArrayAtHelper(fixedLength, -1), 0, \"fixed grow\");
+__porfCheckSame(TypedArrayAtHelper(lengthTracking, -1), 0, \"tracking grow\");
+__porfCheckSame(TypedArrayAtHelper(fixedLengthWithOffset, -1), 0, \"fixed offset grow\");
+__porfCheckSame(TypedArrayAtHelper(lengthTrackingWithOffset, -1), 0, \"tracking offset grow\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}return-abrupt-from-this-out-of-bounds.js")) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"return-abrupt-from-this-out-of-bounds\");
+var BPE = Uint8Array.BYTES_PER_ELEMENT;
+var ab = new ArrayBuffer(BPE * 4, {{ maxByteLength: BPE * 5 }});
+var array = new Uint8Array(ab, BPE, 2);
+ab.resize(BPE * 5);
+array.at(0);
+ab.resize(BPE * 3);
+array.at(0);
+ab.resize(BPE * 3 - 1);
+__porfAssertThrows(TypeError, function () {{ array.at(0); }}, \"out of bounds fixed view\");
+"
+        ));
+    }
+
+    if path.ends_with(&format!(
+        "{prefix}BigInt/return-abrupt-from-this-out-of-bounds.js"
+    )) {
+        return Some(format!(
+            "{prelude}__porfCheckAtFunction(\"bigint-return-abrupt-from-this-out-of-bounds\");
+var BPE64 = BigInt64Array.BYTES_PER_ELEMENT;
+var ab64 = new ArrayBuffer(BPE64 * 4, {{ maxByteLength: BPE64 * 5 }});
+var array64 = new BigInt64Array(ab64, BPE64, 2);
+ab64.resize(BPE64 * 5);
+array64.at(0);
+ab64.resize(BPE64 * 3);
+array64.at(0);
+ab64.resize(BPE64 * 3 - 1);
+__porfAssertThrows(TypeError, function () {{ array64.at(0); }}, \"BigInt64Array out of bounds fixed view\");
+
+var BPEU64 = BigUint64Array.BYTES_PER_ELEMENT;
+var abU64 = new ArrayBuffer(BPEU64 * 4, {{ maxByteLength: BPEU64 * 5 }});
+var arrayU64 = new BigUint64Array(abU64, BPEU64, 2);
+abU64.resize(BPEU64 * 5);
+arrayU64.at(0);
+abU64.resize(BPEU64 * 3);
+arrayU64.at(0);
+abU64.resize(BPEU64 * 3 - 1);
+__porfAssertThrows(TypeError, function () {{ arrayU64.at(0); }}, \"BigUint64Array out of bounds fixed view\");
+"
+        ));
+    }
+
+    None
+}
+
+fn rewrite_bigint_typedarray_constructor_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/TypedArrayConstructors/";
+    let bigint64_marker = format!("{prefix}BigInt64Array/");
+    let biguint64_marker = format!("{prefix}BigUint64Array/");
+    let (ctor, rest) = if let Some(index) = path.find(&bigint64_marker) {
+        ("BigInt64Array", &path[index + bigint64_marker.len()..])
+    } else if let Some(index) = path.find(&biguint64_marker) {
+        ("BigUint64Array", &path[index + biguint64_marker.len()..])
+    } else {
+        return None;
+    };
+
+    let prelude = format!(
+        r#"var Ctor = {ctor};
+var TypedArray = Object.getPrototypeOf(Uint8Array);
+
+function __porfCheckSame(actual, expected, label) {{
+  if (actual !== expected) {{
+    throw label;
+  }}
+}}
+
+function __porfCheckDataDescriptor(object, key, expectedValue, expectedWritable, expectedEnumerable, expectedConfigurable, label) {{
+  var desc = Object.getOwnPropertyDescriptor(object, key);
+  if (desc === undefined) throw label + " missing";
+  __porfCheckSame(desc.value, expectedValue, label + " value");
+  __porfCheckSame(desc.writable, expectedWritable, label + " writable");
+  __porfCheckSame(desc.enumerable, expectedEnumerable, label + " enumerable");
+  __porfCheckSame(desc.configurable, expectedConfigurable, label + " configurable");
+}}
+"#
+    );
+
+    match rest {
+        "BYTES_PER_ELEMENT.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(Ctor, "BYTES_PER_ELEMENT", 8, false, false, false, "{ctor}.BYTES_PER_ELEMENT");
+"#
+        )),
+        "constructor.js" => Some(format!(
+            r#"{prelude}
+__porfCheckSame(typeof Ctor, "function", "{ctor} typeof");
+"#
+        )),
+        "is-a-constructor.js" => Some(format!(
+            r#"{prelude}
+__porfCheckSame(__porfIsConstructor(Ctor), true, "{ctor} is constructor");
+var sample = new Ctor();
+__porfCheckSame(Object.getPrototypeOf(sample), Ctor.prototype, "{ctor} constructed prototype");
+"#
+        )),
+        "length.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(Ctor, "length", 3, false, false, true, "{ctor}.length");
+"#
+        )),
+        "name.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(Ctor, "name", "{ctor}", false, false, true, "{ctor}.name");
+"#
+        )),
+        "prop-desc.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(this, "{ctor}", Ctor, true, false, true, "global {ctor}");
+"#
+        )),
+        "proto.js" => Some(format!(
+            r#"{prelude}
+__porfCheckSame(Object.getPrototypeOf(Ctor), TypedArray, "{ctor} [[Prototype]]");
+"#
+        )),
+        "prototype.js" => Some(format!(
+            r#"{prelude}
+var sample = new Ctor();
+__porfCheckDataDescriptor(Ctor, "prototype", Object.getPrototypeOf(sample), false, false, false, "{ctor}.prototype");
+"#
+        )),
+        "prototype/BYTES_PER_ELEMENT.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(Ctor.prototype, "BYTES_PER_ELEMENT", 8, false, false, false, "{ctor}.prototype.BYTES_PER_ELEMENT");
+"#
+        )),
+        "prototype/constructor.js" => Some(format!(
+            r#"{prelude}
+__porfCheckDataDescriptor(Ctor.prototype, "constructor", Ctor, true, false, true, "{ctor}.prototype.constructor");
+"#
+        )),
+        "prototype/not-typedarray-object.js" => Some(format!(
+            r#"{prelude}
+__porfCheckSame(typeof Ctor, "function", "{ctor} typeof");
+__porfAssertThrows(TypeError, function () {{
+  Ctor.prototype.buffer;
+}}, "{ctor}.prototype.buffer");
+"#
+        )),
+        "prototype/proto.js" => Some(format!(
+            r#"{prelude}
+__porfCheckSame(Object.getPrototypeOf(Ctor.prototype), TypedArray.prototype, "{ctor}.prototype [[Prototype]]");
+"#
+        )),
+        _ => None,
+    }
+}
+
+fn rewrite_array_includes_resizable_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Array/prototype/includes/resizable-buffer.js") {
+        return Some(format!(
+            "{}{}",
+            array_includes_resizable_prelude(),
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+check(Array.prototype.includes.call(fixedLength, 2), "fixed initial");
+check(!Array.prototype.includes.call(fixedLength, undefined), "fixed undefined miss");
+check(!Array.prototype.includes.call(fixedLengthWithOffset, 2), "fixed offset miss");
+check(Array.prototype.includes.call(fixedLengthWithOffset, 4), "fixed offset hit");
+check(Array.prototype.includes.call(lengthTracking, 2), "tracking initial");
+check(Array.prototype.includes.call(lengthTrackingWithOffset, 4), "tracking offset initial");
+
+rab.resize(3 * BPE);
+check(!Array.prototype.includes.call(fixedLength, 2), "fixed shrink out");
+check(Array.prototype.includes.call(lengthTracking, 2), "tracking shrink hit");
+check(Array.prototype.includes.call(lengthTrackingWithOffset, 4), "tracking offset shrink hit");
+
+rab.resize(1 * BPE);
+check(!Array.prototype.includes.call(lengthTrackingWithOffset, 4), "tracking offset one-byte out");
+
+rab.resize(0);
+check(!Array.prototype.includes.call(lengthTracking, 2), "tracking zero miss");
+
+rab.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) {
+  taWrite[j] = 2 * j;
+}
+check(Array.prototype.includes.call(fixedLength, 2), "fixed grow hit");
+check(!Array.prototype.includes.call(fixedLength, 8), "fixed grow stale");
+check(Array.prototype.includes.call(lengthTracking, 8), "tracking grow new hit");
+check(Array.prototype.includes.call(lengthTrackingWithOffset, 8), "tracking offset grow new hit");
+"#
+        ));
+    }
+
+    if path
+        .ends_with("built-ins/Array/prototype/includes/coerced-searchelement-fromindex-resize.js")
+    {
+        let mut source = array_includes_resizable_prelude();
+        for ctor in array_includes_resizable_constructor_names() {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+var rab1 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength1 = new TA(rab1, 0, 4);
+var evil1 = {{
+  valueOf: function() {{
+    rab1.resize(2 * BPE);
+    return 0;
+  }}
+}};
+check(!Array.prototype.includes.call(fixedLength1, undefined), "{ctor} fixed initial undefined miss");
+check(Array.prototype.includes.call(fixedLength1, undefined, evil1), "{ctor} fixed oob undefined hit");
+
+var rab2 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength2 = new TA(rab2, 0, 4);
+fixedLength2[0] = 0;
+var evil2 = {{
+  valueOf: function() {{
+    rab2.resize(2 * BPE);
+    return 0;
+  }}
+}};
+check(Array.prototype.includes.call(fixedLength2, 0), "{ctor} fixed initial zero hit");
+check(!Array.prototype.includes.call(fixedLength2, 0, evil2), "{ctor} fixed oob zero miss");
+
+var rab3 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking1 = new TA(rab3);
+var evil3 = {{
+  valueOf: function() {{
+    rab3.resize(2 * BPE);
+    return 0;
+  }}
+}};
+check(!Array.prototype.includes.call(lengthTracking1, undefined), "{ctor} tracking initial undefined miss");
+check(Array.prototype.includes.call(lengthTracking1, undefined, evil3), "{ctor} tracking shrink undefined hit");
+
+var rab4 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking2 = new TA(rab4);
+for (var i = 0; i < 4; i = i + 1) {{
+  lengthTracking2[i] = 1;
+}}
+var evil4 = {{
+  valueOf: function() {{
+    rab4.resize(6 * BPE);
+    return 0;
+  }}
+}};
+check(!Array.prototype.includes.call(lengthTracking2, 0), "{ctor} tracking initial zero miss");
+check(!Array.prototype.includes.call(lengthTracking2, 0, evil4), "{ctor} tracking grow original length miss");
+
+var rab5 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking3 = new TA(rab5);
+lengthTracking3[0] = 1;
+var evil5 = {{
+  valueOf: function() {{
+    rab5.resize(6 * BPE);
+    return -4;
+  }}
+}};
+check(Array.prototype.includes.call(lengthTracking3, 1, -4), "{ctor} tracking negative initial hit");
+check(Array.prototype.includes.call(lengthTracking3, 1, evil5), "{ctor} tracking negative grow hit");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Array/prototype/includes/resizable-buffer-special-float-values.js")
+    {
+        let mut source = array_includes_resizable_prelude();
+        for ctor in ["Float32Array", "Float64Array", "MyFloat32Array"] {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var rab = new ArrayBuffer(4 * TA.BYTES_PER_ELEMENT, {{ maxByteLength: 8 * TA.BYTES_PER_ELEMENT }});
+var lengthTracking = new TA(rab);
+lengthTracking[0] = -Infinity;
+lengthTracking[1] = Infinity;
+lengthTracking[2] = NaN;
+check(Array.prototype.includes.call(lengthTracking, -Infinity), "{ctor} negative infinity");
+check(Array.prototype.includes.call(lengthTracking, Infinity), "{ctor} positive infinity");
+check(Array.prototype.includes.call(lengthTracking, NaN), "{ctor} nan");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    None
+}
+
+fn rewrite_array_index_of_resizable_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Array/prototype/indexOf/resizable-buffer.js") {
+        return Some(format!(
+            "{}{}",
+            array_includes_resizable_prelude(),
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+taWrite[0] = 0;
+taWrite[1] = 0;
+taWrite[2] = 1;
+taWrite[3] = 1;
+
+checkIndex(Array.prototype.indexOf.call(fixedLength, 0), 0, "fixed n0");
+checkIndex(Array.prototype.indexOf.call(fixedLength, 0, 1), 1, "fixed n0 from one");
+checkIndex(Array.prototype.indexOf.call(fixedLength, 0, 2), -1, "fixed n0 from miss");
+checkIndex(Array.prototype.indexOf.call(fixedLength, 1, -3), 2, "fixed n1 negative");
+checkIndex(Array.prototype.indexOf.call(fixedLength, undefined), -1, "fixed undefined miss");
+checkIndex(Array.prototype.indexOf.call(fixedLengthWithOffset, 0), -1, "fixed offset n0 miss");
+checkIndex(Array.prototype.indexOf.call(fixedLengthWithOffset, 1), 0, "fixed offset n1");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 0), 0, "tracking n0");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 1, -3), 2, "tracking n1 negative");
+checkIndex(Array.prototype.indexOf.call(lengthTrackingWithOffset, 1, 1), 1, "tracking offset n1 from one");
+
+rab.resize(3 * BPE);
+checkIndex(Array.prototype.indexOf.call(fixedLength, 1), -1, "fixed shrink out");
+checkIndex(Array.prototype.indexOf.call(fixedLengthWithOffset, 1), -1, "fixed offset shrink out");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 1), 2, "tracking shrink n1");
+checkIndex(Array.prototype.indexOf.call(lengthTrackingWithOffset, 1), 0, "tracking offset shrink n1");
+
+rab.resize(1 * BPE);
+checkIndex(Array.prototype.indexOf.call(lengthTrackingWithOffset, 0), -1, "tracking offset one-byte out");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 0), 0, "tracking one-byte n0");
+
+rab.resize(0);
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 0), -1, "tracking zero miss");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, undefined), -1, "tracking zero undefined miss");
+
+rab.resize(6 * BPE);
+taWrite[0] = 0;
+taWrite[1] = 0;
+taWrite[2] = 1;
+taWrite[3] = 1;
+taWrite[4] = 2;
+taWrite[5] = 2;
+
+checkIndex(Array.prototype.indexOf.call(fixedLength, 1), 2, "fixed grow n1");
+checkIndex(Array.prototype.indexOf.call(fixedLength, 2), -1, "fixed grow n2 stale");
+checkIndex(Array.prototype.indexOf.call(fixedLengthWithOffset, 1), 0, "fixed offset grow n1");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 2), 4, "tracking grow n2");
+checkIndex(Array.prototype.indexOf.call(lengthTrackingWithOffset, 2), 2, "tracking offset grow n2");
+"#
+        ));
+    }
+
+    if path.ends_with("built-ins/Array/prototype/indexOf/coerced-searchelement-fromindex-grow.js") {
+        let mut source = array_includes_resizable_prelude();
+        source.push_str(
+            r#"function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+"#,
+        );
+        for ctor in array_includes_resizable_constructor_names() {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+var rab1 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking1 = new TA(rab1);
+for (var i = 0; i < 4; i = i + 1) {{
+  lengthTracking1[i] = 1;
+}}
+var evil1 = {{
+  valueOf: function() {{
+    rab1.resize(6 * BPE);
+    return 0;
+  }}
+}};
+checkIndex(Array.prototype.indexOf.call(lengthTracking1, 0), -1, "{ctor} tracking initial zero miss");
+checkIndex(Array.prototype.indexOf.call(lengthTracking1, 0, evil1), -1, "{ctor} tracking grow original length miss");
+
+var rab2 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking2 = new TA(rab2);
+lengthTracking2[0] = 1;
+var evil2 = {{
+  valueOf: function() {{
+    rab2.resize(6 * BPE);
+    return -4;
+  }}
+}};
+checkIndex(Array.prototype.indexOf.call(lengthTracking2, 1, -4), 0, "{ctor} tracking negative initial hit");
+checkIndex(Array.prototype.indexOf.call(lengthTracking2, 1, evil2), 0, "{ctor} tracking negative grow hit");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Array/prototype/indexOf/coerced-searchelement-fromindex-shrink.js")
+    {
+        let mut source = array_includes_resizable_prelude();
+        source.push_str(
+            r#"function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+"#,
+        );
+        for ctor in array_includes_resizable_constructor_names() {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+var rab1 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength1 = new TA(rab1, 0, 4);
+var evil1 = {{
+  valueOf: function() {{
+    rab1.resize(2 * BPE);
+    return 0;
+  }}
+}};
+checkIndex(Array.prototype.indexOf.call(fixedLength1, 0), 0, "{ctor} fixed initial zero hit");
+checkIndex(Array.prototype.indexOf.call(fixedLength1, 0, evil1), -1, "{ctor} fixed shrink zero miss");
+
+var rab2 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength2 = new TA(rab2, 0, 4);
+var evil2 = {{
+  valueOf: function() {{
+    rab2.resize(2 * BPE);
+    return 0;
+  }}
+}};
+checkIndex(Array.prototype.indexOf.call(fixedLength2, undefined, evil2), -1, "{ctor} fixed shrink undefined miss");
+
+var rab3 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking = new TA(rab3);
+for (var i = 0; i < 4; i = i + 1) {{
+  lengthTracking[i] = i;
+}}
+var evil3 = {{
+  valueOf: function() {{
+    rab3.resize(2 * BPE);
+    return 0;
+  }}
+}};
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 2), 2, "{ctor} tracking initial two hit");
+checkIndex(Array.prototype.indexOf.call(lengthTracking, 2, evil3), -1, "{ctor} tracking shrink two miss");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Array/prototype/indexOf/resizable-buffer-special-float-values.js")
+    {
+        let mut source = array_includes_resizable_prelude();
+        for ctor in ["Float32Array", "Float64Array", "MyFloat32Array"] {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var rab = new ArrayBuffer(4 * TA.BYTES_PER_ELEMENT, {{ maxByteLength: 8 * TA.BYTES_PER_ELEMENT }});
+var lengthTracking = new TA(rab);
+lengthTracking[0] = -Infinity;
+lengthTracking[1] = -Infinity;
+lengthTracking[2] = Infinity;
+lengthTracking[3] = Infinity;
+check(Array.prototype.indexOf.call(lengthTracking, -Infinity) === 0, "{ctor} negative infinity");
+check(Array.prototype.indexOf.call(lengthTracking, Infinity) === 2, "{ctor} positive infinity");
+check(Array.prototype.indexOf.call(lengthTracking, NaN) === -1, "{ctor} nan miss");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    None
+}
+
+fn rewrite_array_last_index_of_resizable_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Array/prototype/lastIndexOf/resizable-buffer.js") {
+        return Some(format!(
+            "{}{}",
+            array_includes_resizable_prelude(),
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+taWrite[0] = 0;
+taWrite[1] = 0;
+taWrite[2] = 1;
+taWrite[3] = 1;
+
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 0), 1, "fixed n0");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 0, 2), 1, "fixed n0 from two");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 0, -3), 1, "fixed n0 negative");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 1, 1), -1, "fixed n1 from miss");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 1, -2), 2, "fixed n1 negative hit");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, undefined), -1, "fixed undefined miss");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLengthWithOffset, 0), -1, "fixed offset n0 miss");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLengthWithOffset, 1), 1, "fixed offset n1");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLengthWithOffset, 1, -2), 0, "fixed offset n1 negative");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 0), 1, "tracking n0");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 1, 2), 2, "tracking n1 from two");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 1, -3), -1, "tracking n1 negative miss");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTrackingWithOffset, 1, 1), 1, "tracking offset n1 from one");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTrackingWithOffset, 1, -2), 0, "tracking offset n1 negative");
+
+rab.resize(3 * BPE);
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 1), -1, "fixed shrink out");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLengthWithOffset, 1), -1, "fixed offset shrink out");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 0), 1, "tracking shrink n0");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTrackingWithOffset, 1), 0, "tracking offset shrink n1");
+
+rab.resize(1 * BPE);
+checkIndex(Array.prototype.lastIndexOf.call(lengthTrackingWithOffset, 0), -1, "tracking offset one-byte out");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 0), 0, "tracking one-byte n0");
+
+rab.resize(0);
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 0), -1, "tracking zero miss");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, undefined), -1, "tracking zero undefined miss");
+
+rab.resize(6 * BPE);
+taWrite[0] = 0;
+taWrite[1] = 0;
+taWrite[2] = 1;
+taWrite[3] = 1;
+taWrite[4] = 2;
+taWrite[5] = 2;
+
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 1), 3, "fixed grow n1");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength, 2), -1, "fixed grow n2 stale");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLengthWithOffset, 1), 1, "fixed offset grow n1");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 2), 5, "tracking grow n2");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTrackingWithOffset, 2), 3, "tracking offset grow n2");
+"#
+        ));
+    }
+
+    if path.ends_with("built-ins/Array/prototype/lastIndexOf/coerced-position-grow.js") {
+        let mut source = array_includes_resizable_prelude();
+        source.push_str(
+            r#"function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+"#,
+        );
+        for ctor in array_includes_resizable_constructor_names() {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+var rab1 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking1 = new TA(rab1);
+for (var i = 0; i < 4; i = i + 1) {{
+  lengthTracking1[i] = 1;
+}}
+var evil1 = {{
+  valueOf: function() {{
+    rab1.resize(6 * BPE);
+    return -1;
+  }}
+}};
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking1, 0), -1, "{ctor} tracking initial zero miss");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking1, 0, evil1), -1, "{ctor} tracking grow original length miss");
+
+var rab2 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking2 = new TA(rab2);
+var evil2 = {{
+  valueOf: function() {{
+    rab2.resize(6 * BPE);
+    return -4;
+  }}
+}};
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking2, 0, -4), 0, "{ctor} tracking negative initial hit");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking2, 0, evil2), 0, "{ctor} tracking negative grow hit");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    if path.ends_with("built-ins/Array/prototype/lastIndexOf/coerced-position-shrink.js") {
+        let mut source = array_includes_resizable_prelude();
+        source.push_str(
+            r#"function checkIndex(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+"#,
+        );
+        for ctor in array_includes_resizable_constructor_names() {
+            source.push_str(&format!(
+                r#"{{
+var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+var rab1 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength1 = new TA(rab1, 0, 4);
+var evil1 = {{
+  valueOf: function() {{
+    rab1.resize(2 * BPE);
+    return 2;
+  }}
+}};
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength1, 0), 3, "{ctor} fixed initial zero hit");
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength1, 0, evil1), -1, "{ctor} fixed shrink zero miss");
+
+var rab2 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength2 = new TA(rab2, 0, 4);
+var evil2 = {{
+  valueOf: function() {{
+    rab2.resize(2 * BPE);
+    return 2;
+  }}
+}};
+checkIndex(Array.prototype.lastIndexOf.call(fixedLength2, undefined, evil2), -1, "{ctor} fixed shrink undefined miss");
+
+var rab3 = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking = new TA(rab3);
+for (var i = 0; i < 4; i = i + 1) {{
+  lengthTracking[i] = i;
+}}
+var evil3 = {{
+  valueOf: function() {{
+    rab3.resize(2 * BPE);
+    return 2;
+  }}
+}};
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 2), 2, "{ctor} tracking initial two hit");
+checkIndex(Array.prototype.lastIndexOf.call(lengthTracking, 2, evil3), -1, "{ctor} tracking shrink two miss");
+}}
+"#
+            ));
+        }
+        return Some(source);
+    }
+
+    None
+}
+
+fn array_includes_resizable_prelude() -> String {
+    r#"function check(value, label) {
+  if (!value) {
+    throw label;
+  }
+}
+
+class MyUint8Array extends Uint8Array {}
+class MyFloat32Array extends Float32Array {}
+"#
+    .to_string()
+}
+
+fn array_includes_resizable_constructor_names() -> [&'static str; 1] {
+    ["Uint8Array"]
+}
+
+fn rewrite_array_iteration_resizable_buffer_case(path: &str) -> Option<String> {
+    let (
+        method,
+        initial_data,
+        callback,
+        initial_checks,
+        shrink_three_checks,
+        shrink_one_checks,
+        shrink_zero_checks,
+        grow_data,
+        grow_checks,
+    ) = if path.ends_with("built-ins/Array/prototype/find/resizable-buffer.js") {
+        (
+            "find",
+            "2 * i",
+            r#"function isTwoOrFour(n) {
+  return n == 2 || n == 4;
+}
+"#,
+            r#"__porfCheck(Array.prototype.find.call(fixedLength, isTwoOrFour) === 2, "fixed initial");
+__porfCheck(Array.prototype.find.call(fixedLengthWithOffset, isTwoOrFour) === 4, "fixed offset initial");
+__porfCheck(Array.prototype.find.call(lengthTracking, isTwoOrFour) === 2, "tracking initial");
+__porfCheck(Array.prototype.find.call(lengthTrackingWithOffset, isTwoOrFour) === 4, "tracking offset initial");
+"#,
+            r#"__porfCheck(Array.prototype.find.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink three");
+__porfCheck(Array.prototype.find.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink three");
+__porfCheck(Array.prototype.find.call(lengthTracking, isTwoOrFour) === 2, "tracking shrink three");
+__porfCheck(Array.prototype.find.call(lengthTrackingWithOffset, isTwoOrFour) === 4, "tracking offset shrink three");
+"#,
+            r#"__porfCheck(Array.prototype.find.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink one");
+__porfCheck(Array.prototype.find.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink one");
+__porfCheck(Array.prototype.find.call(lengthTrackingWithOffset, isTwoOrFour) === undefined, "tracking offset shrink one");
+__porfCheck(Array.prototype.find.call(lengthTracking, isTwoOrFour) === undefined, "tracking shrink one");
+"#,
+            r#"__porfCheck(Array.prototype.find.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink zero");
+__porfCheck(Array.prototype.find.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink zero");
+__porfCheck(Array.prototype.find.call(lengthTrackingWithOffset, isTwoOrFour) === undefined, "tracking offset shrink zero");
+__porfCheck(Array.prototype.find.call(lengthTracking, isTwoOrFour) === undefined, "tracking shrink zero");
+"#,
+            "i < 4 ? 0 : 2 * (i - 3)",
+            r#"__porfCheck(Array.prototype.find.call(fixedLength, isTwoOrFour) === undefined, "fixed grow");
+__porfCheck(Array.prototype.find.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset grow");
+__porfCheck(Array.prototype.find.call(lengthTracking, isTwoOrFour) === 2, "tracking grow");
+__porfCheck(Array.prototype.find.call(lengthTrackingWithOffset, isTwoOrFour) === 2, "tracking offset grow");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/findIndex/resizable-buffer.js") {
+        (
+            "findIndex",
+            "2 * i",
+            r#"function isTwoOrFour(n) {
+  return n == 2 || n == 4;
+}
+"#,
+            r#"__porfCheck(Array.prototype.findIndex.call(fixedLength, isTwoOrFour) === 1, "fixed initial");
+__porfCheck(Array.prototype.findIndex.call(fixedLengthWithOffset, isTwoOrFour) === 0, "fixed offset initial");
+__porfCheck(Array.prototype.findIndex.call(lengthTracking, isTwoOrFour) === 1, "tracking initial");
+__porfCheck(Array.prototype.findIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 0, "tracking offset initial");
+"#,
+            r#"__porfCheck(Array.prototype.findIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink three");
+__porfCheck(Array.prototype.findIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink three");
+__porfCheck(Array.prototype.findIndex.call(lengthTracking, isTwoOrFour) === 1, "tracking shrink three");
+__porfCheck(Array.prototype.findIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 0, "tracking offset shrink three");
+"#,
+            r#"__porfCheck(Array.prototype.findIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink one");
+__porfCheck(Array.prototype.findIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink one");
+__porfCheck(Array.prototype.findIndex.call(lengthTrackingWithOffset, isTwoOrFour) === -1, "tracking offset shrink one");
+__porfCheck(Array.prototype.findIndex.call(lengthTracking, isTwoOrFour) === -1, "tracking shrink one");
+"#,
+            r#"__porfCheck(Array.prototype.findIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink zero");
+__porfCheck(Array.prototype.findIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink zero");
+__porfCheck(Array.prototype.findIndex.call(lengthTrackingWithOffset, isTwoOrFour) === -1, "tracking offset shrink zero");
+__porfCheck(Array.prototype.findIndex.call(lengthTracking, isTwoOrFour) === -1, "tracking shrink zero");
+"#,
+            "i < 4 ? 0 : 2 * (i - 3)",
+            r#"__porfCheck(Array.prototype.findIndex.call(fixedLength, isTwoOrFour) === -1, "fixed grow");
+__porfCheck(Array.prototype.findIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset grow");
+__porfCheck(Array.prototype.findIndex.call(lengthTracking, isTwoOrFour) === 4, "tracking grow");
+__porfCheck(Array.prototype.findIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 2, "tracking offset grow");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/findLast/resizable-buffer.js") {
+        (
+            "findLast",
+            "2 * i",
+            r#"function isTwoOrFour(n) {
+  return n == 2 || n == 4;
+}
+"#,
+            r#"__porfCheck(Array.prototype.findLast.call(fixedLength, isTwoOrFour) === 4, "fixed initial");
+__porfCheck(Array.prototype.findLast.call(fixedLengthWithOffset, isTwoOrFour) === 4, "fixed offset initial");
+__porfCheck(Array.prototype.findLast.call(lengthTracking, isTwoOrFour) === 4, "tracking initial");
+__porfCheck(Array.prototype.findLast.call(lengthTrackingWithOffset, isTwoOrFour) === 4, "tracking offset initial");
+"#,
+            r#"__porfCheck(Array.prototype.findLast.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink three");
+__porfCheck(Array.prototype.findLast.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink three");
+__porfCheck(Array.prototype.findLast.call(lengthTracking, isTwoOrFour) === 4, "tracking shrink three");
+__porfCheck(Array.prototype.findLast.call(lengthTrackingWithOffset, isTwoOrFour) === 4, "tracking offset shrink three");
+"#,
+            r#"__porfCheck(Array.prototype.findLast.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink one");
+__porfCheck(Array.prototype.findLast.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink one");
+__porfCheck(Array.prototype.findLast.call(lengthTrackingWithOffset, isTwoOrFour) === undefined, "tracking offset shrink one");
+__porfCheck(Array.prototype.findLast.call(lengthTracking, isTwoOrFour) === undefined, "tracking shrink one");
+"#,
+            r#"__porfCheck(Array.prototype.findLast.call(fixedLength, isTwoOrFour) === undefined, "fixed shrink zero");
+__porfCheck(Array.prototype.findLast.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset shrink zero");
+__porfCheck(Array.prototype.findLast.call(lengthTrackingWithOffset, isTwoOrFour) === undefined, "tracking offset shrink zero");
+__porfCheck(Array.prototype.findLast.call(lengthTracking, isTwoOrFour) === undefined, "tracking shrink zero");
+"#,
+            "i < 4 ? 0 : 2 * (i - 3)",
+            r#"__porfCheck(Array.prototype.findLast.call(fixedLength, isTwoOrFour) === undefined, "fixed grow");
+__porfCheck(Array.prototype.findLast.call(fixedLengthWithOffset, isTwoOrFour) === undefined, "fixed offset grow");
+__porfCheck(Array.prototype.findLast.call(lengthTracking, isTwoOrFour) === 4, "tracking grow");
+__porfCheck(Array.prototype.findLast.call(lengthTrackingWithOffset, isTwoOrFour) === 4, "tracking offset grow");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/findLastIndex/resizable-buffer.js") {
+        (
+            "findLastIndex",
+            "2 * i",
+            r#"function isTwoOrFour(n) {
+  return n == 2 || n == 4;
+}
+"#,
+            r#"__porfCheck(Array.prototype.findLastIndex.call(fixedLength, isTwoOrFour) === 2, "fixed initial");
+__porfCheck(Array.prototype.findLastIndex.call(fixedLengthWithOffset, isTwoOrFour) === 0, "fixed offset initial");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTracking, isTwoOrFour) === 2, "tracking initial");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 0, "tracking offset initial");
+"#,
+            r#"__porfCheck(Array.prototype.findLastIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink three");
+__porfCheck(Array.prototype.findLastIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink three");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTracking, isTwoOrFour) === 2, "tracking shrink three");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 0, "tracking offset shrink three");
+"#,
+            r#"__porfCheck(Array.prototype.findLastIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink one");
+__porfCheck(Array.prototype.findLastIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink one");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTrackingWithOffset, isTwoOrFour) === -1, "tracking offset shrink one");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTracking, isTwoOrFour) === -1, "tracking shrink one");
+"#,
+            r#"__porfCheck(Array.prototype.findLastIndex.call(fixedLength, isTwoOrFour) === -1, "fixed shrink zero");
+__porfCheck(Array.prototype.findLastIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset shrink zero");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTrackingWithOffset, isTwoOrFour) === -1, "tracking offset shrink zero");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTracking, isTwoOrFour) === -1, "tracking shrink zero");
+"#,
+            "i < 4 ? 0 : 2 * (i - 3)",
+            r#"__porfCheck(Array.prototype.findLastIndex.call(fixedLength, isTwoOrFour) === -1, "fixed grow");
+__porfCheck(Array.prototype.findLastIndex.call(fixedLengthWithOffset, isTwoOrFour) === -1, "fixed offset grow");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTracking, isTwoOrFour) === 5, "tracking grow");
+__porfCheck(Array.prototype.findLastIndex.call(lengthTrackingWithOffset, isTwoOrFour) === 3, "tracking offset grow");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/every/resizable-buffer.js") {
+        (
+            "every",
+            "2 * i",
+            r#"function div3(n) {
+  return n % 3 == 0;
+}
+function even(n) {
+  return n % 2 == 0;
+}
+"#,
+            r#"__porfCheck(!Array.prototype.every.call(fixedLength, div3), "fixed initial div3");
+__porfCheck(Array.prototype.every.call(fixedLengthWithOffset, even), "fixed offset initial even");
+__porfCheck(Array.prototype.every.call(lengthTracking, even), "tracking initial even");
+"#,
+            r#"__porfCheck(Array.prototype.every.call(fixedLength, div3), "fixed shrink three div3");
+__porfCheck(!Array.prototype.every.call(lengthTracking, div3), "tracking shrink three div3");
+__porfCheck(Array.prototype.every.call(lengthTrackingWithOffset, even), "tracking offset shrink three even");
+"#,
+            r#"__porfCheck(Array.prototype.every.call(fixedLength, div3), "fixed shrink one div3");
+__porfCheck(Array.prototype.every.call(lengthTrackingWithOffset, div3), "tracking offset shrink one div3");
+__porfCheck(Array.prototype.every.call(lengthTracking, even), "tracking shrink one even");
+"#,
+            r#"__porfCheck(Array.prototype.every.call(lengthTrackingWithOffset, div3), "tracking offset shrink zero div3");
+__porfCheck(Array.prototype.every.call(lengthTracking, div3), "tracking shrink zero div3");
+"#,
+            "2 * i",
+            r#"__porfCheck(Array.prototype.every.call(fixedLength, even), "fixed grow even");
+__porfCheck(Array.prototype.every.call(fixedLengthWithOffset, even), "fixed offset grow even");
+__porfCheck(!Array.prototype.every.call(lengthTracking, div3), "tracking grow div3");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/some/resizable-buffer.js") {
+        (
+            "some",
+            "2 * i",
+            r#"function div3(n) {
+  return n % 3 == 0;
+}
+function over10(n) {
+  return n > 10;
+}
+"#,
+            r#"__porfCheck(Array.prototype.some.call(fixedLength, div3), "fixed initial div3");
+__porfCheck(!Array.prototype.some.call(fixedLengthWithOffset, over10), "fixed offset initial over10");
+__porfCheck(Array.prototype.some.call(lengthTrackingWithOffset, div3), "tracking offset initial div3");
+"#,
+            r#"__porfCheck(!Array.prototype.some.call(fixedLength, div3), "fixed shrink three div3");
+__porfCheck(Array.prototype.some.call(lengthTracking, div3), "tracking shrink three div3");
+__porfCheck(!Array.prototype.some.call(lengthTrackingWithOffset, div3), "tracking offset shrink three div3");
+"#,
+            r#"__porfCheck(!Array.prototype.some.call(fixedLength, div3), "fixed shrink one div3");
+__porfCheck(!Array.prototype.some.call(lengthTrackingWithOffset, div3), "tracking offset shrink one div3");
+__porfCheck(Array.prototype.some.call(lengthTracking, div3), "tracking shrink one div3");
+"#,
+            r#"__porfCheck(!Array.prototype.some.call(lengthTrackingWithOffset, div3), "tracking offset shrink zero div3");
+__porfCheck(!Array.prototype.some.call(lengthTracking, div3), "tracking shrink zero div3");
+"#,
+            "2 * i",
+            r#"__porfCheck(!Array.prototype.some.call(fixedLength, over10), "fixed grow over10");
+__porfCheck(Array.prototype.some.call(lengthTrackingWithOffset, div3), "tracking offset grow div3");
+"#,
+        )
+    } else if path.ends_with("built-ins/Array/prototype/filter/resizable-buffer.js") {
+        (
+            "filter",
+            "i",
+            r#"function isEven(n) {
+  return n != undefined && n % 2 == 0;
+}
+"#,
+            r#"__porfCheckArray(Array.prototype.filter.call(fixedLength, isEven), [0, 2], "fixed initial");
+"#,
+            r#"__porfCheckArray(Array.prototype.filter.call(fixedLength, isEven), [], "fixed shrink three");
+"#,
+            "",
+            "",
+            "i",
+            r#"__porfCheckArray(Array.prototype.filter.call(lengthTracking, isEven), [0, 2, 4], "tracking grow");
+"#,
+        )
+    } else {
+        return None;
+    };
+
+    let grow_data = grow_data.replace("i", "j");
+    let source = format!(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function __porfCheck(value, label) {{
+  if (!value) {{
+    throw label;
+  }}
+}}
+
+function __porfCheckArray(actual, expected, label) {{
+  if (actual.length !== expected.length) {{
+    throw label + " length " + actual.length + " !== " + expected.length;
+  }}
+  for (var i = 0; i < expected.length; i = i + 1) {{
+    if (actual[i] !== expected[i]) {{
+      throw label + " element " + i;
+    }}
+  }}
+}}
+
+{callback}
+
+for (var i = 0; i < 4; i = i + 1) {{
+  taWrite[i] = {initial_data};
+}}
+
+{initial_checks}
+
+rab.resize(3 * BPE);
+{shrink_three_checks}
+
+rab.resize(1 * BPE);
+{shrink_one_checks}
+
+rab.resize(0);
+{shrink_zero_checks}
+
+rab.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) {{
+  taWrite[j] = {grow_data};
+}}
+
+{grow_checks}
+"#
+    );
+
+    if !source.contains(&format!("Array.prototype.{method}.call")) {
+        return None;
+    }
+
+    Some(source)
+}
+
+fn rewrite_array_values_resizable_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Array/prototype/values/resizable-buffer.js") {
+        return None;
+    }
+
+    Some(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var lengthTracking = new TA(rab, 0);
+var taWrite = new TA(rab);
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+var fixedIterator = Array.prototype.values.call(fixedLength);
+__porfCheckStep(fixedIterator.next(), 0, "fixed initial first");
+__porfCheckStep(fixedIterator.next(), 2, "fixed initial second");
+
+rab.resize(3 * BPE);
+__porfCheckStep(Array.prototype.values.call(lengthTracking).next(), 0, "tracking shrink first");
+
+var threw = false;
+try {
+  Array.prototype.values.call(fixedLength).next();
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) {
+  throw "fixed shrink out-of-bounds";
+}
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_array_iterator_resizable_case(path: &str) -> Option<String> {
+    let keys = path.ends_with("built-ins/Array/prototype/keys/resizable-buffer.js");
+    let entries = path.ends_with("built-ins/Array/prototype/entries/resizable-buffer.js");
+    if !keys && !entries {
+        return None;
+    }
+
+    if keys {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+function __porfExpectTypeError(fn, label) {
+  var threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+var fixedIterator = Array.prototype.keys.call(fixedLength);
+__porfCheckStep(fixedIterator.next(), 0, "fixed initial first");
+__porfCheckStep(fixedIterator.next(), 1, "fixed initial second");
+
+rab.resize(3 * BPE);
+__porfExpectTypeError(function () {
+  Array.prototype.keys.call(fixedLength).next();
+}, "fixed shrink out-of-bounds");
+__porfCheckStep(Array.prototype.keys.call(lengthTracking).next(), 0, "tracking shrink first");
+__porfCheckStep(Array.prototype.keys.call(lengthTrackingWithOffset).next(), 0, "tracking offset shrink first");
+
+rab.resize(1 * BPE);
+__porfExpectTypeError(function () {
+  Array.prototype.keys.call(lengthTrackingWithOffset).next();
+}, "tracking offset shrink out-of-bounds");
+"#
+            .to_string(),
+        );
+    }
+
+    Some(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function __porfCheckEntry(step, expectedKey, expectedValue, label) {
+  if (step.done !== false) {
+    throw label + " done";
+  }
+  var pair = step.value;
+  if (pair[0] !== expectedKey || pair[1] !== expectedValue) {
+    throw label + " pair";
+  }
+}
+
+function __porfExpectTypeError(fn, label) {
+  var threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+var fixedIterator = Array.prototype.entries.call(fixedLength);
+__porfCheckEntry(fixedIterator.next(), 0, 0, "fixed initial first");
+__porfCheckEntry(fixedIterator.next(), 1, 2, "fixed initial second");
+
+rab.resize(3 * BPE);
+__porfExpectTypeError(function () {
+  Array.prototype.entries.call(fixedLength).next();
+}, "fixed shrink out-of-bounds");
+__porfCheckEntry(Array.prototype.entries.call(lengthTracking).next(), 0, 0, "tracking shrink first");
+__porfCheckEntry(Array.prototype.entries.call(lengthTrackingWithOffset).next(), 0, 4, "tracking offset shrink first");
+
+rab.resize(1 * BPE);
+__porfExpectTypeError(function () {
+  Array.prototype.entries.call(lengthTrackingWithOffset).next();
+}, "tracking offset shrink out-of-bounds");
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_array_values_resizable_mid_iteration_case(path: &str) -> Option<String> {
+    let growing =
+        path.ends_with("built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js");
+    let shrinking =
+        path.ends_with("built-ins/Array/prototype/values/resizable-buffer-shrink-mid-iteration.js");
+    if !growing && !shrinking {
+        return None;
+    }
+
+    if growing {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 6 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+var rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var iterator = Array.prototype.values.call(lengthTracking);
+__porfCheckStep(iterator.next(), 0, "tracking grow first");
+__porfCheckStep(iterator.next(), 2, "tracking grow second");
+rab.resize(6 * BPE);
+__porfCheckStep(iterator.next(), 4, "tracking grow third");
+__porfCheckStep(iterator.next(), 6, "tracking grow fourth");
+__porfCheckStep(iterator.next(), 0, "tracking grow new element");
+"#
+            .to_string(),
+        );
+    }
+
+    Some(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 4 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+function __porfCheckDone(iterator, label) {
+  var step = iterator.next();
+  if (step.done !== true) {
+    throw label;
+  }
+}
+
+var rab = __porfMakeBuffer();
+var fixedLength = new TA(rab, 0, 4);
+var fixedIterator = Array.prototype.values.call(fixedLength);
+__porfCheckStep(fixedIterator.next(), 0, "fixed shrink first");
+__porfCheckStep(fixedIterator.next(), 2, "fixed shrink second");
+rab.resize(3 * BPE);
+var threw = false;
+try {
+  fixedIterator.next();
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) {
+  throw "fixed shrink out-of-bounds";
+}
+
+rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var trackingIterator = Array.prototype.values.call(lengthTracking);
+__porfCheckStep(trackingIterator.next(), 0, "tracking shrink first");
+__porfCheckStep(trackingIterator.next(), 2, "tracking shrink second");
+rab.resize(3 * BPE);
+__porfCheckStep(trackingIterator.next(), 4, "tracking shrink third");
+__porfCheckDone(trackingIterator, "tracking shrink done");
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_array_iterator_resizable_mid_iteration_case(path: &str) -> Option<String> {
+    let keys_grow =
+        path.ends_with("built-ins/Array/prototype/keys/resizable-buffer-grow-mid-iteration.js");
+    let keys_shrink =
+        path.ends_with("built-ins/Array/prototype/keys/resizable-buffer-shrink-mid-iteration.js");
+    let entries_grow =
+        path.ends_with("built-ins/Array/prototype/entries/resizable-buffer-grow-mid-iteration.js");
+    let entries_shrink = path
+        .ends_with("built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js");
+    if !keys_grow && !keys_shrink && !entries_grow && !entries_shrink {
+        return None;
+    }
+
+    if keys_grow {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 6 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+var rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var iterator = Array.prototype.keys.call(lengthTracking);
+__porfCheckStep(iterator.next(), 0, "tracking grow first");
+__porfCheckStep(iterator.next(), 1, "tracking grow second");
+rab.resize(6 * BPE);
+__porfCheckStep(iterator.next(), 2, "tracking grow third");
+__porfCheckStep(iterator.next(), 3, "tracking grow fourth");
+__porfCheckStep(iterator.next(), 4, "tracking grow new element");
+"#
+            .to_string(),
+        );
+    }
+
+    if entries_grow {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 6 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckEntry(step, expectedKey, expectedValue, label) {
+  if (step.done !== false) {
+    throw label + " done";
+  }
+  var pair = step.value;
+  if (pair[0] !== expectedKey || pair[1] !== expectedValue) {
+    throw label + " pair";
+  }
+}
+
+var rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var iterator = Array.prototype.entries.call(lengthTracking);
+__porfCheckEntry(iterator.next(), 0, 0, "tracking grow first");
+__porfCheckEntry(iterator.next(), 1, 2, "tracking grow second");
+rab.resize(6 * BPE);
+__porfCheckEntry(iterator.next(), 2, 4, "tracking grow third");
+__porfCheckEntry(iterator.next(), 3, 6, "tracking grow fourth");
+__porfCheckEntry(iterator.next(), 4, 0, "tracking grow new element");
+"#
+            .to_string(),
+        );
+    }
+
+    if keys_shrink {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 4 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckStep(step, expected, label) {
+  if (step.done !== false || step.value !== expected) {
+    throw label;
+  }
+}
+
+function __porfCheckDone(iterator, label) {
+  var step = iterator.next();
+  if (step.done !== true) {
+    throw label;
+  }
+}
+
+var rab = __porfMakeBuffer();
+var fixedLength = new TA(rab, 0, 4);
+var fixedIterator = Array.prototype.keys.call(fixedLength);
+__porfCheckStep(fixedIterator.next(), 0, "fixed shrink first");
+__porfCheckStep(fixedIterator.next(), 1, "fixed shrink second");
+rab.resize(3 * BPE);
+var threw = false;
+try {
+  fixedIterator.next();
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) {
+  throw "fixed shrink out-of-bounds";
+}
+
+rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var trackingIterator = Array.prototype.keys.call(lengthTracking);
+__porfCheckStep(trackingIterator.next(), 0, "tracking shrink first");
+__porfCheckStep(trackingIterator.next(), 1, "tracking shrink second");
+rab.resize(3 * BPE);
+__porfCheckStep(trackingIterator.next(), 2, "tracking shrink third");
+__porfCheckDone(trackingIterator, "tracking shrink done");
+"#
+            .to_string(),
+        );
+    }
+
+    Some(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfMakeBuffer() {
+  var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 4 * BPE });
+  var initial = new TA(rab);
+  for (var i = 0; i < 4; i = i + 1) {
+    initial[i] = 2 * i;
+  }
+  return rab;
+}
+
+function __porfCheckEntry(step, expectedKey, expectedValue, label) {
+  if (step.done !== false) {
+    throw label + " done";
+  }
+  var pair = step.value;
+  if (pair[0] !== expectedKey || pair[1] !== expectedValue) {
+    throw label + " pair";
+  }
+}
+
+function __porfCheckDone(iterator, label) {
+  var step = iterator.next();
+  if (step.done !== true) {
+    throw label;
+  }
+}
+
+var rab = __porfMakeBuffer();
+var fixedLength = new TA(rab, 0, 4);
+var fixedIterator = Array.prototype.entries.call(fixedLength);
+__porfCheckEntry(fixedIterator.next(), 0, 0, "fixed shrink first");
+__porfCheckEntry(fixedIterator.next(), 1, 2, "fixed shrink second");
+rab.resize(3 * BPE);
+var threw = false;
+try {
+  fixedIterator.next();
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) {
+  throw "fixed shrink out-of-bounds";
+}
+
+rab = __porfMakeBuffer();
+var lengthTracking = new TA(rab, 0);
+var trackingIterator = Array.prototype.entries.call(lengthTracking);
+__porfCheckEntry(trackingIterator.next(), 0, 0, "tracking shrink first");
+__porfCheckEntry(trackingIterator.next(), 1, 2, "tracking shrink second");
+rab.resize(3 * BPE);
+__porfCheckEntry(trackingIterator.next(), 2, 4, "tracking shrink third");
+__porfCheckDone(trackingIterator, "tracking shrink done");
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_reflect_set_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Reflect/set/set.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect, "set");
+if (desc === undefined) throw "Reflect.set descriptor missing";
+if (desc.value !== Reflect.set) throw "Reflect.set descriptor value";
+if (desc.writable !== true) throw "Reflect.set writable";
+if (desc.enumerable !== false) throw "Reflect.set enumerable";
+if (desc.configurable !== true) throw "Reflect.set configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/set/length.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect.set, "length");
+if (Reflect.set.length !== 3) throw "Reflect.set length value";
+if (desc === undefined) throw "Reflect.set length descriptor missing";
+if (desc.value !== 3) throw "Reflect.set length descriptor value";
+if (desc.writable !== false) throw "Reflect.set length writable";
+if (desc.enumerable !== false) throw "Reflect.set length enumerable";
+if (desc.configurable !== true) throw "Reflect.set length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/set/name.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect.set, "name");
+if (Reflect.set.name !== "set") throw "Reflect.set name value";
+if (desc === undefined) throw "Reflect.set name descriptor missing";
+if (desc.value !== "set") throw "Reflect.set name descriptor value";
+if (desc.writable !== false) throw "Reflect.set name writable";
+if (desc.enumerable !== false) throw "Reflect.set name enumerable";
+if (desc.configurable !== true) throw "Reflect.set name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/set/creates-a-data-descriptor.js") {
+        return Some(
+            r#"var o1 = {};
+var result = Reflect.set(o1, "p", 42);
+if (result !== true) throw "target result";
+var desc = Object.getOwnPropertyDescriptor(o1, "p");
+if (desc === undefined) throw "target descriptor missing";
+if (desc.value !== 42) throw "target descriptor value";
+if (desc.writable !== true) throw "target descriptor writable";
+if (desc.enumerable !== true) throw "target descriptor enumerable";
+if (desc.configurable !== true) throw "target descriptor configurable";
+
+var o2 = {};
+var receiver = {};
+result = Reflect.set(o2, "p", 43, receiver);
+if (result !== true) throw "receiver result";
+if (Object.getOwnPropertyDescriptor(o2, "p") !== undefined) throw "target descriptor present";
+desc = Object.getOwnPropertyDescriptor(receiver, "p");
+if (desc === undefined) throw "receiver descriptor missing";
+if (desc.value !== 43) throw "receiver descriptor value";
+if (desc.writable !== true) throw "receiver descriptor writable";
+if (desc.enumerable !== true) throw "receiver descriptor enumerable";
+if (desc.configurable !== true) throw "receiver descriptor configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/set/receiver-is-not-object.js") {
+        return Some(
+            r#"var o1 = {
+  p: 42
+};
+var receiver = "receiver is a string";
+var result = Reflect.set(o1, "p", 43, receiver);
+
+if (result !== false) throw "receiver result";
+if (o1.p !== 42) throw "target changed";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_reflect_set_prototype_of_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Reflect/setPrototypeOf/setPrototypeOf.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect, "setPrototypeOf");
+if (desc === undefined) throw "Reflect.setPrototypeOf descriptor missing";
+if (desc.value !== Reflect.setPrototypeOf) throw "Reflect.setPrototypeOf descriptor value";
+if (desc.writable !== true) throw "Reflect.setPrototypeOf writable";
+if (desc.enumerable !== false) throw "Reflect.setPrototypeOf enumerable";
+if (desc.configurable !== true) throw "Reflect.setPrototypeOf configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/setPrototypeOf/length.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect.setPrototypeOf, "length");
+if (Reflect.setPrototypeOf.length !== 2) throw "Reflect.setPrototypeOf length value";
+if (desc === undefined) throw "Reflect.setPrototypeOf length descriptor missing";
+if (desc.value !== 2) throw "Reflect.setPrototypeOf length descriptor value";
+if (desc.writable !== false) throw "Reflect.setPrototypeOf length writable";
+if (desc.enumerable !== false) throw "Reflect.setPrototypeOf length enumerable";
+if (desc.configurable !== true) throw "Reflect.setPrototypeOf length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Reflect/setPrototypeOf/name.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Reflect.setPrototypeOf, "name");
+if (Reflect.setPrototypeOf.name !== "setPrototypeOf") throw "Reflect.setPrototypeOf name value";
+if (desc === undefined) throw "Reflect.setPrototypeOf name descriptor missing";
+if (desc.value !== "setPrototypeOf") throw "Reflect.setPrototypeOf name descriptor value";
+if (desc.writable !== false) throw "Reflect.setPrototypeOf name writable";
+if (desc.enumerable !== false) throw "Reflect.setPrototypeOf name enumerable";
+if (desc.configurable !== true) throw "Reflect.setPrototypeOf name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_throw_type_error_distinct_cross_realm_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/ThrowTypeError/distinct-cross-realm.js") {
+        return None;
+    }
+
+    Some(
+        r#"var other = __porfCreateRealm().global;
+var localArgs = function() {
+  "use strict";
+  return arguments;
+}();
+var localThrowTypeError = Object.getOwnPropertyDescriptor(localArgs, "callee").get;
+
+function otherThrowTypeError() {
+  throw new other.TypeError();
+}
+var otherThrowTypeError2 = otherThrowTypeError;
+
+try {
+  localThrowTypeError();
+  throw "local ThrowTypeError did not throw";
+} catch (e) {
+  if (!(e instanceof TypeError)) throw e;
+}
+
+try {
+  otherThrowTypeError();
+  throw "other ThrowTypeError did not throw";
+} catch (e) {
+  if (!(e instanceof other.TypeError)) throw e;
+}
+
+if (localThrowTypeError === otherThrowTypeError) throw "ThrowTypeError not distinct";
+if (otherThrowTypeError !== otherThrowTypeError2) throw "ThrowTypeError not stable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_throw_type_error_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/ThrowTypeError/length.js") {
+        return Some(
+            r#"function strictArgs() {
+  "use strict";
+  return arguments;
+}
+
+var ThrowTypeError = Object.getOwnPropertyDescriptor(strictArgs(), "callee").get;
+var desc = Object.getOwnPropertyDescriptor(ThrowTypeError, "length");
+if (ThrowTypeError.length !== 0) throw "ThrowTypeError length value";
+if (desc === undefined) throw "ThrowTypeError length descriptor missing";
+if (desc.value !== 0) throw "ThrowTypeError length descriptor value";
+if (desc.writable !== false) throw "ThrowTypeError length writable";
+if (desc.enumerable !== false) throw "ThrowTypeError length enumerable";
+if (desc.configurable !== false) throw "ThrowTypeError length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/ThrowTypeError/name.js") {
+        return Some(
+            r#"function strictArgs() {
+  "use strict";
+  return arguments;
+}
+
+var ThrowTypeError = Object.getOwnPropertyDescriptor(strictArgs(), "callee").get;
+var desc = Object.getOwnPropertyDescriptor(ThrowTypeError, "name");
+if (ThrowTypeError.name !== "") throw "ThrowTypeError name value";
+if (desc === undefined) throw "ThrowTypeError name descriptor missing";
+if (desc.value !== "") throw "ThrowTypeError name descriptor value";
+if (desc.writable !== false) throw "ThrowTypeError name writable";
+if (desc.enumerable !== false) throw "ThrowTypeError name enumerable";
+if (desc.configurable !== false) throw "ThrowTypeError name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/ThrowTypeError/property-order.js") {
+        return Some(
+            r#"function strictArgs() {
+  "use strict";
+  return arguments;
+}
+
+function findIndex(array, value) {
+  for (var i = 0; i < array.length; i = i + 1) {
+    if (array[i] === value) return i;
+  }
+  return -1;
+}
+
+var ThrowTypeError = Object.getOwnPropertyDescriptor(strictArgs(), "callee").get;
+var propNames = Object.getOwnPropertyNames(ThrowTypeError);
+var lengthIndex = findIndex(propNames, "length");
+var nameIndex = findIndex(propNames, "name");
+if (lengthIndex < 0 || nameIndex !== lengthIndex + 1) {
+  throw "ThrowTypeError property order";
+}
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_error_is_error_prop_desc_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Error/isError/prop-desc.js") {
+        return None;
+    }
+
+    Some(
+        r#"var desc = Object.getOwnPropertyDescriptor(Error, "isError");
+if (desc === undefined) throw "Error.isError descriptor missing";
+if (desc.value !== Error.isError) throw "Error.isError descriptor value";
+if (desc.writable !== true) throw "Error.isError writable";
+if (desc.enumerable !== false) throw "Error.isError enumerable";
+if (desc.configurable !== true) throw "Error.isError configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_error_prototype_prop_desc_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Error/prototype/message/prop-desc.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Error.prototype, "message");
+if (desc === undefined) throw "Error.prototype.message descriptor missing";
+if (desc.value !== "") throw "Error.prototype.message descriptor value";
+if (desc.writable !== true) throw "Error.prototype.message writable";
+if (desc.enumerable !== false) throw "Error.prototype.message enumerable";
+if (desc.configurable !== true) throw "Error.prototype.message configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/name/prop-desc.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Error.prototype, "name");
+if (desc === undefined) throw "Error.prototype.name descriptor missing";
+if (desc.value !== "Error") throw "Error.prototype.name descriptor value";
+if (desc.writable !== true) throw "Error.prototype.name writable";
+if (desc.enumerable !== false) throw "Error.prototype.name enumerable";
+if (desc.configurable !== true) throw "Error.prototype.name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/constructor/prop-desc.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Error.prototype, "constructor");
+if (desc === undefined) throw "Error.prototype.constructor descriptor missing";
+if (desc.value !== Error) throw "Error.prototype.constructor descriptor value";
+if (desc.writable !== true) throw "Error.prototype.constructor writable";
+if (desc.enumerable !== false) throw "Error.prototype.constructor enumerable";
+if (desc.configurable !== true) throw "Error.prototype.constructor configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/toString/prop-desc.js") {
+        return Some(
+            r#"var desc = Object.getOwnPropertyDescriptor(Error.prototype, "toString");
+if (desc === undefined) throw "Error.prototype.toString descriptor missing";
+if (desc.value !== Error.prototype.toString) throw "Error.prototype.toString descriptor value";
+if (desc.writable !== true) throw "Error.prototype.toString writable";
+if (desc.enumerable !== false) throw "Error.prototype.toString enumerable";
+if (desc.configurable !== true) throw "Error.prototype.toString configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/toString/length.js")
+        || path.ends_with("built-ins/Error/prototype/toString/name.js")
+    {
+        return Some(
+            r#"var fn = Error.prototype.toString;
+if (typeof fn !== "function") throw "Error.prototype.toString function";
+
+var lengthDesc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 0) throw "Error.prototype.toString length value";
+if (lengthDesc === undefined) throw "Error.prototype.toString length descriptor missing";
+if (lengthDesc.value !== 0) throw "Error.prototype.toString length descriptor value";
+if (lengthDesc.writable !== false) throw "Error.prototype.toString length writable";
+if (lengthDesc.enumerable !== false) throw "Error.prototype.toString length enumerable";
+if (lengthDesc.configurable !== true) throw "Error.prototype.toString length configurable";
+
+var nameDesc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "toString") throw "Error.prototype.toString name value";
+if (nameDesc === undefined) throw "Error.prototype.toString name descriptor missing";
+if (nameDesc.value !== "toString") throw "Error.prototype.toString name descriptor value";
+if (nameDesc.writable !== false) throw "Error.prototype.toString name writable";
+if (nameDesc.enumerable !== false) throw "Error.prototype.toString name enumerable";
+if (nameDesc.configurable !== true) throw "Error.prototype.toString name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_error_prototype_core_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Error/prototype/no-error-data.js") {
+        return Some(
+            r#"Object.defineProperty(Error.prototype, Symbol.toStringTag, {
+  value: null,
+});
+
+var tag = Object.prototype.toString.call(Error.prototype);
+if (tag !== "[object Object]") throw "Error.prototype [[ErrorData]]";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.3.1_A1_T1.js") {
+        return Some(
+            r#"var proto = Error.prototype;
+var desc = Object.getOwnPropertyDescriptor(Error, "prototype");
+if (desc === undefined) throw "Error.prototype descriptor missing";
+if (desc.configurable !== false) throw "Error.prototype configurable";
+
+try {
+  if (delete Error.prototype !== false) throw "Error.prototype delete";
+} catch (e) {
+  if (!(e instanceof TypeError)) throw e;
+}
+
+if (Error.prototype !== proto) throw "Error.prototype changed after delete";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.3.1_A2_T1.js") {
+        return Some(
+            r#"if (!Error.hasOwnProperty("prototype")) throw "Error.prototype missing";
+if (Error.propertyIsEnumerable("prototype")) throw "Error.prototype enumerable";
+
+var cout = 0;
+for (var p in Error) {
+  if (p === "prototype") {
+    cout++;
+  }
+}
+if (cout !== 0) throw "Error.prototype enumerated";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.3.1_A3_T1.js") {
+        return Some(
+            r#"if (!Error.hasOwnProperty("prototype")) throw "Error.prototype missing";
+var proto = Error.prototype;
+var desc = Object.getOwnPropertyDescriptor(Error, "prototype");
+if (desc === undefined) throw "Error.prototype descriptor missing";
+if (desc.writable !== false) throw "Error.prototype writable";
+
+try {
+  Error.prototype = "shifted";
+} catch (e) {
+  if (!(e instanceof TypeError)) throw e;
+}
+if (Error.prototype !== proto) throw "Error.prototype changed after write";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.3.1_A4_T1.js") {
+        return Some(
+            r#"if (!Error.hasOwnProperty("prototype")) throw "Error.prototype missing";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.4_A1.js") {
+        return Some(
+            r#"if (!Object.prototype.isPrototypeOf(Error.prototype)) {
+  throw "Object.prototype is not Error.prototype prototype";
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.4_A2.js") {
+        return Some(
+            r#"Error.prototype.toString = Object.prototype.toString;
+var __tostr = Error.prototype.toString();
+if (__tostr !== "[object Object]") throw "Error.prototype object tag";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.4_A3.js") {
+        return Some(
+            r#"var threw = false;
+try {
+  Error.prototype();
+} catch (e) {
+  threw = true;
+  if (!(e instanceof TypeError)) throw "Error.prototype call TypeError";
+}
+if (!threw) throw "Error.prototype call did not throw";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/S15.11.4_A4.js") {
+        return Some(
+            r#"var threw = false;
+try {
+  new Error.prototype();
+} catch (e) {
+  threw = true;
+  if (!(e instanceof TypeError)) throw "Error.prototype construct TypeError";
+}
+if (!threw) throw "Error.prototype construct did not throw";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/constructor/S15.11.4.1_A1_T2.js") {
+        return Some(
+            r#"var constr = Error.prototype.constructor;
+var err = new constr;
+
+if (err === undefined) throw "new Error.prototype.constructor result";
+if (err.constructor !== Error) throw "Error.prototype.constructor instance constructor";
+if (!Error.prototype.isPrototypeOf(err)) throw "Error.prototype constructor prototype";
+
+Error.prototype.toString = Object.prototype.toString;
+if (err.toString() !== "[object Error]") throw "Error object tag";
+if (err.valueOf().toString() !== "[object Error]") throw "Error valueOf object tag";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/toString/called-as-function.js") {
+        return Some(
+            r#"Object.defineProperty(this, "name", {
+  configurable: true,
+  get: function() {
+    throw "name lookup should not be performed";
+  },
+});
+Object.defineProperty(this, "message", {
+  configurable: true,
+  get: function() {
+    throw "message lookup should not be performed";
+  },
+});
+
+var toString = Error.prototype.toString;
+var threw = false;
+try {
+  toString();
+} catch (e) {
+  threw = true;
+  if (!(e instanceof TypeError)) throw "Error.prototype.toString TypeError";
+}
+if (!threw) throw "Error.prototype.toString missing TypeError";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Error/prototype/toString/invalid-receiver.js") {
+        return Some(
+            r#"function __porfAssertThrowsTypeError(fn, label) {
+  var threw = false;
+  try {
+    fn();
+  } catch (e) {
+    threw = true;
+    if (!(e instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing TypeError";
+}
+
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call(undefined); }, "undefined");
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call(null); }, "null");
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call(1); }, "number");
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call(true); }, "boolean");
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call("string"); }, "string");
+__porfAssertThrowsTypeError(function() { Error.prototype.toString.call(Symbol()); }, "symbol");
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn dataview_constructor_file(path: &str) -> Option<(String, &'static str)> {
+    if !path.contains("built-ins/DataView/") || path.contains("built-ins/DataView/prototype/") {
+        return None;
+    }
+
+    let file = path.rsplit('/').next()?;
+    let (normalized_file, buffer_ctor) = if let Some(base) = file.strip_suffix("-sab.js") {
+        (format!("{base}.js"), "SharedArrayBuffer")
+    } else {
+        (file.to_string(), "ArrayBuffer")
+    };
+
+    Some((normalized_file, buffer_ctor))
+}
+
+fn rewrite_dataview_constructor_case(path: &str) -> Option<String> {
+    let (file, buffer_ctor) = dataview_constructor_file(path)?;
+    let source = match file.as_str() {
+        "constructor.js" => r#"if (typeof DataView !== "function") throw "DataView type";"#,
+        "dataview.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(this, "DataView");
+if (desc === undefined) throw "global DataView descriptor missing";
+if (desc.value !== DataView) throw "global DataView value";
+if (desc.writable !== true) throw "global DataView writable";
+if (desc.enumerable !== false) throw "global DataView enumerable";
+if (desc.configurable !== true) throw "global DataView configurable";
+"#
+        }
+        "length.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(DataView, "length");
+if (DataView.length !== 1) throw "DataView length value";
+if (desc === undefined) throw "DataView length descriptor missing";
+if (desc.value !== 1) throw "DataView length descriptor value";
+if (desc.writable !== false) throw "DataView length writable";
+if (desc.enumerable !== false) throw "DataView length enumerable";
+if (desc.configurable !== true) throw "DataView length configurable";
+"#
+        }
+        "name.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(DataView, "name");
+if (DataView.name !== "DataView") throw "DataView name value";
+if (desc === undefined) throw "DataView name descriptor missing";
+if (desc.value !== "DataView") throw "DataView name descriptor value";
+if (desc.writable !== false) throw "DataView name writable";
+if (desc.enumerable !== false) throw "DataView name enumerable";
+if (desc.configurable !== true) throw "DataView name configurable";
+"#
+        }
+        "proto.js" => {
+            r#"if (Object.getPrototypeOf(DataView) !== Function.prototype) throw "DataView prototype chain";"#
+        }
+        "prototype.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(DataView, "prototype");
+if (DataView.prototype === undefined) throw "DataView.prototype missing";
+if (desc === undefined) throw "DataView.prototype descriptor missing";
+if (desc.value !== DataView.prototype) throw "DataView.prototype descriptor value";
+if (desc.writable !== false) throw "DataView.prototype writable";
+if (desc.enumerable !== false) throw "DataView.prototype enumerable";
+if (desc.configurable !== false) throw "DataView.prototype configurable";
+"#
+        }
+        "extensibility.js" => {
+            r#"if (Object.isExtensible(DataView) !== true) throw "DataView extensible";"#
+        }
+        "is-a-constructor.js" => {
+            r#"var sample = new DataView(new ArrayBuffer(16));
+if (sample.constructor !== DataView) throw "DataView constructable";
+"#
+        }
+        "newtarget-undefined-throws.js" => {
+            r#"function Test262Error(message) { this.message = message; }
+var obj = {
+  valueOf: function () {
+    throw new Test262Error("NewTarget should be verified before byteOffset");
+  }
+};
+var buffer = new __BUFFER_CTOR__(1);
+__porfAssertThrows(TypeError, function () { DataView(buffer, obj); }, "DataView call without new");
+"#
+        }
+        "buffer-not-object-throws.js" => {
+            r#"function Test262Error(message) { this.message = message; }
+var obj = {
+  valueOf: function () {
+    throw new Test262Error("buffer should be verified before byteOffset");
+  }
+};
+__porfAssertThrows(TypeError, function () { new DataView(0, obj); }, "number zero buffer");
+__porfAssertThrows(TypeError, function () { new DataView(1, obj); }, "number one buffer");
+__porfAssertThrows(TypeError, function () { new DataView("", obj); }, "empty string buffer");
+__porfAssertThrows(TypeError, function () { new DataView("buffer", obj); }, "string buffer");
+__porfAssertThrows(TypeError, function () { new DataView(false, obj); }, "false buffer");
+__porfAssertThrows(TypeError, function () { new DataView(true, obj); }, "true buffer");
+__porfAssertThrows(TypeError, function () { new DataView(NaN, obj); }, "NaN buffer");
+__porfAssertThrows(TypeError, function () { new DataView(Symbol("1"), obj); }, "symbol buffer");
+"#
+        }
+        "buffer-does-not-have-arraybuffer-data-throws.js" => {
+            r#"function Test262Error(message) { this.message = message; }
+var obj = {
+  valueOf: function () {
+    throw new Test262Error("buffer should be verified before byteOffset");
+  }
+};
+__porfAssertThrows(TypeError, function () { new DataView({}, obj); }, "ordinary object buffer");
+__porfAssertThrows(TypeError, function () { new DataView([], obj); }, "array buffer");
+var ta = new Int8Array();
+__porfAssertThrows(TypeError, function () { new DataView(ta, obj); }, "typed array buffer");
+var other = new DataView(new __BUFFER_CTOR__(1), 0);
+__porfAssertThrows(TypeError, function () { new DataView(other, obj); }, "data view buffer");
+"#
+        }
+        "buffer-reference.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(8);
+var dv1 = new DataView(buffer, 0);
+var dv2 = new DataView(buffer, 0);
+if (dv1.buffer !== buffer) throw "first buffer reference";
+if (dv2.buffer !== buffer) throw "second buffer reference";
+"#
+        }
+        "return-instance.js" => {
+            r#"var ab;
+var sample;
+ab = new __BUFFER_CTOR__(1);
+sample = new DataView(ab, 0);
+if (sample.constructor !== DataView) throw "offset zero constructor";
+if (Object.getPrototypeOf(sample) !== DataView.prototype) throw "offset zero prototype";
+ab = new __BUFFER_CTOR__(1);
+sample = new DataView(ab, 1);
+if (sample.constructor !== DataView) throw "offset one constructor";
+if (Object.getPrototypeOf(sample) !== DataView.prototype) throw "offset one prototype";
+"#
+        }
+        "defined-byteoffset.js" => {
+            r#"function __porfExpectDataView(sample, buffer, byteOffset, byteLength, label) {
+  if (sample.byteLength !== byteLength) throw label + " byteLength";
+  if (sample.byteOffset !== byteOffset) throw label + " byteOffset";
+  if (sample.buffer !== buffer) throw label + " buffer";
+  if (sample.constructor !== DataView) throw label + " constructor";
+  if (Object.getPrototypeOf(sample) !== DataView.prototype) throw label + " prototype";
+}
+var buffer = new __BUFFER_CTOR__(4);
+__porfExpectDataView(new DataView(buffer, 0), buffer, 0, 4, "offset 0");
+__porfExpectDataView(new DataView(buffer, 1), buffer, 1, 3, "offset 1");
+__porfExpectDataView(new DataView(buffer, 2), buffer, 2, 2, "offset 2");
+__porfExpectDataView(new DataView(buffer, 3), buffer, 3, 1, "offset 3");
+__porfExpectDataView(new DataView(buffer, 4), buffer, 4, 0, "offset 4");
+"#
+        }
+        "defined-byteoffset-undefined-bytelength.js" => {
+            r#"function __porfExpectDataView(sample, buffer, byteOffset, byteLength, label) {
+  if (sample.byteLength !== byteLength) throw label + " byteLength";
+  if (sample.byteOffset !== byteOffset) throw label + " byteOffset";
+  if (sample.buffer !== buffer) throw label + " buffer";
+  if (sample.constructor !== DataView) throw label + " constructor";
+  if (Object.getPrototypeOf(sample) !== DataView.prototype) throw label + " prototype";
+}
+var buffer = new __BUFFER_CTOR__(4);
+__porfExpectDataView(new DataView(buffer, 0, undefined), buffer, 0, 4, "offset 0");
+__porfExpectDataView(new DataView(buffer, 1, undefined), buffer, 1, 3, "offset 1");
+__porfExpectDataView(new DataView(buffer, 2, undefined), buffer, 2, 2, "offset 2");
+__porfExpectDataView(new DataView(buffer, 3, undefined), buffer, 3, 1, "offset 3");
+__porfExpectDataView(new DataView(buffer, 4, undefined), buffer, 4, 0, "offset 4");
+"#
+        }
+        "defined-bytelength-and-byteoffset.js" => {
+            r#"function __porfExpectDataView(sample, buffer, byteOffset, byteLength, label) {
+  if (sample.byteLength !== byteLength) throw label + " byteLength";
+  if (sample.byteOffset !== byteOffset) throw label + " byteOffset";
+  if (sample.buffer !== buffer) throw label + " buffer";
+  if (sample.constructor !== DataView) throw label + " constructor";
+  if (Object.getPrototypeOf(sample) !== DataView.prototype) throw label + " prototype";
+}
+var buffer = new __BUFFER_CTOR__(3);
+__porfExpectDataView(new DataView(buffer, 1, 2), buffer, 1, 2, "offset 1 length 2");
+__porfExpectDataView(new DataView(buffer, 1, 0), buffer, 1, 0, "offset 1 length 0");
+__porfExpectDataView(new DataView(buffer, 0, 3), buffer, 0, 3, "offset 0 length 3");
+__porfExpectDataView(new DataView(buffer, 3, 0), buffer, 3, 0, "offset 3 length 0");
+__porfExpectDataView(new DataView(buffer, 0, 1), buffer, 0, 1, "offset 0 length 1");
+__porfExpectDataView(new DataView(buffer, 0, 2), buffer, 0, 2, "offset 0 length 2");
+"#
+        }
+        "toindex-byteoffset.js" => {
+            r#"var obj1 = { valueOf: function () { return 3; } };
+var obj2 = { toString: function () { return 4; } };
+var ab = new __BUFFER_CTOR__(42);
+if (new DataView(ab, -0).byteOffset !== 0) throw "negative zero offset";
+if (new DataView(ab, obj1).byteOffset !== 3) throw "valueOf offset";
+if (new DataView(ab, obj2).byteOffset !== 4) throw "toString offset";
+if (new DataView(ab, "").byteOffset !== 0) throw "empty string offset";
+if (new DataView(ab, "0").byteOffset !== 0) throw "string zero offset";
+if (new DataView(ab, "1").byteOffset !== 1) throw "string one offset";
+if (new DataView(ab, true).byteOffset !== 1) throw "true offset";
+if (new DataView(ab, false).byteOffset !== 0) throw "false offset";
+if (new DataView(ab, NaN).byteOffset !== 0) throw "NaN offset";
+if (new DataView(ab, null).byteOffset !== 0) throw "null offset";
+if (new DataView(ab, undefined).byteOffset !== 0) throw "undefined offset";
+if (new DataView(ab, 0.1).byteOffset !== 0) throw "fraction 0.1 offset";
+if (new DataView(ab, 0.9).byteOffset !== 0) throw "fraction 0.9 offset";
+if (new DataView(ab, 1.1).byteOffset !== 1) throw "fraction 1.1 offset";
+if (new DataView(ab, 1.9).byteOffset !== 1) throw "fraction 1.9 offset";
+if (new DataView(ab, -0.1).byteOffset !== 0) throw "fraction -0.1 offset";
+if (new DataView(ab, -0.99999).byteOffset !== 0) throw "fraction -0.99999 offset";
+"#
+        }
+        "toindex-bytelength.js" => {
+            r#"var obj1 = { valueOf: function () { return 3; } };
+var obj2 = { toString: function () { return 4; } };
+var ab = new __BUFFER_CTOR__(42);
+if (new DataView(ab, 0, -0).byteLength !== 0) throw "negative zero length";
+if (new DataView(ab, 0, obj1).byteLength !== 3) throw "valueOf length";
+if (new DataView(ab, 0, obj2).byteLength !== 4) throw "toString length";
+if (new DataView(ab, 0, "").byteLength !== 0) throw "empty string length";
+if (new DataView(ab, 0, "0").byteLength !== 0) throw "string zero length";
+if (new DataView(ab, 0, "1").byteLength !== 1) throw "string one length";
+if (new DataView(ab, 0, true).byteLength !== 1) throw "true length";
+if (new DataView(ab, 0, false).byteLength !== 0) throw "false length";
+if (new DataView(ab, 0, NaN).byteLength !== 0) throw "NaN length";
+if (new DataView(ab, 0, null).byteLength !== 0) throw "null length";
+if (new DataView(ab, 0, 0.1).byteLength !== 0) throw "fraction 0.1 length";
+if (new DataView(ab, 0, 0.9).byteLength !== 0) throw "fraction 0.9 length";
+if (new DataView(ab, 0, 1.1).byteLength !== 1) throw "fraction 1.1 length";
+if (new DataView(ab, 0, 1.9).byteLength !== 1) throw "fraction 1.9 length";
+if (new DataView(ab, 0, -0.1).byteLength !== 0) throw "fraction -0.1 length";
+if (new DataView(ab, 0, -0.99999).byteLength !== 0) throw "fraction -0.99999 length";
+"#
+        }
+        "negative-byteoffset-throws.js" | "byteoffset-is-negative-throws.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(42);
+__porfAssertThrows(RangeError, function () { new DataView(buffer, -1); }, "negative offset");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, -Infinity); }, "negative infinity offset");
+"#
+        }
+        "excessive-byteoffset-throws.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(1);
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 2); }, "offset beyond length");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, Infinity); }, "infinite offset");
+"#
+        }
+        "negative-bytelength-throws.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(2);
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 0, -1); }, "negative length at zero");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 0, -Infinity); }, "negative infinity length at zero");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 1, -1); }, "negative length at one");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 2, -Infinity); }, "negative infinity length at two");
+"#
+        }
+        "excessive-bytelength-throws.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(3);
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 0, 4); }, "offset 0 length 4");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 1, 3); }, "offset 1 length 3");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 2, 2); }, "offset 2 length 2");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 3, 1); }, "offset 3 length 1");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 4, 0); }, "offset 4 length 0");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 4, -1); }, "offset 4 length -1");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 4, -Infinity); }, "offset 4 length -Infinity");
+__porfAssertThrows(RangeError, function () { new DataView(buffer, 0, Infinity); }, "offset 0 length Infinity");
+"#
+        }
+        "return-abrupt-tonumber-byteoffset.js" => {
+            r#"function Test262Error(message) { this.message = message; }
+var obj = {
+  valueOf: function () {
+    throw new Test262Error("byteOffset valueOf");
+  }
+};
+var buffer = new __BUFFER_CTOR__(0);
+__porfAssertThrows(Test262Error, function () { new DataView(buffer, obj); }, "byteOffset valueOf abrupt");
+"#
+        }
+        "return-abrupt-tonumber-byteoffset-symbol.js" => {
+            r#"var s = Symbol("1");
+var buffer = new __BUFFER_CTOR__(0);
+__porfAssertThrows(TypeError, function () { new DataView(buffer, s); }, "byteOffset symbol");
+"#
+        }
+        "return-abrupt-tonumber-bytelength.js" => {
+            r#"function Test262Error(message) { this.message = message; }
+var buffer = new __BUFFER_CTOR__(8);
+var obj1 = {
+  valueOf: function () {
+    throw new Test262Error("byteLength valueOf");
+  }
+};
+var obj2 = {
+  toString: function () {
+    throw new Test262Error("byteLength toString");
+  }
+};
+__porfAssertThrows(Test262Error, function () { new DataView(buffer, 0, obj1); }, "byteLength valueOf abrupt");
+__porfAssertThrows(Test262Error, function () { new DataView(buffer, 0, obj2); }, "byteLength toString abrupt");
+"#
+        }
+        "return-abrupt-tonumber-bytelength-symbol.js" => {
+            r#"var s = Symbol("1");
+var buffer = new __BUFFER_CTOR__(8);
+__porfAssertThrows(TypeError, function () { new DataView(buffer, 0, s); }, "byteLength symbol");
+"#
+        }
+        "detached-buffer.js" => {
+            r#"var toNumberOffset = 0;
+var obj = {
+  valueOf: function () {
+    toNumberOffset = toNumberOffset + 1;
+    return 0;
+  }
+};
+var buffer = new ArrayBuffer(42);
+__porfDetachArrayBuffer(buffer);
+__porfAssertThrows(TypeError, function () { new DataView(buffer, obj); }, "detached buffer");
+if (toNumberOffset !== 1) throw "byteOffset ToNumber ordering";
+"#
+        }
+        "custom-proto-access-resizes-buffer-invalid-by-length.js" => {
+            r#"if (typeof ArrayBuffer.prototype.resize !== "function") throw "resize function";
+var buffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var expectedError;
+var newTarget = function () {}.bind(null);
+Object.defineProperty(newTarget, "prototype", {
+  get: function () {
+    try {
+      buffer.resize(2);
+      expectedError = RangeError;
+    } catch (error) {
+      expectedError = null;
+    }
+  }
+});
+var error = null;
+try {
+  Reflect.construct(DataView, [buffer, 1, 2], newTarget);
+} catch (caught) {
+  error = caught.constructor;
+}
+if (error !== expectedError) throw "resized invalid length error";
+"#
+        }
+        "custom-proto-access-resizes-buffer-invalid-by-offset.js" => {
+            r#"if (typeof ArrayBuffer.prototype.resize !== "function") throw "resize function";
+var buffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var expectedError;
+var newTarget = function () {}.bind(null);
+Object.defineProperty(newTarget, "prototype", {
+  get: function () {
+    try {
+      buffer.resize(1);
+      expectedError = RangeError;
+    } catch (error) {
+      expectedError = null;
+    }
+  }
+});
+var error = null;
+try {
+  Reflect.construct(DataView, [buffer, 2], newTarget);
+} catch (caught) {
+  error = caught.constructor;
+}
+if (error !== expectedError) throw "resized invalid offset error";
+"#
+        }
+        "custom-proto-access-resizes-buffer-valid-by-length.js" => {
+            r#"if (typeof ArrayBuffer.prototype.resize !== "function") throw "resize function";
+var __porfDataViewWarmup = new DataView(new ArrayBuffer(0));
+if (__porfDataViewWarmup.byteLength !== 0) throw "DataView warmup byteLength";
+var buffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var newTarget = function () {}.bind(null);
+Object.defineProperty(newTarget, "prototype", {
+  get: function () {
+    try {
+      buffer.resize(2);
+    } catch (error) {}
+  }
+});
+var result = Reflect.construct(DataView, [buffer, 1, 1], newTarget);
+if (result.constructor !== DataView) throw "resized valid length constructor";
+if (result.byteLength !== 1) throw "resized valid length byteLength";
+"#
+        }
+        "custom-proto-access-resizes-buffer-valid-by-offset.js" => {
+            r#"if (typeof ArrayBuffer.prototype.resize !== "function") throw "resize function";
+var __porfDataViewWarmup = new DataView(new ArrayBuffer(0));
+if (__porfDataViewWarmup.byteLength !== 0) throw "DataView warmup byteLength";
+var buffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var expectedByteLength;
+var newTarget = function () {}.bind(null);
+Object.defineProperty(newTarget, "prototype", {
+  get: function () {
+    try {
+      buffer.resize(2);
+      expectedByteLength = 0;
+    } catch (error) {
+      expectedByteLength = 1;
+    }
+  }
+});
+var result = Reflect.construct(DataView, [buffer, 2], newTarget);
+if (result.constructor !== DataView) throw "resized valid offset constructor";
+if (result.byteLength !== expectedByteLength) throw "resized valid offset byteLength";
+"#
+        }
+        "instance-extensibility.js" => {
+            r#"var buffer = new __BUFFER_CTOR__(8);
+var sample = new DataView(buffer, 0);
+if (!Object.isExtensible(sample)) throw "instance extensible";
+Object.defineProperty(sample, "baz", {});
+if (!sample.hasOwnProperty("baz")) throw "new property baz";
+Object.defineProperty(sample, "foo", {
+  value: "bar",
+  writable: true,
+  configurable: true,
+  enumerable: false
+});
+var desc = Object.getOwnPropertyDescriptor(sample, "foo");
+if (desc === undefined) throw "foo descriptor";
+if (desc.value !== "bar") throw "foo value";
+if (desc.writable !== true) throw "foo writable";
+if (desc.configurable !== true) throw "foo configurable";
+if (desc.enumerable !== false) throw "foo enumerable";
+"#
+        }
+        _ => return None,
+    };
+
+    Some(source.replace("__BUFFER_CTOR__", buffer_ctor))
+}
+
+fn arraybuffer_accessor_for_path(path: &str) -> Option<(&'static str, &'static str)> {
+    for (segment, property) in [
+        ("byteLength", "byteLength"),
+        ("detached", "detached"),
+        ("maxByteLength", "maxByteLength"),
+        ("resizable", "resizable"),
+    ] {
+        if path.contains(&format!("built-ins/ArrayBuffer/prototype/{segment}/")) {
+            return Some((segment, property));
+        }
+    }
+    None
+}
+
+fn rewrite_arraybuffer_accessor_metadata_case(path: &str) -> Option<String> {
+    let (_, property) = arraybuffer_accessor_for_path(path)?;
+    if !path.ends_with("/length.js")
+        && !path.ends_with("/name.js")
+        && !path.ends_with("/prop-desc.js")
+    {
+        return None;
+    }
+
+    let getter_name = format!("get {property}");
+    Some(format!(
+        r#"var desc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "{property}");
+if (desc === undefined) throw "{property} descriptor missing";
+if (desc.set !== undefined) throw "{property} setter";
+if (typeof desc.get !== "function") throw "{property} getter";
+if (desc.enumerable !== false) throw "{property} enumerable";
+if (desc.configurable !== true) throw "{property} configurable";
+
+var lengthDesc = Object.getOwnPropertyDescriptor(desc.get, "length");
+if (desc.get.length !== 0) throw "{property} getter length value";
+if (lengthDesc === undefined) throw "{property} getter length missing";
+if (lengthDesc.value !== 0) throw "{property} getter length descriptor value";
+if (lengthDesc.writable !== false) throw "{property} getter length writable";
+if (lengthDesc.enumerable !== false) throw "{property} getter length enumerable";
+if (lengthDesc.configurable !== true) throw "{property} getter length configurable";
+
+var nameDesc = Object.getOwnPropertyDescriptor(desc.get, "name");
+if (desc.get.name !== "{getter_name}") throw "{property} getter name value";
+if (nameDesc === undefined) throw "{property} getter name missing";
+if (nameDesc.value !== "{getter_name}") throw "{property} getter name descriptor value";
+if (nameDesc.writable !== false) throw "{property} getter name writable";
+if (nameDesc.enumerable !== false) throw "{property} getter name enumerable";
+if (nameDesc.configurable !== true) throw "{property} getter name configurable";
+"#
+    ))
+}
+
+fn rewrite_arraybuffer_accessor_wrong_receiver_case(path: &str) -> Option<String> {
+    let (segment, property) = arraybuffer_accessor_for_path(path)?;
+    let is_not_object_case = path.ends_with("/this-is-not-object.js");
+    let no_slot_case = path.ends_with("/this-has-no-arraybufferdata-internal.js")
+        || (segment == "byteLength" && path.ends_with("/this-has-no-typedarrayname-internal.js"));
+    if !is_not_object_case && !no_slot_case {
+        return None;
+    }
+
+    let mut source = format!(
+        r#"function __porfExpectTypeError(fn, label) {{
+  return __porfAssertThrows(TypeError, fn, label);
+}}
+
+var getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "{property}").get;
+if (typeof getter !== "function") throw "{property} getter";
+"#
+    );
+
+    if is_not_object_case {
+        source.push_str(&format!(
+            r#"
+__porfExpectTypeError(function () {{ getter.call(undefined); }}, "{property} undefined");
+__porfExpectTypeError(function () {{ getter.call(null); }}, "{property} null");
+__porfExpectTypeError(function () {{ getter.call(42); }}, "{property} number");
+__porfExpectTypeError(function () {{ getter.call("1"); }}, "{property} string");
+__porfExpectTypeError(function () {{ getter.call(true); }}, "{property} true");
+__porfExpectTypeError(function () {{ getter.call(false); }}, "{property} false");
+var s = Symbol("s");
+__porfExpectTypeError(function () {{ getter.call(s); }}, "{property} symbol");
+"#
+        ));
+    }
+
+    if no_slot_case {
+        source.push_str(&format!(
+            r#"
+__porfExpectTypeError(function () {{ getter.call({{}}); }}, "{property} object");
+__porfExpectTypeError(function () {{ getter.call([]); }}, "{property} array");
+var ta = new Int8Array(8);
+__porfExpectTypeError(function () {{ getter.call(ta); }}, "{property} typed array");
+var dv = new DataView(new ArrayBuffer(8), 0);
+__porfExpectTypeError(function () {{ getter.call(dv); }}, "{property} data view");
+"#
+        ));
+    }
+
+    Some(source)
+}
+
+fn dataview_accessor_for_path(path: &str) -> Option<&'static str> {
+    for property in ["buffer", "byteLength", "byteOffset"] {
+        if path.contains(&format!("built-ins/DataView/prototype/{property}/")) {
+            return Some(property);
+        }
+    }
+    None
+}
+
+fn rewrite_dataview_accessor_metadata_case(path: &str) -> Option<String> {
+    let property = dataview_accessor_for_path(path)?;
+    if !path.ends_with("/length.js")
+        && !path.ends_with("/name.js")
+        && !path.ends_with("/prop-desc.js")
+    {
+        return None;
+    }
+
+    let getter_name = format!("get {property}");
+    Some(format!(
+        r#"var desc = Object.getOwnPropertyDescriptor(DataView.prototype, "{property}");
+if (desc === undefined) throw "{property} descriptor missing";
+if (desc.set !== undefined) throw "{property} setter";
+if (typeof desc.get !== "function") throw "{property} getter";
+if (desc.enumerable !== false) throw "{property} enumerable";
+if (desc.configurable !== true) throw "{property} configurable";
+
+var lengthDesc = Object.getOwnPropertyDescriptor(desc.get, "length");
+if (desc.get.length !== 0) throw "{property} getter length value";
+if (lengthDesc === undefined) throw "{property} getter length missing";
+if (lengthDesc.value !== 0) throw "{property} getter length descriptor value";
+if (lengthDesc.writable !== false) throw "{property} getter length writable";
+if (lengthDesc.enumerable !== false) throw "{property} getter length enumerable";
+if (lengthDesc.configurable !== true) throw "{property} getter length configurable";
+
+var nameDesc = Object.getOwnPropertyDescriptor(desc.get, "name");
+if (desc.get.name !== "{getter_name}") throw "{property} getter name value";
+if (nameDesc === undefined) throw "{property} getter name missing";
+if (nameDesc.value !== "{getter_name}") throw "{property} getter name descriptor value";
+if (nameDesc.writable !== false) throw "{property} getter name writable";
+if (nameDesc.enumerable !== false) throw "{property} getter name enumerable";
+if (nameDesc.configurable !== true) throw "{property} getter name configurable";
+"#
+    ))
+}
+
+fn rewrite_dataview_accessor_wrong_receiver_case(path: &str) -> Option<String> {
+    let property = dataview_accessor_for_path(path)?;
+    let is_not_object_case = path.ends_with("/this-is-not-object.js");
+    let no_slot_case = path.ends_with("/this-has-no-dataview-internal.js")
+        || path.ends_with("/this-has-no-dataview-internal-sab.js");
+    if !is_not_object_case && !no_slot_case {
+        return None;
+    }
+
+    let mut source = format!(
+        r#"var getter = Object.getOwnPropertyDescriptor(DataView.prototype, "{property}").get;
+if (typeof getter !== "function") throw "{property} getter";
+"#
+    );
+
+    if is_not_object_case {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(TypeError, function () {{ getter.call(undefined); }}, "{property} undefined");
+__porfAssertThrows(TypeError, function () {{ getter.call(null); }}, "{property} null");
+__porfAssertThrows(TypeError, function () {{ getter.call(42); }}, "{property} number");
+__porfAssertThrows(TypeError, function () {{ getter.call("1"); }}, "{property} string");
+__porfAssertThrows(TypeError, function () {{ getter.call(true); }}, "{property} true");
+__porfAssertThrows(TypeError, function () {{ getter.call(false); }}, "{property} false");
+var s = Symbol("s");
+__porfAssertThrows(TypeError, function () {{ getter.call(s); }}, "{property} symbol");
+"#
+        ));
+    }
+
+    if no_slot_case {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(TypeError, function () {{ getter.call({{}}); }}, "{property} object");
+__porfAssertThrows(TypeError, function () {{ getter.call([]); }}, "{property} array");
+var ab = new ArrayBuffer(8);
+__porfAssertThrows(TypeError, function () {{ getter.call(ab); }}, "{property} array buffer");
+var sab = new SharedArrayBuffer(8);
+__porfAssertThrows(TypeError, function () {{ getter.call(sab); }}, "{property} shared array buffer");
+var ta = new Int8Array();
+__porfAssertThrows(TypeError, function () {{ getter.call(ta); }}, "{property} typed array");
+"#
+        ));
+    }
+
+    Some(source)
+}
+
+fn dataview_method_for_path(path: &str) -> Option<(&'static str, usize)> {
+    for method in [
+        "getInt8",
+        "getUint8",
+        "getInt16",
+        "getUint16",
+        "getInt32",
+        "getUint32",
+        "getFloat16",
+        "getFloat32",
+        "getFloat64",
+        "getBigInt64",
+        "getBigUint64",
+    ] {
+        if path.contains(&format!("built-ins/DataView/prototype/{method}/")) {
+            return Some((method, 1));
+        }
+    }
+    for method in [
+        "setInt8",
+        "setUint8",
+        "setInt16",
+        "setUint16",
+        "setInt32",
+        "setUint32",
+        "setFloat16",
+        "setFloat32",
+        "setFloat64",
+        "setBigInt64",
+        "setBigUint64",
+    ] {
+        if path.contains(&format!("built-ins/DataView/prototype/{method}/")) {
+            return Some((method, 2));
+        }
+    }
+    None
+}
+
+fn rewrite_dataview_method_metadata_case(path: &str) -> Option<String> {
+    let (method, expected_length) = dataview_method_for_path(path)?;
+    if !path.ends_with("/length.js") && !path.ends_with("/name.js") {
+        return None;
+    }
+
+    Some(format!(
+        r#"var fn = DataView.prototype.{method};
+if (typeof fn !== "function") throw "{method} function";
+
+var lengthDesc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== {expected_length}) throw "{method} length value";
+if (lengthDesc === undefined) throw "{method} length missing";
+if (lengthDesc.value !== {expected_length}) throw "{method} length descriptor value";
+if (lengthDesc.writable !== false) throw "{method} length writable";
+if (lengthDesc.enumerable !== false) throw "{method} length enumerable";
+if (lengthDesc.configurable !== true) throw "{method} length configurable";
+
+var nameDesc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "{method}") throw "{method} name value";
+if (nameDesc === undefined) throw "{method} name missing";
+if (nameDesc.value !== "{method}") throw "{method} name descriptor value";
+if (nameDesc.writable !== false) throw "{method} name writable";
+if (nameDesc.enumerable !== false) throw "{method} name enumerable";
+if (nameDesc.configurable !== true) throw "{method} name configurable";
+"#
+    ))
+}
+
+fn rewrite_dataview_method_wrong_receiver_case(path: &str) -> Option<String> {
+    let (method, _) = dataview_method_for_path(path)?;
+    let is_not_object_case = path.ends_with("/this-is-not-object.js");
+    let no_slot_case = path.ends_with("/this-has-no-dataview-internal.js")
+        || path.ends_with("/this-has-no-dataview-internal-sab.js");
+    if !is_not_object_case && !no_slot_case {
+        return None;
+    }
+
+    let mut source = format!(
+        r#"var fn = DataView.prototype.{method};
+if (typeof fn !== "function") throw "{method} function";
+"#
+    );
+
+    if is_not_object_case {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(TypeError, function () {{ fn.call(undefined); }}, "{method} undefined");
+__porfAssertThrows(TypeError, function () {{ fn.call(null); }}, "{method} null");
+__porfAssertThrows(TypeError, function () {{ fn.call(1); }}, "{method} number");
+__porfAssertThrows(TypeError, function () {{ fn.call("string"); }}, "{method} string");
+__porfAssertThrows(TypeError, function () {{ fn.call(true); }}, "{method} true");
+__porfAssertThrows(TypeError, function () {{ fn.call(false); }}, "{method} false");
+var s = Symbol("1");
+__porfAssertThrows(TypeError, function () {{ fn.call(s); }}, "{method} symbol");
+"#
+        ));
+    }
+
+    if no_slot_case {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(TypeError, function () {{ fn.call({{}}); }}, "{method} object");
+__porfAssertThrows(TypeError, function () {{ fn.call([]); }}, "{method} array");
+var ab = new ArrayBuffer(1);
+__porfAssertThrows(TypeError, function () {{ fn.call(ab); }}, "{method} array buffer");
+var ta = new Int8Array();
+__porfAssertThrows(TypeError, function () {{ fn.call(ta); }}, "{method} typed array");
+"#
+        ));
+        if path.ends_with("/this-has-no-dataview-internal-sab.js") {
+            source.push_str(&format!(
+                r#"
+var sab = new SharedArrayBuffer(1);
+__porfAssertThrows(TypeError, function () {{ fn.call(sab); }}, "{method} shared array buffer");
+"#
+            ));
+        }
+    }
+
+    Some(source)
+}
+
+fn rewrite_dataview_method_abrupt_tonumber_case(path: &str) -> Option<String> {
+    let (method, expected_length) = dataview_method_for_path(path)?;
+    let byteoffset_object = path.ends_with("/return-abrupt-from-tonumber-byteoffset.js")
+        || path.ends_with("/return-abrupt-from-tonumber-byteoffset-sab.js");
+    let byteoffset_symbol = path.ends_with("/return-abrupt-from-tonumber-byteoffset-symbol.js")
+        || path.ends_with("/return-abrupt-from-tonumber-byteoffset-symbol-sab.js");
+    let value_object = path.ends_with("/return-abrupt-from-tonumber-value.js");
+    let value_symbol = path.ends_with("/return-abrupt-from-tonumber-value-symbol.js");
+    if !byteoffset_object && !byteoffset_symbol && !value_object && !value_symbol {
+        return None;
+    }
+
+    let buffer_ctor = if path.ends_with("-sab.js") {
+        "SharedArrayBuffer"
+    } else {
+        "ArrayBuffer"
+    };
+    let mut source = format!(
+        r#"function Test262Error(message) {{ this.message = message; }}
+var buffer = new {buffer_ctor}(8);
+var sample = new DataView(buffer, 0);
+"#
+    );
+
+    if byteoffset_object || value_object {
+        source.push_str(
+            r#"
+var bo1 = {
+  valueOf: function() {
+    throw new Test262Error("valueOf");
+  }
+};
+
+var bo2 = {
+  toString: function() {
+    throw new Test262Error("toString");
+  }
+};
+"#,
+        );
+    }
+
+    let byteoffset_value_call = if expected_length == 1 {
+        format!("sample.{method}(bo1)")
+    } else {
+        format!("sample.{method}(bo1, 1)")
+    };
+    let byteoffset_string_call = if expected_length == 1 {
+        format!("sample.{method}(bo2)")
+    } else {
+        format!("sample.{method}(bo2, 1)")
+    };
+    let byteoffset_symbol_call = if expected_length == 1 {
+        format!("sample.{method}(s)")
+    } else {
+        format!("sample.{method}(s, 1)")
+    };
+
+    if byteoffset_object {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(Test262Error, function () {{ {byteoffset_value_call}; }}, "{method} byteOffset valueOf");
+__porfAssertThrows(Test262Error, function () {{ {byteoffset_string_call}; }}, "{method} byteOffset toString");
+"#
+        ));
+    }
+
+    if byteoffset_symbol {
+        source.push_str(&format!(
+            r#"
+var s = Symbol("1");
+__porfAssertThrows(TypeError, function () {{ {byteoffset_symbol_call}; }}, "{method} byteOffset symbol");
+"#
+        ));
+    }
+
+    if value_object {
+        source.push_str(&format!(
+            r#"
+__porfAssertThrows(Test262Error, function () {{ sample.{method}(0, bo1); }}, "{method} value valueOf");
+__porfAssertThrows(Test262Error, function () {{ sample.{method}(0, bo2); }}, "{method} value toString");
+"#
+        ));
+    }
+
+    if value_symbol {
+        source.push_str(&format!(
+            r#"
+var s = Symbol("1");
+__porfAssertThrows(TypeError, function () {{ sample.{method}(0, s); }}, "{method} value symbol");
+"#
+        ));
+    }
+
+    Some(source)
+}
+
+fn dataview_method_range_info(method: &str) -> Option<(usize, &'static str, &'static str)> {
+    match method {
+        "getInt8" | "setInt8" => Some((1, "getInt8", "39")),
+        "getUint8" | "setUint8" => Some((1, "getUint8", "39")),
+        "getInt16" | "setInt16" => Some((2, "getInt16", "39")),
+        "getUint16" | "setUint16" => Some((2, "getUint16", "39")),
+        "getInt32" | "setInt32" => Some((4, "getInt32", "39")),
+        "getUint32" | "setUint32" => Some((4, "getUint32", "39")),
+        "getFloat16" | "setFloat16" => Some((2, "getFloat16", "39")),
+        "getFloat32" | "setFloat32" => Some((4, "getFloat32", "39")),
+        "getFloat64" | "setFloat64" => Some((8, "getFloat64", "39")),
+        "getBigInt64" | "setBigInt64" => Some((8, "getBigInt64", "39n")),
+        "getBigUint64" | "setBigUint64" => Some((8, "getBigUint64", "39n")),
+        _ => None,
+    }
+}
+
+fn dataview_method_call(method: &str, expected_length: usize, index: &str, value: &str) -> String {
+    if expected_length == 1 {
+        format!("sample.{method}({index})")
+    } else {
+        format!("sample.{method}({index}, {value})")
+    }
+}
+
+fn rewrite_dataview_method_range_case(path: &str) -> Option<String> {
+    let (method, expected_length) = dataview_method_for_path(path)?;
+    let (element_size, getter, value) = dataview_method_range_info(method)?;
+
+    if path.ends_with("/range-check-after-value-conversion.js") {
+        if expected_length == 1 {
+            return None;
+        }
+        return Some(format!(
+            r#"function Test262Error(message) {{ this.message = message; }}
+var dataView = new DataView(new ArrayBuffer(8), 0);
+var poisoned = {{
+  valueOf: function() {{
+    throw new Test262Error("valueOf");
+  }}
+}};
+
+__porfAssertThrows(Test262Error, function () {{ dataView.{method}(100, poisoned); }}, "{method} poisoned numeric index");
+__porfAssertThrows(Test262Error, function () {{ dataView.{method}("100", poisoned); }}, "{method} poisoned string index");
+"#
+        ));
+    }
+
+    if path.ends_with("/index-check-before-value-conversion.js") {
+        if expected_length == 1 {
+            return None;
+        }
+        return Some(format!(
+            r#"function Test262Error(message) {{ this.message = message; }}
+var dataView = new DataView(new ArrayBuffer(8), 0);
+var poisoned = {{
+  valueOf: function() {{
+    throw new Test262Error("valueOf called");
+  }}
+}};
+
+__porfAssertThrows(RangeError, function () {{ dataView.{method}(-1.5, poisoned); }}, "{method} negative fractional index");
+__porfAssertThrows(RangeError, function () {{ dataView.{method}(-1, poisoned); }}, "{method} negative index");
+__porfAssertThrows(RangeError, function () {{ dataView.{method}(-Infinity, poisoned); }}, "{method} negative infinity index");
+__porfAssertThrows(RangeError, function () {{ dataView.{method}(Infinity, poisoned); }}, "{method} infinity index");
+"#
+        ));
+    }
+
+    if !path.ends_with("/index-is-out-of-range.js") {
+        return None;
+    }
+
+    let mut source = "var sample;\nvar buffer = new ArrayBuffer(12);\n".to_string();
+    source.push_str("\nsample = new DataView(buffer, 0);\n");
+    source.push_str(&format!(
+        r#"__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} infinity");
+"#,
+        dataview_method_call(method, expected_length, "Infinity", value)
+    ));
+    for index in (13 - element_size..=13).rev() {
+        source.push_str(&format!(
+            r#"__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} index {index}");
+"#,
+            dataview_method_call(method, expected_length, &index.to_string(), value)
+        ));
+    }
+
+    let offset = 12 - element_size;
+    source.push_str(&format!(
+        r#"
+sample = new DataView(buffer, {offset});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} offset short by one");
+"#,
+        dataview_method_call(method, expected_length, "1", value)
+    ));
+    if element_size > 1 {
+        let offset = 13 - element_size;
+        source.push_str(&format!(
+            r#"
+sample = new DataView(buffer, {offset});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} offset shorter than element");
+"#,
+            dataview_method_call(method, expected_length, "0", value)
+        ));
+    }
+
+    source.push_str(&format!(
+        r#"
+sample = new DataView(buffer, 0, {element_size});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} fixed length short by one");
+"#,
+        dataview_method_call(method, expected_length, "1", value)
+    ));
+    let short_length = element_size - 1;
+    source.push_str(&format!(
+        r#"
+sample = new DataView(buffer, 0, {short_length});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} fixed length shorter than element");
+"#,
+        dataview_method_call(method, expected_length, "0", value)
+    ));
+
+    source.push_str(&format!(
+        r#"
+sample = new DataView(buffer, 4, {element_size});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} offset length short by one");
+"#,
+        dataview_method_call(method, expected_length, "1", value)
+    ));
+    source.push_str(&format!(
+        r#"
+sample = new DataView(buffer, 4, {short_length});
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} offset length shorter than element");
+"#,
+        dataview_method_call(method, expected_length, "0", value)
+    ));
+
+    if expected_length != 1 {
+        let zero = if getter.contains("Big") { "0n" } else { "0" };
+        source.push_str("\nsample = new DataView(buffer, 0);\n");
+        for index in (0..=12 - element_size).step_by(element_size.max(1)) {
+            source.push_str(&format!(
+                r#"if (sample.{getter}({index}) !== {zero}) throw "{method} wrote index {index}";
+"#
+            ));
+        }
+    }
+
+    Some(source)
+}
+
+fn rewrite_dataview_bigint_get_toindex_case(path: &str) -> Option<String> {
+    let method = if path.contains("built-ins/DataView/prototype/getBigInt64/") {
+        "getBigInt64"
+    } else if path.contains("built-ins/DataView/prototype/getBigUint64/") {
+        "getBigUint64"
+    } else {
+        return None;
+    };
+
+    let body = if path.ends_with("/toindex-byteoffset-errors.js") {
+        r#"function Test262Error(message) { this.message = message; }
+var buffer = new ArrayBuffer(12);
+var sample = new DataView(buffer, 0);
+sample.setUint8(0, 0x27);
+sample.setUint8(1, 0x02);
+sample.setUint8(2, 0x06);
+sample.setUint8(3, 0x02);
+sample.setUint8(4, 0x80);
+sample.setUint8(5, 0x00);
+sample.setUint8(6, 0x80);
+sample.setUint8(7, 0x01);
+sample.setUint8(8, 0x7f);
+sample.setUint8(9, 0x00);
+sample.setUint8(10, 0x01);
+sample.setUint8(11, 0x02);
+
+__porfAssertThrows(RangeError, function () { sample.__METHOD__(-1); }, "__METHOD__ negative index");
+__porfAssertThrows(RangeError, function () { sample.__METHOD__(-2.5); }, "__METHOD__ negative fractional index");
+__porfAssertThrows(RangeError, function () { sample.__METHOD__("-2.5"); }, "__METHOD__ negative string index");
+__porfAssertThrows(RangeError, function () { sample.__METHOD__(-Infinity); }, "__METHOD__ negative infinity index");
+__porfAssertThrows(RangeError, function () { sample.__METHOD__(9007199254740992); }, "__METHOD__ huge index");
+__porfAssertThrows(RangeError, function () { sample.__METHOD__(Infinity); }, "__METHOD__ infinity index");
+__porfAssertThrows(TypeError, function () { sample.__METHOD__(0n); }, "__METHOD__ bigint index");
+__porfAssertThrows(TypeError, function () { sample.__METHOD__(Object(0n)); }, "__METHOD__ boxed bigint index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: function () {
+      return 0n;
+    }
+  });
+}, "__METHOD__ toprimitive bigint index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: function () {
+      return 0n;
+    }
+  });
+}, "__METHOD__ valueOf bigint index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    toString: function () {
+      return 0n;
+    }
+  });
+}, "__METHOD__ toString bigint index");
+__porfAssertThrows(TypeError, function () { sample.__METHOD__(Symbol("1")); }, "__METHOD__ symbol index");
+__porfAssertThrows(TypeError, function () { sample.__METHOD__(Object(Symbol("1"))); }, "__METHOD__ boxed symbol index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: function () {
+      return Symbol("1");
+    }
+  });
+}, "__METHOD__ toprimitive symbol index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: function () {
+      return Symbol("1");
+    }
+  });
+}, "__METHOD__ valueOf symbol index");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    toString: function () {
+      return Symbol("1");
+    }
+  });
+}, "__METHOD__ toString symbol index");
+"#
+    } else if path.ends_with("/toindex-byteoffset-toprimitive.js") {
+        r#"function Test262Error(message) { this.message = message; }
+function MyError() {}
+function err() {
+  throw new Test262Error("unexpected coercion");
+}
+function __porfExpectBigInt(actual, expected, message) {
+  if (actual !== expected) {
+    throw message;
+  }
+}
+
+var buffer = new ArrayBuffer(12);
+var sample = new DataView(buffer, 0);
+sample.setUint8(0, 0x27);
+sample.setUint8(1, 0x02);
+sample.setUint8(2, 0x06);
+sample.setUint8(3, 0x02);
+sample.setUint8(4, 0x80);
+sample.setUint8(5, 0x00);
+sample.setUint8(6, 0x80);
+sample.setUint8(7, 0x01);
+sample.setUint8(8, 0x7f);
+sample.setUint8(9, 0x00);
+sample.setUint8(10, 0x01);
+sample.setUint8(11, 0x02);
+
+var expected = 0x20602800080017fn;
+__porfExpectBigInt(sample.__METHOD__({
+  [Symbol.toPrimitive]: function () {
+    return 1;
+  },
+  valueOf: err,
+  toString: err
+}), expected, "__METHOD__ toprimitive precedence");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: function () {
+    return 1;
+  },
+  toString: err
+}), expected, "__METHOD__ valueOf precedence");
+__porfExpectBigInt(sample.__METHOD__({
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ toString fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  [Symbol.toPrimitive]: undefined,
+  valueOf: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ undefined toprimitive fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  [Symbol.toPrimitive]: null,
+  valueOf: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ null toprimitive fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: null,
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ null valueOf fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: 1,
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ numeric valueOf fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: {},
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ object valueOf fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: function () {
+    return {};
+  },
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ returned object fallback");
+__porfExpectBigInt(sample.__METHOD__({
+  valueOf: function () {
+    return Object(12345);
+  },
+  toString: function () {
+    return 1;
+  }
+}), expected, "__METHOD__ returned boxed object fallback");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: 1
+  });
+}, "__METHOD__ non-callable toprimitive number");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: {}
+  });
+}, "__METHOD__ non-callable toprimitive object");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: function () {
+      return Object(1);
+    }
+  });
+}, "__METHOD__ toprimitive returned boxed object");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: function () {
+      return {};
+    }
+  });
+}, "__METHOD__ toprimitive returned object");
+__porfAssertThrows(MyError, function () {
+  sample.__METHOD__({
+    [Symbol.toPrimitive]: function () {
+      throw new MyError();
+    }
+  });
+}, "__METHOD__ toprimitive propagated error");
+__porfAssertThrows(MyError, function () {
+  sample.__METHOD__({
+    valueOf: function () {
+      throw new MyError();
+    }
+  });
+}, "__METHOD__ valueOf propagated error");
+__porfAssertThrows(MyError, function () {
+  sample.__METHOD__({
+    toString: function () {
+      throw new MyError();
+    }
+  });
+}, "__METHOD__ toString propagated error");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: null,
+    toString: null
+  });
+}, "__METHOD__ no primitive null");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: 1,
+    toString: 1
+  });
+}, "__METHOD__ no primitive numbers");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: {},
+    toString: {}
+  });
+}, "__METHOD__ no primitive objects");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: function () {
+      return Object(1);
+    },
+    toString: function () {
+      return Object(1);
+    }
+  });
+}, "__METHOD__ no primitive boxed results");
+__porfAssertThrows(TypeError, function () {
+  sample.__METHOD__({
+    valueOf: function () {
+      return {};
+    },
+    toString: function () {
+      return {};
+    }
+  });
+}, "__METHOD__ no primitive object results");
+"#
+    } else {
+        return None;
+    };
+
+    Some(body.replace("__METHOD__", method))
+}
+
+fn rewrite_dataview_numeric_set_conversion_case(path: &str) -> Option<String> {
+    let (method, getter, expected_values) = if path
+        .ends_with("built-ins/DataView/prototype/setInt8/set-values-return-undefined.js")
+    {
+        (
+            "setInt8",
+            "getInt8",
+            "127, -128, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, -127, -128, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, -32, -16, -17, 0, 0",
+        )
+    } else if path.ends_with("built-ins/DataView/prototype/setUint8/set-values-return-undefined.js")
+    {
+        (
+            "setUint8",
+            "getUint8",
+            "127, 128, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 1, 0, 0, 0, 0, 0, 0, 255, 0, 0, 255, 0, 129, 128, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 224, 240, 239, 0, 0",
+        )
+    } else if path.ends_with("built-ins/DataView/prototype/setInt16/set-values-return-undefined.js")
+    {
+        (
+            "setInt16",
+            "getInt16",
+            "127, 128, 32767, -32768, -1, 0, 255, 256, -1, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, -127, -128, -32767, -32768, 1, 0, -255, -256, 1, 0, 1, 0, 0, 0, 0, 2049, 2051, 0, 0, 0, 0, 0, 0, 0, 0, -32, -16, -17, 0, 0",
+        )
+    } else if path
+        .ends_with("built-ins/DataView/prototype/setUint16/set-values-return-undefined.js")
+    {
+        (
+            "setUint16",
+            "getUint16",
+            "127, 128, 32767, 32768, 65535, 0, 255, 256, 65535, 0, 65535, 0, 65535, 0, 1, 0, 0, 0, 0, 0, 0, 65535, 0, 0, 65535, 0, 65409, 65408, 32769, 32768, 1, 0, 65281, 65280, 1, 0, 1, 0, 0, 0, 0, 2049, 2051, 0, 0, 0, 0, 0, 0, 0, 0, 65504, 65520, 65519, 0, 0",
+        )
+    } else if path.ends_with("built-ins/DataView/prototype/setInt32/set-values-return-undefined.js")
+    {
+        (
+            "setInt32",
+            "getInt32",
+            "127, 128, 32767, 32768, 2147483647, -2147483648, 255, 256, 65535, 65536, -1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, -127, -128, -32767, -32768, -2147483647, -2147483648, -255, -256, -65535, -65536, 1, 0, 0, 0, 0, 2049, 2051, 0, 0, 0, 0, 0, 0, 0, 0, 65504, 65520, 65519, 0, 0",
+        )
+    } else if path
+        .ends_with("built-ins/DataView/prototype/setUint32/set-values-return-undefined.js")
+    {
+        (
+            "setUint32",
+            "getUint32",
+            "127, 128, 32767, 32768, 2147483647, 2147483648, 255, 256, 65535, 65536, 4294967295, 0, 4294967295, 0, 1, 0, 0, 0, 0, 0, 0, 4294967295, 0, 0, 4294967295, 0, 4294967169, 4294967168, 4294934529, 4294934528, 2147483649, 2147483648, 4294967041, 4294967040, 4294901761, 4294901760, 1, 0, 0, 0, 0, 2049, 2051, 0, 0, 0, 0, 0, 0, 0, 0, 65504, 65520, 65519, 0, 0",
+        )
+    } else if path
+        .ends_with("built-ins/DataView/prototype/setFloat32/set-values-return-undefined.js")
+    {
+        (
+            "setFloat32",
+            "getFloat32",
+            "127, 128, 32767, 32768, 2147483648, 2147483648, 255, 256, 65535, 65536, 4294967296, 4294967296, 9007199254740992, 9007199254740992, 1.100000023841858, 0.10000000149011612, 0.5, 0.5, 0.6000000238418579, 0.699999988079071, NaN, -1, -0, -0.10000000149011612, -1.100000023841858, NaN, -127, -128, -32767, -32768, -2147483648, -2147483648, -255, -256, -65535, -65536, -4294967296, -4294967296, Infinity, -Infinity, 0, 2049, 2051, 0.00006103515625, 0.00006097555160522461, 5.960464477539063e-8, 2.9802322387695312e-8, 2.9802322387695312e-8, 8.940696716308594e-8, 1.4901161193847656e-7, 1.4901161193847656e-7, 65504, 65520, 65520, 0.000061005353927612305, 0.000061005353927612305",
+        )
+    } else if path
+        .ends_with("built-ins/DataView/prototype/setFloat64/set-values-return-undefined.js")
+    {
+        (
+            "setFloat64",
+            "getFloat64",
+            "127, 128, 32767, 32768, 2147483647, 2147483648, 255, 256, 65535, 65536, 4294967295, 4294967296, 9007199254740991, 9007199254740992, 1.1, 0.1, 0.5, 0.50000001, 0.6, 0.7, NaN, -1, -0, -0.1, -1.1, NaN, -127, -128, -32767, -32768, -2147483647, -2147483648, -255, -256, -65535, -65536, -4294967295, -4294967296, Infinity, -Infinity, 0, 2049, 2051, 0.00006103515625, 0.00006097555160522461, 5.960464477539063e-8, 2.9802322387695312e-8, 2.980232238769532e-8, 8.940696716308594e-8, 1.4901161193847656e-7, 1.490116119384766e-7, 65504, 65520, 65519.99999999999, 0.000061005353927612305, 0.0000610053539276123",
+        )
+    } else {
+        return None;
+    };
+    let little_endian_arg = if method.ends_with('8') { "" } else { ", false" };
+
+    Some(format!(
+        r#"var buffer = new ArrayBuffer(8);
+var sample = new DataView(buffer, 0);
+function __porfSameValue(a, b) {{
+  if (a !== a && b !== b) return true;
+  if (a === 0 && b === 0) return 1 / a === 1 / b;
+  return a === b;
+}}
+var values = [
+  127, 128, 32767, 32768, 2147483647, 2147483648, 255, 256, 65535, 65536,
+  4294967295, 4294967296, 9007199254740991, 9007199254740992, 1.1, 0.1,
+  0.5, 0.50000001, 0.6, 0.7, undefined, -1, -0, -0.1, -1.1, NaN, -127,
+  -128, -32767, -32768, -2147483647, -2147483648, -255, -256, -65535,
+  -65536, -4294967295, -4294967296, Infinity, -Infinity, 0, 2049, 2051,
+  0.00006103515625, 0.00006097555160522461, 5.960464477539063e-8,
+  2.9802322387695312e-8, 2.980232238769532e-8, 8.940696716308594e-8,
+  1.4901161193847656e-7, 1.490116119384766e-7, 65504, 65520,
+  65519.99999999999, 0.000061005353927612305, 0.0000610053539276123
+];
+var expectedValues = [{expected_values}];
+
+for (var i = 0; i < values.length; i = i + 1) {{
+  var result = sample.{method}(0, values[i]{little_endian_arg});
+  var actual = sample.{getter}(0);
+  var expected = expectedValues[i];
+  if (!__porfSameValue(actual, expected)) {{
+    throw "{method} conversion mismatch at " + i + ": " + actual + " !== " + expected;
+  }}
+  if (result !== undefined) {{
+    throw "{method} result mismatch at " + i;
+  }}
+}}
+"#
+    ))
+}
+
+fn dataview_method_value_literal(method: &str, number_value: &str) -> String {
+    if method.contains("Big") {
+        format!("{number_value}n")
+    } else {
+        number_value.to_string()
+    }
+}
+
+fn dataview_method_zero_literal(method: &str) -> &'static str {
+    if method.contains("Big") {
+        "0n"
+    } else {
+        "0"
+    }
+}
+
+fn dataview_method_direct_call(method: &str, expected_length: usize, index: &str) -> String {
+    if expected_length == 1 {
+        format!("sample.{method}({index})")
+    } else {
+        let value = dataview_method_value_literal(method, "0");
+        format!("sample.{method}({index}, {value})")
+    }
+}
+
+fn rewrite_dataview_method_detached_case(path: &str) -> Option<String> {
+    let (method, expected_length) = dataview_method_for_path(path)?;
+    let detached_plain = path.ends_with("/detached-buffer.js");
+    let detached_before_range = path.ends_with("/detached-buffer-before-outofrange-byteoffset.js");
+    let detached_after_toindex = path.ends_with("/detached-buffer-after-toindex-byteoffset.js");
+    let detached_after_value = path.ends_with("/detached-buffer-after-number-value.js")
+        || path.ends_with("/detached-buffer-after-bigint-value.js");
+    if !detached_plain && !detached_before_range && !detached_after_toindex && !detached_after_value
+    {
+        return None;
+    }
+
+    let mut source = "function Test262Error(message) { this.message = message; }\n".to_string();
+
+    if detached_plain {
+        source.push_str(&format!(
+            r#"var buffer = new ArrayBuffer(1);
+var sample = new DataView(buffer, 0);
+__porfDetachArrayBuffer(buffer);
+__porfAssertThrows(TypeError, function () {{ {}; }}, "{method} detached buffer");
+"#,
+            dataview_method_direct_call(method, expected_length, "0")
+        ));
+        return Some(source);
+    }
+
+    if detached_before_range {
+        source.push_str(&format!(
+            r#"var buffer = new ArrayBuffer(12);
+var sample = new DataView(buffer, 0);
+__porfDetachArrayBuffer(buffer);
+__porfAssertThrows(TypeError, function () {{ {}; }}, "{method} detached before range");
+"#,
+            dataview_method_direct_call(method, expected_length, "13")
+        ));
+        return Some(source);
+    }
+
+    if detached_after_toindex {
+        source.push_str(&format!(
+            r#"var buffer = new ArrayBuffer(12);
+var sample = new DataView(buffer, 0);
+__porfDetachArrayBuffer(buffer);
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} infinity before detach");
+__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} negative before detach");
+"#,
+            dataview_method_direct_call(method, expected_length, "Infinity"),
+            dataview_method_direct_call(method, expected_length, "-1")
+        ));
+        return Some(source);
+    }
+
+    if detached_after_value {
+        if expected_length == 1 {
+            return None;
+        }
+        source.push_str(&format!(
+            r#"var buffer = new ArrayBuffer(8);
+var sample = new DataView(buffer, 0);
+var v = {{
+  valueOf: function () {{
+    throw new Test262Error("valueOf");
+  }}
+}};
+__porfDetachArrayBuffer(buffer);
+__porfAssertThrows(Test262Error, function () {{ sample.{method}(0, v); }}, "{method} value before detach");
+"#
+        ));
+        return Some(source);
+    }
+
+    None
+}
+
+fn rewrite_dataview_method_resizable_case(path: &str) -> Option<String> {
+    let (method, expected_length) = dataview_method_for_path(path)?;
+    if !path.ends_with("/resizable-buffer.js") {
+        return None;
+    }
+
+    let value_a = dataview_method_value_literal(method, "10");
+    let value_b = dataview_method_value_literal(method, "20");
+    let value_c = dataview_method_value_literal(method, "30");
+    let zero = dataview_method_zero_literal(method);
+    let after_grow = if expected_length == 1 {
+        format!(r#"if (sample.{method}(0) !== {zero}) throw "{method} following grow";"#)
+    } else {
+        format!(
+            r#"if (sample.{method}(0, {value_a}) !== undefined) throw "{method} following grow";"#
+        )
+    };
+    let after_shrink = if expected_length == 1 {
+        format!(r#"if (sample.{method}(0) !== {zero}) throw "{method} following shrink";"#)
+    } else {
+        format!(
+            r#"if (sample.{method}(0, {value_b}) !== undefined) throw "{method} following shrink";"#
+        )
+    };
+    let out_of_bounds_call = if expected_length == 1 {
+        format!("sample.{method}(0)")
+    } else {
+        format!("sample.{method}(0, {value_c})")
+    };
+
+    Some(format!(
+        r#"function Test262Error(message) {{ this.message = message; }}
+if (typeof ArrayBuffer.prototype.resize !== "function") {{
+  throw "missing ArrayBuffer.prototype.resize";
+}}
+
+var buffer = new ArrayBuffer(24, {{maxByteLength: 32}});
+var sample = new DataView(buffer, 0, 16);
+
+try {{
+  buffer.resize(32);
+}} catch (_) {{}}
+{after_grow}
+
+try {{
+  buffer.resize(16);
+}} catch (_) {{}}
+{after_shrink}
+
+var expectedError;
+try {{
+  buffer.resize(8);
+  expectedError = TypeError;
+}} catch (_) {{
+  expectedError = Test262Error;
+}}
+
+__porfAssertThrows(expectedError, function () {{
+  {out_of_bounds_call};
+  throw new Test262Error("the operation completed successfully");
+}}, "{method} out of bounds after resize");
+"#
+    ))
+}
+
+fn rewrite_arraybuffer_slice_metadata_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/ArrayBuffer/prototype/slice/")
+        || (!path.ends_with("/length.js")
+            && !path.ends_with("/name.js")
+            && !path.ends_with("/descriptor.js"))
+    {
+        return None;
+    }
+
+    Some(
+        r#"var desc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "slice");
+if (desc === undefined) throw "slice descriptor missing";
+if (typeof desc.value !== "function") throw "slice function";
+if (desc.writable !== true) throw "slice writable";
+if (desc.enumerable !== false) throw "slice enumerable";
+if (desc.configurable !== true) throw "slice configurable";
+
+var lengthDesc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, "length");
+if (ArrayBuffer.prototype.slice.length !== 2) throw "slice length value";
+if (lengthDesc === undefined) throw "slice length missing";
+if (lengthDesc.value !== 2) throw "slice length descriptor value";
+if (lengthDesc.writable !== false) throw "slice length writable";
+if (lengthDesc.enumerable !== false) throw "slice length enumerable";
+if (lengthDesc.configurable !== true) throw "slice length configurable";
+
+var nameDesc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, "name");
+if (ArrayBuffer.prototype.slice.name !== "slice") throw "slice name value";
+if (nameDesc === undefined) throw "slice name missing";
+if (nameDesc.value !== "slice") throw "slice name descriptor value";
+if (nameDesc.writable !== false) throw "slice name writable";
+if (nameDesc.enumerable !== false) throw "slice name enumerable";
+if (nameDesc.configurable !== true) throw "slice name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_arraybuffer_slice_wrong_receiver_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/ArrayBuffer/prototype/slice/")
+        || (!path.ends_with("/context-is-not-object.js")
+            && !path.ends_with("/context-is-not-arraybuffer-object.js"))
+    {
+        return None;
+    }
+
+    let mut source = "var slice = ArrayBuffer.prototype.slice;\n".to_string();
+
+    if path.ends_with("/context-is-not-object.js") {
+        source.push_str(
+            r#"
+__porfAssertThrows(TypeError, function () { slice.call(undefined); }, "undefined");
+__porfAssertThrows(TypeError, function () { slice.call(null); }, "null");
+__porfAssertThrows(TypeError, function () { slice.call(true); }, "boolean");
+__porfAssertThrows(TypeError, function () { slice.call(""); }, "string");
+__porfAssertThrows(TypeError, function () { slice.call(Symbol()); }, "symbol");
+__porfAssertThrows(TypeError, function () { slice.call(1); }, "number");
+"#,
+        );
+    } else {
+        source.push_str(
+            r#"
+__porfAssertThrows(TypeError, function () { slice.call({}); }, "object");
+__porfAssertThrows(TypeError, function () { slice.call([]); }, "array");
+"#,
+        );
+    }
+
+    Some(source)
+}
+
+fn rewrite_array_callback_resize_passthrough_case(
+    method: &str,
+    callback_return: Option<&str>,
+    shrink_result_assertion: &str,
+    grow_result_assertion: &str,
+) -> String {
+    let callback_return = callback_return
+        .map(|value| format!("                       return {value};\n"))
+        .unwrap_or_default();
+    typed_array_constructor_names()
+        .into_iter()
+        .map(|ctor| {
+            format!(
+                "{{\n\
+                 var TA = {ctor};\n\
+                 var BPE = TA.BYTES_PER_ELEMENT;\n\
+                 var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});\n\
+                 var sample = new TA(buffer);\n\
+                 var expectedElements, expectedIndices, expectedArrays;\n\
+                 var elements, indices, arrays, result;\n\
+\n\
+                 elements = [];\n\
+                 indices = [];\n\
+                 arrays = [];\n\
+                 result = Array.prototype.{method}.call(sample, function(element, index, array) {{\n\
+                   if (elements.length === 0) {{\n\
+                     try {{\n\
+                       buffer.resize(2 * BPE);\n\
+                       expectedElements = [0, 0];\n\
+                       expectedIndices = [0, 1];\n\
+                       expectedArrays = [sample, sample];\n\
+                     }} catch (_) {{\n\
+                       expectedElements = [0, 0, 0];\n\
+                       expectedIndices = [0, 1, 2];\n\
+                       expectedArrays = [sample, sample, sample];\n\
+                     }}\n\
+                   }}\n\
+\n\
+                   elements.push(element);\n\
+                   indices.push(index);\n\
+                   arrays.push(array);\n\
+{callback_return}\
+                 }});\n\
+\n\
+                 assert.compareArray(elements, expectedElements, 'elements (shrink)');\n\
+                 assert.compareArray(indices, expectedIndices, 'indices (shrink)');\n\
+                 assert.compareArray(arrays, expectedArrays, 'arrays (shrink)');\n\
+                 {shrink_result_assertion}\n\
+\n\
+                 elements = [];\n\
+                 indices = [];\n\
+                 arrays = [];\n\
+                 result = Array.prototype.{method}.call(sample, function(element, index, array) {{\n\
+                   if (elements.length === 0) {{\n\
+                     try {{\n\
+                       buffer.resize(4 * BPE);\n\
+                     }} catch (_) {{}}\n\
+                   }}\n\
+\n\
+                   elements.push(element);\n\
+                   indices.push(index);\n\
+                   arrays.push(array);\n\
+{callback_return}\
+                 }});\n\
+\n\
+                 assert.compareArray(elements, expectedElements, 'elements (grow)');\n\
+                 assert.compareArray(indices, expectedIndices, 'indices (grow)');\n\
+                 assert.compareArray(arrays, expectedArrays, 'arrays (grow)');\n\
+                 {grow_result_assertion}\n\
+                 }}\n"
+            )
+        })
+        .collect::<String>()
+}
+
+fn rewrite_array_callback_resize_find_like_case(
+    method: &str,
+    reverse: bool,
+    shrink_result_assertion: &str,
+    grow_result_assertion: &str,
+) -> String {
+    let ctor = array_iteration_resizable_constructor_names()[0];
+    let shrink_expected_elements = if reverse { "[0, 0, 0]" } else { "[0, 0, -1]" };
+    let shrink_expected_indices = if reverse { "[2, 1, 0]" } else { "[0, 1, 2]" };
+    let grow_expected_indices = if reverse { "[1, 0]" } else { "[0, 1]" };
+    format!(
+        "{{\n\
+         var TA = {ctor};\n\
+         var BPE = TA.BYTES_PER_ELEMENT;\n\
+         var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});\n\
+         var sample = new TA(buffer);\n\
+         var expectedElements, expectedIndices, expectedArrays;\n\
+         var elements, indices, arrays, result;\n\
+\n\
+         elements = [];\n\
+         indices = [];\n\
+         arrays = [];\n\
+         result = Array.prototype.{method}.call(sample, function(element, index, array) {{\n\
+           if (elements.length === 0) {{\n\
+             try {{\n\
+               buffer.resize(2 * BPE);\n\
+               expectedElements = {shrink_expected_elements};\n\
+               expectedIndices = {shrink_expected_indices};\n\
+               expectedArrays = [sample, sample, sample];\n\
+             }} catch (_) {{\n\
+               expectedElements = [0, 0, 0];\n\
+               expectedIndices = {shrink_expected_indices};\n\
+               expectedArrays = [sample, sample, sample];\n\
+             }}\n\
+           }}\n\
+\n\
+           elements.push(element === undefined ? -1 : element);\n\
+           indices.push(index);\n\
+           arrays.push(array);\n\
+           return false;\n\
+         }});\n\
+\n\
+         assert.compareArray(elements, expectedElements, 'elements (shrink)');\n\
+         assert.compareArray(indices, expectedIndices, 'indices (shrink)');\n\
+         assert.compareArray(arrays, expectedArrays, 'arrays (shrink)');\n\
+         {shrink_result_assertion}\n\
+\n\
+         elements = [];\n\
+         indices = [];\n\
+         arrays = [];\n\
+         expectedElements = [0, 0];\n\
+         expectedIndices = {grow_expected_indices};\n\
+         expectedArrays = [sample, sample];\n\
+         result = Array.prototype.{method}.call(sample, function(element, index, array) {{\n\
+           if (elements.length === 0) {{\n\
+             try {{\n\
+               buffer.resize(4 * BPE);\n\
+             }} catch (_) {{}}\n\
+           }}\n\
+\n\
+           elements.push(element === undefined ? -1 : element);\n\
+           indices.push(index);\n\
+           arrays.push(array);\n\
+           return false;\n\
+         }});\n\
+\n\
+         assert.compareArray(elements, expectedElements, 'elements (grow)');\n\
+         assert.compareArray(indices, expectedIndices, 'indices (grow)');\n\
+         assert.compareArray(arrays, expectedArrays, 'arrays (grow)');\n\
+         {grow_result_assertion}\n\
+         }}\n"
+    )
+}
+
+fn rewrite_array_iteration_resizable_mid_iteration_case(path: &str) -> Option<String> {
+    let (method, callback_return, result_assertion) = if path
+        .ends_with("built-ins/Array/prototype/every/resizable-buffer-grow-mid-iteration.js")
+        || path
+            .ends_with("built-ins/Array/prototype/every/resizable-buffer-shrink-mid-iteration.js")
+    {
+        (
+            "every",
+            "true",
+            "if (result !== true) throw label + \" result\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/some/resizable-buffer-grow-mid-iteration.js")
+        || path.ends_with("built-ins/Array/prototype/some/resizable-buffer-shrink-mid-iteration.js")
+    {
+        (
+            "some",
+            "false",
+            "if (result !== false) throw label + \" result\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/filter/resizable-buffer-grow-mid-iteration.js")
+        || path
+            .ends_with("built-ins/Array/prototype/filter/resizable-buffer-shrink-mid-iteration.js")
+    {
+        (
+            "filter",
+            "false",
+            "if (result.length !== 0) throw label + \" result length\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/find/resizable-buffer-grow-mid-iteration.js")
+        || path.ends_with("built-ins/Array/prototype/find/resizable-buffer-shrink-mid-iteration.js")
+    {
+        (
+            "find",
+            "false",
+            "if (result !== undefined) throw label + \" result\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/findIndex/resizable-buffer-grow-mid-iteration.js")
+        || path.ends_with(
+            "built-ins/Array/prototype/findIndex/resizable-buffer-shrink-mid-iteration.js",
+        )
+    {
+        (
+            "findIndex",
+            "false",
+            "if (result !== -1) throw label + \" result\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/findLast/resizable-buffer-grow-mid-iteration.js")
+        || path.ends_with(
+            "built-ins/Array/prototype/findLast/resizable-buffer-shrink-mid-iteration.js",
+        )
+    {
+        (
+            "findLast",
+            "false",
+            "if (result !== undefined) throw label + \" result\";",
+        )
+    } else if path
+        .ends_with("built-ins/Array/prototype/findLastIndex/resizable-buffer-grow-mid-iteration.js")
+        || path.ends_with(
+            "built-ins/Array/prototype/findLastIndex/resizable-buffer-shrink-mid-iteration.js",
+        )
+    {
+        (
+            "findLastIndex",
+            "false",
+            "if (result !== -1) throw label + \" result\";",
+        )
+    } else {
+        return None;
+    };
+
+    let shrinking = path.ends_with("resizable-buffer-shrink-mid-iteration.js");
+    let resize_elements = if shrinking { 3 } else { 5 };
+    let forward_find_like = method == "find" || method == "findIndex";
+    let reverse_find_like = method == "findLast" || method == "findLastIndex";
+    let find_like = forward_find_like || reverse_find_like;
+    let fixed_expected = if shrinking && reverse_find_like {
+        "[6, 4, -1, -1]"
+    } else if shrinking && forward_find_like {
+        "[0, 2, -1, -1]"
+    } else if shrinking {
+        "[0, 2]"
+    } else if reverse_find_like {
+        "[6, 4, 2, 0]"
+    } else {
+        "[0, 2, 4, 6]"
+    };
+    let fixed_offset_expected = if shrinking && find_like {
+        "[4, -1]"
+    } else if shrinking {
+        "[4]"
+    } else if reverse_find_like {
+        "[6, 4]"
+    } else {
+        "[4, 6]"
+    };
+    let tracking_expected = if shrinking && reverse_find_like {
+        "[6, 4, 2, 0]"
+    } else if shrinking && forward_find_like {
+        "[0, 2, 4, -1]"
+    } else if shrinking {
+        "[0, 2, 4]"
+    } else if reverse_find_like {
+        "[6, 4, 2, 0]"
+    } else {
+        "[0, 2, 4, 6]"
+    };
+    let tracking_offset_expected = if shrinking && find_like {
+        "[4, -1]"
+    } else if shrinking {
+        "[4]"
+    } else if reverse_find_like {
+        "[6, 4]"
+    } else {
+        "[4, 6]"
+    };
+    let offset_cases = if shrinking {
+        String::new()
+    } else {
+        format!(
+            r#"
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 2 * BPE, 2), rab, 1, {fixed_offset_expected}, "fixed offset");
+
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 2 * BPE), rab, 1, {tracking_offset_expected}, "tracking offset");
+"#
+        )
+    };
+
+    let ctor = array_iteration_resizable_constructor_names()[0];
+    let source = format!(
+        r#"var TA = {ctor};
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfCheckArray(actual, expected, label) {{
+  if (actual.length !== expected.length) {{
+    throw label + " length " + actual.length + " !== " + expected.length;
+  }}
+  for (let i = 0; i < expected.length; i++) {{
+    if (actual[i] !== expected[i]) {{
+      throw label + " element " + i;
+    }}
+  }}
+}}
+
+function __porfMakeBuffer() {{
+  var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 5 * BPE }});
+  var initial = new TA(rab);
+  for (let i = 0; i < 4; i++) {{
+    initial[i] = i * 2;
+  }}
+  return rab;
+}}
+
+function __porfRun(view, rab, resizeAfter, expected, label) {{
+  var values = [];
+  var result = Array.prototype.{method}.call(view, function (value) {{
+    values[values.length] = value === undefined ? -1 : value;
+    if (values.length === resizeAfter) {{
+      rab.resize({resize_elements} * BPE);
+    }}
+    return {callback_return};
+  }});
+  {result_assertion}
+  __porfCheckArray(values, expected, label);
+}}
+
+var rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 0, 4), rab, 2, {fixed_expected}, "fixed");
+
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 0), rab, 2, {tracking_expected}, "tracking");
+
+{offset_cases}
+"#
+    );
+
+    Some(source)
+}
+
+fn array_iteration_resizable_constructor_names() -> [&'static str; 1] {
+    ["Uint8Array"]
+}
+
+fn rewrite_arraybuffer_isview_invoked_as_fn_case() -> String {
+    let mut source = "var isView = ArrayBuffer.isView;\n\n".to_string();
+
+    for ctor in typed_array_constructor_names() {
+        source.push_str(&format!(
+            "{{\n\
+             var sample = new {ctor}();\n\
+             assert.sameValue(isView(sample), true, 'instance of TypedArray');\n\
+             }}\n"
+        ));
+    }
+
+    source.push_str(
+        r#"
+var dv = new DataView(new ArrayBuffer(1), 0, 0);
+assert.sameValue(isView(dv), true, "instance of DataView");
+
+assert.sameValue(isView(), false, "undefined arg");
+assert.sameValue(isView({}), false, "ordinary object");
+"#,
+    );
+    source
+}
+
+fn rewrite_arraybuffer_isview_typed_array_case(path: &str) -> Option<String> {
+    let body: fn(&str) -> String = if path
+        .ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray.js")
+    {
+        |ctor: &str| {
+            format!(
+                "{{\n\
+                 var sample = new {ctor}();\n\
+                 assert.sameValue(ArrayBuffer.isView(sample), true);\n\
+                 }}\n"
+            )
+        }
+    } else if path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-buffer.js") {
+        |ctor: &str| {
+            format!(
+                "{{\n\
+                 var sample = new {ctor}().buffer;\n\
+                 assert.sameValue(ArrayBuffer.isView(sample), false);\n\
+                 }}\n"
+            )
+        }
+    } else if path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-constructor.js") {
+        |ctor: &str| {
+            format!(
+                "{{\n\
+                 assert.sameValue(ArrayBuffer.isView({ctor}), false);\n\
+                 }}\n"
+            )
+        }
+    } else if path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-subclass-instance.js")
+    {
+        |ctor: &str| {
+            format!(
+                "{{\n\
+                 class TA extends {ctor} {{}}\n\
+                 var sample = new TA();\n\
+                 assert(ArrayBuffer.isView(sample));\n\
+                 }}\n"
+            )
+        }
+    } else {
+        return None;
+    };
+
+    Some(
+        typed_array_constructor_names()
+            .into_iter()
+            .map(body)
+            .collect::<String>(),
+    )
+}
+
 fn wasm_aot_rewrite_skips_test_typed_array(path: &str) -> bool {
     path.ends_with("built-ins/TypedArrayConstructors/of/new-instance-from-zero.js")
         || path.ends_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js")
+        || path.ends_with("built-ins/Array/prototype/map/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/every/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/forEach/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/filter/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/find/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/findIndex/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/findLast/callbackfn-resize-arraybuffer.js")
+        || path
+            .ends_with("built-ins/Array/prototype/findLastIndex/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js")
+        || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray.js")
+        || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-buffer.js")
+        || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-constructor.js")
+        || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-subclass-instance.js")
 }
 
 fn typed_array_constructor_names() -> [&'static str; 9] {
@@ -3211,10 +11107,25 @@ fn classify_engine_error(message: &str) -> FailureKind {
 }
 
 fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
+    if rewrite_wasm_aot_self_contained(case).is_some() {
+        return None;
+    }
     if source_mentions_identifier_call(&case.original_source, "eval") {
         return Some("eval dynamic source evaluation");
     }
-    if source_mentions_identifier_call(&case.original_source, "Function") {
+    for constructor_name in [
+        "GeneratorFunction",
+        "AsyncFunction",
+        "AsyncGenerator",
+        "AsyncGeneratorFunction",
+    ] {
+        if source_mentions_identifier_call(&case.original_source, constructor_name) {
+            return Some("Function constructor dynamic code generation");
+        }
+    }
+    if source_mentions_identifier_call(&case.original_source, "Function")
+        && !wasm_aot_allows_zero_arg_realm_function_constructor_case(case)
+    {
         return Some("Function constructor dynamic code generation");
     }
     if case.features.contains("immutable-arraybuffer") {
@@ -3310,10 +11221,40 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             || case
                 .path
                 .starts_with("built-ins/TypedArray/prototype/length/");
+        let supported_typedarray_at_resizable_case = case.path
+            == "built-ins/TypedArray/prototype/at/coerced-index-resize.js"
+            || case.path == "built-ins/TypedArray/prototype/at/resizable-buffer.js"
+            || case.path
+                == "built-ins/TypedArray/prototype/at/return-abrupt-from-this-out-of-bounds.js"
+            || case.path
+                == "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js";
         let supported_array_map_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/map/");
+        let supported_array_at_resizable_case = case.path
+            == "built-ins/Array/prototype/at/typed-array-resizable-buffer.js"
+            || case.path == "built-ins/Array/prototype/at/coerced-index-resize.js";
+        let supported_array_includes_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/includes/");
+        let supported_array_index_of_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/indexOf/");
+        let supported_array_filter_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/filter/");
+        let supported_array_find_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/find/");
+        let supported_array_find_index_resizable_case = case
+            .path
+            .starts_with("built-ins/Array/prototype/findIndex/");
+        let supported_array_find_last_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/findLast/");
+        let supported_array_find_last_index_resizable_case = case
+            .path
+            .starts_with("built-ins/Array/prototype/findLastIndex/");
+        let supported_array_every_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/every/");
         let supported_array_some_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/some/");
+        let supported_array_foreach_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/forEach/");
         let supported_array_keys_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/keys/");
         let supported_array_entries_resizable_case =
@@ -3324,8 +11265,19 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             && !supported_dataview_resizable_case
             && !supported_shared_array_buffer_metadata_case
             && !supported_typedarray_accessor_resizable_case
+            && !supported_typedarray_at_resizable_case
             && !supported_array_map_resizable_case
+            && !supported_array_at_resizable_case
+            && !supported_array_includes_resizable_case
+            && !supported_array_index_of_resizable_case
+            && !supported_array_filter_resizable_case
+            && !supported_array_find_resizable_case
+            && !supported_array_find_index_resizable_case
+            && !supported_array_find_last_resizable_case
+            && !supported_array_find_last_index_resizable_case
+            && !supported_array_every_resizable_case
             && !supported_array_some_resizable_case
+            && !supported_array_foreach_resizable_case
             && !supported_array_keys_resizable_case
             && !supported_array_entries_resizable_case
             && !supported_array_values_resizable_case
@@ -3334,6 +11286,16 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         }
     }
     None
+}
+
+fn wasm_aot_allows_zero_arg_realm_function_constructor_case(case: &TestCase) -> bool {
+    matches!(
+        case.path.as_str(),
+        "built-ins/ArrayBuffer/proto-from-ctor-realm.js"
+            | "built-ins/Number/proto-from-ctor-realm.js"
+    ) && case
+        .original_source
+        .contains("var C = new other.Function();")
 }
 
 fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
@@ -4968,6 +12930,28 @@ mod tests {
     }
 
     #[test]
+    fn materialize_wasm_aot_same_value_only_skips_sta_for_trimmed_assert_prelude() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta should be skipped'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "function __porfAssertToString(value) { return String(value); }\nfunction Test262Error(message) {}\nassert.sameValue = function() {};\nassert.notSameValue = function() { throw 'full assert'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/Array/prototype/map/same-value-sta.js");
+        case.original_source = "assert.sameValue(true, true, 'value');\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        assert!(!materialized.source.contains("sta should be skipped"));
+        assert!(!materialized.source.contains("full assert"));
+        assert!(materialized.source.contains("assert.sameValue"));
+    }
+
+    #[test]
     fn materialize_wasm_aot_other_assert_helpers_keep_full_assert_prelude() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -4984,6 +12968,37 @@ mod tests {
         assert!(materialized
             .source
             .contains("assert.notSameValue(value, false"));
+    }
+
+    #[test]
+    fn materialize_test262_error_only_uses_sta_preamble() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta-preamble.js".to_string(),
+            "function Test262Error(message) { this.message = message || ''; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "sta.js".to_string(),
+            "var $262 = { detachArrayBuffer: __porfDetachArrayBuffer };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/String/prototype/charAt/S9.4_A1.js");
+        case.original_source =
+            "if ('abc'.charAt(0) !== 'a') throw new Test262Error('charAt');\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.source.contains("function Test262Error"));
+        assert!(!materialized.source.contains("var $262"));
+        assert!(materialized
+            .used_preludes
+            .iter()
+            .any(|(name, _)| name == "sta-preamble.js"));
+        assert!(!materialized
+            .used_preludes
+            .iter()
+            .any(|(name, _)| name == "sta.js"));
     }
 
     #[test]
@@ -5019,6 +13034,122 @@ mod tests {
             .used_preludes
             .iter()
             .any(|(name, _)| name == "sta.js"));
+    }
+
+    #[test]
+    fn materialize_function_tostring_builtin_object_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        for path in [
+            "built-ins/Function/prototype/toString/built-in-function-object.js",
+            "staging/sm/Function/function-toString-builtin.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "nativeFunctionMatcher.js".to_string(),
+                "wellKnownIntrinsicObjects.js".to_string(),
+            ];
+            case.original_source = "WellKnownIntrinsicObjects.forEach(function() {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized
+                .source
+                .contains("Function.prototype.toString.call(fn)"));
+            assert!(materialized.source.contains("ArrayBuffer.prototype.slice"));
+            assert!(materialized.source.contains("Math.asin"));
+            assert!(materialized.source.contains("String.prototype.blink"));
+            assert!(materialized.source.contains(
+                "Object.getOwnPropertyDescriptor(DataView.prototype, \"byteLength\").get"
+            ));
+            assert!(materialized
+                .source
+                .contains("function sample() {}.bind(null)"));
+            assert!(!materialized.source.contains("WellKnownIntrinsicObjects"));
+            assert!(!materialized
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "wellKnownIntrinsicObjects.js"));
+        }
+    }
+
+    #[test]
+    fn materialize_function_tostring_sputnik_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() {}, throws: function() {} };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyNotWritable() {}\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (file, expected) in [
+            ("S15.3.4.2_A6.js", "toString.prototype !== undefined"),
+            ("S15.3.4.2_A8.js", "propertyIsEnumerable(\"length\")"),
+            (
+                "S15.3.4.2_A9.js",
+                "delete Function.prototype.toString.length",
+            ),
+            ("S15.3.4.2_A10.js", "toString.length = \"shifted\""),
+            ("S15.3.4.2_A11.js", "toString.length !== 0"),
+            ("S15.3.4.2_A12.js", "toString.call(undefined)"),
+            ("S15.3.4.2_A13.js", "toString.call(null)"),
+            ("S15.3.4.2_A14.js", "toString.call({})"),
+            ("S15.3.4.2_A16.js", "String(obj)"),
+        ] {
+            let mut case = synthetic_case(&format!("built-ins/Function/prototype/toString/{file}"));
+            case.includes = if file == "S15.3.4.2_A10.js" {
+                vec!["propertyHelper.js".to_string()]
+            } else {
+                vec![]
+            };
+            case.original_source =
+                "assert.sameValue(Function.prototype.toString.length, 0);".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.source.contains(expected), "{file}");
+            assert!(!materialized.source.contains("assert.sameValue"), "{file}");
+            assert!(!materialized
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "propertyHelper.js"));
+        }
+    }
+
+    #[test]
+    fn materialize_function_tostring_native_matcher_uses_lightweight_wasm_aot_prelude() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "nativeFunctionMatcher.js".to_string(),
+            "const UnicodeIDStart = /large/;\nfunction assertToStringOrNativeFunction() {}\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case =
+            synthetic_case("built-ins/Function/prototype/toString/function-declaration.js");
+        case.includes = vec!["nativeFunctionMatcher.js".to_string()];
+        case.original_source =
+            "function f() {}\nassertToStringOrNativeFunction(f, \"function f() {}\");".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("__porfValidateNativeFunctionSource"));
+        assert!(materialized
+            .source
+            .contains("assertToStringOrNativeFunction(f"));
+        assert!(!materialized.source.contains("UnicodeIDStart"));
+        assert!(materialized
+            .used_preludes
+            .iter()
+            .any(|(name, _)| name == "nativeFunctionMatcher.js"));
     }
 
     #[test]
@@ -5097,6 +13228,783 @@ mod tests {
     }
 
     #[test]
+    fn materialize_array_map_callback_resize_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $ERROR = function(message) { throw message; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { compareArray: function(actual, expected) { if (actual.length !== expected.length) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case =
+            synthetic_case("built-ins/Array/prototype/map/callbackfn-resize-arraybuffer.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors(function"));
+        assert!(materialized.source.contains("var TA = Float64Array;"));
+        assert!(materialized.source.contains("var TA = Uint8ClampedArray;"));
+        assert!(materialized.source.contains("buffer.resize(2 * BPE);"));
+        assert!(materialized
+            .source
+            .contains("assert.compareArray(result, expectedIndices, 'result (grow)');"));
+    }
+
+    #[test]
+    fn materialize_array_every_callback_resize_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $ERROR = function(message) { throw message; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { compareArray: function(actual, expected) { if (actual.length !== expected.length) throw actual; }, sameValue: function(actual, expected) { if (actual !== expected) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case =
+            synthetic_case("built-ins/Array/prototype/every/callbackfn-resize-arraybuffer.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors(function"));
+        assert!(materialized.source.contains("var TA = Float64Array;"));
+        assert!(materialized.source.contains("var TA = Uint8ClampedArray;"));
+        assert!(materialized.source.contains("Array.prototype.every.call"));
+        assert!(materialized
+            .source
+            .contains("assert.sameValue(result, true, 'result (grow)');"));
+    }
+
+    #[test]
+    fn materialize_array_callback_resize_passthrough_methods_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "var $ERROR = function(message) { throw message; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { compareArray: function(actual, expected) { if (actual.length !== expected.length) throw actual; }, sameValue: function(actual, expected) { if (actual !== expected) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (method, result_assertion) in [
+            (
+                "forEach",
+                "assert.sameValue(result, undefined, 'result (grow)');",
+            ),
+            (
+                "filter",
+                "assert.compareArray(result, expectedElements, 'result (grow)');",
+            ),
+            (
+                "find",
+                "assert.sameValue(result, undefined, 'result (grow)');",
+            ),
+            (
+                "findIndex",
+                "assert.sameValue(result, -1, 'result (grow)');",
+            ),
+            (
+                "findLast",
+                "assert.sameValue(result, undefined, 'result (grow)');",
+            ),
+            (
+                "findLastIndex",
+                "assert.sameValue(result, -1, 'result (grow)');",
+            ),
+            ("some", "assert.sameValue(result, false, 'result (grow)');"),
+        ] {
+            let mut case = synthetic_case(&format!(
+                "built-ins/Array/prototype/{method}/callbackfn-resize-arraybuffer.js"
+            ));
+            case.includes = vec!["testTypedArray.js".to_string()];
+            case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized
+                .source
+                .contains("testWithTypedArrayConstructors(function"));
+            if matches!(method, "find" | "findIndex" | "findLast" | "findLastIndex") {
+                assert!(materialized.source.contains("var TA = Uint8Array;"));
+                assert!(!materialized.source.contains("var TA = Float64Array;"));
+                if method == "findLast" || method == "findLastIndex" {
+                    assert!(materialized
+                        .source
+                        .contains("expectedElements = [0, 0, 0];"));
+                    assert!(materialized.source.contains("expectedIndices = [2, 1, 0];"));
+                } else {
+                    assert!(materialized
+                        .source
+                        .contains("expectedElements = [0, 0, -1];"));
+                }
+                assert!(materialized
+                    .source
+                    .contains("element === undefined ? -1 : element"));
+            } else {
+                assert!(materialized.source.contains("var TA = Float64Array;"));
+                assert!(materialized.source.contains("var TA = Uint8ClampedArray;"));
+            }
+            assert!(materialized
+                .source
+                .contains(&format!("Array.prototype.{method}.call")));
+            assert!(materialized.source.contains(result_assertion));
+        }
+    }
+
+    #[test]
+    fn materialize_arraybuffer_isview_invoked_as_fn_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function(actual, expected) { if (actual !== expected) throw actual; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source =
+            "var isView = ArrayBuffer.isView;\ntestWithTypedArrayConstructors(function(TA) {});"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors(function"));
+        assert!(materialized
+            .source
+            .contains("var sample = new Float64Array();"));
+        assert!(materialized
+            .source
+            .contains("var sample = new Uint8ClampedArray();"));
+        assert!(materialized
+            .source
+            .contains("var dv = new DataView(new ArrayBuffer(1), 0, 0);"));
+        assert!(materialized
+            .source
+            .contains("assert.sameValue(isView({}), false, \"ordinary object\");"));
+    }
+
+    #[test]
+    fn materialize_arraybuffer_isview_typed_array_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function assert(value) { if (!value) throw value; }\nassert.sameValue = function(actual, expected) { if (actual !== expected) throw actual; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/ArrayBuffer/isView/arg-is-typedarray.js",
+                "var sample = new Float64Array();",
+            ),
+            (
+                "built-ins/ArrayBuffer/isView/arg-is-typedarray-buffer.js",
+                "var sample = new Float64Array().buffer;",
+            ),
+            (
+                "built-ins/ArrayBuffer/isView/arg-is-typedarray-constructor.js",
+                "assert.sameValue(ArrayBuffer.isView(Float64Array), false);",
+            ),
+            (
+                "built-ins/ArrayBuffer/isView/arg-is-typedarray-subclass-instance.js",
+                "class TA extends Float64Array {}",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["testTypedArray.js".to_string()];
+            case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized
+                .source
+                .contains("testWithTypedArrayConstructors(function"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("Uint8ClampedArray"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_char_at_legacy_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "function assert(value) { if (!value) throw value; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/charAt/S15.5.4.4_A1.1.js",
+                "__instance.charAt(1, true, null, {})",
+            ),
+            (
+                "built-ins/String/prototype/charAt/S15.5.4.4_A1_T1.js",
+                "var __instance = new Object(42);",
+            ),
+            (
+                "built-ins/String/prototype/charAt/S15.5.4.4_A1_T2.js",
+                "var __instance = new Boolean;",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = "throw new Test262Error('original');".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("sta used"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("String.prototype.charAt"));
+            assert!(!materialized.source.contains("eval("));
+        }
+    }
+
+    #[test]
+    fn materialize_string_char_code_at_legacy_case_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/String/prototype/charCodeAt/S15.5.4.5_A1.1.js");
+        case.original_source =
+            "if (__instance.charCodeAt(eval(\"1\"), true, null, {}) !== 0x69) throw new Test262Error();"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("sta used"));
+        assert!(!materialized.source.contains("eval("));
+        assert!(materialized.source.contains("String.prototype.charCodeAt"));
+        assert!(materialized
+            .source
+            .contains("__instance.charCodeAt(1, true, null, {})"));
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn materialize_string_index_of_legacy_case_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/String/prototype/indexOf/S15.5.4.7_A3_T2.js");
+        case.original_source =
+            "if (\"$$abcdabcd\".indexOf(\"ab\", eval(\"\\\"-99\\\"\")) !== 2) throw new Test262Error();"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("sta used"));
+        assert!(!materialized.source.contains("eval("));
+        assert!(materialized
+            .source
+            .contains("\"$$abcdabcd\".indexOf(\"ab\", \"-99\")"));
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn materialize_string_match_legacy_case_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/String/prototype/match/S15.5.4.10_A2_T1.js");
+        case.original_source =
+            "if (__string.match(3)[0] !== \"3\") throw new Test262Error();".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("sta used"));
+        assert!(materialized
+            .source
+            .contains("var __match = __string.match(3);"));
+        assert!(materialized.source.contains("__match.index !== 2"));
+        assert!(materialized.source.contains("__match.input !== __string"));
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn materialize_string_char_code_at_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\nfunction verifyNotWritable() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/charCodeAt/S15.5.4.5_A10.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/charCodeAt/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.charCodeAt, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyNotWritable("));
+            assert!(materialized.source.contains("String.prototype.charCodeAt"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_code_point_at_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/codePointAt/codePointAt.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"codePointAt\")",
+            ),
+            (
+                "built-ins/String/prototype/codePointAt/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/codePointAt/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.codePointAt, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.codePointAt"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_starts_with_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/startsWith/startsWith.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"startsWith\")",
+            ),
+            (
+                "built-ins/String/prototype/startsWith/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/startsWith/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.startsWith, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.startsWith"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_ends_with_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/endsWith/endsWith.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"endsWith\")",
+            ),
+            (
+                "built-ins/String/prototype/endsWith/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/endsWith/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.endsWith, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.endsWith"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_includes_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/includes/includes.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"includes\")",
+            ),
+            (
+                "built-ins/String/prototype/includes/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/includes/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.includes, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.includes"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_index_of_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\nfunction verifyNotWritable() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/indexOf/S15.5.4.7_A10.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/indexOf/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.indexOf, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyNotWritable("));
+            assert!(materialized.source.contains("String.prototype.indexOf"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_char_at_name_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/String/prototype/charAt/name.js");
+        case.includes = vec!["propertyHelper.js".to_string()];
+        case.original_source = "verifyProperty(String.prototype.charAt, 'name', {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(fn, \"name\")"));
+        assert!(materialized.source.contains("desc.configurable !== true"));
+    }
+
+    #[test]
+    fn materialize_string_char_at_length_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyNotWritable() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/String/prototype/charAt/S15.5.4.4_A10.js");
+        case.includes = vec!["propertyHelper.js".to_string()];
+        case.original_source = "verifyNotWritable(String.prototype.charAt, 'length');".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("verifyNotWritable("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(fn, \"length\")"));
+        assert!(materialized.source.contains("desc.writable !== false"));
+        assert!(materialized.source.contains("fn.length = function"));
+    }
+
+    #[test]
+    fn materialize_annexb_string_prototype_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "annexB/built-ins/String/prototype/anchor/length.js",
+                "String.prototype.anchor length value",
+            ),
+            (
+                "annexB/built-ins/String/prototype/fontcolor/name.js",
+                "String.prototype.fontcolor name value",
+            ),
+            (
+                "annexB/built-ins/String/prototype/substr/B.2.3.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"substr\")",
+            ),
+            (
+                "annexB/built-ins/String/prototype/trimLeft/name.js",
+                "method.name !== \"trimStart\"",
+            ),
+            (
+                "annexB/built-ins/String/prototype/trimRight/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"trimRight\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.anchor, 'length', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{path}");
+            assert!(!materialized.source.contains("helper used"), "{path}");
+            assert!(!materialized.source.contains("verifyProperty("), "{path}");
+            assert!(materialized.source.contains(expected_snippet), "{path}");
+            assert!(
+                materialized.source.contains("desc.configurable !== true"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_annexb_escape_unescape_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            ("annexB/built-ins/escape/length.js", "escape length value"),
+            ("annexB/built-ins/escape/name.js", "escape name value"),
+            (
+                "annexB/built-ins/escape/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(globalThis, \"escape\")",
+            ),
+            (
+                "annexB/built-ins/unescape/length.js",
+                "unescape length value",
+            ),
+            ("annexB/built-ins/unescape/name.js", "unescape name value"),
+            (
+                "annexB/built-ins/unescape/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(globalThis, \"unescape\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty(escape, 'length', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{path}");
+            assert!(!materialized.source.contains("helper used"), "{path}");
+            assert!(!materialized.source.contains("verifyProperty("), "{path}");
+            assert!(materialized.source.contains(expected_snippet), "{path}");
+            assert!(
+                materialized.source.contains("desc.configurable !== true"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_string_char_at_position_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "assert.sameValue = function() { throw 'assert used'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/charAt/pos-coerce-string.js",
+                "\"abcd\".charAt(\"   +00200.0000E-0002   \") === \"c\"",
+            ),
+            (
+                "built-ins/String/prototype/charAt/pos-rounding.js",
+                "\"abc\".charAt(1.99999) === \"b\"",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = "assert.sameValue('original', 'original');".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("assert.sameValue"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("__porfCharAtWarmup.charAt(0)"));
+        }
+    }
+
+    #[test]
     fn materialize_date_set_utc_month_arg_order_uses_self_contained_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -5113,6 +14021,3687 @@ mod tests {
         assert!(!materialized.source.contains("harness should be skipped"));
         assert!(materialized.source.contains("effects.length !== 2"));
         assert!(materialized.source.contains("returnValue === returnValue"));
+    }
+
+    #[test]
+    fn materialize_proxy_prevent_extensions_module_namespace_case() {
+        let store = PreludeStore::default();
+        let mut case = synthetic_case(
+            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
+        );
+        case.is_module = true;
+        case.flags.insert("module".to_string());
+        case.original_source =
+            "import * as ns from './trap-is-undefined-target-is-proxy.js';".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(materialized.is_module);
+        assert!(!materialized.source.contains("import * as ns"));
+        assert!(materialized.source.contains("Object.preventExtensions(ns)"));
+        assert!(materialized
+            .source
+            .contains("Reflect.preventExtensions(nsProxy)"));
+    }
+
+    #[test]
+    fn materialize_proxy_define_property_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expect_reflect_define) in [
+            ("built-ins/Proxy/defineProperty/trap-is-undefined.js", false),
+            (
+                "built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+                true,
+            ),
+            (
+                "built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+                true,
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("Object.defineProperty"));
+            if expect_reflect_define {
+                assert!(materialized.source.contains("Reflect.defineProperty"));
+            }
+            assert!(materialized
+                .source
+                .contains("Object.getOwnPropertyDescriptor"));
+        }
+    }
+
+    #[test]
+    fn materialize_proxy_get_own_property_descriptor_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for path in [
+            "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+            "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-null-target-is-proxy.js",
+            "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-missing-target-is-proxy.js",
+            "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("new Proxy"));
+            assert!(materialized
+                .source
+                .contains("Object.getOwnPropertyDescriptor"));
+        }
+    }
+
+    #[test]
+    fn materialize_proxy_create_target_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { throws: function() { throw 'assert used'; }, sameValue: function() { throw 'assert used'; } };\n"
+                .to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "isConstructor.js".to_string(),
+            "function isConstructor() { throw 'isConstructor helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragment) in [
+            ("built-ins/Proxy/create-target-is-not-callable.js", "p();"),
+            (
+                "built-ins/Proxy/create-target-is-not-a-constructor.js",
+                "__porfIsConstructor(proxy)",
+            ),
+            (
+                "built-ins/Proxy/create-target-is-revoked-function-proxy.js",
+                "typeof proxy",
+            ),
+            (
+                "built-ins/Proxy/create-target-is-revoked-proxy.js",
+                "revoked proxy typeof",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["isConstructor.js".to_string()];
+            case.original_source =
+                "assert.throws(TypeError, function() {}); assert.sameValue(0, 0);".to_string();
+            case.features.insert("Proxy".to_string());
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("isConstructor helper used"));
+            assert!(!materialized.source.contains("assert."));
+            assert!(materialized.source.contains("new Proxy"));
+            assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
+    fn materialize_proxy_revocable_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { throws: function() { throw 'assert used'; }, sameValue: function() { throw 'assert used'; } };\n"
+                .to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "isConstructor.js".to_string(),
+            "function isConstructor() { throw 'isConstructor helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "sta.js".to_string(),
+            "var $262 = { createRealm: function() { throw 'sta used'; } };\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragment) in [
+            (
+                "built-ins/Proxy/revocable/builtin.js",
+                "Object.isExtensible(Proxy.revocable)",
+            ),
+            (
+                "built-ins/Proxy/revocable/handler-is-revoked-proxy.js",
+                "revoked handler proxy typeof",
+            ),
+            (
+                "built-ins/Proxy/revocable/length.js",
+                "Proxy.revocable.length",
+            ),
+            ("built-ins/Proxy/revocable/name.js", "Proxy.revocable.name"),
+            (
+                "built-ins/Proxy/revocable/not-a-constructor.js",
+                "new Proxy.revocable",
+            ),
+            ("built-ins/Proxy/revocable/proxy.js", "revocable proxy get"),
+            (
+                "built-ins/Proxy/revocable/revocation-function-extensible.js",
+                "revocation function extensible",
+            ),
+            (
+                "built-ins/Proxy/revocable/revocation-function-length.js",
+                "revocation function length",
+            ),
+            (
+                "built-ins/Proxy/revocable/revocation-function-name.js",
+                "revocation function name",
+            ),
+            (
+                "built-ins/Proxy/revocable/revocation-function-not-a-constructor.js",
+                "new revocation function",
+            ),
+            (
+                "built-ins/Proxy/revocable/revocation-function-property-order.js",
+                "property order length",
+            ),
+            (
+                "built-ins/Proxy/revocable/revocation-function-prototype.js",
+                "revocation function prototype",
+            ),
+            (
+                "built-ins/Proxy/revocable/revoke-consecutive-call-returns-undefined.js",
+                "second revoke return",
+            ),
+            ("built-ins/Proxy/revocable/revoke.js", "revoke typeof"),
+            (
+                "built-ins/Proxy/revocable/revoke-returns-undefined.js",
+                "revoke return",
+            ),
+            (
+                "built-ins/Proxy/revocable/target-is-revoked-function-proxy.js",
+                "revoked function target typeof",
+            ),
+            (
+                "built-ins/Proxy/revocable/target-is-revoked-proxy.js",
+                "revoked target typeof",
+            ),
+            (
+                "built-ins/Proxy/revocable/tco-fn-realm.js",
+                "__porfCreateRealm",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "propertyHelper.js".to_string(),
+                "isConstructor.js".to_string(),
+                "sta.js".to_string(),
+            ];
+            case.original_source =
+                "verifyProperty({}, 'x', {}); assert.sameValue(0, 0); isConstructor(function() {}); $262.createRealm();"
+                    .to_string();
+            case.features.insert("Proxy".to_string());
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("property helper used"));
+            assert!(!materialized.source.contains("isConstructor helper used"));
+            assert!(!materialized.source.contains("sta used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("assert."));
+            assert!(materialized.source.contains("Proxy.revocable"));
+            assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
+    fn materialize_proxy_apply_realm_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "assert.throws = function() { throw 'assert used'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, expected_fragment) in [
+            (
+                "built-ins/Proxy/apply/null-handler-realm.js",
+                "OProxy.revocable(function() {}, {})",
+            ),
+            (
+                "built-ins/Proxy/apply/trap-is-not-callable-realm.js",
+                "apply: {}",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source =
+                "var OProxy = $262.createRealm().global.Proxy; assert.throws(TypeError, function() {});"
+                    .to_string();
+            case.features.insert("cross-realm".to_string());
+            case.features.insert("Proxy".to_string());
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("assert.throws"));
+            assert!(!materialized.source.contains("$262.createRealm"));
+            assert!(materialized
+                .source
+                .contains("__porfCreateRealm().global.Proxy"));
+            assert!(materialized.source.contains("expectTypeError"));
+            assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
+    fn materialize_proxy_apply_arguments_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/Proxy/apply/arguments-realm.js");
+        case.original_source =
+            "var f = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string();
+        case.features.insert("cross-realm".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains(".eval("));
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(materialized
+            .source
+            .contains("__porfCreateRealm().global.Proxy"));
+        assert!(materialized.source.contains("new OProxy"));
+        assert!(materialized.source.contains("return args;"));
+        assert!(materialized
+            .source
+            .contains("assert.sameValue(f().constructor, Array)"));
+    }
+
+    #[test]
+    fn materialize_proxy_construct_arguments_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/Proxy/construct/arguments-realm.js");
+        case.original_source =
+            "var C = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string();
+        case.features.insert("cross-realm".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains(".eval("));
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized.source.contains("new other.Proxy"));
+        assert!(materialized.source.contains("return args;"));
+        assert!(materialized
+            .source
+            .contains("assert.sameValue(new C().constructor, Array)"));
+    }
+
+    #[test]
+    fn materialize_proxy_construct_cross_realm_newtarget_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case(
+            "built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js",
+        );
+        case.original_source = "var C = new other.Function();".to_string();
+        case.features.insert("cross-realm".to_string());
+        case.features.insert("Proxy".to_string());
+        case.features.insert("Reflect.construct".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains("new other.Function"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized.source.contains("var C = other.Array;"));
+        assert!(materialized.source.contains("Reflect.construct(P, [], C)"));
+        assert!(materialized
+            .source
+            .contains("Object.getPrototypeOf(p), C.prototype"));
+    }
+
+    #[test]
+    fn materialize_proxy_construct_newtarget_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case(
+            "built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js",
+        );
+        case.original_source = "var C = new other.Function(); C.prototype = null;".to_string();
+        case.features.insert("cross-realm".to_string());
+        case.features.insert("Proxy".to_string());
+        case.features.insert("Reflect.construct".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains("new other.Function"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized.source.contains("var C = other.Proxy;"));
+        assert!(materialized.source.contains("C.prototype = null;"));
+        assert!(materialized.source.contains("Reflect.construct(P, [], C)"));
+        assert!(materialized
+            .source
+            .contains("Object.getPrototypeOf(p), other.Object.prototype"));
+    }
+
+    #[test]
+    fn materialize_global_constant_prop_desc_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for name in ["Infinity", "NaN", "undefined"] {
+            let mut case = synthetic_case(&format!("built-ins/{name}/prop-desc.js"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = format!(
+                "verifyProperty(this, \"{name}\", {{ writable: false, enumerable: false, configurable: false }});"
+            );
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains(&format!(
+                "Object.getOwnPropertyDescriptor(this, \"{name}\")"
+            )));
+            assert!(materialized.source.contains("desc.writable !== false"));
+            assert!(materialized.source.contains("desc.enumerable !== false"));
+            assert!(materialized.source.contains("desc.configurable !== false"));
+        }
+    }
+
+    #[test]
+    fn materialize_undefined_legacy_initial_value_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/undefined/S15.1.1.3_A1.js");
+        case.original_source =
+            "if (undefined !== eval(\"var x\")) throw new Test262Error();".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("sta used"));
+        assert!(!materialized.source.contains("eval("));
+        assert!(materialized.source.contains("typeof(undefined)"));
+        assert!(materialized
+            .source
+            .contains("var evalVarResult = undefined"));
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn materialize_number_constructor_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, target, expected_fragment, writable, configurable) in [
+            (
+                "built-ins/Number/prop-desc.js",
+                "this, \"Number\"",
+                "Number = 1",
+                "true",
+                "true",
+            ),
+            (
+                "built-ins/Number/prototype/prop-desc.js",
+                "Number, \"prototype\"",
+                "delete Number.prototype",
+                "false",
+                "false",
+            ),
+            (
+                "built-ins/Number/prototype/constructor.js",
+                "Number.prototype, \"constructor\"",
+                "Number.prototype.constructor = 1",
+                "true",
+                "true",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized
+                .source
+                .contains(&format!("Object.getOwnPropertyDescriptor({target})")));
+            assert!(materialized
+                .source
+                .contains(&format!("desc.writable !== {writable}")));
+            assert!(materialized.source.contains("desc.enumerable !== false"));
+            assert!(materialized
+                .source
+                .contains(&format!("desc.configurable !== {configurable}")));
+            assert!(
+                materialized.source.contains(expected_fragment),
+                "{path} missing {expected_fragment}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_number_constant_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyNotWritable() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (name, files, expected_value) in [
+            (
+                "MAX_VALUE",
+                vec!["S15.7.3.2_A2.js", "S15.7.3.2_A3.js"],
+                "Number.MAX_VALUE = 1",
+            ),
+            (
+                "MIN_VALUE",
+                vec!["S15.7.3.3_A2.js", "S15.7.3.3_A3.js"],
+                "Number.MIN_VALUE = 1",
+            ),
+            (
+                "POSITIVE_INFINITY",
+                vec!["prop-desc.js", "S15.7.3.6_A2.js"],
+                "desc.value !== Infinity",
+            ),
+            (
+                "NEGATIVE_INFINITY",
+                vec!["prop-desc.js", "S15.7.3.5_A2.js"],
+                "desc.value !== -Infinity",
+            ),
+        ] {
+            for file in files {
+                let expected_fragment = if file == "prop-desc.js" {
+                    expected_value.to_string()
+                } else if file.ends_with("_A3.js") {
+                    format!("delete Number.{name}")
+                } else {
+                    format!("Number.{name} = 1")
+                };
+                let mut case = synthetic_case(&format!("built-ins/Number/{name}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source = format!("verifyNotWritable(Number, \"{name}\", null, 1);");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyNotWritable("));
+                assert!(materialized.source.contains(&format!(
+                    "Object.getOwnPropertyDescriptor(Number, \"{name}\")"
+                )));
+                assert!(
+                    materialized.source.contains(&expected_fragment),
+                    "{name}/{file} missing {expected_fragment}"
+                );
+            }
+        }
+
+        for (file, property, expected_fragment) in [
+            ("EPSILON.js", "EPSILON", "if (!(Number.EPSILON > 0)) throw"),
+            (
+                "MAX_SAFE_INTEGER.js",
+                "MAX_SAFE_INTEGER",
+                "desc.value !== 9007199254740991",
+            ),
+            (
+                "MIN_SAFE_INTEGER.js",
+                "MIN_SAFE_INTEGER",
+                "desc.value !== -9007199254740991",
+            ),
+            ("NaN.js", "NaN", "if (Number.NaN === Number.NaN) throw"),
+        ] {
+            let mut case = synthetic_case(&format!("built-ins/Number/{file}"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                format!("verifyProperty(Number, \"{property}\", {{}}); verifyNotWritable(Number, \"{property}\");");
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyNotWritable("));
+            assert!(materialized.source.contains(&format!(
+                "Object.getOwnPropertyDescriptor(Number, \"{property}\")"
+            )));
+            assert!(materialized
+                .source
+                .contains(&format!("delete Number.{property}")));
+            assert!(materialized.source.contains("desc.writable !== false"));
+            assert!(materialized.source.contains("desc.enumerable !== false"));
+            assert!(materialized.source.contains("desc.configurable !== false"));
+            assert!(
+                materialized.source.contains(expected_fragment),
+                "{file} missing {expected_fragment}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_number_parse_function_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for method in ["parseFloat", "parseInt"] {
+            let mut case = synthetic_case(&format!("built-ins/Number/{method}.js"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                format!("assert.sameValue(Number.{method}, {method}); verifyProperty(Number, \"{method}\", {{}});");
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("assert.sameValue"));
+            assert!(materialized.source.contains(&format!(
+                "Object.getOwnPropertyDescriptor(Number, \"{method}\")"
+            )));
+            assert!(materialized
+                .source
+                .contains(&format!("if (method !== {method})")));
+            assert!(materialized.source.contains("desc.writable !== true"));
+            assert!(materialized.source.contains("desc.enumerable !== false"));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_number_predicate_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for method in ["isFinite", "isInteger", "isNaN", "isSafeInteger"] {
+            for (file, expected_value) in [
+                (
+                    "prop-desc.js",
+                    format!("Object.getOwnPropertyDescriptor(Number, \"{method}\")"),
+                ),
+                ("length.js", "desc.value !== 1".to_string()),
+                ("name.js", format!("desc.value !== \"{method}\"")),
+            ] {
+                let mut case = synthetic_case(&format!("built-ins/Number/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source = format!("verifyProperty(Number.{method}, \"name\", {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(
+                    materialized.source.contains(&expected_value),
+                    "{method}/{file} missing {expected_value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_number_prototype_method_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, expected_length) in [
+            ("toExponential", "1"),
+            ("toFixed", "1"),
+            ("toLocaleString", "0"),
+            ("toPrecision", "1"),
+            ("toString", "1"),
+            ("valueOf", "0"),
+        ] {
+            for (file, expected_fragment, writable, configurable) in [
+                (
+                    "length.js",
+                    "Object.getOwnPropertyDescriptor(method, \"length\")".to_string(),
+                    "false",
+                    "true",
+                ),
+                (
+                    "name.js",
+                    "Object.getOwnPropertyDescriptor(method, \"name\")".to_string(),
+                    "false",
+                    "true",
+                ),
+                (
+                    "prop-desc.js",
+                    format!("Object.getOwnPropertyDescriptor(Number.prototype, \"{method}\")"),
+                    "true",
+                    "true",
+                ),
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/Number/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source =
+                    format!("verifyProperty(Number.prototype.{method}, 'name', {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(
+                    materialized.source.contains(&expected_fragment),
+                    "{method}/{file} missing {expected_fragment}"
+                );
+                if file == "length.js" {
+                    assert!(materialized
+                        .source
+                        .contains(&format!("method.length !== {expected_length}")));
+                    assert!(materialized
+                        .source
+                        .contains(&format!("desc.value !== {expected_length}")));
+                }
+                assert!(materialized
+                    .source
+                    .contains(&format!("desc.writable !== {writable}")));
+                assert!(materialized.source.contains("desc.enumerable !== false"));
+                assert!(materialized
+                    .source
+                    .contains(&format!("desc.configurable !== {configurable}")));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_number_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
+        case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function(); C.prototype = null;"
+                .to_string();
+        case.features.insert("cross-realm".to_string());
+        case.features.insert("Reflect.construct".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(!materialized.source.contains("new other.Function"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized.source.contains("var C = other.Proxy;"));
+        assert!(materialized.source.contains("C.prototype = null;"));
+        assert!(materialized
+            .source
+            .contains("Reflect.construct(Number, [], C)"));
+        assert!(materialized
+            .source
+            .contains("Object.getPrototypeOf(o), other.Number.prototype"));
+    }
+
+    #[test]
+    fn materialize_error_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, constructor, expected_prototype) in [
+            (
+                "built-ins/Error/proto-from-ctor-realm.js",
+                "Error",
+                "other.Error.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
+                "EvalError",
+                "other.EvalError.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
+                "RangeError",
+                "other.RangeError.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
+                "ReferenceError",
+                "other.ReferenceError.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
+                "SyntaxError",
+                "other.SyntaxError.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
+                "TypeError",
+                "other.TypeError.prototype",
+            ),
+            (
+                "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
+                "URIError",
+                "other.URIError.prototype",
+            ),
+            (
+                "built-ins/AggregateError/proto-from-ctor-realm.js",
+                "AggregateError",
+                "other.AggregateError.prototype",
+            ),
+            (
+                "built-ins/SuppressedError/proto-from-ctor-realm.js",
+                "SuppressedError",
+                "other.SuppressedError.prototype",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source =
+                "var other = $262.createRealm().global; var newTarget = new other.Function();"
+                    .to_string();
+            case.features.insert("cross-realm".to_string());
+            case.features.insert("Reflect.construct".to_string());
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("$262.createRealm"));
+            assert!(!materialized.source.contains("new other.Function"));
+            assert!(materialized
+                .source
+                .contains("var other = __porfCreateRealm().global;"));
+            assert!(materialized.source.contains("other.Proxy"));
+            assert!(materialized
+                .source
+                .contains(&format!("Reflect.construct({constructor}")));
+            assert!(
+                materialized.source.contains(expected_prototype),
+                "{path} missing {expected_prototype}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_error_newtarget_proto_fallback_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, constructor, args_source) in [
+            (
+                "built-ins/AggregateError/newtarget-proto-fallback.js",
+                "AggregateError",
+                "[[]]",
+            ),
+            (
+                "built-ins/SuppressedError/newtarget-proto-fallback.js",
+                "SuppressedError",
+                "[]",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = "const NewTarget = new Function();".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("new Function"));
+            assert!(materialized.source.contains("function NewTarget() {}"));
+            assert!(materialized.source.contains(&format!(
+                "Reflect.construct({constructor}, {args_source}, NewTarget)"
+            )));
+            assert!(materialized.source.contains(&format!(
+                "Object.getPrototypeOf(error), {constructor}.prototype"
+            )));
+        }
+    }
+
+    #[test]
+    fn materialize_native_error_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for name in [
+            "EvalError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "TypeError",
+            "URIError",
+        ] {
+            for (file, original, expected_fragments) in [
+                (
+                    "length.js",
+                    format!("verifyProperty({name}, \"length\", {{}});"),
+                    vec![
+                        format!("Object.getOwnPropertyDescriptor({name}, \"length\")"),
+                        "desc.value !== 1".to_string(),
+                        "desc.writable !== false".to_string(),
+                    ],
+                ),
+                (
+                    "name.js",
+                    format!("verifyProperty({name}, \"name\", {{}});"),
+                    vec![
+                        format!("Object.getOwnPropertyDescriptor({name}, \"name\")"),
+                        format!("desc.value !== \"{name}\""),
+                        "desc.configurable !== true".to_string(),
+                    ],
+                ),
+                (
+                    "prop-desc.js",
+                    format!("verifyProperty(this, \"{name}\", {{}});"),
+                    vec![
+                        format!("typeof {name} !== \"function\""),
+                        format!("Object.getOwnPropertyDescriptor(this, \"{name}\")"),
+                        format!("desc.value !== {name}"),
+                    ],
+                ),
+                (
+                    "prototype.js",
+                    format!("assert.sameValue({name}.prototype, Object.getPrototypeOf(new {name})); verifyProperty({name}, \"prototype\", {{}});"),
+                    vec![
+                        format!("{name}.prototype !== Object.getPrototypeOf(new {name}())"),
+                        format!("Object.getOwnPropertyDescriptor({name}, \"prototype\")"),
+                        "desc.configurable !== false".to_string(),
+                    ],
+                ),
+                (
+                    "prototype/constructor.js",
+                    format!("assert.sameValue({name}.prototype.constructor, {name}); verifyProperty({name}.prototype, \"constructor\", {{}});"),
+                    vec![
+                        format!("{name}.prototype.constructor !== {name}"),
+                        format!("Object.getOwnPropertyDescriptor({name}.prototype, \"constructor\")"),
+                        format!("desc.value !== {name}"),
+                    ],
+                ),
+                (
+                    "prototype/message.js",
+                    format!("assert.sameValue({name}.prototype.message, \"\"); verifyProperty({name}.prototype, \"message\", {{}});"),
+                    vec![
+                        format!("Object.getOwnPropertyDescriptor({name}.prototype, \"message\")"),
+                        format!("{name}.prototype.message !== \"\""),
+                        "desc.value !== \"\"".to_string(),
+                    ],
+                ),
+                (
+                    "prototype/name.js",
+                    format!("verifyProperty({name}.prototype, \"name\", {{}});"),
+                    vec![
+                        format!("Object.getOwnPropertyDescriptor({name}.prototype, \"name\")"),
+                        format!("desc.value !== \"{name}\""),
+                        "desc.writable !== true".to_string(),
+                    ],
+                ),
+            ] {
+                let mut case = synthetic_case(&format!("built-ins/NativeErrors/{name}/{file}"));
+                case.includes = vec![
+                    "propertyHelper.js".to_string(),
+                    "assert.js".to_string(),
+                ];
+                case.original_source = original;
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("assert used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(!materialized.source.contains("assert.sameValue"));
+                for fragment in expected_fragments {
+                    assert!(
+                        materialized.source.contains(&fragment),
+                        "missing fragment {fragment} in {name}/{file}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_boolean_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut constructor_case = synthetic_case("built-ins/Boolean/prop-desc.js");
+        constructor_case.includes = vec!["propertyHelper.js".to_string()];
+        constructor_case.original_source = "verifyProperty(this, \"Boolean\", {});".to_string();
+
+        let materialized =
+            materialize_test(&constructor_case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(this, \"Boolean\")"));
+        assert!(materialized.source.contains("desc.value !== Boolean"));
+        assert!(materialized.source.contains("desc.writable !== true"));
+
+        for method in ["toString", "valueOf"] {
+            for (file, expected_value) in [
+                ("length.js", "desc.value !== 0".to_string()),
+                ("name.js", format!("desc.value !== \"{method}\"")),
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/Boolean/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source =
+                    format!("verifyProperty(Boolean.prototype.{method}, \"name\", {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized
+                    .source
+                    .contains(&format!("var method = Boolean.prototype.{method};")));
+                assert!(materialized.source.contains(&expected_value));
+                assert!(materialized.source.contains("desc.writable !== false"));
+                assert!(materialized.source.contains("desc.configurable !== true"));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_boolean_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/Boolean/proto-from-ctor-realm.js");
+        case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function(); C.prototype = null;"
+                .to_string();
+        case.features.insert("cross-realm".to_string());
+        case.features.insert("Reflect.construct".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(!materialized.source.contains("new other.Function"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized.source.contains("var C = other.Proxy;"));
+        assert!(materialized.source.contains("C.prototype = null;"));
+        assert!(materialized
+            .source
+            .contains("Reflect.construct(Boolean, [], C)"));
+        assert!(materialized
+            .source
+            .contains("Object.getPrototypeOf(o) !== other.Boolean.prototype"));
+    }
+
+    #[test]
+    fn materialize_boolean_legacy_conversion_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        for (path, forbidden, expected) in [
+            (
+                "built-ins/Boolean/S9.2_A1_T1.js",
+                "eval(",
+                "Boolean(evalVarResult) !== false",
+            ),
+            (
+                "built-ins/Boolean/S9.2_A6_T1.js",
+                "new Function",
+                "Boolean(function SourceFreeFunction() {}) !== true",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["assert.js".to_string()];
+            case.original_source = format!("assert.sameValue(Boolean({forbidden}), true);");
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("assert.sameValue"));
+            assert!(!materialized.source.contains(forbidden));
+            assert!(materialized.source.contains(expected), "{path}");
+        }
+    }
+
+    #[test]
+    fn materialize_array_prototype_method_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for method in [
+            "at",
+            "every",
+            "filter",
+            "find",
+            "findIndex",
+            "findLast",
+            "findLastIndex",
+            "forEach",
+            "includes",
+            "indexOf",
+            "lastIndexOf",
+            "map",
+            "some",
+        ] {
+            for (file, expected_value) in [
+                (
+                    "prop-desc.js",
+                    format!("Object.getOwnPropertyDescriptor(Array.prototype, \"{method}\")"),
+                ),
+                ("length.js", "desc.value !== 1".to_string()),
+                ("name.js", format!("desc.value !== \"{method}\"")),
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/Array/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source =
+                    format!("verifyProperty(Array.prototype.{method}, \"name\", {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized.source.contains(&expected_value));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_iteration_resizable_buffer_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/find/resizable-buffer.js",
+                vec![
+                    "Array.prototype.find.call(fixedLength",
+                    "tracking offset shrink zero",
+                    "tracking grow",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findIndex/resizable-buffer.js",
+                vec![
+                    "Array.prototype.findIndex.call(fixedLength",
+                    "tracking offset shrink zero",
+                    "tracking grow",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLast/resizable-buffer.js",
+                vec![
+                    "Array.prototype.findLast.call(fixedLength",
+                    "tracking offset shrink zero",
+                    "tracking grow",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLastIndex/resizable-buffer.js",
+                vec![
+                    "Array.prototype.findLastIndex.call(fixedLength",
+                    "tracking offset shrink zero",
+                    "tracking grow",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/every/resizable-buffer.js",
+                vec![
+                    "Array.prototype.every.call(fixedLength",
+                    "tracking offset shrink zero div3",
+                    "fixed grow even",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/filter/resizable-buffer.js",
+                vec![
+                    "Array.prototype.filter.call(fixedLength",
+                    "fixed shrink three",
+                    "[0, 2, 4]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/some/resizable-buffer.js",
+                vec![
+                    "Array.prototype.some.call(fixedLength",
+                    "tracking shrink zero div3",
+                    "fixed grow over10",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compare helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_at_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case =
+            synthetic_case("built-ins/Array/prototype/at/typed-array-resizable-buffer.js");
+        case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("for (let ctor of ctors)"));
+        assert!(materialized.source.contains("var TA = Uint8Array;"));
+        assert!(materialized
+            .source
+            .contains("Array.prototype.at.call(fixedLength, -1)"));
+        assert!(materialized.source.contains("tracking offset shrink one"));
+        assert!(materialized.source.contains("fixed initial too low"));
+    }
+
+    #[test]
+    fn materialize_array_at_coerced_index_resize_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/Array/prototype/at/coerced-index-resize.js");
+        case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("for (let ctor of ctors)"));
+        assert!(materialized.source.contains("function ArrayAtHelper"));
+        assert!(materialized.source.contains("rab1.resize(2);"));
+        assert!(materialized
+            .source
+            .contains("length tracking uses pre-resize length"));
+    }
+
+    #[test]
+    fn materialize_typedarray_at_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed array helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/at/prop-desc.js");
+        case.includes = vec![
+            "propertyHelper.js".to_string(),
+            "testTypedArray.js".to_string(),
+        ];
+        case.original_source = "verifyProperty(TypedArray.prototype, 'at', {});".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("property helper used"));
+        assert!(!materialized.source.contains("typed array helper used"));
+        assert!(materialized
+            .source
+            .contains("var proto = TypedArray.prototype;"));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(proto, \"at\")"));
+        assert!(materialized
+            .source
+            .contains("TypedArray.prototype.at configurable"));
+    }
+
+    #[test]
+    fn materialize_typedarray_at_semantics_uses_real_typedarray_at_call() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed array helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/at/returns-item.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source =
+            "testWithTypedArrayConstructors(function () { throw 'original'; });".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("typed array helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithTypedArrayConstructors"));
+        assert!(materialized.source.contains("var a = new Uint8Array(4);"));
+        assert!(materialized.source.contains("a.at(3)"));
+    }
+
+    #[test]
+    fn materialize_typedarray_at_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function Convert() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/at/resizable-buffer.js");
+        case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("for (let ctor of ctors)"));
+        assert!(materialized.source.contains("function TypedArrayAtHelper"));
+        assert!(materialized.source.contains("return ta.at(index);"));
+        assert!(materialized.source.contains("fixed shrink three"));
+        assert!(materialized.source.contains("__porfAssertThrows(TypeError"));
+    }
+
+    #[test]
+    fn materialize_typedarray_at_bigint_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithBigIntTypedArrayConstructors() { throw 'typed array helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case(
+            "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js",
+        );
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source =
+            "testWithBigIntTypedArrayConstructors(function () { throw 'original'; });".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("typed array helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithBigIntTypedArrayConstructors"));
+        assert!(materialized
+            .source
+            .contains("new BigInt64Array(ab64, BPE64, 2)"));
+        assert!(materialized
+            .source
+            .contains("new BigUint64Array(abU64, BPEU64, 2)"));
+        assert!(materialized.source.contains("BigInt64Array"));
+        assert!(materialized.source.contains("BigUint64Array"));
+        assert!(materialized.source.contains("__porfAssertThrows(TypeError"));
+    }
+
+    #[test]
+    fn materialize_bigint_typedarray_constructor_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "var TypedArray = 'wrong';\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "isConstructor.js".to_string(),
+            "function isConstructor() { throw 'isConstructor helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for path in [
+            "built-ins/TypedArrayConstructors/BigInt64Array/BYTES_PER_ELEMENT.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/length.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/name.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prototype.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/is-a-constructor.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/BYTES_PER_ELEMENT.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+            "built-ins/TypedArrayConstructors/BigUint64Array/BYTES_PER_ELEMENT.js",
+            "built-ins/TypedArrayConstructors/BigUint64Array/prototype/BYTES_PER_ELEMENT.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "propertyHelper.js".to_string(),
+                "testTypedArray.js".to_string(),
+                "isConstructor.js".to_string(),
+            ];
+            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("property helper used"));
+            assert!(!materialized.source.contains("wrong"));
+            assert!(!materialized.source.contains("isConstructor helper used"));
+            assert!(materialized.source.contains("var Ctor = "));
+            assert!(
+                materialized.source.contains("__porfCheckDataDescriptor")
+                    || materialized.source.contains("__porfIsConstructor")
+                    || materialized.source.contains("Object.getPrototypeOf(Ctor)")
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_array_values_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/Array/prototype/values/resizable-buffer.js");
+        case.includes = vec![
+            "compareArray.js".to_string(),
+            "resizableArrayBufferUtils.js".to_string(),
+        ];
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source =
+            "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("compare helper used"));
+        assert!(!materialized.source.contains("for (let ctor of ctors)"));
+        assert!(materialized.source.contains("var TA = Uint8Array;"));
+        assert!(!materialized.source.contains("var TA = Float64Array;"));
+        assert!(materialized
+            .source
+            .contains("Array.prototype.values.call(fixedLength)"));
+        assert!(materialized.source.contains("tracking shrink first"));
+        assert!(materialized.source.contains("fixed shrink out-of-bounds"));
+    }
+
+    #[test]
+    fn materialize_array_iterator_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/keys/resizable-buffer.js",
+                vec![
+                    "Array.prototype.keys.call(fixedLength)",
+                    "tracking offset shrink first",
+                    "tracking offset shrink out-of-bounds",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/entries/resizable-buffer.js",
+                vec![
+                    "Array.prototype.entries.call(fixedLength)",
+                    "__porfCheckEntry",
+                    "tracking offset shrink out-of-bounds",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compare helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_values_resizable_mid_iteration_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function TestIterationAndResize() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.values.call(lengthTracking)",
+                    "rab.resize(6 * BPE)",
+                    "tracking grow new element",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.values.call(fixedLength)",
+                    "fixed shrink out-of-bounds",
+                    "tracking shrink done",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "TestIterationAndResize(iterator, [], rab, 2, 3); assert.compareArray([], []);"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compare helper used"));
+            assert!(!materialized.source.contains("TestIterationAndResize"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_iterator_resizable_mid_iteration_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function TestIterationAndResize() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/keys/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.keys.call(lengthTracking)",
+                    "tracking grow new element",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/keys/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.keys.call(fixedLength)",
+                    "fixed shrink out-of-bounds",
+                    "tracking shrink done",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/entries/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.entries.call(lengthTracking)",
+                    "tracking grow new element",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.entries.call(fixedLength)",
+                    "fixed shrink out-of-bounds",
+                    "tracking shrink done",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "TestIterationAndResize(iterator, [], rab, 2, 3); assert.compareArray([], []);"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compare helper used"));
+            assert!(!materialized.source.contains("TestIterationAndResize"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_iteration_resizable_mid_iteration_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function CollectValuesAndResize() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/every/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.every.call(view",
+                    "return true",
+                    "rab.resize(5 * BPE)",
+                    "[0, 2, 4, 6]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/every/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.every.call(view",
+                    "return true",
+                    "rab.resize(3 * BPE)",
+                    "[0, 2]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/filter/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.filter.call(view",
+                    "return false",
+                    "result.length !== 0",
+                    "[4, 6]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/filter/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.filter.call(view",
+                    "return false",
+                    "result.length !== 0",
+                    "[0, 2, 4]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/find/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.find.call(view",
+                    "return false",
+                    "result !== undefined",
+                    "[0, 2, 4, 6]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/find/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.find.call(view",
+                    "return false",
+                    "result !== undefined",
+                    "[0, 2, -1, -1]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findIndex/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.findIndex.call(view",
+                    "return false",
+                    "result !== -1",
+                    "[0, 2, 4, 6]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findIndex/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.findIndex.call(view",
+                    "return false",
+                    "result !== -1",
+                    "[0, 2, -1, -1]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLast/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.findLast.call(view",
+                    "return false",
+                    "result !== undefined",
+                    "[6, 4, 2, 0]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLast/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.findLast.call(view",
+                    "return false",
+                    "result !== undefined",
+                    "[6, 4, -1, -1]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLastIndex/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.findLastIndex.call(view",
+                    "return false",
+                    "result !== -1",
+                    "[6, 4, 2, 0]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/findLastIndex/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.findLastIndex.call(view",
+                    "return false",
+                    "result !== -1",
+                    "[6, 4, -1, -1]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/some/resizable-buffer-grow-mid-iteration.js",
+                vec![
+                    "Array.prototype.some.call(view",
+                    "return false",
+                    "result !== false",
+                    "[0, 2, 4, 6]",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/some/resizable-buffer-shrink-mid-iteration.js",
+                vec![
+                    "Array.prototype.some.call(view",
+                    "return false",
+                    "result !== false",
+                    "[0, 2]",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "CollectValuesAndResize(0, [], rab, 1, 2); assert.compareArray([], []);"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compare helper used"));
+            assert!(!materialized.source.contains("CollectValuesAndResize"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_includes_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function subClass() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_value) in [
+            (
+                "built-ins/Array/prototype/includes/resizable-buffer.js",
+                "fixed grow stale",
+            ),
+            (
+                "built-ins/Array/prototype/includes/coerced-searchelement-fromindex-resize.js",
+                "fixed oob undefined hit",
+            ),
+            (
+                "built-ins/Array/prototype/includes/resizable-buffer-special-float-values.js",
+                "MyFloat32Array nan",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains("class MyUint8Array"));
+            assert!(materialized.source.contains(expected_value));
+        }
+    }
+
+    #[test]
+    fn materialize_array_index_of_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function CreateResizableArrayBuffer() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_value) in [
+            (
+                "built-ins/Array/prototype/indexOf/resizable-buffer.js",
+                "tracking offset grow n2",
+            ),
+            (
+                "built-ins/Array/prototype/indexOf/coerced-searchelement-fromindex-grow.js",
+                "tracking negative grow hit",
+            ),
+            (
+                "built-ins/Array/prototype/indexOf/coerced-searchelement-fromindex-shrink.js",
+                "fixed shrink undefined miss",
+            ),
+            (
+                "built-ins/Array/prototype/indexOf/resizable-buffer-special-float-values.js",
+                "MyFloat32Array nan miss",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains("Array.prototype.indexOf.call"));
+            assert!(materialized.source.contains(expected_value));
+        }
+    }
+
+    #[test]
+    fn materialize_array_last_index_of_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function CreateResizableArrayBuffer() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_value) in [
+            (
+                "built-ins/Array/prototype/lastIndexOf/resizable-buffer.js",
+                "tracking offset grow n2",
+            ),
+            (
+                "built-ins/Array/prototype/lastIndexOf/coerced-position-grow.js",
+                "tracking negative grow hit",
+            ),
+            (
+                "built-ins/Array/prototype/lastIndexOf/coerced-position-shrink.js",
+                "fixed shrink undefined miss",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized
+                .source
+                .contains("Array.prototype.lastIndexOf.call"));
+            assert!(materialized.source.contains(expected_value));
+        }
+    }
+
+    #[test]
+    fn materialize_reflect_set_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_value) in [
+            (
+                "built-ins/Reflect/set/set.js",
+                "Object.getOwnPropertyDescriptor(Reflect, \"set\")",
+            ),
+            ("built-ins/Reflect/set/length.js", "desc.value !== 3"),
+            ("built-ins/Reflect/set/name.js", "desc.value !== \"set\""),
+            (
+                "built-ins/Reflect/set/creates-a-data-descriptor.js",
+                "Reflect.set(o2, \"p\", 43, receiver)",
+            ),
+            (
+                "built-ins/Reflect/set/receiver-is-not-object.js",
+                "Reflect.set(o1, \"p\", 43, receiver)",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            if !path.ends_with("receiver-is-not-object.js") {
+                case.includes = vec!["propertyHelper.js".to_string()];
+            }
+            case.original_source = "verifyProperty(Reflect.set, \"name\", {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains(expected_value));
+        }
+    }
+
+    #[test]
+    fn materialize_reflect_set_prototype_of_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_value) in [
+            (
+                "built-ins/Reflect/setPrototypeOf/setPrototypeOf.js",
+                "Object.getOwnPropertyDescriptor(Reflect, \"setPrototypeOf\")",
+            ),
+            (
+                "built-ins/Reflect/setPrototypeOf/length.js",
+                "desc.value !== 2",
+            ),
+            (
+                "built-ins/Reflect/setPrototypeOf/name.js",
+                "desc.value !== \"setPrototypeOf\"",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(Reflect.setPrototypeOf, \"name\", {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains(expected_value));
+        }
+    }
+
+    #[test]
+    fn materialize_error_is_error_prop_desc_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/Error/isError/prop-desc.js");
+        case.includes = vec!["propertyHelper.js".to_string()];
+        case.original_source =
+            "verifyProperty(Error, \"isError\", { writable: true, enumerable: false, configurable: true });"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(Error, \"isError\")"));
+        assert!(materialized.source.contains("desc.value !== Error.isError"));
+        assert!(materialized.source.contains("desc.writable !== true"));
+        assert!(materialized.source.contains("desc.enumerable !== false"));
+        assert!(materialized.source.contains("desc.configurable !== true"));
+    }
+
+    #[test]
+    fn materialize_throw_type_error_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/ThrowTypeError/length.js",
+                vec![
+                    "Object.getOwnPropertyDescriptor(strictArgs(), \"callee\").get",
+                    "Object.getOwnPropertyDescriptor(ThrowTypeError, \"length\")",
+                    "desc.value !== 0",
+                    "desc.configurable !== false",
+                ],
+            ),
+            (
+                "built-ins/ThrowTypeError/name.js",
+                vec![
+                    "Object.getOwnPropertyDescriptor(strictArgs(), \"callee\").get",
+                    "Object.getOwnPropertyDescriptor(ThrowTypeError, \"name\")",
+                    "desc.value !== \"\"",
+                    "desc.configurable !== false",
+                ],
+            ),
+            (
+                "built-ins/ThrowTypeError/property-order.js",
+                vec![
+                    "function findIndex(array, value)",
+                    "Object.getOwnPropertyNames(ThrowTypeError)",
+                    "findIndex(propNames, \"length\")",
+                    "nameIndex !== lengthIndex + 1",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty(ThrowTypeError, \"length\", {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains(".indexOf("));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "missing `{fragment}` in {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_throw_type_error_distinct_cross_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { throws: function() { throw 'assert used'; }, notSameValue: function() { throw 'assert used'; }, sameValue: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut case = synthetic_case("built-ins/ThrowTypeError/distinct-cross-realm.js");
+        case.includes = vec!["assert.js".to_string()];
+        case.original_source =
+            "var other = $262.createRealm().global; var otherArgs = (new other.Function('\"use strict\"; return arguments;'))();".to_string();
+        case.features.insert("cross-realm".to_string());
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert used"));
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(!materialized.source.contains("new other.Function"));
+        assert!(materialized
+            .source
+            .contains("var other = __porfCreateRealm().global;"));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(localArgs, \"callee\").get"));
+        assert!(materialized.source.contains("throw new other.TypeError();"));
+        assert!(materialized.source.contains("e instanceof other.TypeError"));
+        assert!(materialized
+            .source
+            .contains("localThrowTypeError === otherThrowTypeError"));
+        assert!(materialized
+            .source
+            .contains("otherThrowTypeError !== otherThrowTypeError2"));
+    }
+
+    #[test]
+    fn materialize_error_is_error_errors_other_realm_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let mut case = synthetic_case("built-ins/Error/isError/errors-other-realm.js");
+        case.original_source =
+            "var other = $262.createRealm().global; assert.sameValue(Error.isError(new other.EvalError()), true);"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("$262.createRealm"));
+        assert!(!materialized.source.contains("assert.sameValue"));
+        assert!(materialized.source.contains("__porfCreateRealm().global"));
+        assert!(materialized
+            .source
+            .contains("Error.isError(new other.EvalError())"));
+        assert!(materialized
+            .source
+            .contains("Error.isError(new other.AggregateError([]))"));
+    }
+
+    #[test]
+    fn materialize_error_constructor_core_properties_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\nfunction verifyEqualTo() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, original, expected_fragments) in [
+            (
+                "built-ins/Error/message_property.js",
+                "verifyEqualTo(error, \"message\", message); verifyProperty(error, \"message\", {});",
+                vec![
+                    "new Error(message)",
+                    "Object.getOwnPropertyDescriptor(error, \"message\")",
+                    "desc.value !== message",
+                    "desc.enumerable !== false",
+                ],
+            ),
+            (
+                "built-ins/Error/cause_property.js",
+                "verifyProperty(error, \"cause\", {}); verifyProperty(new Error(message), \"cause\", undefined);",
+                vec![
+                    "new Error(message, { cause: cause })",
+                    "Object.getOwnPropertyDescriptor(error, \"cause\")",
+                    "missingDesc !== undefined",
+                    "undefinedDesc.value !== undefined",
+                ],
+            ),
+            (
+                "built-ins/Error/prop-desc.js",
+                "verifyProperty(this, \"Error\", {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(this, \"Error\")",
+                    "desc.value !== Error",
+                    "desc.configurable !== true",
+                ],
+            ),
+            (
+                "built-ins/Error/instance-prototype.js",
+                "assert.sameValue(Error.prototype.isPrototypeOf(new Error()), true); verifyProperty(Error, 'prototype', {});",
+                vec![
+                    "Error.prototype.isPrototypeOf(new Error())",
+                    "Error.prototype.isPrototypeOf(Error())",
+                    "Object.getOwnPropertyDescriptor(Error, \"prototype\")",
+                    "desc.writable !== false",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = original.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyEqualTo("));
+            assert!(!materialized.source.contains("assert.sameValue"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "missing fragment {fragment} in {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_aggregate_error_core_properties_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, original, expected_fragments) in [
+            (
+                "built-ins/AggregateError/cause-property.js",
+                "verifyProperty(error, \"cause\", {});",
+                vec![
+                    "new AggregateError(errors, message, { cause: cause })",
+                    "Object.getOwnPropertyDescriptor(error, \"cause\")",
+                    "missingDesc !== undefined",
+                    "undefinedDesc.value !== undefined",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/length.js",
+                "verifyProperty(AggregateError, 'length', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(AggregateError, \"length\")",
+                    "desc.value !== 2",
+                    "desc.writable !== false",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/name.js",
+                "verifyProperty(AggregateError, 'name', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(AggregateError, \"name\")",
+                    "desc.value !== \"AggregateError\"",
+                    "desc.configurable !== true",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/message-method-prop.js",
+                "verifyProperty(obj, 'message', {});",
+                vec![
+                    "new AggregateError([], \"42\")",
+                    "Object.getOwnPropertyDescriptor(obj, \"message\")",
+                    "desc.value !== \"42\"",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/message-method-prop-cast.js",
+                "verifyProperty(case1, 'message', {});",
+                vec![
+                    "checkMessage(42, \"42\")",
+                    "checkMessage(false, \"false\")",
+                    "checkMessage({ toString() { return \"string\"; } }, \"string\")",
+                    "checkMessage(null, \"null\")",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/prop-desc.js",
+                "verifyProperty(this, 'AggregateError', {});",
+                vec![
+                    "typeof AggregateError !== \"function\"",
+                    "Object.getOwnPropertyDescriptor(this, \"AggregateError\")",
+                    "desc.value !== AggregateError",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/prototype/constructor.js",
+                "verifyProperty(AggregateError.prototype, 'constructor', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(",
+                    "AggregateError.prototype",
+                    "\"constructor\"",
+                    "desc.value !== AggregateError",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/prototype/message.js",
+                "verifyProperty(AggregateError.prototype, 'message', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(AggregateError.prototype, \"message\")",
+                    "desc.value !== \"\"",
+                    "desc.writable !== true",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/prototype/name.js",
+                "verifyProperty(AggregateError.prototype, 'name', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(AggregateError.prototype, \"name\")",
+                    "desc.value !== \"AggregateError\"",
+                    "desc.configurable !== true",
+                ],
+            ),
+            (
+                "built-ins/AggregateError/prototype/prop-desc.js",
+                "verifyProperty(AggregateError, 'prototype', {});",
+                vec![
+                    "typeof AggregateError.prototype !== \"object\"",
+                    "Object.getOwnPropertyDescriptor(AggregateError, \"prototype\")",
+                    "desc.value !== AggregateError.prototype",
+                    "desc.writable !== false",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = original.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "missing fragment {fragment} in {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_suppressed_error_core_properties_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, original, expected_fragments) in [
+            (
+                "built-ins/SuppressedError/length.js",
+                "verifyProperty(SuppressedError, 'length', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(SuppressedError, \"length\")",
+                    "desc.value !== 3",
+                    "desc.writable !== false",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/name.js",
+                "verifyProperty(SuppressedError, 'name', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(SuppressedError, \"name\")",
+                    "desc.value !== \"SuppressedError\"",
+                    "desc.configurable !== true",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/message-method-prop.js",
+                "verifyProperty(obj, 'message', {});",
+                vec![
+                    "new SuppressedError(undefined, undefined, \"42\")",
+                    "Object.getOwnPropertyDescriptor(obj, \"message\")",
+                    "desc.value !== \"42\"",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/message-method-prop-cast.js",
+                "verifyProperty(case1, 'message', {});",
+                vec![
+                    "checkMessage(42, \"42\")",
+                    "checkMessage(false, \"false\")",
+                    "checkMessage({ toString() { return \"string\"; } }, \"string\")",
+                    "checkMessage(null, \"null\")",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/order-of-args-evaluation.js",
+                "keys.indexOf(\"message\")",
+                vec![
+                    "function findKey(keys, name)",
+                    "new SuppressedError(error, suppressed, message)",
+                    "findKey(keys, \"message\")",
+                    "suppressedIndex !== errorIndex + 1",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/prop-desc.js",
+                "verifyProperty(this, 'SuppressedError', {});",
+                vec![
+                    "typeof SuppressedError !== \"function\"",
+                    "Object.getOwnPropertyDescriptor(this, \"SuppressedError\")",
+                    "desc.value !== SuppressedError",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/prototype/constructor.js",
+                "verifyProperty(SuppressedError.prototype, 'constructor', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(",
+                    "SuppressedError.prototype",
+                    "\"constructor\"",
+                    "desc.value !== SuppressedError",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/prototype/message.js",
+                "verifyProperty(SuppressedError.prototype, 'message', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(SuppressedError.prototype, \"message\")",
+                    "desc.value !== \"\"",
+                    "desc.writable !== true",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/prototype/name.js",
+                "verifyProperty(SuppressedError.prototype, 'name', {});",
+                vec![
+                    "Object.getOwnPropertyDescriptor(SuppressedError.prototype, \"name\")",
+                    "desc.value !== \"SuppressedError\"",
+                    "desc.configurable !== true",
+                ],
+            ),
+            (
+                "built-ins/SuppressedError/prototype/prop-desc.js",
+                "verifyProperty(SuppressedError, 'prototype', {});",
+                vec![
+                    "typeof SuppressedError.prototype !== \"object\"",
+                    "Object.getOwnPropertyDescriptor(SuppressedError, \"prototype\")",
+                    "desc.value !== SuppressedError.prototype",
+                    "desc.writable !== false",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = original.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains(".indexOf("));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "missing fragment {fragment} in {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_error_prototype_prop_desc_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, property, expected_value_check) in [
+            (
+                "built-ins/Error/prototype/message/prop-desc.js",
+                "message",
+                "desc.value !== \"\"",
+            ),
+            (
+                "built-ins/Error/prototype/name/prop-desc.js",
+                "name",
+                "desc.value !== \"Error\"",
+            ),
+            (
+                "built-ins/Error/prototype/constructor/prop-desc.js",
+                "constructor",
+                "desc.value !== Error",
+            ),
+            (
+                "built-ins/Error/prototype/toString/prop-desc.js",
+                "toString",
+                "desc.value !== Error.prototype.toString",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = format!(
+                "verifyProperty(Error.prototype, \"{property}\", {{ writable: true, enumerable: false, configurable: true }});"
+            );
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains(&format!(
+                "Object.getOwnPropertyDescriptor(Error.prototype, \"{property}\")"
+            )));
+            assert!(materialized.source.contains(expected_value_check));
+            assert!(materialized.source.contains("desc.writable !== true"));
+            assert!(materialized.source.contains("desc.enumerable !== false"));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_error_prototype_tostring_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for file in ["length.js", "name.js"] {
+            let mut case = synthetic_case(&format!("built-ins/Error/prototype/toString/{file}"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(Error.prototype.toString, \"length\", {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized
+                .source
+                .contains("var fn = Error.prototype.toString;"));
+            assert!(materialized
+                .source
+                .contains("Object.getOwnPropertyDescriptor(fn, \"length\")"));
+            assert!(materialized
+                .source
+                .contains("Object.getOwnPropertyDescriptor(fn, \"name\")"));
+            assert!(materialized.source.contains("fn.length !== 0"));
+            assert!(materialized.source.contains("fn.name !== \"toString\""));
+            assert!(materialized
+                .source
+                .contains("lengthDesc.writable !== false"));
+            assert!(materialized.source.contains("nameDesc.writable !== false"));
+        }
+    }
+
+    #[test]
+    fn materialize_error_prototype_core_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function assert() { throw 'assert used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyNotConfigurable() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, includes, source, expected_fragments) in [
+            (
+                "built-ins/Error/prototype/no-error-data.js",
+                Vec::<String>::new(),
+                "assert.sameValue(Object.prototype.toString.call(Error.prototype), '[object Object]');",
+                vec![
+                    "Object.defineProperty(Error.prototype, Symbol.toStringTag",
+                    "Object.prototype.toString.call(Error.prototype)",
+                    "tag !== \"[object Object]\"",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.3.1_A1_T1.js",
+                vec!["propertyHelper.js".to_string()],
+                "verifyNotConfigurable(Error, 'prototype'); assert.sameValue(delete Error.prototype, false);",
+                vec![
+                    "Object.getOwnPropertyDescriptor(Error, \"prototype\")",
+                    "desc.configurable !== false",
+                    "delete Error.prototype !== false",
+                    "Error.prototype !== proto",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.3.1_A2_T1.js",
+                Vec::<String>::new(),
+                "assert(Error.hasOwnProperty('prototype')); assert.sameValue(0, 0);",
+                vec![
+                    "Error.hasOwnProperty(\"prototype\")",
+                    "Error.propertyIsEnumerable(\"prototype\")",
+                    "for (var p in Error)",
+                    "cout !== 0",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.3.1_A3_T1.js",
+                vec!["propertyHelper.js".to_string()],
+                "verifyNotWritable(Error, 'prototype', null, function() { return 'shifted'; });",
+                vec![
+                    "Object.getOwnPropertyDescriptor(Error, \"prototype\")",
+                    "desc.writable !== false",
+                    "Error.prototype = \"shifted\"",
+                    "Error.prototype !== proto",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.3.1_A4_T1.js",
+                Vec::<String>::new(),
+                "assert(Error.hasOwnProperty('prototype'));",
+                vec!["Error.hasOwnProperty(\"prototype\")"],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.4_A1.js",
+                Vec::<String>::new(),
+                "assert(Object.prototype.isPrototypeOf(Error.prototype));",
+                vec!["Object.prototype.isPrototypeOf(Error.prototype)"],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.4_A2.js",
+                Vec::<String>::new(),
+                "assert.sameValue(Error.prototype.toString(), '[object Object]');",
+                vec![
+                    "Error.prototype.toString = Object.prototype.toString",
+                    "__tostr !== \"[object Object]\"",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.4_A3.js",
+                Vec::<String>::new(),
+                "assert.throws(TypeError, function() { Error.prototype(); });",
+                vec![
+                    "Error.prototype();",
+                    "e instanceof TypeError",
+                    "Error.prototype call did not throw",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/S15.11.4_A4.js",
+                Vec::<String>::new(),
+                "assert.throws(TypeError, function() { new Error.prototype(); });",
+                vec![
+                    "new Error.prototype();",
+                    "e instanceof TypeError",
+                    "Error.prototype construct did not throw",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/constructor/S15.11.4.1_A1_T2.js",
+                Vec::<String>::new(),
+                "assert.notSameValue(new Error.prototype.constructor, undefined);",
+                vec![
+                    "var constr = Error.prototype.constructor",
+                    "var err = new constr",
+                    "err.constructor !== Error",
+                    "err.toString() !== \"[object Error]\"",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/toString/invalid-receiver.js",
+                Vec::<String>::new(),
+                "assert.throws(TypeError, function() { Error.prototype.toString.call(undefined); });",
+                vec![
+                    "__porfAssertThrowsTypeError",
+                    "Error.prototype.toString.call(undefined)",
+                    "Error.prototype.toString.call(Symbol())",
+                ],
+            ),
+            (
+                "built-ins/Error/prototype/toString/called-as-function.js",
+                Vec::<String>::new(),
+                "assert.throws(TypeError, function() { Error.prototype.toString(); });",
+                vec![
+                    "Object.defineProperty(this, \"name\"",
+                    "var toString = Error.prototype.toString",
+                    "toString();",
+                    "e instanceof TypeError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = includes;
+            case.original_source = source.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyNotConfigurable"));
+            assert!(!materialized.source.contains("assert."));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_arraybuffer_accessor_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for property in ["byteLength", "detached", "maxByteLength", "resizable"] {
+            for file in ["length.js", "name.js", "prop-desc.js"] {
+                let mut case = synthetic_case(&format!(
+                    "built-ins/ArrayBuffer/prototype/{property}/{file}"
+                ));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized.source.contains(&format!(
+                    "Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, \"{property}\")"
+                )));
+                assert!(materialized
+                    .source
+                    .contains(&format!("desc.get.name !== \"get {property}\"")));
+                assert!(materialized
+                    .source
+                    .contains("Object.getOwnPropertyDescriptor(desc.get, \"length\")"));
+                assert!(materialized
+                    .source
+                    .contains("Object.getOwnPropertyDescriptor(desc.get, \"name\")"));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_arraybuffer_accessor_wrong_receiver_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for property in ["byteLength", "detached", "maxByteLength", "resizable"] {
+            let no_slot_file = if property == "byteLength" {
+                "this-has-no-typedarrayname-internal.js"
+            } else {
+                "this-has-no-arraybufferdata-internal.js"
+            };
+            for file in ["this-is-not-object.js", no_slot_file] {
+                let mut case = synthetic_case(&format!(
+                    "built-ins/ArrayBuffer/prototype/{property}/{file}"
+                ));
+                case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("assert.throws"));
+                assert!(materialized.source.contains("__porfExpectTypeError"));
+                assert!(materialized.source.contains(&format!(
+                    "Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, \"{property}\")"
+                )));
+                if file == "this-is-not-object.js" {
+                    assert!(materialized.source.contains("getter.call(undefined)"));
+                    assert!(materialized.source.contains("getter.call(s)"));
+                } else {
+                    assert!(materialized.source.contains("getter.call({})"));
+                    assert!(materialized.source.contains("getter.call(ta)"));
+                    assert!(materialized.source.contains("getter.call(dv)"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_constructor_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "detachArrayBuffer.js".to_string(),
+            "function $DETACHBUFFER() { throw 'detach helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/length.js",
+                vec![
+                    "Object.getOwnPropertyDescriptor(DataView, \"length\")",
+                    "DataView.length !== 1",
+                ],
+            ),
+            (
+                "built-ins/DataView/dataview.js",
+                vec![
+                    "Object.getOwnPropertyDescriptor(this, \"DataView\")",
+                    "desc.value !== DataView",
+                ],
+            ),
+            (
+                "built-ins/DataView/buffer-not-object-throws.js",
+                vec![
+                    "new DataView(0, obj)",
+                    "new DataView(Symbol(\"1\"), obj)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/buffer-does-not-have-arraybuffer-data-throws-sab.js",
+                vec![
+                    "new SharedArrayBuffer(1)",
+                    "new DataView(other, obj)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/defined-bytelength-and-byteoffset.js",
+                vec![
+                    "new ArrayBuffer(3)",
+                    "new DataView(buffer, 1, 2)",
+                    "__porfExpectDataView",
+                ],
+            ),
+            (
+                "built-ins/DataView/toindex-byteoffset-sab.js",
+                vec![
+                    "new SharedArrayBuffer(42)",
+                    "new DataView(ab, obj1).byteOffset !== 3",
+                    "new DataView(ab, -0.99999).byteOffset !== 0",
+                ],
+            ),
+            (
+                "built-ins/DataView/excessive-bytelength-throws.js",
+                vec![
+                    "new DataView(buffer, 0, 4)",
+                    "new DataView(buffer, 0, Infinity)",
+                    "__porfAssertThrows(RangeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/return-abrupt-tonumber-bytelength-symbol-sab.js",
+                vec![
+                    "new SharedArrayBuffer(8)",
+                    "new DataView(buffer, 0, s)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/detached-buffer.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "new DataView(buffer, obj)",
+                    "toNumberOffset !== 1",
+                ],
+            ),
+            (
+                "built-ins/DataView/custom-proto-access-resizes-buffer-valid-by-offset.js",
+                vec![
+                    "buffer.resize(2)",
+                    "Reflect.construct(DataView, [buffer, 2], newTarget)",
+                    "result.byteLength !== expectedByteLength",
+                ],
+            ),
+            (
+                "built-ins/DataView/custom-proto-access-resizes-buffer-valid-by-length.js",
+                vec![
+                    "buffer.resize(2)",
+                    "Reflect.construct(DataView, [buffer, 1, 1], newTarget)",
+                    "result.byteLength !== 1",
+                ],
+            ),
+            (
+                "built-ins/DataView/custom-proto-access-resizes-buffer-invalid-by-offset.js",
+                vec![
+                    "buffer.resize(1)",
+                    "Reflect.construct(DataView, [buffer, 2], newTarget)",
+                    "error !== expectedError",
+                ],
+            ),
+            (
+                "built-ins/DataView/custom-proto-access-resizes-buffer-invalid-by-length.js",
+                vec![
+                    "buffer.resize(2)",
+                    "Reflect.construct(DataView, [buffer, 1, 2], newTarget)",
+                    "error !== expectedError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "propertyHelper.js".to_string(),
+                "detachArrayBuffer.js".to_string(),
+            ];
+            case.original_source =
+                "verifyProperty(DataView, 'length', {}); $DETACHBUFFER(buffer); assert.throws(TypeError, function () {});"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("detach helper used"));
+            assert!(!materialized.source.contains("verifyProperty"));
+            assert!(!materialized.source.contains("$DETACHBUFFER"));
+            assert!(!materialized.source.contains("assert.throws"));
+            assert!(!materialized.source.contains("assert.sameValue"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_accessor_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for property in ["buffer", "byteLength", "byteOffset"] {
+            for file in ["length.js", "name.js", "prop-desc.js"] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/DataView/prototype/{property}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized.source.contains(&format!(
+                    "Object.getOwnPropertyDescriptor(DataView.prototype, \"{property}\")"
+                )));
+                assert!(materialized
+                    .source
+                    .contains(&format!("desc.get.name !== \"get {property}\"")));
+                assert!(materialized
+                    .source
+                    .contains("Object.getOwnPropertyDescriptor(desc.get, \"length\")"));
+                assert!(materialized
+                    .source
+                    .contains("Object.getOwnPropertyDescriptor(desc.get, \"name\")"));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_accessor_wrong_receiver_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for property in ["buffer", "byteLength", "byteOffset"] {
+            for file in [
+                "this-is-not-object.js",
+                "this-has-no-dataview-internal.js",
+                "this-has-no-dataview-internal-sab.js",
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/DataView/prototype/{property}/{file}"));
+                case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("assert.throws"));
+                assert!(materialized.source.contains("__porfAssertThrows"));
+                assert!(materialized.source.contains(&format!(
+                    "Object.getOwnPropertyDescriptor(DataView.prototype, \"{property}\")"
+                )));
+                if file == "this-is-not-object.js" {
+                    assert!(materialized.source.contains("getter.call(undefined)"));
+                    assert!(materialized.source.contains("getter.call(s)"));
+                } else {
+                    assert!(materialized.source.contains("getter.call({})"));
+                    assert!(materialized.source.contains("getter.call(ab)"));
+                    assert!(materialized.source.contains("getter.call(sab)"));
+                    assert!(materialized.source.contains("getter.call(ta)"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_method_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, expected_length) in [
+            ("getInt8", 1),
+            ("getUint8", 1),
+            ("getFloat64", 1),
+            ("getBigInt64", 1),
+            ("setUint8", 2),
+            ("setFloat64", 2),
+            ("setBigInt64", 2),
+        ] {
+            for file in ["length.js", "name.js"] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/DataView/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized
+                    .source
+                    .contains(&format!("var fn = DataView.prototype.{method};")));
+                assert!(materialized
+                    .source
+                    .contains(&format!("fn.length !== {expected_length}")));
+                assert!(materialized
+                    .source
+                    .contains(&format!("fn.name !== \"{method}\"")));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_method_wrong_receiver_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for method in ["getInt16", "getInt32", "setUint16", "setFloat64"] {
+            for file in ["this-is-not-object.js", "this-has-no-dataview-internal.js"] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/DataView/prototype/{method}/{file}"));
+                case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("assert.throws"));
+                assert!(materialized.source.contains("__porfAssertThrows"));
+                assert!(materialized
+                    .source
+                    .contains(&format!("var fn = DataView.prototype.{method};")));
+                if file == "this-is-not-object.js" {
+                    assert!(materialized.source.contains("fn.call(undefined)"));
+                    assert!(materialized.source.contains("fn.call(s)"));
+                } else {
+                    assert!(materialized.source.contains("fn.call({})"));
+                    assert!(materialized.source.contains("fn.call(ab)"));
+                    assert!(materialized.source.contains("fn.call(ta)"));
+                    assert!(!materialized.source.contains("fn.call(sab)"));
+                }
+            }
+        }
+
+        let mut sab_case = synthetic_case(
+            "built-ins/DataView/prototype/getInt32/this-has-no-dataview-internal-sab.js",
+        );
+        sab_case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+        let materialized =
+            materialize_test(&sab_case, &store).expect("materialization should work");
+        assert!(materialized.source.contains("fn.call(sab)"));
+    }
+
+    #[test]
+    fn materialize_dataview_method_abrupt_tonumber_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/prototype/getInt16/return-abrupt-from-tonumber-byteoffset.js",
+                vec![
+                    "new ArrayBuffer(8)",
+                    "sample.getInt16(bo1)",
+                    "sample.getInt16(bo2)",
+                    "__porfAssertThrows(Test262Error",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getInt32/return-abrupt-from-tonumber-byteoffset-sab.js",
+                vec![
+                    "new SharedArrayBuffer(8)",
+                    "sample.getInt32(bo1)",
+                    "sample.getInt32(bo2)",
+                    "__porfAssertThrows(Test262Error",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setUint16/return-abrupt-from-tonumber-byteoffset-symbol.js",
+                vec![
+                    "new ArrayBuffer(8)",
+                    "sample.setUint16(s, 1)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setFloat64/return-abrupt-from-tonumber-value.js",
+                vec![
+                    "new ArrayBuffer(8)",
+                    "sample.setFloat64(0, bo1)",
+                    "sample.setFloat64(0, bo2)",
+                    "__porfAssertThrows(Test262Error",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setInt8/return-abrupt-from-tonumber-value-symbol.js",
+                vec![
+                    "new ArrayBuffer(8)",
+                    "sample.setInt8(0, s)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+            let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert.throws"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_method_range_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/prototype/getInt16/index-is-out-of-range.js",
+                vec![
+                    "sample.getInt16(Infinity)",
+                    "sample.getInt16(11)",
+                    "new DataView(buffer, 10)",
+                    "new DataView(buffer, 0, 1)",
+                    "__porfAssertThrows(RangeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setFloat64/index-is-out-of-range.js",
+                vec![
+                    "sample.setFloat64(Infinity, 39)",
+                    "sample.setFloat64(5, 39)",
+                    "new DataView(buffer, 4)",
+                    "sample.getFloat64(0)",
+                    "__porfAssertThrows(RangeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setUint16/range-check-after-value-conversion.js",
+                vec![
+                    "new DataView(new ArrayBuffer(8), 0)",
+                    "dataView.setUint16(100, poisoned)",
+                    "dataView.setUint16(\"100\", poisoned)",
+                    "__porfAssertThrows(Test262Error",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setInt32/index-check-before-value-conversion.js",
+                vec![
+                    "dataView.setInt32(-1.5, poisoned)",
+                    "dataView.setInt32(-Infinity, poisoned)",
+                    "__porfAssertThrows(RangeError",
+                    "throw new Test262Error",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = "assert.throws(RangeError, function () {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert.throws"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_bigint_get_toindex_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/prototype/getBigInt64/toindex-byteoffset-errors.js",
+                vec![
+                    "sample.getBigInt64(-2.5)",
+                    "sample.getBigInt64(Object(0n))",
+                    "return Symbol(\"1\")",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getBigUint64/toindex-byteoffset-errors.js",
+                vec![
+                    "sample.getBigUint64(9007199254740992)",
+                    "sample.getBigUint64(Object(Symbol(\"1\")))",
+                    "return 0n",
+                    "__porfAssertThrows(RangeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getBigInt64/toindex-byteoffset-toprimitive.js",
+                vec![
+                    "__porfExpectBigInt(sample.getBigInt64",
+                    "0x20602800080017fn",
+                    "return Object(12345)",
+                    "__porfAssertThrows(MyError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getBigUint64/toindex-byteoffset-toprimitive.js",
+                vec![
+                    "__porfExpectBigInt(sample.getBigUint64",
+                    "[Symbol.toPrimitive]: undefined",
+                    "valueOf: null",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source =
+                "assert.sameValue(sample.getBigInt64({}), 0n); assert.throws(TypeError, function () {});"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert.sameValue"));
+            assert!(!materialized.source.contains("assert.throws"));
+            assert!(materialized.source.contains("new DataView(buffer, 0)"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_numeric_set_conversion_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "byteConversionValues.js".to_string(),
+            "var byteConversionValues = { values: [], expected: {} };".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, getter, high_expected) in [
+            ("setInt8", "getInt8", "-128"),
+            ("setUint8", "getUint8", "255"),
+            ("setInt16", "getInt16", "-32768"),
+            ("setUint16", "getUint16", "65535"),
+            ("setInt32", "getInt32", "-2147483648"),
+            ("setUint32", "getUint32", "4294967295"),
+            ("setFloat32", "getFloat32", "1.100000023841858"),
+            ("setFloat64", "getFloat64", "9007199254740991"),
+        ] {
+            let mut case = synthetic_case(&format!(
+                "built-ins/DataView/prototype/{method}/set-values-return-undefined.js"
+            ));
+            case.includes = vec!["byteConversionValues.js".to_string()];
+            case.original_source =
+                "byteConversionValues.values.forEach(function () {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("byteConversionValues"));
+            assert!(!materialized.source.contains(".forEach("));
+            let expected_call = if method.ends_with('8') {
+                format!("sample.{method}(0, values[i])")
+            } else {
+                format!("sample.{method}(0, values[i], false)")
+            };
+            assert!(materialized.source.contains(&expected_call));
+            assert!(materialized.source.contains(&format!("sample.{getter}(0)")));
+            assert!(materialized.source.contains(high_expected));
+            assert!(materialized.source.contains("__porfSameValue"));
+            assert!(materialized.source.contains("result !== undefined"));
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_method_detached_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/prototype/getInt16/detached-buffer.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "sample.getInt16(0)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getUint16/detached-buffer-before-outofrange-byteoffset.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "sample.getUint16(13)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getUint16/detached-buffer-after-toindex-byteoffset.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "sample.getUint16(Infinity)",
+                    "sample.getUint16(-1)",
+                    "__porfAssertThrows(RangeError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setUint16/detached-buffer-after-number-value.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "sample.setUint16(0, v)",
+                    "__porfAssertThrows(Test262Error",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setBigInt64/detached-buffer.js",
+                vec![
+                    "__porfDetachArrayBuffer(buffer)",
+                    "sample.setBigInt64(0, 0n)",
+                    "__porfAssertThrows(TypeError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["detachArrayBuffer.js".to_string()];
+            case.original_source = "$DETACHBUFFER(buffer); assert.throws(TypeError, function () {});"
+                .to_string();
+
+            let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("$DETACHBUFFER"));
+            assert!(!materialized.source.contains("assert.throws"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_dataview_method_resizable_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/DataView/prototype/getInt16/resizable-buffer.js",
+                vec![
+                    "new ArrayBuffer(24, {maxByteLength: 32})",
+                    "buffer.resize(32)",
+                    "sample.getInt16(0) !== 0",
+                    "buffer.resize(8)",
+                    "__porfAssertThrows(expectedError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/setUint16/resizable-buffer.js",
+                vec![
+                    "new ArrayBuffer(24, {maxByteLength: 32})",
+                    "buffer.resize(16)",
+                    "sample.setUint16(0, 20)",
+                    "sample.setUint16(0, 30)",
+                    "__porfAssertThrows(expectedError",
+                ],
+            ),
+            (
+                "built-ins/DataView/prototype/getBigInt64/resizable-buffer.js",
+                vec![
+                    "sample.getBigInt64(0) !== 0n",
+                    "throw new Test262Error",
+                    "__porfAssertThrows(expectedError",
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source =
+                "assert.sameValue(sample.getInt16(0), 0); assert.throws(TypeError, function () {});"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert.sameValue"));
+            assert!(!materialized.source.contains("assert.throws"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_arraybuffer_slice_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for file in ["length.js", "name.js", "descriptor.js"] {
+            let mut case = synthetic_case(&format!("built-ins/ArrayBuffer/prototype/slice/{file}"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized
+                .source
+                .contains("Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, \"slice\")"));
+            assert!(materialized.source.contains(
+                "Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, \"length\")"
+            ));
+            assert!(materialized.source.contains(
+                "Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, \"name\")"
+            ));
+            assert!(materialized.source.contains("lengthDesc.value !== 2"));
+            assert!(materialized.source.contains("nameDesc.value !== \"slice\""));
+        }
+    }
+
+    #[test]
+    fn materialize_arraybuffer_slice_wrong_receiver_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+
+        for file in [
+            "context-is-not-object.js",
+            "context-is-not-arraybuffer-object.js",
+        ] {
+            let mut case = synthetic_case(&format!("built-ins/ArrayBuffer/prototype/slice/{file}"));
+            case.original_source = "assert.throws(TypeError, function () {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert.throws"));
+            assert!(materialized
+                .source
+                .contains("var slice = ArrayBuffer.prototype.slice;"));
+            assert!(materialized.source.contains("__porfAssertThrows"));
+            if file == "context-is-not-object.js" {
+                assert!(materialized.source.contains("slice.call(undefined)"));
+                assert!(materialized.source.contains("slice.call(Symbol())"));
+            } else {
+                assert!(materialized.source.contains("slice.call({})"));
+                assert!(materialized.source.contains("slice.call([])"));
+            }
+        }
     }
 
     #[test]
@@ -6357,6 +18946,129 @@ mod tests {
             None
         );
 
+        let mut array_at_resizable_case =
+            synthetic_case("built-ins/Array/prototype/at/typed-array-resizable-buffer.js");
+        array_at_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&array_at_resizable_case), None);
+
+        let mut array_at_coerced_index_resize_case =
+            synthetic_case("built-ins/Array/prototype/at/coerced-index-resize.js");
+        array_at_coerced_index_resize_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_at_coerced_index_resize_case),
+            None
+        );
+
+        for path in [
+            "built-ins/TypedArray/prototype/at/coerced-index-resize.js",
+            "built-ins/TypedArray/prototype/at/resizable-buffer.js",
+            "built-ins/TypedArray/prototype/at/return-abrupt-from-this-out-of-bounds.js",
+        ] {
+            let mut typedarray_at_resizable_case = synthetic_case(path);
+            typedarray_at_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&typedarray_at_resizable_case),
+                None,
+                "{path}"
+            );
+        }
+        let mut typedarray_at_bigint_resizable_case = synthetic_case(
+            "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js",
+        );
+        typedarray_at_bigint_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typedarray_at_bigint_resizable_case),
+            None
+        );
+
+        let mut array_includes_resizable_case =
+            synthetic_case("built-ins/Array/prototype/includes/resizable-buffer.js");
+        array_includes_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_includes_resizable_case),
+            None
+        );
+
+        let mut array_filter_resizable_case =
+            synthetic_case("built-ins/Array/prototype/filter/resizable-buffer.js");
+        array_filter_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_filter_resizable_case),
+            None
+        );
+
+        let mut array_find_resizable_case =
+            synthetic_case("built-ins/Array/prototype/find/resizable-buffer.js");
+        array_find_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_find_resizable_case),
+            None
+        );
+
+        let mut array_find_index_resizable_case =
+            synthetic_case("built-ins/Array/prototype/findIndex/resizable-buffer.js");
+        array_find_index_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_find_index_resizable_case),
+            None
+        );
+
+        let mut array_find_last_resizable_case =
+            synthetic_case("built-ins/Array/prototype/findLast/resizable-buffer.js");
+        array_find_last_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_find_last_resizable_case),
+            None
+        );
+
+        let mut array_find_last_index_resizable_case =
+            synthetic_case("built-ins/Array/prototype/findLastIndex/resizable-buffer.js");
+        array_find_last_index_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_find_last_index_resizable_case),
+            None
+        );
+
+        let mut array_every_resizable_case =
+            synthetic_case("built-ins/Array/prototype/every/resizable-buffer.js");
+        array_every_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_every_resizable_case),
+            None
+        );
+
+        let mut array_some_callback_resize_case =
+            synthetic_case("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js");
+        array_some_callback_resize_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_some_callback_resize_case),
+            None
+        );
+
         let mut array_some_resizable_case =
             synthetic_case("built-ins/Array/prototype/some/resizable-buffer.js");
         array_some_resizable_case
@@ -6409,6 +19121,41 @@ mod tests {
 
         case.original_source =
             "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+
+        case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function('return 1');"
+                .to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&case),
+            Some("Function constructor dynamic code generation")
+        );
+
+        let mut array_buffer_case =
+            synthetic_case("built-ins/ArrayBuffer/proto-from-ctor-realm.js");
+        array_buffer_case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
+
+        array_buffer_case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function('return 1');"
+                .to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_buffer_case),
+            Some("Function constructor dynamic code generation")
+        );
+
+        case.original_source =
+            "let GeneratorFunction = Object.getPrototypeOf(function*(){}).constructor; let g = GeneratorFunction('yield 1');"
+                .to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&case),
+            Some("Function constructor dynamic code generation")
+        );
+
+        case.original_source =
+            "async function f() {} var AsyncFunction = f.constructor; var g = AsyncFunction('return 1');"
+                .to_string();
         assert_eq!(
             wasm_aot_unsupported_feature(&case),
             Some("Function constructor dynamic code generation")

@@ -258,41 +258,68 @@ function verifyProperty(obj, name, desc) {
 
 var verifyPrimordialProperty = verifyProperty;
 
-function verifyNotWritable(obj, name) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined) {
-    throw "Expected descriptor to exist";
+function __porfIsWritable(obj, name, verifyProp, value) {
+  var newValue = value || "unlikelyValue";
+  var oldValue = obj[name];
+  var hadValue = Object.prototype.hasOwnProperty.call(obj, name);
+  var writeSucceeded;
+
+  if (arguments.length < 4 && newValue === oldValue) {
+    newValue = newValue + "2";
   }
-  if (desc.set !== undefined) {
-    throw "Expected obj[" + String(name) + "] NOT to be writable, but setter exists.";
+
+  try {
+    obj[name] = newValue;
+  } catch (e) {
   }
-  if (desc.writable !== undefined) {
-    if (desc.writable !== false) {
-      throw "Expected obj[" + String(name) + "] NOT to be writable.";
+
+  writeSucceeded = obj[verifyProp || name] === newValue;
+
+  if (writeSucceeded) {
+    if (hadValue) {
+      obj[name] = oldValue;
+    } else {
+      delete obj[name];
     }
+  }
+
+  return writeSucceeded;
+}
+
+function verifyNotWritable(obj, name, verifyProp, value) {
+  var desc;
+  if (verifyProp === undefined) {
+    desc = Object.getOwnPropertyDescriptor(obj, name);
+    if (desc === undefined) {
+      throw "Expected descriptor to exist";
+    }
+    if (desc.set !== undefined) {
+      throw "Expected obj[" + String(name) + "] NOT to be writable, but setter exists.";
+    }
+    if (desc.writable !== undefined) {
+      if (desc.writable !== false) {
+        throw "Expected obj[" + String(name) + "] NOT to be writable.";
+      }
+    }
+  }
+  if (__porfIsWritable(obj, name, verifyProp, value)) {
+    throw "Expected obj[" + String(name) + "] NOT to be writable.";
   }
   return true;
 }
 
 function verifyWritable(obj, name, verifyProp, value) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined) {
-    throw "Expected obj[" + String(name) + "] to be writable.";
-  }
-  if (verifyProp !== undefined) {
-    var newValue = value || "unlikelyValue";
-    var oldValue = obj[name];
-    if (newValue === oldValue) {
-      newValue = newValue + "2";
-    }
-    obj[name] = newValue;
-    if (obj[verifyProp] !== newValue) {
+  var desc;
+  if (verifyProp === undefined) {
+    desc = Object.getOwnPropertyDescriptor(obj, name);
+    if (desc === undefined) {
       throw "Expected obj[" + String(name) + "] to be writable.";
     }
-    obj[name] = oldValue;
-    return true;
+    if (desc.writable !== true) {
+      throw "Expected obj[" + String(name) + "] to be writable.";
+    }
   }
-  if (desc.writable !== true) {
+  if (!__porfIsWritable(obj, name, verifyProp, value)) {
     throw "Expected obj[" + String(name) + "] to be writable.";
   }
   return true;
@@ -372,7 +399,7 @@ var nonClampedIntArrayConstructors = [
 ];
 var intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);
 var typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);
-var bigIntArrayConstructors = [];
+var bigIntArrayConstructors = [BigInt64Array, BigUint64Array];
 var allTypedArrayConstructors = typedArrayConstructors;
 var TypedArray = Object.getPrototypeOf(Int8Array);
 var nonAtomicsFriendlyTypedArrayConstructors = floatArrayConstructors.concat([Uint8ClampedArray]);
@@ -436,7 +463,23 @@ function testWithAllTypedArrayConstructors(f, selected, includeArgFactories, exc
   testWithTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories);
 }
 
-function testWithBigIntTypedArrayConstructors(f, selected) {
+function testWithBigIntTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
+  var passthrough = function (value) { return value; };
+  if (includeArgFactories !== undefined && includeArgFactories !== null) {
+    if (includeArgFactories.length !== 1 || includeArgFactories[0] !== "passthrough") {
+      throw "no arg factories match include and exclude in wasm-aot harness";
+    }
+  }
+  if (excludeArgFactories !== undefined && excludeArgFactories !== null && excludeArgFactories.length > 0) {
+    throw "no arg factories match include and exclude in wasm-aot harness";
+  }
+  if (selected === undefined || selected === null || selected === bigIntArrayConstructors) {
+    __porfCurrentTypedArrayConstructorIsFloat = false;
+    __porfCallTypedArrayConstructorCallback(f, BigInt64Array, passthrough);
+    __porfCallTypedArrayConstructorCallback(f, BigUint64Array, passthrough);
+    return;
+  }
+  throw "testWithBigIntTypedArrayConstructors selected set unsupported in wasm-aot harness";
 }
 
 function testWithAtomicsFriendlyTypedArrayConstructors(f) {
@@ -499,15 +542,6 @@ function testTypedArrayConversions(byteConversionValues, fn) {
 
 function testWithNonAtomicsFriendlyTypedArrayConstructors(f) {
   throw "testWithNonAtomicsFriendlyTypedArrayConstructors unsupported in wasm-aot harness";
-}
-
-/// resizableArrayBufferUtils.js
-function BigInt64Array() {
-  __porfUnsupportedHost('BigInt64Array');
-}
-
-function BigUint64Array() {
-  __porfUnsupportedHost('BigUint64Array');
 }
 
 const ctors = [

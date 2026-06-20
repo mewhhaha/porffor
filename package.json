@@ -4,7 +4,9 @@
   "version": "0.61.12",
   "author": "Oliver Medhurst <honk@goose.icu>",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "test:types": "node runtime/types.test.mjs"
+  },
   "dependencies": {
     "acorn": "^8.15.0",
     "node-repl-polyfill": "^0.1.2"

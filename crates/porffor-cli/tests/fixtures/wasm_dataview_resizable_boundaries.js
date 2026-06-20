@@ -147,6 +147,49 @@ let boundResult = Reflect.construct(DataView, [short, 1, 1], boundNewTarget);
 if (boundResult.constructor !== DataView) throw "bound constructor";
 if (boundResult.byteLength !== 1) throw "bound byteLength";
 
+let offsetBoundaryBuffer = new ArrayBuffer(3, { maxByteLength: 3 });
+let offsetBoundaryNewTarget = function () {}.bind(null);
+Object.defineProperty(offsetBoundaryNewTarget, "prototype", {
+  get: function () {
+    try {
+      offsetBoundaryBuffer.resize(2);
+    } catch (error) {}
+  }
+});
+let offsetBoundaryResult = Reflect.construct(DataView, [offsetBoundaryBuffer, 2], offsetBoundaryNewTarget);
+if (offsetBoundaryResult.constructor !== DataView) throw "offset boundary constructor";
+if (offsetBoundaryResult.byteLength !== 0) throw "offset boundary byteLength";
+
+var materializedOffsetBuffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var materializedExpectedByteLength;
+var materializedOffsetNewTarget = function () {}.bind(null);
+Object.defineProperty(materializedOffsetNewTarget, "prototype", {
+  get: function () {
+    try {
+      materializedOffsetBuffer.resize(2);
+      materializedExpectedByteLength = 0;
+    } catch (error) {
+      materializedExpectedByteLength = 1;
+    }
+  }
+});
+var materializedOffsetResult = Reflect.construct(DataView, [materializedOffsetBuffer, 2], materializedOffsetNewTarget);
+if (materializedOffsetResult.constructor !== DataView) throw "materialized offset constructor";
+if (materializedOffsetResult.byteLength !== materializedExpectedByteLength) throw "materialized offset byteLength";
+
+var materializedLengthBuffer = new ArrayBuffer(3, { maxByteLength: 3 });
+var materializedLengthNewTarget = function () {}.bind(null);
+Object.defineProperty(materializedLengthNewTarget, "prototype", {
+  get: function () {
+    try {
+      materializedLengthBuffer.resize(2);
+    } catch (error) {}
+  }
+});
+var materializedLengthResult = Reflect.construct(DataView, [materializedLengthBuffer, 1, 1], materializedLengthNewTarget);
+if (materializedLengthResult.constructor !== DataView) throw "materialized length constructor";
+if (materializedLengthResult.byteLength !== 1) throw "materialized length byteLength";
+
 let floatBuffer = new ArrayBuffer(16, { maxByteLength: 32 });
 let floatFixed = new DataView(floatBuffer, 4, 8);
 floatFixed.setFloat64(0, 13.5);

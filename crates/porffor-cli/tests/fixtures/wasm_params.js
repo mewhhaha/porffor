@@ -10,4 +10,8 @@ let o = {
 };
 
 outer(3, 4, 5);
-o.f();
+function pick({ value = 2 }) {
+  return value;
+}
+
+o.f() + pick({}) + pick({ value: 5 }) - 7;

@@ -11,6 +11,46 @@ if (sliced.byteLength !== 2) throw "slice length";
 if (slicedView.getUint8(0) !== 22) throw "slice first byte";
 if (slicedView.getUint8(1) !== 33) throw "slice second byte";
 
+let sliceDesc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "slice");
+if (typeof sliceDesc.value !== "function") throw "slice function";
+if (sliceDesc.writable !== true) throw "slice writable";
+if (sliceDesc.enumerable !== false) throw "slice enumerable";
+if (sliceDesc.configurable !== true) throw "slice configurable";
+
+let sliceLengthDesc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, "length");
+if (ArrayBuffer.prototype.slice.length !== 2) throw "slice length value";
+if (sliceLengthDesc.value !== 2) throw "slice length descriptor value";
+if (sliceLengthDesc.writable !== false) throw "slice length writable";
+if (sliceLengthDesc.enumerable !== false) throw "slice length enumerable";
+if (sliceLengthDesc.configurable !== true) throw "slice length configurable";
+
+let sliceNameDesc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype.slice, "name");
+if (ArrayBuffer.prototype.slice.name !== "slice") throw "slice name value";
+if (sliceNameDesc.value !== "slice") throw "slice name descriptor value";
+if (sliceNameDesc.writable !== false) throw "slice name writable";
+if (sliceNameDesc.enumerable !== false) throw "slice name enumerable";
+if (sliceNameDesc.configurable !== true) throw "slice name configurable";
+
+__porfAssertThrows(TypeError, function () {
+  ArrayBuffer.prototype.slice.call(undefined);
+});
+
+__porfAssertThrows(TypeError, function () {
+  ArrayBuffer.prototype.slice.call(null);
+});
+
+__porfAssertThrows(TypeError, function () {
+  ArrayBuffer.prototype.slice.call(Symbol());
+});
+
+__porfAssertThrows(TypeError, function () {
+  ArrayBuffer.prototype.slice.call({});
+});
+
+__porfAssertThrows(TypeError, function () {
+  ArrayBuffer.prototype.slice.call([]);
+});
+
 let clamped = buffer.slice(99, 100);
 if (clamped.byteLength !== 0) throw "slice clamp";
 

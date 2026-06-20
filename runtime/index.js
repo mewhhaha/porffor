@@ -29,6 +29,9 @@ const help = () => {
     profile: [ 93, 'foo.js', 'View detailed func-by-func performance' ],
     debug: [ 33, 'foo.js', 'Debug the source of a file' ],
     // dissect: [ 33, 'foo.js', 'Debug the compiled Wasm of a file' ],
+
+    'Generate': [],
+    types: [ 32, 'src/index.ts --config wrangler.jsonc', 'Generate TypeScript worker types' ],
   })) {
     if (color == null) {
       // header
@@ -38,7 +41,7 @@ const help = () => {
 
     if (cmd.length > 0) post = ' ' + post;
 
-    console.log(`  \x1B[2mporf\x1B[0m \x1B[1m\x1B[${color}m${cmd}\x1B[0m${post} ${' '.repeat(30 - cmd.length - post.length)}${desc}`);
+    console.log(`  \x1B[2mporf\x1B[0m \x1B[1m\x1B[${color}m${cmd}\x1B[0m${post} ${' '.repeat(Math.max(1, 30 - cmd.length - post.length))}${desc}`);
   }
 
   // flags
@@ -84,7 +87,9 @@ const help = () => {
   process.exit(0);
 };
 
-if (process.argv.includes('--help') || process.argv.includes('-h')) {
+const firstNonFlag = process.argv.slice(2).find(x => x[0] !== '-');
+const commandHasOwnHelp = [ 'types', 'typegen' ].includes(firstNonFlag);
+if (!commandHasOwnHelp && (process.argv.includes('--help') || process.argv.includes('-h'))) {
   help();
 }
 
@@ -94,10 +99,10 @@ const done = async () => {
   process.exit();
 };
 
-let file = process.argv.slice(2).find(x => x[0] !== '-');
+let file = firstNonFlag;
 if (file === 'help') help();
 
-if (['precompile', 'run', 'wasm', 'native', 'c', 'lambda', 'profile', 'debug'].includes(file)) {
+if (['precompile', 'run', 'wasm', 'native', 'c', 'lambda', 'profile', 'debug', 'types', 'typegen'].includes(file)) {
   // remove this arg
   process.argv.splice(process.argv.indexOf(file), 1);
 
@@ -114,6 +119,18 @@ if (['precompile', 'run', 'wasm', 'native', 'c', 'lambda', 'profile', 'debug'].i
   if (file === 'debug') {
     await import('./debug.js');
     await done();
+  }
+
+  if (file === 'types' || file === 'typegen') {
+    try {
+      const generateTypes = (await import('./types.js')).default;
+      await generateTypes(process.argv.slice(2));
+    } catch (e) {
+      console.error(e?.message ?? e);
+      process.exit(1);
+    }
+
+    process.exit(0);
   }
 
   if (['wasm', 'native', 'c'].includes(file)) {

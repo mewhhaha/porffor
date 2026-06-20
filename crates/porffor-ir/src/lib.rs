@@ -46,9 +46,12 @@ use regress::Regex;
 
 const SCRIPT_OWNER_ID: &str = "$script";
 const MAX_STATIC_ARRAY_SHAPE_INDEX: usize = 1_000_000;
+const MAX_ARRAY_INDEX: f64 = 4_294_967_294.0;
+pub const JS_STRING_SURROGATE_SENTINEL: char = '\u{F0000}';
 pub const LEXICAL_THIS_NAME: &str = "$this";
 pub const LEXICAL_ARGUMENTS_NAME: &str = "$arguments";
 pub const LEXICAL_NEW_TARGET_NAME: &str = "$new.target";
+const TDZ_BINDING_STORAGE_PREFIX: &str = "$tdz.";
 pub const GLOBAL_THIS_NAME: &str = "globalThis";
 pub const MATH_NAME: &str = "Math";
 pub const PRINT_NAME: &str = "print";
@@ -91,6 +94,8 @@ pub const UINT32_ARRAY_NAME: &str = "Uint32Array";
 pub const UINT16_ARRAY_NAME: &str = "Uint16Array";
 pub const UINT8_ARRAY_NAME: &str = "Uint8Array";
 pub const UINT8_CLAMPED_ARRAY_NAME: &str = "Uint8ClampedArray";
+pub const BIGINT64_ARRAY_NAME: &str = "BigInt64Array";
+pub const BIGUINT64_ARRAY_NAME: &str = "BigUint64Array";
 pub const BIGINT_NAME: &str = "BigInt";
 pub const PROXY_NAME: &str = "Proxy";
 pub const REFLECT_NAME: &str = "Reflect";
@@ -100,6 +105,7 @@ pub const BOOLEAN_NAME: &str = "Boolean";
 pub const ERROR_NAME: &str = "Error";
 pub const EVAL_ERROR_NAME: &str = "EvalError";
 pub const AGGREGATE_ERROR_NAME: &str = "AggregateError";
+pub const SUPPRESSED_ERROR_NAME: &str = "SuppressedError";
 pub const RANGE_ERROR_NAME: &str = "RangeError";
 pub const SYNTAX_ERROR_NAME: &str = "SyntaxError";
 pub const TYPE_ERROR_NAME: &str = "TypeError";
@@ -146,8 +152,18 @@ pub const BUILTIN_PROXY_FUNCTION_ID: &str = "$builtin.Proxy";
 pub const BUILTIN_PROXY_REVOCABLE_FUNCTION_ID: &str = "$builtin.Proxy.revocable";
 pub const BUILTIN_PROXY_REVOKE_FUNCTION_ID: &str = "$builtin.[[ProxyRevoke]]";
 pub const BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID: &str = "$builtin.Reflect.construct";
+pub const BUILTIN_REFLECT_APPLY_FUNCTION_ID: &str = "$builtin.Reflect.apply";
 pub const BUILTIN_REFLECT_GET_FUNCTION_ID: &str = "$builtin.Reflect.get";
+pub const BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID: &str =
+    "$builtin.Reflect.getOwnPropertyDescriptor";
+pub const BUILTIN_REFLECT_SET_FUNCTION_ID: &str = "$builtin.Reflect.set";
 pub const BUILTIN_REFLECT_HAS_FUNCTION_ID: &str = "$builtin.Reflect.has";
+pub const BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID: &str = "$builtin.Reflect.defineProperty";
+pub const BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID: &str = "$builtin.Reflect.deleteProperty";
+pub const BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID: &str =
+    "$builtin.Reflect.preventExtensions";
+pub const BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Reflect.setPrototypeOf";
+pub const BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID: &str = "$builtin.Reflect.ownKeys";
 pub const BUILTIN_ARRAY_FUNCTION_ID: &str = "$builtin.Array";
 pub const BUILTIN_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.Array.from";
 pub const BUILTIN_ARRAY_OF_FUNCTION_ID: &str = "$builtin.Array.of";
@@ -156,9 +172,20 @@ pub const BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Array[Symbo
 pub const BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.Array.prototype.concat";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID: &str = "$builtin.Array.prototype.flat";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.flatMap";
+pub const BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.Array.prototype.at";
 pub const BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID: &str = "$builtin.Array.prototype.includes";
+pub const BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str = "$builtin.Array.prototype.indexOf";
+pub const BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.lastIndexOf";
+pub const BUILTIN_ARRAY_PROTOTYPE_FIND_FUNCTION_ID: &str = "$builtin.Array.prototype.find";
+pub const BUILTIN_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.findIndex";
+pub const BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID: &str = "$builtin.Array.prototype.findLast";
+pub const BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.findLastIndex";
 pub const BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID: &str = "$builtin.Array.prototype.every";
 pub const BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID: &str = "$builtin.Array.prototype.some";
+pub const BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str = "$builtin.Array.prototype.forEach";
 pub const BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID: &str = "$builtin.Array.prototype.filter";
 pub const BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.map";
 pub const BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID: &str = "$builtin.Array.prototype.pop";
@@ -222,6 +249,8 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.byteOffset.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.length.get";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.buffer.get";
 pub const BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.TypedArray.from";
 pub const BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID: &str = "$builtin.TypedArray.of";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
@@ -334,12 +363,16 @@ pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID: &str =
 pub const BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID: &str =
     "$builtin.Date.prototype.toUTCString";
 pub const BUILTIN_REGEXP_FUNCTION_ID: &str = "$builtin.RegExp";
+pub const BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.RegExp[Symbol.species].get";
 pub const BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.get";
 pub const BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.set";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.match]";
+pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype[Symbol.search]";
+pub const BUILTIN_REGEXP_ESCAPE_FUNCTION_ID: &str = "$builtin.RegExp.escape";
 pub const BUILTIN_JSON_PARSE_FUNCTION_ID: &str = "$builtin.JSON.parse";
 pub const BUILTIN_JSON_STRINGIFY_FUNCTION_ID: &str = "$builtin.JSON.stringify";
 pub const BUILTIN_JSON_RAW_JSON_FUNCTION_ID: &str = "$builtin.JSON.rawJSON";
@@ -353,6 +386,8 @@ pub const BUILTIN_UINT32_ARRAY_FUNCTION_ID: &str = "$builtin.Uint32Array";
 pub const BUILTIN_UINT16_ARRAY_FUNCTION_ID: &str = "$builtin.Uint16Array";
 pub const BUILTIN_UINT8_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8Array";
 pub const BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8ClampedArray";
+pub const BUILTIN_BIGINT64_ARRAY_FUNCTION_ID: &str = "$builtin.BigInt64Array";
+pub const BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID: &str = "$builtin.BigUint64Array";
 pub const BUILTIN_BIGINT_FUNCTION_ID: &str = "$builtin.BigInt";
 pub const BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID: &str = "$builtin.BigInt.asIntN";
 pub const BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID: &str = "$builtin.BigInt.asUintN";
@@ -367,6 +402,11 @@ pub const BUILTIN_STRING_FUNCTION_ID: &str = "$builtin.String";
 pub const BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.String.prototype.toString";
 pub const BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str = "$builtin.String.prototype.valueOf";
+pub const BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID: &str = "$builtin.String.prototype.charAt";
+pub const BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID: &str =
+    "$builtin.String.prototype.charCodeAt";
+pub const BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID: &str =
+    "$builtin.String.prototype.codePointAt";
 pub const BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID: &str = "$builtin.String.prototype.anchor";
 pub const BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID: &str = "$builtin.String.prototype.big";
 pub const BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID: &str = "$builtin.String.prototype.blink";
@@ -392,8 +432,15 @@ pub const BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID: &str = "$builtin.String.
 pub const BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID: &str =
     "$builtin.String.prototype.replaceAll";
 pub const BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID: &str = "$builtin.String.prototype.search";
+pub const BUILTIN_STRING_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str = "$builtin.String.prototype.indexOf";
+pub const BUILTIN_STRING_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID: &str =
+    "$builtin.String.prototype.lastIndexOf";
 pub const BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID: &str = "$builtin.String.prototype.slice";
 pub const BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID: &str = "$builtin.String.prototype.split";
+pub const BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID: &str =
+    "$builtin.String.prototype.endsWith";
+pub const BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
+    "$builtin.String.prototype.includes";
 pub const BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.startsWith";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
@@ -404,12 +451,14 @@ pub const BUILTIN_ERROR_FUNCTION_ID: &str = "$builtin.Error";
 pub const BUILTIN_ERROR_IS_ERROR_FUNCTION_ID: &str = "$builtin.Error.isError";
 pub const BUILTIN_EVAL_ERROR_FUNCTION_ID: &str = "$builtin.EvalError";
 pub const BUILTIN_AGGREGATE_ERROR_FUNCTION_ID: &str = "$builtin.AggregateError";
+pub const BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID: &str = "$builtin.SuppressedError";
 pub const BUILTIN_RANGE_ERROR_FUNCTION_ID: &str = "$builtin.RangeError";
 pub const BUILTIN_SYNTAX_ERROR_FUNCTION_ID: &str = "$builtin.SyntaxError";
 pub const BUILTIN_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.TypeError";
 pub const BUILTIN_URI_ERROR_FUNCTION_ID: &str = "$builtin.URIError";
 pub const BUILTIN_REFERENCE_ERROR_FUNCTION_ID: &str = "$builtin.ReferenceError";
 pub const BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Error.prototype.toString";
+pub const BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.%ThrowTypeError%";
 pub const BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID: &str = "$builtin.[[BoundFunctionInvoke]]";
 pub const BUILTIN_ESCAPE_FUNCTION_ID: &str = "$builtin.escape";
 pub const BUILTIN_UNESCAPE_FUNCTION_ID: &str = "$builtin.unescape";
@@ -542,8 +591,16 @@ pub enum StandardBuiltinId {
     ProxyRevocable,
     ProxyRevoke,
     ReflectConstruct,
+    ReflectApply,
     ReflectGet,
+    ReflectGetOwnPropertyDescriptor,
+    ReflectSet,
     ReflectHas,
+    ReflectDefineProperty,
+    ReflectDeleteProperty,
+    ReflectPreventExtensions,
+    ReflectSetPrototypeOf,
+    ReflectOwnKeys,
     ArrayConstructor,
     ArrayFrom,
     ArrayOf,
@@ -552,9 +609,17 @@ pub enum StandardBuiltinId {
     ArrayPrototypeConcat,
     ArrayPrototypeFlat,
     ArrayPrototypeFlatMap,
+    ArrayPrototypeAt,
     ArrayPrototypeIncludes,
+    ArrayPrototypeIndexOf,
+    ArrayPrototypeLastIndexOf,
+    ArrayPrototypeFind,
+    ArrayPrototypeFindIndex,
+    ArrayPrototypeFindLast,
+    ArrayPrototypeFindLastIndex,
     ArrayPrototypeEvery,
     ArrayPrototypeSome,
+    ArrayPrototypeForEach,
     ArrayPrototypeFilter,
     ArrayPrototypeMap,
     ArrayPrototypePop,
@@ -591,6 +656,7 @@ pub enum StandardBuiltinId {
     DataViewPrototypeBufferGetter,
     DataViewPrototypeByteLengthGetter,
     DataViewPrototypeByteOffsetGetter,
+    TypedArrayPrototypeBufferGetter,
     TypedArrayPrototypeByteLengthGetter,
     TypedArrayPrototypeByteOffsetGetter,
     TypedArrayPrototypeLengthGetter,
@@ -659,9 +725,12 @@ pub enum StandardBuiltinId {
     DatePrototypeSetUtcMilliseconds,
     DatePrototypeToUtcString,
     RegExpConstructor,
+    RegExpSpeciesGetter,
     RegExpLegacyStaticGetter,
     RegExpLegacyStaticSetter,
     RegExpPrototypeSymbolMatch,
+    RegExpPrototypeSymbolSearch,
+    RegExpEscape,
     JsonParse,
     JsonStringify,
     JsonRawJson,
@@ -675,6 +744,8 @@ pub enum StandardBuiltinId {
     Uint16ArrayConstructor,
     Uint8ArrayConstructor,
     Uint8ClampedArrayConstructor,
+    BigInt64ArrayConstructor,
+    BigUint64ArrayConstructor,
     BigIntConstructor,
     BigIntAsIntN,
     BigIntAsUintN,
@@ -734,6 +805,9 @@ pub enum StandardBuiltinId {
     StringConstructor,
     StringPrototypeToString,
     StringPrototypeValueOf,
+    StringPrototypeCharAt,
+    StringPrototypeCharCodeAt,
+    StringPrototypeCodePointAt,
     StringPrototypeAnchor,
     StringPrototypeBig,
     StringPrototypeBlink,
@@ -754,8 +828,12 @@ pub enum StandardBuiltinId {
     StringPrototypeReplace,
     StringPrototypeReplaceAll,
     StringPrototypeSearch,
+    StringPrototypeIndexOf,
+    StringPrototypeLastIndexOf,
     StringPrototypeSlice,
     StringPrototypeSplit,
+    StringPrototypeEndsWith,
+    StringPrototypeIncludes,
     StringPrototypeStartsWith,
     StringPrototypeTrimStart,
     StringPrototypeTrimEnd,
@@ -766,12 +844,14 @@ pub enum StandardBuiltinId {
     ErrorIsError,
     EvalErrorConstructor,
     AggregateErrorConstructor,
+    SuppressedErrorConstructor,
     RangeErrorConstructor,
     SyntaxErrorConstructor,
     TypeErrorConstructor,
     URIErrorConstructor,
     ReferenceErrorConstructor,
     ErrorPrototypeToString,
+    ThrowTypeError,
     BoundFunctionInvoker,
     Escape,
     Unescape,
@@ -782,6 +862,7 @@ impl StandardBuiltinId {
         match self {
             Self::FunctionConstructor => Some(FUNCTION_NAME),
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
+            Self::SuppressedErrorConstructor => Some(SUPPRESSED_ERROR_NAME),
             Self::ObjectConstructor => Some(OBJECT_NAME),
             Self::ProxyConstructor => Some(PROXY_NAME),
             Self::IteratorConstructor => Some("Iterator"),
@@ -800,6 +881,8 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => Some(UINT16_ARRAY_NAME),
             Self::Uint8ArrayConstructor => Some(UINT8_ARRAY_NAME),
             Self::Uint8ClampedArrayConstructor => Some(UINT8_CLAMPED_ARRAY_NAME),
+            Self::BigInt64ArrayConstructor => Some(BIGINT64_ARRAY_NAME),
+            Self::BigUint64ArrayConstructor => Some(BIGUINT64_ARRAY_NAME),
             Self::BigIntConstructor => Some(BIGINT_NAME),
             Self::BigIntAsIntN => Some(BIGINT_NAME),
             Self::BigIntAsUintN => Some(BIGINT_NAME),
@@ -812,6 +895,9 @@ impl StandardBuiltinId {
             Self::StringConstructor => Some(STRING_NAME),
             Self::StringPrototypeToString
             | Self::StringPrototypeValueOf
+            | Self::StringPrototypeCharAt
+            | Self::StringPrototypeCharCodeAt
+            | Self::StringPrototypeCodePointAt
             | Self::StringPrototypeAnchor
             | Self::StringPrototypeBig
             | Self::StringPrototypeBlink
@@ -832,8 +918,12 @@ impl StandardBuiltinId {
             | Self::StringPrototypeReplace
             | Self::StringPrototypeReplaceAll
             | Self::StringPrototypeSearch
+            | Self::StringPrototypeIndexOf
+            | Self::StringPrototypeLastIndexOf
             | Self::StringPrototypeSlice
             | Self::StringPrototypeSplit
+            | Self::StringPrototypeEndsWith
+            | Self::StringPrototypeIncludes
             | Self::StringPrototypeStartsWith
             | Self::StringPrototypeTrimStart
             | Self::StringPrototypeTrimEnd
@@ -878,8 +968,16 @@ impl StandardBuiltinId {
             | Self::ProxyRevocable
             | Self::ProxyRevoke
             | Self::ReflectConstruct
+            | Self::ReflectApply
             | Self::ReflectGet
+            | Self::ReflectGetOwnPropertyDescriptor
+            | Self::ReflectSet
             | Self::ReflectHas
+            | Self::ReflectDefineProperty
+            | Self::ReflectDeleteProperty
+            | Self::ReflectPreventExtensions
+            | Self::ReflectSetPrototypeOf
+            | Self::ReflectOwnKeys
             | Self::ArrayFrom
             | Self::ArrayOf
             | Self::ArrayIsArray
@@ -887,9 +985,17 @@ impl StandardBuiltinId {
             | Self::ArrayPrototypeConcat
             | Self::ArrayPrototypeFlat
             | Self::ArrayPrototypeFlatMap
+            | Self::ArrayPrototypeAt
             | Self::ArrayPrototypeIncludes
+            | Self::ArrayPrototypeIndexOf
+            | Self::ArrayPrototypeLastIndexOf
+            | Self::ArrayPrototypeFind
+            | Self::ArrayPrototypeFindIndex
+            | Self::ArrayPrototypeFindLast
+            | Self::ArrayPrototypeFindLastIndex
             | Self::ArrayPrototypeEvery
             | Self::ArrayPrototypeSome
+            | Self::ArrayPrototypeForEach
             | Self::ArrayPrototypeFilter
             | Self::ArrayPrototypeMap
             | Self::ArrayPrototypePop
@@ -936,6 +1042,7 @@ impl StandardBuiltinId {
             | Self::DataViewPrototypeBufferGetter
             | Self::DataViewPrototypeByteLengthGetter
             | Self::DataViewPrototypeByteOffsetGetter
+            | Self::TypedArrayPrototypeBufferGetter
             | Self::TypedArrayPrototypeByteLengthGetter
             | Self::TypedArrayPrototypeByteOffsetGetter
             | Self::TypedArrayPrototypeLengthGetter
@@ -1002,9 +1109,12 @@ impl StandardBuiltinId {
             | Self::DatePrototypeSetMilliseconds
             | Self::DatePrototypeSetUtcMilliseconds
             | Self::DatePrototypeToUtcString
+            | Self::RegExpSpeciesGetter
             | Self::RegExpLegacyStaticGetter
             | Self::RegExpLegacyStaticSetter
             | Self::RegExpPrototypeSymbolMatch
+            | Self::RegExpPrototypeSymbolSearch
+            | Self::RegExpEscape
             | Self::JsonParse
             | Self::JsonStringify
             | Self::JsonRawJson
@@ -1044,6 +1154,7 @@ impl StandardBuiltinId {
             | Self::MathTan
             | Self::MathTanh
             | Self::ErrorPrototypeToString
+            | Self::ThrowTypeError
             | Self::BoundFunctionInvoker => None,
             Self::EvalFunction => Some("eval"),
         }
@@ -1084,8 +1195,16 @@ impl StandardBuiltinId {
             Self::ProxyRevocable => "Proxy.revocable",
             Self::ProxyRevoke => "[[ProxyRevoke]]",
             Self::ReflectConstruct => "Reflect.construct",
+            Self::ReflectApply => "Reflect.apply",
             Self::ReflectGet => "Reflect.get",
+            Self::ReflectGetOwnPropertyDescriptor => "Reflect.getOwnPropertyDescriptor",
+            Self::ReflectSet => "Reflect.set",
             Self::ReflectHas => "Reflect.has",
+            Self::ReflectDefineProperty => "Reflect.defineProperty",
+            Self::ReflectDeleteProperty => "Reflect.deleteProperty",
+            Self::ReflectPreventExtensions => "Reflect.preventExtensions",
+            Self::ReflectSetPrototypeOf => "Reflect.setPrototypeOf",
+            Self::ReflectOwnKeys => "Reflect.ownKeys",
             Self::ArrayConstructor => ARRAY_NAME,
             Self::ArrayFrom => "Array.from",
             Self::ArrayOf => "Array.of",
@@ -1094,9 +1213,17 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeConcat => "Array.prototype.concat",
             Self::ArrayPrototypeFlat => "Array.prototype.flat",
             Self::ArrayPrototypeFlatMap => "Array.prototype.flatMap",
+            Self::ArrayPrototypeAt => "Array.prototype.at",
             Self::ArrayPrototypeIncludes => "Array.prototype.includes",
+            Self::ArrayPrototypeIndexOf => "Array.prototype.indexOf",
+            Self::ArrayPrototypeLastIndexOf => "Array.prototype.lastIndexOf",
+            Self::ArrayPrototypeFind => "Array.prototype.find",
+            Self::ArrayPrototypeFindIndex => "Array.prototype.findIndex",
+            Self::ArrayPrototypeFindLast => "Array.prototype.findLast",
+            Self::ArrayPrototypeFindLastIndex => "Array.prototype.findLastIndex",
             Self::ArrayPrototypeEvery => "Array.prototype.every",
             Self::ArrayPrototypeSome => "Array.prototype.some",
+            Self::ArrayPrototypeForEach => "Array.prototype.forEach",
             Self::ArrayPrototypeFilter => "Array.prototype.filter",
             Self::ArrayPrototypeMap => "Array.prototype.map",
             Self::ArrayPrototypePop => "Array.prototype.pop",
@@ -1145,6 +1272,7 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeBufferGetter => "get DataView.prototype.buffer",
             Self::DataViewPrototypeByteLengthGetter => "get DataView.prototype.byteLength",
             Self::DataViewPrototypeByteOffsetGetter => "get DataView.prototype.byteOffset",
+            Self::TypedArrayPrototypeBufferGetter => "get TypedArray.prototype.buffer",
             Self::TypedArrayPrototypeByteLengthGetter => "get TypedArray.prototype.byteLength",
             Self::TypedArrayPrototypeByteOffsetGetter => "get TypedArray.prototype.byteOffset",
             Self::TypedArrayPrototypeLengthGetter => "get TypedArray.prototype.length",
@@ -1213,9 +1341,12 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcMilliseconds => "Date.prototype.setUTCMilliseconds",
             Self::DatePrototypeToUtcString => "Date.prototype.toUTCString",
             Self::RegExpConstructor => REGEXP_NAME,
+            Self::RegExpSpeciesGetter => "get RegExp [Symbol.species]",
             Self::RegExpLegacyStaticGetter => "get RegExp legacy static",
             Self::RegExpLegacyStaticSetter => "set RegExp legacy static",
             Self::RegExpPrototypeSymbolMatch => "RegExp.prototype[Symbol.match]",
+            Self::RegExpPrototypeSymbolSearch => "RegExp.prototype[Symbol.search]",
+            Self::RegExpEscape => "RegExp.escape",
             Self::JsonParse => "JSON.parse",
             Self::JsonStringify => "JSON.stringify",
             Self::JsonRawJson => "JSON.rawJSON",
@@ -1229,6 +1360,8 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => UINT16_ARRAY_NAME,
             Self::Uint8ArrayConstructor => UINT8_ARRAY_NAME,
             Self::Uint8ClampedArrayConstructor => UINT8_CLAMPED_ARRAY_NAME,
+            Self::BigInt64ArrayConstructor => BIGINT64_ARRAY_NAME,
+            Self::BigUint64ArrayConstructor => BIGUINT64_ARRAY_NAME,
             Self::BigIntConstructor => BIGINT_NAME,
             Self::BigIntAsIntN => "BigInt.asIntN",
             Self::BigIntAsUintN => "BigInt.asUintN",
@@ -1288,6 +1421,9 @@ impl StandardBuiltinId {
             Self::StringConstructor => STRING_NAME,
             Self::StringPrototypeToString => "String.prototype.toString",
             Self::StringPrototypeValueOf => "String.prototype.valueOf",
+            Self::StringPrototypeCharAt => "String.prototype.charAt",
+            Self::StringPrototypeCharCodeAt => "String.prototype.charCodeAt",
+            Self::StringPrototypeCodePointAt => "String.prototype.codePointAt",
             Self::StringPrototypeAnchor => "String.prototype.anchor",
             Self::StringPrototypeBig => "String.prototype.big",
             Self::StringPrototypeBlink => "String.prototype.blink",
@@ -1308,8 +1444,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeReplace => "String.prototype.replace",
             Self::StringPrototypeReplaceAll => "String.prototype.replaceAll",
             Self::StringPrototypeSearch => "String.prototype.search",
+            Self::StringPrototypeIndexOf => "String.prototype.indexOf",
+            Self::StringPrototypeLastIndexOf => "String.prototype.lastIndexOf",
             Self::StringPrototypeSlice => "String.prototype.slice",
             Self::StringPrototypeSplit => "String.prototype.split",
+            Self::StringPrototypeEndsWith => "String.prototype.endsWith",
+            Self::StringPrototypeIncludes => "String.prototype.includes",
             Self::StringPrototypeStartsWith => "String.prototype.startsWith",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
             Self::StringPrototypeTrimEnd => "String.prototype.trimEnd",
@@ -1320,12 +1460,14 @@ impl StandardBuiltinId {
             Self::ErrorIsError => "Error.isError",
             Self::EvalErrorConstructor => EVAL_ERROR_NAME,
             Self::AggregateErrorConstructor => AGGREGATE_ERROR_NAME,
+            Self::SuppressedErrorConstructor => SUPPRESSED_ERROR_NAME,
             Self::RangeErrorConstructor => RANGE_ERROR_NAME,
             Self::SyntaxErrorConstructor => SYNTAX_ERROR_NAME,
             Self::TypeErrorConstructor => TYPE_ERROR_NAME,
             Self::URIErrorConstructor => URI_ERROR_NAME,
             Self::ReferenceErrorConstructor => REFERENCE_ERROR_NAME,
             Self::ErrorPrototypeToString => "Error.prototype.toString",
+            Self::ThrowTypeError => "%ThrowTypeError%",
             Self::BoundFunctionInvoker => "[[BoundFunctionInvoke]]",
             Self::Escape => ESCAPE_NAME,
             Self::Unescape => UNESCAPE_NAME,
@@ -1391,8 +1533,20 @@ impl StandardBuiltinId {
             Self::ProxyRevocable => BUILTIN_PROXY_REVOCABLE_FUNCTION_ID.to_string(),
             Self::ProxyRevoke => BUILTIN_PROXY_REVOKE_FUNCTION_ID.to_string(),
             Self::ReflectConstruct => BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID.to_string(),
+            Self::ReflectApply => BUILTIN_REFLECT_APPLY_FUNCTION_ID.to_string(),
             Self::ReflectGet => BUILTIN_REFLECT_GET_FUNCTION_ID.to_string(),
+            Self::ReflectGetOwnPropertyDescriptor => {
+                BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID.to_string()
+            }
+            Self::ReflectSet => BUILTIN_REFLECT_SET_FUNCTION_ID.to_string(),
             Self::ReflectHas => BUILTIN_REFLECT_HAS_FUNCTION_ID.to_string(),
+            Self::ReflectDefineProperty => BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID.to_string(),
+            Self::ReflectDeleteProperty => BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID.to_string(),
+            Self::ReflectPreventExtensions => {
+                BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID.to_string()
+            }
+            Self::ReflectSetPrototypeOf => BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
+            Self::ReflectOwnKeys => BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID.to_string(),
             Self::ArrayConstructor => BUILTIN_ARRAY_FUNCTION_ID.to_string(),
             Self::ArrayFrom => BUILTIN_ARRAY_FROM_FUNCTION_ID.to_string(),
             Self::ArrayOf => BUILTIN_ARRAY_OF_FUNCTION_ID.to_string(),
@@ -1401,11 +1555,27 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeConcat => BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFlat => BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFlatMap => BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeAt => BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeIncludes => {
                 BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID.to_string()
             }
+            Self::ArrayPrototypeIndexOf => BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeLastIndexOf => {
+                BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeFind => BUILTIN_ARRAY_PROTOTYPE_FIND_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeFindIndex => {
+                BUILTIN_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeFindLast => {
+                BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeFindLastIndex => {
+                BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID.to_string()
+            }
             Self::ArrayPrototypeEvery => BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeSome => BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeForEach => BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFilter => BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeMap => BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypePop => BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID.to_string(),
@@ -1485,6 +1655,9 @@ impl StandardBuiltinId {
             }
             Self::DataViewPrototypeByteOffsetGetter => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeBufferGetter => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID.to_string()
             }
             Self::TypedArrayPrototypeByteLengthGetter => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID.to_string()
@@ -1654,6 +1827,7 @@ impl StandardBuiltinId {
                 BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID.to_string()
             }
             Self::RegExpConstructor => BUILTIN_REGEXP_FUNCTION_ID.to_string(),
+            Self::RegExpSpeciesGetter => BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::RegExpLegacyStaticGetter => {
                 BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID.to_string()
             }
@@ -1663,6 +1837,10 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeSymbolMatch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID.to_string()
             }
+            Self::RegExpPrototypeSymbolSearch => {
+                BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID.to_string()
+            }
+            Self::RegExpEscape => BUILTIN_REGEXP_ESCAPE_FUNCTION_ID.to_string(),
             Self::JsonParse => BUILTIN_JSON_PARSE_FUNCTION_ID.to_string(),
             Self::JsonStringify => BUILTIN_JSON_STRINGIFY_FUNCTION_ID.to_string(),
             Self::JsonRawJson => BUILTIN_JSON_RAW_JSON_FUNCTION_ID.to_string(),
@@ -1678,6 +1856,8 @@ impl StandardBuiltinId {
             Self::Uint8ClampedArrayConstructor => {
                 BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID.to_string()
             }
+            Self::BigInt64ArrayConstructor => BUILTIN_BIGINT64_ARRAY_FUNCTION_ID.to_string(),
+            Self::BigUint64ArrayConstructor => BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID.to_string(),
             Self::BigIntConstructor => BUILTIN_BIGINT_FUNCTION_ID.to_string(),
             Self::BigIntAsIntN => BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID.to_string(),
             Self::BigIntAsUintN => BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID.to_string(),
@@ -1751,6 +1931,13 @@ impl StandardBuiltinId {
             Self::StringPrototypeValueOf => {
                 BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
+            Self::StringPrototypeCharAt => BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID.to_string(),
+            Self::StringPrototypeCharCodeAt => {
+                BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeCodePointAt => {
+                BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID.to_string()
+            }
             Self::StringPrototypeAnchor => BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID.to_string(),
             Self::StringPrototypeBig => BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID.to_string(),
             Self::StringPrototypeBlink => BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID.to_string(),
@@ -1785,8 +1972,20 @@ impl StandardBuiltinId {
                 BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID.to_string()
             }
             Self::StringPrototypeSearch => BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID.to_string(),
+            Self::StringPrototypeIndexOf => {
+                BUILTIN_STRING_PROTOTYPE_INDEX_OF_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeLastIndexOf => {
+                BUILTIN_STRING_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID.to_string()
+            }
             Self::StringPrototypeSlice => BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID.to_string(),
             Self::StringPrototypeSplit => BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID.to_string(),
+            Self::StringPrototypeEndsWith => {
+                BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeIncludes => {
+                BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID.to_string()
+            }
             Self::StringPrototypeStartsWith => {
                 BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID.to_string()
             }
@@ -1803,6 +2002,7 @@ impl StandardBuiltinId {
             Self::ErrorIsError => BUILTIN_ERROR_IS_ERROR_FUNCTION_ID.to_string(),
             Self::EvalErrorConstructor => BUILTIN_EVAL_ERROR_FUNCTION_ID.to_string(),
             Self::AggregateErrorConstructor => BUILTIN_AGGREGATE_ERROR_FUNCTION_ID.to_string(),
+            Self::SuppressedErrorConstructor => BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID.to_string(),
             Self::RangeErrorConstructor => BUILTIN_RANGE_ERROR_FUNCTION_ID.to_string(),
             Self::SyntaxErrorConstructor => BUILTIN_SYNTAX_ERROR_FUNCTION_ID.to_string(),
             Self::TypeErrorConstructor => BUILTIN_TYPE_ERROR_FUNCTION_ID.to_string(),
@@ -1811,6 +2011,7 @@ impl StandardBuiltinId {
             Self::ErrorPrototypeToString => {
                 BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
             }
+            Self::ThrowTypeError => BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID.to_string(),
             Self::BoundFunctionInvoker => BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID.to_string(),
             Self::Escape => BUILTIN_ESCAPE_FUNCTION_ID.to_string(),
             Self::Unescape => BUILTIN_UNESCAPE_FUNCTION_ID.to_string(),
@@ -1864,8 +2065,18 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID => Some(Self::ObjectPrototypeValueOf),
             BUILTIN_PROXY_FUNCTION_ID => Some(Self::ProxyConstructor),
             BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID => Some(Self::ReflectConstruct),
+            BUILTIN_REFLECT_APPLY_FUNCTION_ID => Some(Self::ReflectApply),
             BUILTIN_REFLECT_GET_FUNCTION_ID => Some(Self::ReflectGet),
+            BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID => {
+                Some(Self::ReflectGetOwnPropertyDescriptor)
+            }
+            BUILTIN_REFLECT_SET_FUNCTION_ID => Some(Self::ReflectSet),
             BUILTIN_REFLECT_HAS_FUNCTION_ID => Some(Self::ReflectHas),
+            BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID => Some(Self::ReflectDefineProperty),
+            BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID => Some(Self::ReflectDeleteProperty),
+            BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID => Some(Self::ReflectPreventExtensions),
+            BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ReflectSetPrototypeOf),
+            BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID => Some(Self::ReflectOwnKeys),
             BUILTIN_ARRAY_FUNCTION_ID => Some(Self::ArrayConstructor),
             BUILTIN_ARRAY_FROM_FUNCTION_ID => Some(Self::ArrayFrom),
             BUILTIN_ARRAY_OF_FUNCTION_ID => Some(Self::ArrayOf),
@@ -1874,9 +2085,21 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::ArrayPrototypeConcat),
             BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID => Some(Self::ArrayPrototypeFlat),
             BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeFlatMap),
+            BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID => Some(Self::ArrayPrototypeAt),
             BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::ArrayPrototypeIncludes),
+            BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID => Some(Self::ArrayPrototypeIndexOf),
+            BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID => {
+                Some(Self::ArrayPrototypeLastIndexOf)
+            }
+            BUILTIN_ARRAY_PROTOTYPE_FIND_FUNCTION_ID => Some(Self::ArrayPrototypeFind),
+            BUILTIN_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID => Some(Self::ArrayPrototypeFindIndex),
+            BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID => Some(Self::ArrayPrototypeFindLast),
+            BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID => {
+                Some(Self::ArrayPrototypeFindLastIndex)
+            }
             BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID => Some(Self::ArrayPrototypeEvery),
             BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID => Some(Self::ArrayPrototypeSome),
+            BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::ArrayPrototypeForEach),
             BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID => Some(Self::ArrayPrototypeFilter),
             BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeMap),
             BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID => Some(Self::ArrayPrototypePop),
@@ -1950,6 +2173,9 @@ impl StandardBuiltinId {
             }
             BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeByteOffsetGetter)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeBufferGetter)
             }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeByteLengthGetter)
@@ -2105,11 +2331,16 @@ impl StandardBuiltinId {
                 Some(Self::DatePrototypeToUtcString)
             }
             BUILTIN_REGEXP_FUNCTION_ID => Some(Self::RegExpConstructor),
+            BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID => Some(Self::RegExpSpeciesGetter),
             BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticGetter),
             BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticSetter),
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolMatch)
             }
+            BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeSymbolSearch)
+            }
+            BUILTIN_REGEXP_ESCAPE_FUNCTION_ID => Some(Self::RegExpEscape),
             BUILTIN_JSON_PARSE_FUNCTION_ID => Some(Self::JsonParse),
             BUILTIN_JSON_STRINGIFY_FUNCTION_ID => Some(Self::JsonStringify),
             BUILTIN_JSON_RAW_JSON_FUNCTION_ID => Some(Self::JsonRawJson),
@@ -2123,6 +2354,8 @@ impl StandardBuiltinId {
             BUILTIN_UINT16_ARRAY_FUNCTION_ID => Some(Self::Uint16ArrayConstructor),
             BUILTIN_UINT8_ARRAY_FUNCTION_ID => Some(Self::Uint8ArrayConstructor),
             BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID => Some(Self::Uint8ClampedArrayConstructor),
+            BUILTIN_BIGINT64_ARRAY_FUNCTION_ID => Some(Self::BigInt64ArrayConstructor),
+            BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID => Some(Self::BigUint64ArrayConstructor),
             BUILTIN_BIGINT_FUNCTION_ID => Some(Self::BigIntConstructor),
             BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID => Some(Self::BigIntAsIntN),
             BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID => Some(Self::BigIntAsUintN),
@@ -2184,6 +2417,13 @@ impl StandardBuiltinId {
             BUILTIN_STRING_FUNCTION_ID => Some(Self::StringConstructor),
             BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::StringPrototypeToString),
             BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID => Some(Self::StringPrototypeValueOf),
+            BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID => Some(Self::StringPrototypeCharAt),
+            BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID => {
+                Some(Self::StringPrototypeCharCodeAt)
+            }
+            BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID => {
+                Some(Self::StringPrototypeCodePointAt)
+            }
             BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID => Some(Self::StringPrototypeAnchor),
             BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID => Some(Self::StringPrototypeBig),
             BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID => Some(Self::StringPrototypeBlink),
@@ -2206,8 +2446,14 @@ impl StandardBuiltinId {
                 Some(Self::StringPrototypeReplaceAll)
             }
             BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID => Some(Self::StringPrototypeSearch),
+            BUILTIN_STRING_PROTOTYPE_INDEX_OF_FUNCTION_ID => Some(Self::StringPrototypeIndexOf),
+            BUILTIN_STRING_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID => {
+                Some(Self::StringPrototypeLastIndexOf)
+            }
             BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID => Some(Self::StringPrototypeSlice),
             BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID => Some(Self::StringPrototypeSplit),
+            BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID => Some(Self::StringPrototypeEndsWith),
+            BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::StringPrototypeIncludes),
             BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID => {
                 Some(Self::StringPrototypeStartsWith)
             }
@@ -2220,12 +2466,14 @@ impl StandardBuiltinId {
             BUILTIN_ERROR_IS_ERROR_FUNCTION_ID => Some(Self::ErrorIsError),
             BUILTIN_EVAL_ERROR_FUNCTION_ID => Some(Self::EvalErrorConstructor),
             BUILTIN_AGGREGATE_ERROR_FUNCTION_ID => Some(Self::AggregateErrorConstructor),
+            BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID => Some(Self::SuppressedErrorConstructor),
             BUILTIN_RANGE_ERROR_FUNCTION_ID => Some(Self::RangeErrorConstructor),
             BUILTIN_SYNTAX_ERROR_FUNCTION_ID => Some(Self::SyntaxErrorConstructor),
             BUILTIN_TYPE_ERROR_FUNCTION_ID => Some(Self::TypeErrorConstructor),
             BUILTIN_URI_ERROR_FUNCTION_ID => Some(Self::URIErrorConstructor),
             BUILTIN_REFERENCE_ERROR_FUNCTION_ID => Some(Self::ReferenceErrorConstructor),
             BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::ErrorPrototypeToString),
+            BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID => Some(Self::ThrowTypeError),
             BUILTIN_PROXY_REVOCABLE_FUNCTION_ID => Some(Self::ProxyRevocable),
             BUILTIN_PROXY_REVOKE_FUNCTION_ID => Some(Self::ProxyRevoke),
             BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID => Some(Self::BoundFunctionInvoker),
@@ -2257,6 +2505,8 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor,
             Self::Uint8ArrayConstructor,
             Self::Uint8ClampedArrayConstructor,
+            Self::BigInt64ArrayConstructor,
+            Self::BigUint64ArrayConstructor,
             Self::BigIntConstructor,
             Self::NumberConstructor,
             Self::GlobalIsFinite,
@@ -2266,6 +2516,7 @@ impl StandardBuiltinId {
             Self::ErrorConstructor,
             Self::EvalErrorConstructor,
             Self::AggregateErrorConstructor,
+            Self::SuppressedErrorConstructor,
             Self::RangeErrorConstructor,
             Self::SyntaxErrorConstructor,
             Self::TypeErrorConstructor,
@@ -2311,8 +2562,16 @@ impl StandardBuiltinId {
             Self::ProxyRevocable,
             Self::ProxyRevoke,
             Self::ReflectConstruct,
+            Self::ReflectApply,
             Self::ReflectGet,
+            Self::ReflectGetOwnPropertyDescriptor,
+            Self::ReflectSet,
             Self::ReflectHas,
+            Self::ReflectDefineProperty,
+            Self::ReflectDeleteProperty,
+            Self::ReflectPreventExtensions,
+            Self::ReflectSetPrototypeOf,
+            Self::ReflectOwnKeys,
             Self::ArrayConstructor,
             Self::ArrayFrom,
             Self::ArrayOf,
@@ -2321,9 +2580,17 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeConcat,
             Self::ArrayPrototypeFlat,
             Self::ArrayPrototypeFlatMap,
+            Self::ArrayPrototypeAt,
             Self::ArrayPrototypeIncludes,
+            Self::ArrayPrototypeIndexOf,
+            Self::ArrayPrototypeLastIndexOf,
+            Self::ArrayPrototypeFind,
+            Self::ArrayPrototypeFindIndex,
+            Self::ArrayPrototypeFindLast,
+            Self::ArrayPrototypeFindLastIndex,
             Self::ArrayPrototypeEvery,
             Self::ArrayPrototypeSome,
+            Self::ArrayPrototypeForEach,
             Self::ArrayPrototypeFilter,
             Self::ArrayPrototypeMap,
             Self::ArrayPrototypePop,
@@ -2360,6 +2627,7 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeBufferGetter,
             Self::DataViewPrototypeByteLengthGetter,
             Self::DataViewPrototypeByteOffsetGetter,
+            Self::TypedArrayPrototypeBufferGetter,
             Self::TypedArrayPrototypeByteLengthGetter,
             Self::TypedArrayPrototypeByteOffsetGetter,
             Self::TypedArrayPrototypeLengthGetter,
@@ -2428,9 +2696,12 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcMilliseconds,
             Self::DatePrototypeToUtcString,
             Self::RegExpConstructor,
+            Self::RegExpSpeciesGetter,
             Self::RegExpLegacyStaticGetter,
             Self::RegExpLegacyStaticSetter,
             Self::RegExpPrototypeSymbolMatch,
+            Self::RegExpPrototypeSymbolSearch,
+            Self::RegExpEscape,
             Self::JsonParse,
             Self::JsonStringify,
             Self::JsonRawJson,
@@ -2444,6 +2715,8 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor,
             Self::Uint8ArrayConstructor,
             Self::Uint8ClampedArrayConstructor,
+            Self::BigInt64ArrayConstructor,
+            Self::BigUint64ArrayConstructor,
             Self::BigIntConstructor,
             Self::BigIntAsIntN,
             Self::BigIntAsUintN,
@@ -2503,6 +2776,9 @@ impl StandardBuiltinId {
             Self::StringConstructor,
             Self::StringPrototypeToString,
             Self::StringPrototypeValueOf,
+            Self::StringPrototypeCharAt,
+            Self::StringPrototypeCharCodeAt,
+            Self::StringPrototypeCodePointAt,
             Self::StringPrototypeAnchor,
             Self::StringPrototypeBig,
             Self::StringPrototypeBlink,
@@ -2523,8 +2799,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeReplace,
             Self::StringPrototypeReplaceAll,
             Self::StringPrototypeSearch,
+            Self::StringPrototypeIndexOf,
+            Self::StringPrototypeLastIndexOf,
             Self::StringPrototypeSlice,
             Self::StringPrototypeSplit,
+            Self::StringPrototypeEndsWith,
+            Self::StringPrototypeIncludes,
             Self::StringPrototypeStartsWith,
             Self::StringPrototypeTrimStart,
             Self::StringPrototypeTrimEnd,
@@ -2535,12 +2815,14 @@ impl StandardBuiltinId {
             Self::ErrorIsError,
             Self::EvalErrorConstructor,
             Self::AggregateErrorConstructor,
+            Self::SuppressedErrorConstructor,
             Self::RangeErrorConstructor,
             Self::SyntaxErrorConstructor,
             Self::TypeErrorConstructor,
             Self::URIErrorConstructor,
             Self::ReferenceErrorConstructor,
             Self::ErrorPrototypeToString,
+            Self::ThrowTypeError,
             Self::BoundFunctionInvoker,
             Self::Escape,
             Self::Unescape,
@@ -2570,6 +2852,8 @@ impl StandardBuiltinId {
                 | Self::Uint16ArrayConstructor
                 | Self::Uint8ArrayConstructor
                 | Self::Uint8ClampedArrayConstructor
+                | Self::BigInt64ArrayConstructor
+                | Self::BigUint64ArrayConstructor
                 | Self::NumberConstructor
                 | Self::StringConstructor
                 | Self::BooleanConstructor
@@ -2577,6 +2861,7 @@ impl StandardBuiltinId {
                 | Self::ErrorConstructor
                 | Self::EvalErrorConstructor
                 | Self::AggregateErrorConstructor
+                | Self::SuppressedErrorConstructor
                 | Self::RangeErrorConstructor
                 | Self::SyntaxErrorConstructor
                 | Self::TypeErrorConstructor
@@ -2591,6 +2876,7 @@ impl StandardBuiltinId {
             Self::ErrorConstructor
                 | Self::EvalErrorConstructor
                 | Self::AggregateErrorConstructor
+                | Self::SuppressedErrorConstructor
                 | Self::RangeErrorConstructor
                 | Self::SyntaxErrorConstructor
                 | Self::TypeErrorConstructor
@@ -2616,8 +2902,15 @@ impl StandardBuiltinId {
                 | Self::ObjectIs
                 | Self::ProxyRevocable
                 | Self::ReflectConstruct
+                | Self::ReflectApply
                 | Self::ReflectGet
+                | Self::ReflectSet
                 | Self::ReflectHas
+                | Self::ReflectDefineProperty
+                | Self::ReflectDeleteProperty
+                | Self::ReflectPreventExtensions
+                | Self::ReflectSetPrototypeOf
+                | Self::ReflectOwnKeys
                 | Self::IteratorFrom
                 | Self::ArrayFrom
                 | Self::ArrayOf
@@ -2702,6 +2995,9 @@ impl StandardBuiltinId {
         match self {
             Self::StringPrototypeToString => Some("toString"),
             Self::StringPrototypeValueOf => Some("valueOf"),
+            Self::StringPrototypeCharAt => Some("charAt"),
+            Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
+            Self::StringPrototypeCodePointAt => Some("codePointAt"),
             Self::StringPrototypeSubstr => Some("substr"),
             Self::StringPrototypeSubstring => Some("substring"),
             Self::StringPrototypeMatch => Some("match"),
@@ -2709,8 +3005,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeReplace => Some("replace"),
             Self::StringPrototypeReplaceAll => Some("replaceAll"),
             Self::StringPrototypeSearch => Some("search"),
+            Self::StringPrototypeIndexOf => Some("indexOf"),
+            Self::StringPrototypeLastIndexOf => Some("lastIndexOf"),
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
+            Self::StringPrototypeEndsWith => Some("endsWith"),
+            Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
@@ -2753,8 +3053,16 @@ impl StandardBuiltinId {
             Self::ProxyRevocable => Some("revocable"),
             Self::ProxyRevoke => Some("revoke"),
             Self::ReflectConstruct => Some("construct"),
+            Self::ReflectApply => Some("apply"),
             Self::ReflectGet => Some("get"),
+            Self::ReflectGetOwnPropertyDescriptor => Some("getOwnPropertyDescriptor"),
+            Self::ReflectSet => Some("set"),
             Self::ReflectHas => Some("has"),
+            Self::ReflectDefineProperty => Some("defineProperty"),
+            Self::ReflectDeleteProperty => Some("deleteProperty"),
+            Self::ReflectPreventExtensions => Some("preventExtensions"),
+            Self::ReflectSetPrototypeOf => Some("setPrototypeOf"),
+            Self::ReflectOwnKeys => Some("ownKeys"),
             Self::ArrayConstructor => Some(ARRAY_NAME),
             Self::ArrayFrom => Some("from"),
             Self::ArrayOf => Some("of"),
@@ -2763,9 +3071,17 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeConcat => Some("concat"),
             Self::ArrayPrototypeFlat => Some("flat"),
             Self::ArrayPrototypeFlatMap => Some("flatMap"),
+            Self::ArrayPrototypeAt => Some("at"),
             Self::ArrayPrototypeIncludes => Some("includes"),
+            Self::ArrayPrototypeIndexOf => Some("indexOf"),
+            Self::ArrayPrototypeLastIndexOf => Some("lastIndexOf"),
+            Self::ArrayPrototypeFind => Some("find"),
+            Self::ArrayPrototypeFindIndex => Some("findIndex"),
+            Self::ArrayPrototypeFindLast => Some("findLast"),
+            Self::ArrayPrototypeFindLastIndex => Some("findLastIndex"),
             Self::ArrayPrototypeEvery => Some("every"),
             Self::ArrayPrototypeSome => Some("some"),
+            Self::ArrayPrototypeForEach => Some("forEach"),
             Self::ArrayPrototypeFilter => Some("filter"),
             Self::ArrayPrototypeMap => Some("map"),
             Self::ArrayPrototypePop => Some("pop"),
@@ -2806,6 +3122,7 @@ impl StandardBuiltinId {
             Self::JsonStringify => Some("stringify"),
             Self::JsonRawJson => Some("rawJSON"),
             Self::JsonIsRawJson => Some("isRawJSON"),
+            Self::TypedArrayPrototypeBufferGetter => Some("get buffer"),
             Self::TypedArrayPrototypeByteLengthGetter => Some("get byteLength"),
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::TypedArrayPrototypeLengthGetter => Some("get length"),
@@ -2874,9 +3191,12 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcMilliseconds => Some("setUTCMilliseconds"),
             Self::DatePrototypeToUtcString => Some("toUTCString"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
+            Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
             Self::RegExpLegacyStaticGetter => Some("get RegExp legacy static"),
             Self::RegExpLegacyStaticSetter => Some("set RegExp legacy static"),
             Self::RegExpPrototypeSymbolMatch => Some("[Symbol.match]"),
+            Self::RegExpPrototypeSymbolSearch => Some("[Symbol.search]"),
+            Self::RegExpEscape => Some("escape"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),
@@ -2886,6 +3206,8 @@ impl StandardBuiltinId {
             Self::Uint16ArrayConstructor => Some(UINT16_ARRAY_NAME),
             Self::Uint8ArrayConstructor => Some(UINT8_ARRAY_NAME),
             Self::Uint8ClampedArrayConstructor => Some(UINT8_CLAMPED_ARRAY_NAME),
+            Self::BigInt64ArrayConstructor => Some(BIGINT64_ARRAY_NAME),
+            Self::BigUint64ArrayConstructor => Some(BIGUINT64_ARRAY_NAME),
             Self::BigIntConstructor => Some(BIGINT_NAME),
             Self::BigIntAsIntN => Some("asIntN"),
             Self::BigIntAsUintN => Some("asUintN"),
@@ -2945,6 +3267,9 @@ impl StandardBuiltinId {
             Self::StringConstructor => Some(STRING_NAME),
             Self::StringPrototypeToString => Some("toString"),
             Self::StringPrototypeValueOf => Some("valueOf"),
+            Self::StringPrototypeCharAt => Some("charAt"),
+            Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
+            Self::StringPrototypeCodePointAt => Some("codePointAt"),
             Self::StringPrototypeAnchor => Some("anchor"),
             Self::StringPrototypeBig => Some("big"),
             Self::StringPrototypeBlink => Some("blink"),
@@ -2965,8 +3290,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeReplace => Some("replace"),
             Self::StringPrototypeReplaceAll => Some("replaceAll"),
             Self::StringPrototypeSearch => Some("search"),
+            Self::StringPrototypeIndexOf => Some("indexOf"),
+            Self::StringPrototypeLastIndexOf => Some("lastIndexOf"),
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
+            Self::StringPrototypeEndsWith => Some("endsWith"),
+            Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
@@ -2977,12 +3306,14 @@ impl StandardBuiltinId {
             Self::ErrorIsError => Some("isError"),
             Self::EvalErrorConstructor => Some(EVAL_ERROR_NAME),
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
+            Self::SuppressedErrorConstructor => Some(SUPPRESSED_ERROR_NAME),
             Self::RangeErrorConstructor => Some(RANGE_ERROR_NAME),
             Self::SyntaxErrorConstructor => Some(SYNTAX_ERROR_NAME),
             Self::TypeErrorConstructor => Some(TYPE_ERROR_NAME),
             Self::URIErrorConstructor => Some(URI_ERROR_NAME),
             Self::ReferenceErrorConstructor => Some(REFERENCE_ERROR_NAME),
             Self::ErrorPrototypeToString => Some("toString"),
+            Self::ThrowTypeError => Some(""),
             Self::BoundFunctionInvoker => None,
             Self::Escape => Some(ESCAPE_NAME),
             Self::Unescape => Some(UNESCAPE_NAME),
@@ -3145,6 +3476,8 @@ impl KindSet {
 
     pub const PRIMITIVE_OR_HEAP_COERCIBLE: Self =
         Self(Self::PRIMITIVE_ONLY.0 | Self::HEAP_COERCIBLE_ONLY.0);
+    pub const PROPERTY_KEY_COERCIBLE: Self =
+        Self(Self::PRIMITIVE_OR_HEAP_COERCIBLE.0 | Self::FUNCTION_BIT);
 
     pub const NULLISH: Self = Self(Self::UNDEFINED_BIT | Self::NULL_BIT);
 
@@ -3249,6 +3582,18 @@ pub enum ObjectPropertyIr {
         key: TypedExpr,
         value: TypedExpr,
     },
+    ComputedMethod {
+        key: TypedExpr,
+        function: TypedExpr,
+    },
+    ComputedGetter {
+        key: TypedExpr,
+        function: TypedExpr,
+    },
+    ComputedSetter {
+        key: TypedExpr,
+        function: TypedExpr,
+    },
     Method {
         key: String,
         function: TypedExpr,
@@ -3291,7 +3636,7 @@ impl Default for ClassHeritageKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassPublicMethodIr {
-    pub key: String,
+    pub key: PropertyKeyIr,
     pub function_id: FunctionId,
     pub placement: ClassMethodPlacementIr,
     pub kind: ClassFunctionKind,
@@ -3430,6 +3775,16 @@ pub enum PropertyKeyIr {
     ArrayLength,
 }
 
+impl PropertyKeyIr {
+    pub fn static_name(&self) -> Option<&str> {
+        match self {
+            Self::StaticString(name) => Some(name),
+            Self::ArrayLength => Some("length"),
+            Self::StringExpr(_) | Self::ArrayIndex(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingMode {
     Let,
@@ -3450,6 +3805,7 @@ pub enum ArithmeticBinaryOp {
     Mul,
     Div,
     Mod,
+    Exp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3557,6 +3913,7 @@ pub enum ExprIr {
     Boolean(bool),
     Number(u64),
     BigInt(u64),
+    Symbol,
     String(String),
     FunctionValue(FunctionId),
     This,
@@ -3634,6 +3991,7 @@ pub enum ExprIr {
     DeleteProperty {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
+        strict: bool,
     },
     TypeOf {
         expr: Box<TypedExpr>,
@@ -3905,6 +4263,12 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
     },
+    ForOfString {
+        mode: BindingMode,
+        name: String,
+        iterable: TypedExpr,
+        body: Box<StatementIr>,
+    },
     ForOfIterator {
         mode: BindingMode,
         name: String,
@@ -3942,6 +4306,7 @@ pub enum StatementIr {
     TryCatch {
         try_block: BlockIr,
         catch_name: String,
+        catch_source_name: String,
         catch_block: BlockIr,
     },
     TryFinally {
@@ -3951,6 +4316,7 @@ pub enum StatementIr {
     TryCatchFinally {
         try_block: BlockIr,
         catch_name: String,
+        catch_source_name: String,
         catch_block: BlockIr,
         finally_block: BlockIr,
     },
@@ -3972,6 +4338,9 @@ pub struct BlockIr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptGlobalBindingKind {
     Intrinsic,
+    Infinity,
+    NaN,
+    Undefined,
     Var,
     Function,
     ReflectObject,
@@ -3989,6 +4358,7 @@ pub struct ScriptGlobalBindingIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
+    pub strict: bool,
     pub functions: Vec<FunctionIr>,
     pub body: BlockIr,
     pub owned_env_bindings: Vec<OwnedEnvBindingIr>,
@@ -4047,9 +4417,10 @@ impl ProgramIr {
                 }
                 counts.visit_block(&script.body);
                 format!(
-                    "script statements={} result={} functions={} nested_functions={} function_exprs={} arrow_functions={} named_function_exprs={} closures={} captures={} lexical_this_captures={} lexical_arguments_captures={} default_params={} rest_params={} arguments_uses={} calls={} indirect_calls={} method_calls={} constructs={} classes={} class_exprs={} class_extends={} null_heritage_classes={} class_fields={} private_elements={} static_blocks={} super_uses={} null_heritage_super_uses={} private_in_checks={} throws={} try_catches={} try_finallys={} returns={} lets={} consts={} vars={} global_bindings={} builtin_globals={} boxed_builtin_globals={} global_this_uses={} top_level_this_uses={} global_default_this_calls={} global_property_reads={} global_property_writes={} implicit_globals={} host_globals={} host_builtin_calls={} builtin_ctor_calls={} builtin_static_calls={} error_builtin_calls={} aggregate_errors={} function_proto_calls={} function_proto_applies={} function_proto_binds={} function_proto_to_strings={} bound_functions={} bound_function_constructs={} boxed_builtin_calls={} boxed_builtin_constructs={} boxed_receiver_adaptations={} error_proto_to_strings={} blocks={} ifs={} whiles={} do_whiles={} fors={} switches={} labels={} debuggers={} breaks={} continues={} objects={} object_shorthands={} object_methods={} object_getters={} object_setters={} arrays={} property_reads={} property_writes={} array_lengths={} heap_shapes={} function_values={} this_reads={} new_target_uses={} assigns={} prefix_updates={} postfix_updates={} compound_assigns={} string_concats={} loose_equalities={} coercive_numeric_ops={} coercive_relational_ops={} typeof_uses={} void_uses={} deletes={} identifier_deletes={} global_deletes={} comma_ops={} nullish_ops={} kind_unions={} heap_to_primitives={} heap_loose_equalities={} heap_coercions={} instanceofs={} in_ops={} prototype_reads={} prototype_writes={}",
+                    "script statements={} result={} strict={} functions={} nested_functions={} function_exprs={} arrow_functions={} named_function_exprs={} closures={} captures={} lexical_this_captures={} lexical_arguments_captures={} default_params={} rest_params={} arguments_uses={} calls={} indirect_calls={} method_calls={} constructs={} classes={} class_exprs={} class_extends={} null_heritage_classes={} class_fields={} private_elements={} static_blocks={} super_uses={} null_heritage_super_uses={} private_in_checks={} throws={} try_catches={} try_finallys={} returns={} lets={} consts={} vars={} global_bindings={} builtin_globals={} boxed_builtin_globals={} global_this_uses={} top_level_this_uses={} global_default_this_calls={} global_property_reads={} global_property_writes={} implicit_globals={} host_globals={} host_builtin_calls={} builtin_ctor_calls={} builtin_static_calls={} error_builtin_calls={} aggregate_errors={} function_proto_calls={} function_proto_applies={} function_proto_binds={} function_proto_to_strings={} bound_functions={} bound_function_constructs={} boxed_builtin_calls={} boxed_builtin_constructs={} boxed_receiver_adaptations={} error_proto_to_strings={} blocks={} ifs={} whiles={} do_whiles={} fors={} switches={} labels={} debuggers={} breaks={} continues={} objects={} object_shorthands={} object_methods={} object_getters={} object_setters={} arrays={} property_reads={} property_writes={} array_lengths={} heap_shapes={} function_values={} this_reads={} new_target_uses={} assigns={} prefix_updates={} postfix_updates={} compound_assigns={} string_concats={} loose_equalities={} coercive_numeric_ops={} coercive_relational_ops={} typeof_uses={} void_uses={} deletes={} identifier_deletes={} global_deletes={} comma_ops={} nullish_ops={} kind_unions={} heap_to_primitives={} heap_loose_equalities={} heap_coercions={} instanceofs={} in_ops={} prototype_reads={} prototype_writes={}",
                     counts.statements,
                     script.result_kind().as_str(),
+                    script.strict,
                     counts.functions,
                     counts.nested_functions,
                     counts.function_exprs,
@@ -4379,6 +4750,7 @@ impl IrSummaryCounts {
                 self.visit_statement(body);
             }
             StatementIr::ForOfArray { iterable, body, .. }
+            | StatementIr::ForOfString { iterable, body, .. }
             | StatementIr::ForOfIterator { iterable, body, .. }
             | StatementIr::ForInArray {
                 target: iterable,
@@ -4527,12 +4899,27 @@ impl IrSummaryCounts {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }
+                        ObjectPropertyIr::ComputedMethod { key, function } => {
+                            self.object_methods += 1;
+                            self.visit_expr(key);
+                            self.visit_expr(function);
+                        }
                         ObjectPropertyIr::Method { function, .. } => {
                             self.object_methods += 1;
                             self.visit_expr(function);
                         }
+                        ObjectPropertyIr::ComputedGetter { key, function } => {
+                            self.object_getters += 1;
+                            self.visit_expr(key);
+                            self.visit_expr(function);
+                        }
                         ObjectPropertyIr::Getter { function, .. } => {
                             self.object_getters += 1;
+                            self.visit_expr(function);
+                        }
+                        ObjectPropertyIr::ComputedSetter { key, function } => {
+                            self.object_setters += 1;
+                            self.visit_expr(key);
                             self.visit_expr(function);
                         }
                         ObjectPropertyIr::Setter { function, .. } => {
@@ -4635,7 +5022,7 @@ impl IrSummaryCounts {
                 self.deletes += 1;
                 self.global_deletes += 1;
             }
-            ExprIr::DeleteProperty { target, key } => {
+            ExprIr::DeleteProperty { target, key, .. } => {
                 self.deletes += 1;
                 self.visit_expr(target);
                 self.visit_property_key(key);
@@ -4770,6 +5157,9 @@ impl IrSummaryCounts {
                 if let Some(heritage) = &class.heritage {
                     self.visit_expr(heritage);
                 }
+                for method in &class.public_methods {
+                    self.visit_property_key(&method.key);
+                }
             }
             ExprIr::CallMethod {
                 receiver,
@@ -4847,6 +5237,7 @@ impl IrSummaryCounts {
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
+            | ExprIr::Symbol
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::Identifier(_) => {
@@ -4922,6 +5313,7 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
             )
             .lower(&script);
             program.script = Some(ScriptIr {
+                strict: script.strict(),
                 functions: lowered.functions,
                 body: lowered.body,
                 owned_env_bindings: lowered.owned_env_bindings,
@@ -5204,6 +5596,7 @@ fn skip_balanced_export_list(source: &str, mut index: usize) -> Result<usize, St
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BindingInfo {
     mode: BindingMode,
+    storage_name: String,
     kind: ValueKind,
     possible_kinds: KindSet,
     heap_shape: Option<Box<HeapShape>>,
@@ -5217,6 +5610,7 @@ struct VarBindingInfo {
     heap_shape: Option<Box<HeapShape>>,
     function_targets: BTreeSet<FunctionId>,
     is_script_global: bool,
+    is_lexical_metadata: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5350,11 +5744,13 @@ struct PendingFunction<'a> {
     parameters: &'a FormalParameterList,
     body: &'a FunctionBody,
     is_expression: bool,
+    capture_aliases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CaptureBindingPlan {
     owner_id: String,
+    source_name: String,
     slot: u32,
     hops: u32,
 }
@@ -5390,9 +5786,10 @@ struct FunctionPlan<'a> {
 struct Analysis<'a> {
     owner_plans: BTreeMap<String, OwnerPlan>,
     function_plans: BTreeMap<FunctionId, FunctionPlan<'a>>,
+    function_declaration_ids: BTreeMap<String, FunctionId>,
     function_expr_ids: BTreeMap<String, FunctionId>,
     class_method_ids: BTreeMap<String, FunctionId>,
-    owner_free_refs: BTreeMap<String, BTreeSet<String>>,
+    owner_free_refs: BTreeMap<String, BTreeMap<String, String>>,
     function_order: Vec<FunctionId>,
     script_root_functions: Vec<PendingFunction<'a>>,
     script_items: &'a [StatementListItem],
@@ -5402,9 +5799,10 @@ struct Analysis<'a> {
 struct AnalysisBuilder<'a> {
     owner_plans: BTreeMap<String, OwnerPlan>,
     function_plans: BTreeMap<FunctionId, FunctionPlan<'a>>,
+    function_declaration_ids: BTreeMap<String, FunctionId>,
     function_expr_ids: BTreeMap<String, FunctionId>,
     class_method_ids: BTreeMap<String, FunctionId>,
-    function_free_refs: BTreeMap<FunctionId, BTreeSet<String>>,
+    function_free_refs: BTreeMap<FunctionId, BTreeMap<String, String>>,
     function_order: Vec<FunctionId>,
     next_function_id: usize,
 }
@@ -5451,6 +5849,7 @@ impl<'a> AnalysisBuilder<'a> {
             interner,
             source_text,
             None,
+            &BTreeMap::new(),
         );
         for function in script_root_functions.iter().cloned() {
             self.collect_function_plan(
@@ -5464,6 +5863,7 @@ impl<'a> AnalysisBuilder<'a> {
         Analysis {
             owner_plans: self.owner_plans,
             function_plans: self.function_plans,
+            function_declaration_ids: self.function_declaration_ids,
             function_expr_ids: self.function_expr_ids,
             class_method_ids: self.class_method_ids,
             owner_free_refs: self.function_free_refs,
@@ -5507,8 +5907,11 @@ impl<'a> AnalysisBuilder<'a> {
                 }
             };
             let name = function_name(interner, function, None);
+            let id = self.alloc_function_id();
+            self.function_declaration_ids
+                .insert(function_declaration_key(function), id.clone());
             functions.push(PendingFunction {
-                id: self.alloc_function_id(),
+                id,
                 name,
                 to_string_representation: CallableToStringRepresentation::ExactSource(
                     function_source_slice(function, source_text),
@@ -5520,6 +5923,7 @@ impl<'a> AnalysisBuilder<'a> {
                 parameters: function.parameters(),
                 body: function.body(),
                 is_expression: false,
+                capture_aliases: BTreeMap::new(),
             });
         }
         functions
@@ -5577,6 +5981,7 @@ impl<'a> AnalysisBuilder<'a> {
             interner,
             source_text,
             Some(function.name.as_str()),
+            &function.capture_aliases,
         );
         self.function_plans.insert(
             owner_id.clone(),
@@ -5660,7 +6065,9 @@ impl<'a> AnalysisBuilder<'a> {
                     Declaration::ClassDeclaration(class) => {
                         bindings.insert(interner.resolve_expect(class.name().sym()).to_string());
                     }
-                    Declaration::FunctionDeclaration(_) => {}
+                    Declaration::FunctionDeclaration(function) => {
+                        bindings.insert(function_name(interner, function, None));
+                    }
                     _ => {}
                 },
             }
@@ -5721,7 +6128,16 @@ impl<'a> AnalysisBuilder<'a> {
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(Binding::Identifier(identifier))
                     | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
-                        bindings.insert(interner.resolve_expect(identifier.sym()).to_string());
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        bindings.insert(tdz_binding_storage_name(&source_name));
+                    }
+                    _ => {}
+                }
+                match for_of.initializer() {
+                    IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                    | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        bindings.insert(for_of_loop_binding_storage_name(for_of, &source_name));
                     }
                     _ => {}
                 }
@@ -5731,7 +6147,16 @@ impl<'a> AnalysisBuilder<'a> {
                 match for_in.initializer() {
                     IterableLoopInitializer::Let(Binding::Identifier(identifier))
                     | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
-                        bindings.insert(interner.resolve_expect(identifier.sym()).to_string());
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        bindings.insert(tdz_binding_storage_name(&source_name));
+                    }
+                    _ => {}
+                }
+                match for_in.initializer() {
+                    IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                    | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        bindings.insert(for_in_loop_binding_storage_name(for_in, &source_name));
                     }
                     _ => {}
                 }
@@ -5801,10 +6226,19 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
         self_name: Option<&str>,
+        capture_aliases: &BTreeMap<String, String>,
     ) {
-        let mut refs = BTreeSet::new();
+        let mut refs = BTreeMap::new();
         for item in items {
-            self.scan_item(owner_id, item, interner, source_text, self_name, &mut refs);
+            self.scan_item(
+                owner_id,
+                item,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                &mut refs,
+            );
         }
         if owner_id != SCRIPT_OWNER_ID {
             self.function_free_refs.insert(owner_id.to_string(), refs);
@@ -5818,11 +6252,20 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
         self_name: Option<&str>,
-        refs: &mut BTreeSet<String>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
     ) {
         match item {
             StatementListItem::Statement(statement) => {
-                self.scan_statement(owner_id, statement, interner, source_text, self_name, refs);
+                self.scan_statement(
+                    owner_id,
+                    statement,
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
             }
             StatementListItem::Declaration(declaration) => match declaration.as_ref() {
                 Declaration::Lexical(lexical) => {
@@ -5838,12 +6281,21 @@ impl<'a> AnalysisBuilder<'a> {
                                 interner,
                                 source_text,
                                 self_name,
+                                capture_aliases,
                                 refs,
                             );
                         }
                     }
                 }
-                Declaration::FunctionDeclaration(_) => {}
+                Declaration::FunctionDeclaration(function) => {
+                    self.collect_non_root_function_declaration(
+                        owner_id,
+                        function,
+                        interner,
+                        source_text,
+                        capture_aliases,
+                    );
+                }
                 Declaration::ClassDeclaration(class) => {
                     if let Some(super_ref) = class.super_ref() {
                         self.scan_expression(
@@ -5852,6 +6304,7 @@ impl<'a> AnalysisBuilder<'a> {
                             interner,
                             source_text,
                             self_name,
+                            capture_aliases,
                             refs,
                         );
                     }
@@ -5873,6 +6326,43 @@ impl<'a> AnalysisBuilder<'a> {
                 _ => {}
             },
         }
+    }
+
+    fn collect_non_root_function_declaration(
+        &mut self,
+        owner_id: &str,
+        function: &'a FunctionDeclaration,
+        interner: &'a Interner,
+        source_text: &'a str,
+        capture_aliases: &BTreeMap<String, String>,
+    ) {
+        let key = function_declaration_key(function);
+        if self.function_declaration_ids.contains_key(&key) {
+            return;
+        }
+        let id = self.alloc_function_id();
+        self.function_declaration_ids.insert(key, id.clone());
+        let name = function_name(interner, function, None);
+        let pending = PendingFunction {
+            id,
+            name: name.clone(),
+            to_string_representation: CallableToStringRepresentation::ExactSource(
+                function_source_slice(function, source_text),
+            ),
+            flavor: FunctionFlavor::Ordinary,
+            strict: self
+                .owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.strict)
+                || function.body().strict(),
+            constructable: true,
+            self_binding_name: Some(name),
+            parameters: function.parameters(),
+            body: function.body(),
+            is_expression: false,
+            capture_aliases: capture_aliases.clone(),
+        };
+        self.collect_function_plan(pending, owner_id.to_string(), interner, source_text);
     }
 
     fn collect_class_method_owner_plans(
@@ -5941,6 +6431,7 @@ impl<'a> AnalysisBuilder<'a> {
                 interner,
                 source_text,
                 Some(name.as_str()),
+                &BTreeMap::new(),
             );
             for nested in root_functions {
                 self.collect_function_plan(nested, id.clone(), interner, source_text);
@@ -6003,10 +6494,37 @@ impl<'a> AnalysisBuilder<'a> {
             interner,
             source_text,
             Some("constructor"),
+            &BTreeMap::new(),
         );
         for nested in root_functions {
             self.collect_function_plan(nested, id.clone(), interner, source_text);
         }
+    }
+
+    fn record_ref(
+        &self,
+        owner_id: &str,
+        source_name: String,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        let alias = capture_aliases.get(&source_name);
+        let owner_has_alias = alias.is_some_and(|alias| {
+            self.owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.root_bindings.contains(alias))
+        });
+        let storage_name = if owner_has_alias
+            || self
+                .owner_plans
+                .get(owner_id)
+                .is_none_or(|owner| !owner.root_bindings.contains(&source_name))
+        {
+            alias.cloned().unwrap_or_else(|| source_name.clone())
+        } else {
+            source_name.clone()
+        };
+        refs.entry(storage_name).or_insert(source_name);
     }
 
     fn scan_statement(
@@ -6016,15 +6534,32 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
         self_name: Option<&str>,
-        refs: &mut BTreeSet<String>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
     ) {
         match statement {
             Statement::Expression(expression) => {
-                self.scan_expression(owner_id, expression, interner, source_text, self_name, refs);
+                self.scan_expression(
+                    owner_id,
+                    expression,
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
             }
             Statement::Block(block) => {
                 for item in block.statement_list().statements() {
-                    self.scan_item(owner_id, item, interner, source_text, self_name, refs);
+                    self.scan_item(
+                        owner_id,
+                        item,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Statement::If(if_statement) => {
@@ -6034,6 +6569,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_statement(
@@ -6042,6 +6578,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 if let Some(else_node) = if_statement.else_node() {
@@ -6051,6 +6588,7 @@ impl<'a> AnalysisBuilder<'a> {
                         interner,
                         source_text,
                         self_name,
+                        capture_aliases,
                         refs,
                     );
                 }
@@ -6062,6 +6600,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_statement(
@@ -6070,6 +6609,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
@@ -6080,6 +6620,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_expression(
@@ -6088,6 +6629,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
@@ -6101,6 +6643,7 @@ impl<'a> AnalysisBuilder<'a> {
                                 interner,
                                 source_text,
                                 self_name,
+                                capture_aliases,
                                 refs,
                             );
                         }
@@ -6113,6 +6656,7 @@ impl<'a> AnalysisBuilder<'a> {
                                         interner,
                                         source_text,
                                         self_name,
+                                        capture_aliases,
                                         refs,
                                     );
                                 }
@@ -6135,6 +6679,7 @@ impl<'a> AnalysisBuilder<'a> {
                                         interner,
                                         source_text,
                                         self_name,
+                                        capture_aliases,
                                         refs,
                                     );
                                 }
@@ -6149,11 +6694,20 @@ impl<'a> AnalysisBuilder<'a> {
                         interner,
                         source_text,
                         self_name,
+                        capture_aliases,
                         refs,
                     );
                 }
                 if let Some(update) = for_loop.final_expr() {
-                    self.scan_expression(owner_id, update, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        update,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
                 self.scan_statement(
                     owner_id,
@@ -6161,6 +6715,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
@@ -6171,6 +6726,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 for case in switch.cases() {
@@ -6181,11 +6737,20 @@ impl<'a> AnalysisBuilder<'a> {
                             interner,
                             source_text,
                             self_name,
+                            capture_aliases,
                             refs,
                         );
                     }
                     for item in case.body().statements() {
-                        self.scan_item(owner_id, item, interner, source_text, self_name, refs);
+                        self.scan_item(
+                            owner_id,
+                            item,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
                     }
                 }
             }
@@ -6197,6 +6762,7 @@ impl<'a> AnalysisBuilder<'a> {
                         interner,
                         source_text,
                         self_name,
+                        capture_aliases,
                         refs,
                     );
                 }
@@ -6210,6 +6776,7 @@ impl<'a> AnalysisBuilder<'a> {
                             interner,
                             source_text,
                             self_name,
+                            capture_aliases,
                             refs,
                         );
                     }
@@ -6217,7 +6784,15 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Statement::Return(ret) => {
                 if let Some(target) = ret.target() {
-                    self.scan_expression(owner_id, target, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        target,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Statement::Throw(throw) => {
@@ -6227,57 +6802,126 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
             Statement::Try(try_statement) => {
                 for item in try_statement.block().statement_list().statements() {
-                    self.scan_item(owner_id, item, interner, source_text, self_name, refs);
+                    self.scan_item(
+                        owner_id,
+                        item,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
                 if let Some(catch) = try_statement.catch() {
                     for item in catch.block().statement_list().statements() {
-                        self.scan_item(owner_id, item, interner, source_text, self_name, refs);
+                        self.scan_item(
+                            owner_id,
+                            item,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
                     }
                 }
                 if let Some(finally_block) = try_statement.finally() {
                     for item in finally_block.block().statement_list().statements() {
-                        self.scan_item(owner_id, item, interner, source_text, self_name, refs);
+                        self.scan_item(
+                            owner_id,
+                            item,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
                     }
                 }
             }
             Statement::ForOfLoop(for_of) => {
+                let mut head_aliases = capture_aliases.clone();
+                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
+                    for_of.initializer()
+                {
+                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                    head_aliases
+                        .insert(source_name.clone(), tdz_binding_storage_name(&source_name));
+                }
                 self.scan_expression(
                     owner_id,
                     for_of.iterable(),
                     interner,
                     source_text,
                     self_name,
+                    &head_aliases,
                     refs,
                 );
+                let mut body_aliases = capture_aliases.clone();
+                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
+                    for_of.initializer()
+                {
+                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                    body_aliases.insert(
+                        source_name.clone(),
+                        for_of_loop_binding_storage_name(for_of, &source_name),
+                    );
+                }
                 self.scan_statement(
                     owner_id,
                     for_of.body(),
                     interner,
                     source_text,
                     self_name,
+                    &body_aliases,
                     refs,
                 );
             }
             Statement::ForInLoop(for_in) => {
+                let mut head_aliases = capture_aliases.clone();
+                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
+                    for_in.initializer()
+                {
+                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                    head_aliases
+                        .insert(source_name.clone(), tdz_binding_storage_name(&source_name));
+                }
                 self.scan_expression(
                     owner_id,
                     for_in.target(),
                     interner,
                     source_text,
                     self_name,
+                    &head_aliases,
                     refs,
                 );
+                let mut body_aliases = capture_aliases.clone();
+                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
+                    for_in.initializer()
+                {
+                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                    body_aliases.insert(
+                        source_name.clone(),
+                        for_in_loop_binding_storage_name(for_in, &source_name),
+                    );
+                }
                 self.scan_statement(
                     owner_id,
                     for_in.body(),
                     interner,
                     source_text,
                     self_name,
+                    &body_aliases,
                     refs,
                 );
             }
@@ -6296,7 +6940,8 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
         self_name: Option<&str>,
-        refs: &mut BTreeSet<String>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
     ) {
         match expression {
             Expression::Identifier(identifier) => {
@@ -6307,16 +6952,26 @@ impl<'a> AnalysisBuilder<'a> {
                         owner.is_some_and(|owner| owner.root_bindings.contains("arguments"));
                     if !source_binds_arguments {
                         if owner.is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow) {
-                            refs.insert(LEXICAL_ARGUMENTS_NAME.to_string());
+                            self.record_ref(
+                                owner_id,
+                                LEXICAL_ARGUMENTS_NAME.to_string(),
+                                capture_aliases,
+                                refs,
+                            );
                         } else if owner_id != SCRIPT_OWNER_ID {
-                            refs.insert(LEXICAL_ARGUMENTS_NAME.to_string());
+                            self.record_ref(
+                                owner_id,
+                                LEXICAL_ARGUMENTS_NAME.to_string(),
+                                capture_aliases,
+                                refs,
+                            );
                         } else {
-                            refs.insert(name);
+                            self.record_ref(owner_id, name, capture_aliases, refs);
                         }
                         return;
                     }
                 }
-                refs.insert(name);
+                self.record_ref(owner_id, name, capture_aliases, refs);
             }
             Expression::Parenthesized(expression) => {
                 self.scan_expression(
@@ -6325,24 +6980,43 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
             Expression::ArrayLiteral(array) => {
                 for element in array.as_ref().iter().flatten() {
-                    self.scan_expression(owner_id, element, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        element,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::ObjectLiteral(object) => {
                 for property in object.properties() {
                     match property {
-                        PropertyDefinition::Property(_, value) => {
+                        PropertyDefinition::Property(name, value) => {
+                            self.scan_property_name(
+                                owner_id,
+                                name,
+                                interner,
+                                source_text,
+                                self_name,
+                                capture_aliases,
+                                refs,
+                            );
                             self.scan_expression(
                                 owner_id,
                                 value,
                                 interner,
                                 source_text,
                                 self_name,
+                                capture_aliases,
                                 refs,
                             );
                         }
@@ -6353,10 +7027,20 @@ impl<'a> AnalysisBuilder<'a> {
                                 interner,
                                 source_text,
                                 self_name,
+                                capture_aliases,
                                 refs,
                             );
                         }
                         PropertyDefinition::MethodDefinition(method) => {
+                            self.scan_property_name(
+                                owner_id,
+                                method.name(),
+                                interner,
+                                source_text,
+                                self_name,
+                                capture_aliases,
+                                refs,
+                            );
                             let key = object_method_key(method);
                             if !self.function_expr_ids.contains_key(&key) {
                                 let id = self.alloc_function_id();
@@ -6386,6 +7070,7 @@ impl<'a> AnalysisBuilder<'a> {
                                     parameters: method.parameters(),
                                     body: method.body(),
                                     is_expression: true,
+                                    capture_aliases: capture_aliases.clone(),
                                 };
                                 self.collect_function_plan(
                                     pending,
@@ -6396,7 +7081,12 @@ impl<'a> AnalysisBuilder<'a> {
                             }
                         }
                         PropertyDefinition::IdentifierReference(identifier) => {
-                            refs.insert(interner.resolve_expect(identifier.sym()).to_string());
+                            self.record_ref(
+                                owner_id,
+                                interner.resolve_expect(identifier.sym()).to_string(),
+                                capture_aliases,
+                                refs,
+                            );
                         }
                         PropertyDefinition::CoverInitializedName(_, value) => {
                             self.scan_expression(
@@ -6405,6 +7095,7 @@ impl<'a> AnalysisBuilder<'a> {
                                 interner,
                                 source_text,
                                 self_name,
+                                capture_aliases,
                                 refs,
                             );
                         }
@@ -6418,6 +7109,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
@@ -6428,6 +7120,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_expression(
@@ -6436,13 +7129,19 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
             Expression::Assign(assign) => {
                 match assign.lhs() {
                     AssignTarget::Identifier(identifier) => {
-                        refs.insert(interner.resolve_expect(identifier.sym()).to_string());
+                        self.record_ref(
+                            owner_id,
+                            interner.resolve_expect(identifier.sym()).to_string(),
+                            capture_aliases,
+                            refs,
+                        );
                     }
                     AssignTarget::Access(access) => {
                         self.scan_property_access(
@@ -6451,6 +7150,7 @@ impl<'a> AnalysisBuilder<'a> {
                             interner,
                             source_text,
                             self_name,
+                            capture_aliases,
                             refs,
                         );
                     }
@@ -6462,12 +7162,18 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
             Expression::Update(update) => {
                 if let UpdateTarget::Identifier(identifier) = update.target() {
-                    refs.insert(interner.resolve_expect(identifier.sym()).to_string());
+                    self.record_ref(
+                        owner_id,
+                        interner.resolve_expect(identifier.sym()).to_string(),
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::Call(call) => {
@@ -6477,14 +7183,31 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 for arg in call.args() {
-                    self.scan_expression(owner_id, arg, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        arg,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::PropertyAccess(access) => {
-                self.scan_property_access(owner_id, access, interner, source_text, self_name, refs);
+                self.scan_property_access(
+                    owner_id,
+                    access,
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
             }
             Expression::FunctionExpression(function) => {
                 let key = function_expression_key(function);
@@ -6513,6 +7236,7 @@ impl<'a> AnalysisBuilder<'a> {
                         parameters: function.parameters(),
                         body: function.body(),
                         is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
                     };
                     self.collect_function_plan(
                         pending,
@@ -6547,6 +7271,7 @@ impl<'a> AnalysisBuilder<'a> {
                         parameters: function.parameters(),
                         body: function.body(),
                         is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
                     };
                     self.collect_function_plan(
                         pending,
@@ -6564,6 +7289,7 @@ impl<'a> AnalysisBuilder<'a> {
                         interner,
                         source_text,
                         self_name,
+                        capture_aliases,
                         refs,
                     );
                 }
@@ -6584,7 +7310,15 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Expression::SuperCall(call) => {
                 for arg in call.arguments() {
-                    self.scan_expression(owner_id, arg, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        arg,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::This(_) => {
@@ -6593,7 +7327,12 @@ impl<'a> AnalysisBuilder<'a> {
                     .get(owner_id)
                     .is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow)
                 {
-                    refs.insert(LEXICAL_THIS_NAME.to_string());
+                    self.record_ref(
+                        owner_id,
+                        LEXICAL_THIS_NAME.to_string(),
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::NewTarget(_) => {
@@ -6602,7 +7341,12 @@ impl<'a> AnalysisBuilder<'a> {
                     .get(owner_id)
                     .is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow)
                 {
-                    refs.insert(LEXICAL_NEW_TARGET_NAME.to_string());
+                    self.record_ref(
+                        owner_id,
+                        LEXICAL_NEW_TARGET_NAME.to_string(),
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::New(new_expr) => {
@@ -6612,10 +7356,19 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 for arg in new_expr.arguments() {
-                    self.scan_expression(owner_id, arg, interner, source_text, self_name, refs);
+                    self.scan_expression(
+                        owner_id,
+                        arg,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
             Expression::TemplateLiteral(template) => {
@@ -6627,6 +7380,7 @@ impl<'a> AnalysisBuilder<'a> {
                             interner,
                             source_text,
                             self_name,
+                            capture_aliases,
                             refs,
                         );
                     }
@@ -6639,6 +7393,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_expression(
@@ -6647,6 +7402,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
                 self.scan_expression(
@@ -6655,6 +7411,7 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
@@ -6680,11 +7437,35 @@ impl<'a> AnalysisBuilder<'a> {
                     interner,
                     source_text,
                     self_name,
+                    capture_aliases,
                     refs,
                 );
             }
         }
         let _ = self_name;
+    }
+
+    fn scan_property_name(
+        &mut self,
+        owner_id: &str,
+        name: &'a PropertyName,
+        interner: &'a Interner,
+        source_text: &'a str,
+        self_name: Option<&str>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        if let PropertyName::Computed(expr) = name {
+            self.scan_expression(
+                owner_id,
+                expr,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            );
+        }
     }
 
     fn scan_property_access(
@@ -6694,7 +7475,8 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
         self_name: Option<&str>,
-        refs: &mut BTreeSet<String>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
     ) {
         let PropertyAccess::Simple(access) = access else {
             return;
@@ -6705,10 +7487,19 @@ impl<'a> AnalysisBuilder<'a> {
             interner,
             source_text,
             self_name,
+            capture_aliases,
             refs,
         );
         if let PropertyAccessField::Expr(expr) = access.field() {
-            self.scan_expression(owner_id, expr, interner, source_text, self_name, refs);
+            self.scan_expression(
+                owner_id,
+                expr,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            );
         }
     }
 
@@ -6730,7 +7521,7 @@ impl<'a> AnalysisBuilder<'a> {
                 .cloned()
                 .unwrap_or_default();
             let mut captures = BTreeMap::new();
-            for name in free_refs {
+            for (name, source_name) in free_refs {
                 if local_bindings.contains(&name) {
                     continue;
                 }
@@ -6746,6 +7537,7 @@ impl<'a> AnalysisBuilder<'a> {
                     name,
                     CaptureBindingPlan {
                         owner_id,
+                        source_name,
                         slot: 0,
                         hops: 0,
                     },
@@ -6767,7 +7559,7 @@ impl<'a> AnalysisBuilder<'a> {
                 .get(owner_id)
                 .cloned()
                 .unwrap_or_default();
-            for name in free_refs {
+            for (name, _) in free_refs {
                 if local_bindings.contains(&name) {
                     continue;
                 }
@@ -6806,23 +7598,6 @@ impl<'a> AnalysisBuilder<'a> {
                 continue;
             };
             let mut captures = function.captures;
-            for capture in captures.values_mut() {
-                if let Some(owner) = self.owner_plans.get(&capture.owner_id) {
-                    capture.slot = *owner
-                        .owned_env_slots
-                        .get(
-                            self.function_plans[&function_id]
-                                .captures
-                                .iter()
-                                .find(|(_, plan)| {
-                                    plan.owner_id == capture.owner_id && plan.slot == 0
-                                })
-                                .map(|(name, _)| name)
-                                .unwrap_or_else(|| panic!("capture binding should exist")),
-                        )
-                        .unwrap_or(&0);
-                }
-            }
             let names: Vec<String> = captures.keys().cloned().collect();
             for name in names {
                 if let Some(capture) = captures.get_mut(&name) {
@@ -6965,6 +7740,15 @@ fn collect_binding_names(interner: &Interner, binding: &Binding, names: &mut Vec
     }
 }
 
+fn function_declaration_key(function: &FunctionDeclaration) -> String {
+    let span = function.linear_span();
+    format!(
+        "function-declaration:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
 fn is_supported_parameter_binding(binding: &Binding) -> bool {
     match binding {
         Binding::Identifier(_) => true,
@@ -6973,7 +7757,6 @@ fn is_supported_parameter_binding(binding: &Binding) -> bool {
                 element,
                 ObjectPatternElement::SingleName {
                     name: PropertyName::Literal(_),
-                    default_init: None,
                     ..
                 }
             )
@@ -7124,9 +7907,44 @@ fn object_method_key(method: &ObjectMethodDefinition) -> String {
     format!("object-method:{}:{}", span.start().pos(), span.end().pos())
 }
 
+fn for_in_loop_binding_storage_name(
+    for_in: &boa_ast::statement::iteration::ForInLoop,
+    source_name: &str,
+) -> String {
+    let span = for_in.target().span();
+    format!(
+        "$forin.lex.{}.{}.{}.{}.{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number(),
+        source_name
+    )
+}
+
+fn tdz_binding_storage_name(source_name: &str) -> String {
+    format!("{TDZ_BINDING_STORAGE_PREFIX}{source_name}")
+}
+
+fn for_of_loop_binding_storage_name(for_of: &ForOfLoop, source_name: &str) -> String {
+    let span = for_of.iterable().span();
+    format!(
+        "$forof.lex.{}.{}.{}.{}.{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number(),
+        source_name
+    )
+}
+
 fn class_method_key(method: &ClassMethodDefinition) -> String {
     let span = method.linear_span();
     format!("class-method:{}:{}", span.start().pos(), span.end().pos())
+}
+
+fn class_method_debug_key(key: &PropertyKeyIr) -> String {
+    key.static_name().unwrap_or("<computed>").to_string()
 }
 
 fn class_constructor_key(function: &FunctionExpression) -> String {
@@ -7304,7 +8122,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
         }
-        ExprIr::DeleteProperty { target, key } => {
+        ExprIr::DeleteProperty { target, key, .. } => {
             expr_contains_this_before_super(target, state);
             match key {
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
@@ -7342,14 +8160,33 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                         expr_contains_this_before_super(key, state);
                         expr_contains_this_before_super(value, state);
                     }
+                    ObjectPropertyIr::ComputedMethod { key, function }
+                    | ObjectPropertyIr::ComputedGetter { key, function }
+                    | ObjectPropertyIr::ComputedSetter { key, function } => {
+                        expr_contains_this_before_super(key, state);
+                        expr_contains_this_before_super(function, state);
+                    }
+                }
+            }
+        }
+        ExprIr::ClassDefinition(class) => {
+            if let Some(heritage) = &class.heritage {
+                expr_contains_this_before_super(heritage, state);
+            }
+            for method in &class.public_methods {
+                match &method.key {
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_contains_this_before_super(expr, state);
+                    }
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
                 }
             }
         }
         ExprIr::FunctionValue(_)
-        | ExprIr::ClassDefinition(_)
         | ExprIr::String(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
+        | ExprIr::Symbol
         | ExprIr::Boolean(_)
         | ExprIr::Null
         | ExprIr::Undefined
@@ -7467,6 +8304,7 @@ fn statement_contains_this_before_super(
             statement_contains_this_before_super(body, state);
         }
         StatementIr::ForOfArray { iterable, body, .. }
+        | StatementIr::ForOfString { iterable, body, .. }
         | StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
@@ -7611,9 +8449,12 @@ struct ScriptLowerer<'a> {
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
     number_prototype_to_string_deleted: bool,
+    number_prototype_match_is_string_match: bool,
+    number_prototype_split_is_string_split: bool,
     boolean_prototype_to_string_deleted: bool,
     static_boolean_bindings: BTreeMap<String, bool>,
     static_string_bindings: BTreeMap<String, String>,
+    static_to_string_regexp_object_bindings: BTreeSet<String>,
     static_number_assert_values: BTreeMap<String, u64>,
     static_generator_sum_values: BTreeMap<String, Vec<f64>>,
     static_generator_element_values: BTreeMap<String, Vec<TypedExpr>>,
@@ -8252,6 +9093,13 @@ impl<'a> ScriptLowerer<'a> {
                 false,
             )),
         );
+        properties.insert(
+            "Symbol.search".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
+                false,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -8329,6 +9177,10 @@ impl<'a> ScriptLowerer<'a> {
         let mut properties = BTreeMap::new();
         for (name, function_id) in [
             (
+                "buffer",
+                StandardBuiltinId::TypedArrayPrototypeBufferGetter.function_id(),
+            ),
+            (
                 "byteLength",
                 StandardBuiltinId::TypedArrayPrototypeByteLengthGetter.function_id(),
             ),
@@ -8349,6 +9201,12 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        properties.insert(
+            "at".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::ArrayPrototypeAt,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -8387,6 +9245,52 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    fn array_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeConcat,
+            StandardBuiltinId::ArrayPrototypeFlat,
+            StandardBuiltinId::ArrayPrototypeFlatMap,
+            StandardBuiltinId::ArrayPrototypeAt,
+            StandardBuiltinId::ArrayPrototypeIncludes,
+            StandardBuiltinId::ArrayPrototypeIndexOf,
+            StandardBuiltinId::ArrayPrototypeLastIndexOf,
+            StandardBuiltinId::ArrayPrototypeFind,
+            StandardBuiltinId::ArrayPrototypeFindIndex,
+            StandardBuiltinId::ArrayPrototypeFindLast,
+            StandardBuiltinId::ArrayPrototypeFindLastIndex,
+            StandardBuiltinId::ArrayPrototypeEvery,
+            StandardBuiltinId::ArrayPrototypeSome,
+            StandardBuiltinId::ArrayPrototypeForEach,
+            StandardBuiltinId::ArrayPrototypeFilter,
+            StandardBuiltinId::ArrayPrototypeMap,
+            StandardBuiltinId::ArrayPrototypePop,
+            StandardBuiltinId::ArrayPrototypePush,
+            StandardBuiltinId::ArrayPrototypeKeys,
+            StandardBuiltinId::ArrayPrototypeEntries,
+            StandardBuiltinId::ArrayPrototypeValues,
+        ] {
+            if let Some(name) = builtin.native_function_name() {
+                properties.insert(
+                    name.to_string(),
+                    ObjectShapeProperty::Data(Self::standard_builtin_value_info(builtin)),
+                );
+            }
+        }
+        properties.insert(
+            "Symbol.iterator".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::ArrayPrototypeValues,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn is_typed_array_constructor(builtin: StandardBuiltinId) -> bool {
         matches!(
             builtin,
@@ -8399,6 +9303,8 @@ impl<'a> ScriptLowerer<'a> {
                 | StandardBuiltinId::Uint16ArrayConstructor
                 | StandardBuiltinId::Uint8ArrayConstructor
                 | StandardBuiltinId::Uint8ClampedArrayConstructor
+                | StandardBuiltinId::BigInt64ArrayConstructor
+                | StandardBuiltinId::BigUint64ArrayConstructor
         )
     }
 
@@ -8490,6 +9396,21 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn utf16_units_to_runtime_string(units: &[u16]) -> String {
+        char::decode_utf16(units.iter().copied())
+            .map(|decoded| match decoded {
+                Ok(ch) if ch == JS_STRING_SURROGATE_SENTINEL => {
+                    format!("{JS_STRING_SURROGATE_SENTINEL}{JS_STRING_SURROGATE_SENTINEL}")
+                }
+                Ok(ch) => ch.to_string(),
+                Err(err) => format!(
+                    "{JS_STRING_SURROGATE_SENTINEL}{:04X}",
+                    err.unpaired_surrogate()
+                ),
+            })
+            .collect()
+    }
+
     fn error_message_value_info() -> ValueInfo {
         ValueInfo {
             kind: ValueKind::Dynamic,
@@ -8525,6 +9446,9 @@ impl<'a> ScriptLowerer<'a> {
             for builtin in [
                 StandardBuiltinId::StringPrototypeToString,
                 StandardBuiltinId::StringPrototypeValueOf,
+                StandardBuiltinId::StringPrototypeCharAt,
+                StandardBuiltinId::StringPrototypeCharCodeAt,
+                StandardBuiltinId::StringPrototypeCodePointAt,
                 StandardBuiltinId::StringPrototypeAnchor,
                 StandardBuiltinId::StringPrototypeBig,
                 StandardBuiltinId::StringPrototypeBlink,
@@ -8540,6 +9464,9 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeSubstr,
                 StandardBuiltinId::StringPrototypeSubstring,
                 StandardBuiltinId::StringPrototypeSup,
+                StandardBuiltinId::StringPrototypeIndexOf,
+                StandardBuiltinId::StringPrototypeLastIndexOf,
+                StandardBuiltinId::StringPrototypeSplit,
                 StandardBuiltinId::StringPrototypeTrimStart,
                 StandardBuiltinId::StringPrototypeTrimEnd,
             ] {
@@ -8635,6 +9562,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorConstructor => Some(Box::new(Self::empty_object_shape())),
             StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
+            | StandardBuiltinId::SuppressedErrorConstructor
             | StandardBuiltinId::RangeErrorConstructor
             | StandardBuiltinId::SyntaxErrorConstructor
             | StandardBuiltinId::TypeErrorConstructor
@@ -8679,6 +9607,16 @@ impl<'a> ScriptLowerer<'a> {
                     heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                     function_targets: BTreeSet::new(),
                 }),
+            );
+        }
+        if builtin == StandardBuiltinId::SuppressedErrorConstructor {
+            properties.insert(
+                "error".to_string(),
+                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Dynamic)),
+            );
+            properties.insert(
+                "suppressed".to_string(),
+                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Dynamic)),
             );
         }
         ValueInfo {
@@ -8945,6 +9883,12 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 StandardBuiltinId::ArrayConstructor => {
                     object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::array_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
                         "from".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             StandardBuiltinId::ArrayFrom.function_id(),
@@ -9048,6 +9992,22 @@ impl<'a> ScriptLowerer<'a> {
                             Self::regexp_prototype_shape(),
                         ))),
                     );
+                    object.properties.insert(
+                        "Symbol.species".to_string(),
+                        ObjectShapeProperty::Accessor {
+                            getter: Some(ObjectAccessorShape {
+                                function_id: StandardBuiltinId::RegExpSpeciesGetter.function_id(),
+                            }),
+                            setter: None,
+                        },
+                    );
+                    object.properties.insert(
+                        "escape".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::RegExpEscape.function_id(),
+                            false,
+                        )),
+                    );
                     for name in ["input", "$_"] {
                         object.properties.insert(
                             name.to_string(),
@@ -9105,7 +10065,9 @@ impl<'a> ScriptLowerer<'a> {
                 | StandardBuiltinId::Uint32ArrayConstructor
                 | StandardBuiltinId::Uint16ArrayConstructor
                 | StandardBuiltinId::Uint8ArrayConstructor
-                | StandardBuiltinId::Uint8ClampedArrayConstructor => {
+                | StandardBuiltinId::Uint8ClampedArrayConstructor
+                | StandardBuiltinId::BigInt64ArrayConstructor
+                | StandardBuiltinId::BigUint64ArrayConstructor => {
                     object.prototype = Some(Self::typed_array_intrinsic_constructor_shape());
                     object.properties.insert(
                         "BYTES_PER_ELEMENT".to_string(),
@@ -9239,6 +10201,13 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "apply".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectApply.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "get".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::ReflectGet.function_id(),
@@ -9246,9 +10215,58 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "getOwnPropertyDescriptor".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "set".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectSet.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "has".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::ReflectHas.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "defineProperty".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectDefineProperty.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "deleteProperty".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectDeleteProperty.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "preventExtensions".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectPreventExtensions.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "setPrototypeOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectSetPrototypeOf.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "ownKeys".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectOwnKeys.function_id(),
                 false,
             )),
         );
@@ -9262,6 +10280,14 @@ impl<'a> ScriptLowerer<'a> {
 
     fn math_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
+        for name in [
+            "E", "LN10", "LN2", "LOG10E", "LOG2E", "PI", "SQRT1_2", "SQRT2",
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+            );
+        }
         for (name, builtin) in [
             ("abs", StandardBuiltinId::MathAbs),
             ("acos", StandardBuiltinId::MathAcos),
@@ -9412,7 +10438,8 @@ impl<'a> ScriptLowerer<'a> {
                     ValueInfo::undefined(),
                 )
             }
-            StandardBuiltinId::ObjectGetOwnPropertyDescriptor => (
+            StandardBuiltinId::ObjectGetOwnPropertyDescriptor
+            | StandardBuiltinId::ReflectGetOwnPropertyDescriptor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -9437,10 +10464,19 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
             | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
             | StandardBuiltinId::JsonIsRawJson
+            | StandardBuiltinId::StringPrototypeEndsWith
+            | StandardBuiltinId::StringPrototypeIncludes
             | StandardBuiltinId::StringPrototypeStartsWith
             | StandardBuiltinId::ErrorIsError => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringPrototypeIndexOf
+            | StandardBuiltinId::StringPrototypeLastIndexOf => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -9505,9 +10541,21 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Box::new(Self::empty_object_shape())),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ReflectApply => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ReflectGet => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectSet => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -9515,6 +10563,36 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectDefineProperty => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectDeleteProperty => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectPreventExtensions => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectSetPrototypeOf => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectOwnKeys => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ArrayConstructor => (
@@ -9634,9 +10712,51 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ArrayPrototypeAt => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayPrototypeIncludes => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeIndexOf => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeLastIndexOf => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeFind => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeFindIndex => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeFindLast => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeFindLastIndex => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -9649,6 +10769,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeSome => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeForEach => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -9752,6 +10878,14 @@ impl<'a> ScriptLowerer<'a> {
                 )),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::RegExpSpeciesGetter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::RegExpConstructor,
+                )),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
@@ -9833,6 +10967,12 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::array_buffer_instance_shape()),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::TypedArrayPrototypeBufferGetter => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::array_buffer_instance_shape()),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::DataViewPrototypeByteLengthGetter
             | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
             | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
@@ -9876,6 +11016,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::RegExpLegacyStaticSetter => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::RegExpEscape => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -9936,7 +11082,9 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::Uint32ArrayConstructor
             | StandardBuiltinId::Uint16ArrayConstructor
             | StandardBuiltinId::Uint8ArrayConstructor
-            | StandardBuiltinId::Uint8ClampedArrayConstructor => (
+            | StandardBuiltinId::Uint8ClampedArrayConstructor
+            | StandardBuiltinId::BigInt64ArrayConstructor
+            | StandardBuiltinId::BigUint64ArrayConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::typed_array_instance_shape()),
@@ -10018,6 +11166,9 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::StringPrototypeToString
             | StandardBuiltinId::StringPrototypeValueOf
+            | StandardBuiltinId::StringPrototypeCharAt
+            | StandardBuiltinId::StringPrototypeCharCodeAt
+            | StandardBuiltinId::StringPrototypeCodePointAt
             | StandardBuiltinId::StringPrototypeAnchor
             | StandardBuiltinId::StringPrototypeBig
             | StandardBuiltinId::StringPrototypeBlink
@@ -10049,7 +11200,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
-            | StandardBuiltinId::RegExpPrototypeSymbolMatch => (
+            | StandardBuiltinId::RegExpPrototypeSymbolMatch
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
                 None,
@@ -10076,6 +11228,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
+            | StandardBuiltinId::SuppressedErrorConstructor
             | StandardBuiltinId::RangeErrorConstructor
             | StandardBuiltinId::SyntaxErrorConstructor
             | StandardBuiltinId::TypeErrorConstructor
@@ -10089,6 +11242,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorPrototypeToString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ThrowTypeError => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -10175,6 +11334,19 @@ impl<'a> ScriptLowerer<'a> {
         let name = format!("${hint}{}", self.next_temp_binding_index);
         self.next_temp_binding_index += 1;
         name
+    }
+
+    fn lexical_storage_name(&mut self, source_name: &str) -> String {
+        let shadows_scope_binding = self.has_scope_binding(source_name);
+        let shadows_var_binding = self
+            .var_bindings
+            .get(source_name)
+            .is_some_and(|binding| !binding.is_lexical_metadata);
+        if shadows_scope_binding || shadows_var_binding {
+            self.alloc_temp_binding_name("lex")
+        } else {
+            source_name.to_string()
+        }
     }
 
     fn alloc_private_name_id(&mut self) -> PrivateNameId {
@@ -10328,6 +11500,33 @@ impl<'a> ScriptLowerer<'a> {
                         source: GlobalPropertySource::Builtin,
                     },
                 );
+                properties.insert(
+                    "Infinity".to_string(),
+                    GlobalPropertyInfo {
+                        value_info: ValueInfo::new(ValueKind::Number),
+                        proven_present: true,
+                        configurable: false,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
+                properties.insert(
+                    "NaN".to_string(),
+                    GlobalPropertyInfo {
+                        value_info: ValueInfo::new(ValueKind::Number),
+                        proven_present: true,
+                        configurable: false,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
+                properties.insert(
+                    "undefined".to_string(),
+                    GlobalPropertyInfo {
+                        value_info: ValueInfo::undefined(),
+                        proven_present: true,
+                        configurable: false,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
                 for builtin in StandardBuiltinId::all_globals() {
                     if let Some(name) = builtin.global_name() {
                         properties.insert(
@@ -10344,9 +11543,12 @@ impl<'a> ScriptLowerer<'a> {
                 properties
             },
             number_prototype_to_string_deleted: false,
+            number_prototype_match_is_string_match: false,
+            number_prototype_split_is_string_split: false,
             boolean_prototype_to_string_deleted: false,
             static_boolean_bindings: BTreeMap::new(),
             static_string_bindings: BTreeMap::new(),
+            static_to_string_regexp_object_bindings: BTreeSet::new(),
             static_number_assert_values: BTreeMap::new(),
             static_generator_sum_values: BTreeMap::new(),
             static_generator_element_values: BTreeMap::new(),
@@ -10750,9 +11952,15 @@ impl<'a> ScriptLowerer<'a> {
             pass.visible_function_names = self.visible_function_names.clone();
             pass.global_properties = self.global_properties.clone();
             pass.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+            pass.number_prototype_match_is_string_match =
+                self.number_prototype_match_is_string_match;
+            pass.number_prototype_split_is_string_split =
+                self.number_prototype_split_is_string_split;
             pass.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
             pass.static_boolean_bindings = self.static_boolean_bindings.clone();
             pass.static_string_bindings = self.static_string_bindings.clone();
+            pass.static_to_string_regexp_object_bindings =
+                self.static_to_string_regexp_object_bindings.clone();
             pass.var_bindings = self.var_bindings.clone();
             pass.exact_context_function_observations =
                 self.exact_context_function_observations.clone();
@@ -10914,9 +12122,13 @@ impl<'a> ScriptLowerer<'a> {
         pass.visible_function_names = self.visible_function_names.clone();
         pass.global_properties = self.global_properties.clone();
         pass.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        pass.number_prototype_match_is_string_match = self.number_prototype_match_is_string_match;
+        pass.number_prototype_split_is_string_split = self.number_prototype_split_is_string_split;
         pass.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
+        pass.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
         pass.exact_context_function_observations = self.exact_context_function_observations.clone();
         pass.exact_context_callback_observations = self.exact_context_callback_observations.clone();
@@ -10965,9 +12177,13 @@ impl<'a> ScriptLowerer<'a> {
         pass.visible_function_names = self.visible_function_names.clone();
         pass.global_properties = self.global_properties.clone();
         pass.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        pass.number_prototype_match_is_string_match = self.number_prototype_match_is_string_match;
+        pass.number_prototype_split_is_string_split = self.number_prototype_split_is_string_split;
         pass.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
+        pass.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
         pass.exact_context_function_observations = self.exact_context_function_observations.clone();
         pass.exact_context_callback_observations = self.exact_context_callback_observations.clone();
@@ -11006,6 +12222,7 @@ impl<'a> ScriptLowerer<'a> {
                 param.heap_shape = arg.heap_shape.clone();
                 param.function_targets = arg.function_targets.clone();
             }
+            Self::reset_omitted_signature_params_to_undefined(signature, canonical_args.len());
         }
         let plan = self
             .analysis
@@ -11029,6 +12246,64 @@ impl<'a> ScriptLowerer<'a> {
             signature.params = exact_signature.params;
             signature.this_info = exact_signature.this_info;
             signature.this_observed = exact_signature.this_observed;
+        }
+    }
+
+    fn reset_omitted_signature_params_to_undefined(
+        signature: &mut FunctionSignature,
+        supplied_arg_count: usize,
+    ) {
+        for param in signature.params.iter_mut().skip(supplied_arg_count) {
+            if param.is_rest {
+                break;
+            }
+            param.kind = ValueKind::Undefined;
+            param.possible_kinds = KindSet::from_kind(ValueKind::Undefined);
+            param.heap_shape = None;
+            param.function_targets.clear();
+        }
+    }
+
+    fn merge_omitted_signature_params_as_undefined(
+        signature: &mut FunctionSignature,
+        supplied_arg_count: usize,
+    ) {
+        let undefined_info = ValueInfo::undefined();
+        for param in signature.params.iter_mut().skip(supplied_arg_count) {
+            if param.is_rest {
+                break;
+            }
+            Self::merge_signature_param_observation(param, &undefined_info);
+        }
+    }
+
+    fn merge_signature_param_observation(param: &mut FunctionParamSignature, arg: &ValueInfo) {
+        let previous_kind = param.kind;
+        param.kind = match param.kind {
+            ValueKind::Dynamic | ValueKind::Undefined => arg.kind,
+            existing if existing == arg.kind => existing,
+            _ => ValueKind::Dynamic,
+        };
+        param.possible_kinds = if param.possible_kinds == KindSet::all_runtime_tags() {
+            arg.possible_kinds
+        } else {
+            param.possible_kinds.union(arg.possible_kinds)
+        };
+        if previous_kind == ValueKind::Dynamic || previous_kind == ValueKind::Undefined {
+            param.heap_shape = arg.heap_shape.clone();
+            param.function_targets = arg.function_targets.clone();
+        } else if previous_kind == arg.kind {
+            if param.heap_shape != arg.heap_shape {
+                param.heap_shape = None;
+            }
+            param
+                .function_targets
+                .extend(arg.function_targets.iter().cloned());
+        } else {
+            param.heap_shape = None;
+            param
+                .function_targets
+                .extend(arg.function_targets.iter().cloned());
         }
     }
 
@@ -11501,11 +12776,24 @@ impl<'a> ScriptLowerer<'a> {
             4 + self.var_bindings.len()
                 + root_functions.len()
                 + self.used_host_builtins.len()
+                + 3
                 + StandardBuiltinId::all_globals().len(),
         );
         bindings.push(ScriptGlobalBindingIr {
             name: GLOBAL_THIS_NAME.to_string(),
             kind: ScriptGlobalBindingKind::Intrinsic,
+        });
+        bindings.push(ScriptGlobalBindingIr {
+            name: "Infinity".to_string(),
+            kind: ScriptGlobalBindingKind::Infinity,
+        });
+        bindings.push(ScriptGlobalBindingIr {
+            name: "NaN".to_string(),
+            kind: ScriptGlobalBindingKind::NaN,
+        });
+        bindings.push(ScriptGlobalBindingIr {
+            name: "undefined".to_string(),
+            kind: ScriptGlobalBindingKind::Undefined,
         });
         bindings.push(ScriptGlobalBindingIr {
             name: REFLECT_NAME.to_string(),
@@ -11597,6 +12885,23 @@ impl<'a> ScriptLowerer<'a> {
         let mut result_kind = ValueKind::Undefined;
 
         for item in items {
+            let StatementListItem::Declaration(declaration) = item else {
+                continue;
+            };
+            let Declaration::FunctionDeclaration(function) = declaration.as_ref() else {
+                continue;
+            };
+            statements.push(self.lower_function_declaration(function));
+        }
+
+        for item in items {
+            if matches!(
+                item,
+                StatementListItem::Declaration(declaration)
+                    if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_))
+            ) {
+                continue;
+            }
             let (statement, kind) = self.lower_statement_list_item(item);
             statements.push(statement);
             result_kind = kind;
@@ -11629,6 +12934,7 @@ impl<'a> ScriptLowerer<'a> {
                 function.name.clone(),
                 BindingInfo {
                     mode: BindingMode::Const,
+                    storage_name: function.name.clone(),
                     kind: ValueKind::Function,
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
                     heap_shape: function_info.heap_shape,
@@ -11692,10 +12998,7 @@ impl<'a> ScriptLowerer<'a> {
         match item {
             StatementListItem::Statement(statement) => self.lower_statement(statement),
             StatementListItem::Declaration(declaration) => {
-                if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_)) {
-                    self.unsupported("function or class declaration");
-                    (StatementIr::Empty, ValueKind::Undefined)
-                } else if self.is_static_generator_declaration(declaration.as_ref()) {
+                if self.is_static_generator_declaration(declaration.as_ref()) {
                     (StatementIr::Empty, ValueKind::Undefined)
                 } else {
                     self.lower_declaration(declaration)
@@ -11804,7 +13107,7 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("for-in initializer");
             return (StatementIr::Empty, ValueKind::Undefined);
         };
-        let mut target = self.lower_expression(for_in.target());
+        let mut target = self.lower_for_head_expression_with_tdz(mode, &name, for_in.target());
         let is_inferred_undefined_param_target =
             target.kind == ValueKind::Undefined && self.is_current_param_expr(for_in.target());
         if is_inferred_undefined_param_target {
@@ -11829,12 +13132,18 @@ impl<'a> ScriptLowerer<'a> {
         let before_globals = self.global_properties.clone();
         self.push_scope();
         let key_info = ValueInfo::new(ValueKind::String);
+        let storage_name = if mode == BindingMode::Var {
+            name.clone()
+        } else {
+            for_in_loop_binding_storage_name(for_in, &name)
+        };
         if mode == BindingMode::Var {
             self.set_binding_value_info(&name, key_info.clone());
             self.declare_binding(
                 name.clone(),
                 BindingInfo {
                     mode,
+                    storage_name: storage_name.clone(),
                     kind: key_info.kind,
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
@@ -11846,6 +13155,7 @@ impl<'a> ScriptLowerer<'a> {
                 name.clone(),
                 BindingInfo {
                     mode,
+                    storage_name: storage_name.clone(),
                     kind: key_info.kind,
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
@@ -11862,33 +13172,65 @@ impl<'a> ScriptLowerer<'a> {
         let statement = if is_dynamic_target {
             StatementIr::ForInObject {
                 mode,
-                name,
+                name: storage_name,
                 target,
                 body: Box::new(body),
             }
         } else if is_array_target {
             StatementIr::ForInArray {
                 mode,
-                name,
+                name: storage_name,
                 target,
                 body: Box::new(body),
             }
         } else if is_string_target {
             StatementIr::ForInString {
                 mode,
-                name,
+                name: storage_name,
                 target,
                 body: Box::new(body),
             }
         } else {
             StatementIr::ForInObject {
                 mode,
-                name,
+                name: storage_name,
                 target,
                 body: Box::new(body),
             }
         };
         Self::prepend_statement(initializer_prefix, statement, body_kind)
+    }
+
+    fn lower_for_head_expression_with_tdz(
+        &mut self,
+        mode: BindingMode,
+        name: &str,
+        expression: &Expression,
+    ) -> TypedExpr {
+        if mode == BindingMode::Var {
+            return self.lower_expression(expression);
+        }
+
+        self.push_scope();
+        self.declare_binding(name.to_string(), Self::tdz_binding_info(name, mode));
+        let lowered = self.lower_expression(expression);
+        self.pop_scope();
+        lowered
+    }
+
+    fn tdz_binding_info(name: &str, mode: BindingMode) -> BindingInfo {
+        BindingInfo {
+            mode,
+            storage_name: tdz_binding_storage_name(name),
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::all_runtime_tags(),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        }
+    }
+
+    fn is_tdz_binding_storage_name(storage_name: &str) -> bool {
+        storage_name.starts_with(TDZ_BINDING_STORAGE_PREFIX)
     }
 
     fn lower_for_in_initializer_prefix(
@@ -11956,6 +13298,7 @@ impl<'a> ScriptLowerer<'a> {
             ERROR_NAME
                 | EVAL_ERROR_NAME
                 | AGGREGATE_ERROR_NAME
+                | SUPPRESSED_ERROR_NAME
                 | RANGE_ERROR_NAME
                 | REFERENCE_ERROR_NAME
                 | SYNTAX_ERROR_NAME
@@ -12169,6 +13512,52 @@ impl<'a> ScriptLowerer<'a> {
         Some(self.interner.resolve_expect(*sym).to_string())
     }
 
+    fn static_to_string_returns_regexp_object_expr(&self, expr: &Expression) -> bool {
+        match Self::unwrap_parenthesized_expr(expr) {
+            Expression::Identifier(identifier) => {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                self.static_to_string_regexp_object_bindings.contains(&name)
+            }
+            Expression::ObjectLiteral(object) => {
+                self.static_object_literal_to_string_returns_regexp(object)
+            }
+            _ => false,
+        }
+    }
+
+    fn static_object_literal_to_string_returns_regexp(&self, object: &ObjectLiteral) -> bool {
+        object.properties().iter().any(|property| {
+            let PropertyDefinition::Property(name, value) = property else {
+                return false;
+            };
+            self.property_name_to_static_key(name).as_deref() == Some("toString")
+                && self.static_function_expression_returns_regexp(value)
+        })
+    }
+
+    fn static_function_expression_returns_regexp(&self, expr: &Expression) -> bool {
+        let Expression::FunctionExpression(function) = Self::unwrap_parenthesized_expr(expr) else {
+            return false;
+        };
+        let mut statements = function.body().statements().iter();
+        let Some(StatementListItem::Statement(statement)) = statements.next() else {
+            return false;
+        };
+        if statements.next().is_some() {
+            return false;
+        }
+        let Statement::Return(return_statement) = statement.as_ref() else {
+            return false;
+        };
+        let Some(target) = return_statement.target() else {
+            return false;
+        };
+        matches!(
+            Self::unwrap_parenthesized_expr(target),
+            Expression::RegExpLiteral(_)
+        )
+    }
+
     fn unwrap_parenthesized_expr(mut expr: &Expression) -> &Expression {
         while let Expression::Parenthesized(parenthesized) = expr {
             expr = parenthesized.expression();
@@ -12177,10 +13566,16 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_known_non_enumerable_global(&self, name: &str) -> bool {
-        matches!(name, PARSE_INT_NAME | PARSE_FLOAT_NAME)
-            && self.lookup_global_property_info(name).is_some_and(|info| {
-                info.proven_present && info.source == GlobalPropertySource::HostBuiltin
-            })
+        matches!(
+            name,
+            PARSE_INT_NAME | PARSE_FLOAT_NAME | "Infinity" | "NaN" | "undefined"
+        ) && self.lookup_global_property_info(name).is_some_and(|info| {
+            info.proven_present
+                && matches!(
+                    info.source,
+                    GlobalPropertySource::HostBuiltin | GlobalPropertySource::Builtin
+                )
+        })
     }
 
     fn is_known_non_enumerable_builtin_property(&self, target: &str, property: &str) -> bool {
@@ -12195,6 +13590,12 @@ impl<'a> ScriptLowerer<'a> {
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
                 if self.is_number_prototype_property_expr(target, "toString") {
                     self.number_prototype_to_string_deleted = true;
+                }
+                if self.is_number_prototype_property_expr(target, "match") {
+                    self.number_prototype_match_is_string_match = false;
+                }
+                if self.is_number_prototype_property_expr(target, "split") {
+                    self.number_prototype_split_is_string_split = false;
                 }
                 if self.is_boolean_prototype_property_expr(target, "toString") {
                     self.boolean_prototype_to_string_deleted = true;
@@ -12227,11 +13628,17 @@ impl<'a> ScriptLowerer<'a> {
                                         lowered.heap_shape = None;
                                         lowered.function_targets.clear();
                                     }
-                                    if lowered.kind == ValueKind::String {
-                                        PropertyKeyIr::StringExpr(Box::new(lowered))
-                                    } else if lowered.kind == ValueKind::Number {
+                                    if lowered.kind == ValueKind::Number {
                                         PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                                    } else if lowered.kind == ValueKind::Dynamic {
+                                    } else if lowered.kind == ValueKind::String
+                                        || lowered.kind == ValueKind::Symbol
+                                        || lowered.possible_kinds.contains(ValueKind::String)
+                                        || lowered.possible_kinds.contains(ValueKind::Symbol)
+                                        || lowered
+                                            .possible_kinds
+                                            .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
+                                        || lowered.possible_kinds == KindSet::all_runtime_tags()
+                                    {
                                         PropertyKeyIr::StringExpr(Box::new(lowered))
                                     } else {
                                         return self.unsupported_expr("unsupported unary operator");
@@ -12240,16 +13647,41 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                     }
-                    ValueKind::Array | ValueKind::Arguments => {
-                        let PropertyAccessField::Expr(expr) = access.field() else {
-                            return self.unsupported_expr("unsupported unary operator");
-                        };
-                        let lowered = self.lower_expression(expr);
-                        if lowered.kind != ValueKind::Number {
-                            return self.unsupported_expr("unsupported unary operator");
+                    ValueKind::Array | ValueKind::Arguments => match access.field() {
+                        PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                            self.interner.resolve_expect(name.sym()).to_string(),
+                        ),
+                        PropertyAccessField::Expr(expr) => {
+                            if let Some(key) = self.try_static_string_key(expr) {
+                                PropertyKeyIr::StaticString(key)
+                            } else {
+                                let mut lowered = self.lower_expression(expr);
+                                if lowered.kind == ValueKind::Undefined
+                                    && self.is_current_param_expr(expr)
+                                {
+                                    lowered.kind = ValueKind::Dynamic;
+                                    lowered.possible_kinds = KindSet::all_runtime_tags();
+                                    lowered.heap_shape = None;
+                                    lowered.function_targets.clear();
+                                }
+                                if lowered.kind == ValueKind::Number {
+                                    PropertyKeyIr::ArrayIndex(Box::new(lowered))
+                                } else if lowered.kind == ValueKind::String
+                                    || lowered.kind == ValueKind::Symbol
+                                    || lowered.possible_kinds.contains(ValueKind::String)
+                                    || lowered.possible_kinds.contains(ValueKind::Symbol)
+                                    || lowered
+                                        .possible_kinds
+                                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
+                                    || lowered.possible_kinds == KindSet::all_runtime_tags()
+                                {
+                                    PropertyKeyIr::StringExpr(Box::new(lowered))
+                                } else {
+                                    return self.unsupported_expr("unsupported unary operator");
+                                }
+                            }
                         }
-                        PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                    }
+                    },
                     _ => return self.unsupported_expr("unsupported unary operator"),
                 };
                 if self.is_global_this_expr(access.target()) {
@@ -12269,6 +13701,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::DeleteProperty {
                         target: Box::new(target),
                         key,
+                        strict: self.is_current_owner_strict(),
                     },
                 )
             }
@@ -12338,6 +13771,10 @@ impl<'a> ScriptLowerer<'a> {
         self.is_constructor_prototype_property_expr(expr, BOOLEAN_NAME, property)
     }
 
+    fn is_string_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
+        self.is_constructor_prototype_property_expr(expr, STRING_NAME, property)
+    }
+
     fn is_object_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
         self.is_constructor_prototype_property_expr(expr, OBJECT_NAME, property)
     }
@@ -12398,14 +13835,14 @@ impl<'a> ScriptLowerer<'a> {
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
             self.push_scope();
-            let catch_name = self.interner.resolve_expect(identifier.sym()).to_string();
-            self.declare_binding(
-                catch_name.clone(),
-                self.infer_catch_binding_info(&try_block),
-            );
+            let catch_source_name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let catch_storage_name = self.lexical_storage_name(&catch_source_name);
+            let mut catch_info = self.infer_catch_binding_info(&try_block);
+            catch_info.storage_name = catch_storage_name.clone();
+            self.declare_binding(catch_source_name.clone(), catch_info);
             let catch_block = self.lower_block(catch.block());
             self.pop_scope();
-            Some((catch_name, catch_block))
+            Some((catch_source_name, catch_storage_name, catch_block))
         } else {
             None
         };
@@ -12420,7 +13857,7 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         match (catch_parts, finally_block) {
-            (Some((catch_name, catch_block)), Some(finally_block)) => {
+            (Some((catch_source_name, catch_name, catch_block)), Some(finally_block)) => {
                 let result_kind = self.merge_value_kinds(
                     self.merge_value_kinds(try_block.result_kind, catch_block.result_kind),
                     finally_block.result_kind,
@@ -12429,19 +13866,21 @@ impl<'a> ScriptLowerer<'a> {
                     StatementIr::TryCatchFinally {
                         try_block,
                         catch_name,
+                        catch_source_name,
                         catch_block,
                         finally_block,
                     },
                     result_kind,
                 )
             }
-            (Some((catch_name, catch_block)), None) => {
+            (Some((catch_source_name, catch_name, catch_block)), None) => {
                 let result_kind =
                     self.merge_value_kinds(try_block.result_kind, catch_block.result_kind);
                 (
                     StatementIr::TryCatch {
                         try_block,
                         catch_name,
+                        catch_source_name,
                         catch_block,
                     },
                     result_kind,
@@ -12474,6 +13913,7 @@ impl<'a> ScriptLowerer<'a> {
         });
         BindingInfo {
             mode: BindingMode::Let,
+            storage_name: String::new(),
             kind: info.kind,
             possible_kinds: info.possible_kinds,
             heap_shape: info.heap_shape,
@@ -12601,6 +14041,7 @@ impl<'a> ScriptLowerer<'a> {
                 info
             }
             StatementIr::ForOfArray { iterable, body, .. }
+            | StatementIr::ForOfString { iterable, body, .. }
             | StatementIr::ForOfIterator { iterable, body, .. } => self.merge_optional_value_info(
                 self.infer_expr_throw_info(iterable),
                 self.infer_statement_throw_info(body),
@@ -12666,6 +14107,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
+            | ExprIr::Symbol
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::This
@@ -12712,6 +14154,16 @@ impl<'a> ScriptLowerer<'a> {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
+                        ObjectPropertyIr::ComputedMethod { key, function }
+                        | ObjectPropertyIr::ComputedGetter { key, function }
+                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                            info = self
+                                .merge_optional_value_info(info, self.infer_expr_throw_info(key));
+                            info = self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(function),
+                            );
+                        }
                     }
                 }
                 info
@@ -12741,11 +14193,12 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(index),
             ),
             ExprIr::DeleteIdentifier { .. } | ExprIr::DeleteGlobalProperty { .. } => None,
-            ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key } => self
-                .merge_optional_value_info(
+            ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
+                self.merge_optional_value_info(
                     self.infer_expr_throw_info(target),
                     self.infer_property_key_throw_info(key),
-                ),
+                )
+            }
             ExprIr::PropertyWrite { target, key, value } => {
                 let mut info = self.infer_expr_throw_info(target);
                 info =
@@ -12846,7 +14299,19 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::ClassDefinition(_) => None,
+            ExprIr::ClassDefinition(class) => {
+                let mut info = class
+                    .heritage
+                    .as_deref()
+                    .and_then(|heritage| self.infer_expr_throw_info(heritage));
+                for method in &class.public_methods {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_property_key_throw_info(&method.key),
+                    );
+                }
+                info
+            }
             ExprIr::PrivateRead { target, .. } => self.infer_expr_throw_info(target),
             ExprIr::PrivateWrite { target, value, .. } => self.merge_optional_value_info(
                 self.infer_expr_throw_info(target),
@@ -13105,7 +14570,11 @@ impl<'a> ScriptLowerer<'a> {
         };
         let static_generator_elements =
             self.static_generator_call_elements_owned(for_of.iterable());
-        let iterable = self.lower_expression(for_of.iterable());
+        let iterable = if pattern_initializer.is_none() {
+            self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())
+        } else {
+            self.lower_expression(for_of.iterable())
+        };
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
         self.push_scope();
@@ -13123,6 +14592,12 @@ impl<'a> ScriptLowerer<'a> {
                     .cloned()
                     .reduce(|a, b| self.merge_value_infos(a, b))
                     .unwrap_or_else(ValueInfo::undefined),
+                _ if iterable
+                    .possible_kinds
+                    .is_subset_of(KindSet::from_kind(ValueKind::String)) =>
+                {
+                    ValueInfo::new(ValueKind::String)
+                }
                 _ => ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -13131,10 +14606,16 @@ impl<'a> ScriptLowerer<'a> {
                 },
             }
         };
+        let storage_name = if mode == BindingMode::Var || pattern_initializer.is_some() {
+            name.clone()
+        } else {
+            for_of_loop_binding_storage_name(for_of, &name)
+        };
         self.declare_binding(
             name.clone(),
             BindingInfo {
                 mode,
+                storage_name: storage_name.clone(),
                 kind: element_info.kind,
                 possible_kinds: element_info.possible_kinds,
                 heap_shape: element_info.heap_shape.clone(),
@@ -13143,7 +14624,10 @@ impl<'a> ScriptLowerer<'a> {
         );
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
         if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
-            let init = TypedExpr::from_info(element_info.clone(), ExprIr::Identifier(name.clone()));
+            let init = TypedExpr::from_info(
+                element_info.clone(),
+                ExprIr::Identifier(storage_name.clone()),
+            );
             let Some(mut prefix) =
                 self.lower_pattern_lexical_binding_from_value(*pattern_mode, pattern, init)
             else {
@@ -13167,7 +14651,17 @@ impl<'a> ScriptLowerer<'a> {
         {
             StatementIr::ForOfArray {
                 mode,
-                name,
+                name: storage_name,
+                iterable,
+                body: Box::new(body),
+            }
+        } else if iterable
+            .possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::String))
+        {
+            StatementIr::ForOfString {
+                mode,
+                name: storage_name,
                 iterable,
                 body: Box::new(body),
             }
@@ -13177,7 +14671,7 @@ impl<'a> ScriptLowerer<'a> {
         {
             StatementIr::ForOfIterator {
                 mode,
-                name,
+                name: storage_name,
                 iterable,
                 body: Box::new(body),
             }
@@ -13367,17 +14861,23 @@ impl<'a> ScriptLowerer<'a> {
             .map(|expression| self.lower_expression(expression))
             .unwrap_or_else(TypedExpr::undefined);
 
+        let storage_name = self.lexical_storage_name(&name);
         self.declare_binding(
             name.clone(),
             BindingInfo {
                 mode,
+                storage_name: storage_name.clone(),
                 kind: init.kind,
                 possible_kinds: init.possible_kinds,
                 heap_shape: init.heap_shape.clone(),
                 function_targets: init.function_targets.clone(),
             },
         );
-        Some(ForInitIr::Lexical { mode, name, init })
+        Some(ForInitIr::Lexical {
+            mode,
+            name: storage_name,
+            init,
+        })
     }
 
     fn lower_var_statement(&mut self, declaration: &VarDeclaration) -> (StatementIr, ValueKind) {
@@ -13414,15 +14914,24 @@ impl<'a> ScriptLowerer<'a> {
         let static_object_iterator_values = variable
             .init()
             .and_then(|expression| self.static_object_iterator_literal_values(expression));
+        let static_to_string_regexp_object = variable
+            .init()
+            .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
         let static_iterator_values = static_generator_values
             .clone()
             .or_else(|| static_object_iterator_values.clone());
         let init = if let Some(Expression::GeneratorExpression(generator)) = variable.init() {
-            let iterator = self.lower_generator_iife_as_array(generator);
-            self.static_generator_call_overrides
-                .insert(name.clone(), iterator);
-            self.static_iterator_binding_values.remove(&name);
-            Some(TypedExpr::undefined())
+            if generator.parameters().length() == 0 {
+                let iterator = self.lower_generator_iife_as_array(generator);
+                self.static_generator_call_overrides
+                    .insert(name.clone(), iterator);
+                self.static_iterator_binding_values.remove(&name);
+                Some(TypedExpr::undefined())
+            } else {
+                self.static_generator_call_overrides.remove(&name);
+                self.static_iterator_binding_values.remove(&name);
+                Some(self.lower_generator_expression(generator))
+            }
         } else if let Some(values) = &static_generator_values {
             self.static_generator_call_overrides.remove(&name);
             self.static_iterator_binding_values
@@ -13451,15 +14960,26 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 self.static_string_bindings.remove(&name);
             }
+            if static_to_string_regexp_object {
+                self.static_to_string_regexp_object_bindings
+                    .insert(name.clone());
+            } else {
+                self.static_to_string_regexp_object_bindings.remove(&name);
+            }
         } else {
             self.static_boolean_bindings.remove(&name);
             self.static_string_bindings.remove(&name);
+            self.static_to_string_regexp_object_bindings.remove(&name);
         }
         if let Some(init) = &init {
             self.set_binding_value_info(&name, init.value_info());
             if let Some(expression) = variable.init() {
                 if let Some(value) = self.static_string_expression(expression) {
                     self.static_string_bindings.insert(name.clone(), value);
+                }
+                if static_to_string_regexp_object {
+                    self.static_to_string_regexp_object_bindings
+                        .insert(name.clone());
                 }
             }
         }
@@ -13559,7 +15079,7 @@ impl<'a> ScriptLowerer<'a> {
             let ObjectPatternElement::SingleName {
                 name: PropertyName::Literal(property_name),
                 ident,
-                default_init: None,
+                default_init,
             } = element
             else {
                 self.unsupported_with_message(format!(
@@ -13584,10 +15104,12 @@ impl<'a> ScriptLowerer<'a> {
                     key: PropertyKeyIr::StaticString(key),
                 },
             );
+            let init = self.apply_destructuring_default(init, default_init.as_ref());
             self.declare_binding(
                 name.clone(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: name.clone(),
                     kind: init.kind,
                     possible_kinds: init.possible_kinds,
                     heap_shape: init.heap_shape.clone(),
@@ -13620,9 +15142,15 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        lowerer.number_prototype_match_is_string_match =
+            self.number_prototype_match_is_string_match;
+        lowerer.number_prototype_split_is_string_split =
+            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.seed_script_global_var_properties();
         lowerer.exact_context_function_observations =
@@ -13750,6 +15278,7 @@ impl<'a> ScriptLowerer<'a> {
                 self_binding_name.clone(),
                 BindingInfo {
                     mode: BindingMode::Const,
+                    storage_name: self_binding_name.clone(),
                     kind: function_info.kind,
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
@@ -13761,15 +15290,23 @@ impl<'a> ScriptLowerer<'a> {
             if lowerer.is_script_global_var_capture(name, capture) {
                 continue;
             }
-            let info = if capture.owner_id == self.current_owner_id {
-                let binding_info = self.lookup_binding(name).map(|binding| ValueInfo {
+            let source_name = capture.source_name.as_str();
+            let info = if Self::is_tdz_binding_storage_name(name) {
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                }
+            } else if capture.owner_id == self.current_owner_id {
+                let binding_info = self.lookup_binding(source_name).map(|binding| ValueInfo {
                     kind: binding.kind,
                     possible_kinds: binding.possible_kinds,
                     heap_shape: binding.heap_shape,
                     function_targets: binding.function_targets,
                 });
                 let inferred_info =
-                    lowerer.infer_owner_var_binding_info(capture.owner_id.as_str(), name);
+                    lowerer.infer_owner_var_binding_info(capture.owner_id.as_str(), source_name);
                 match (binding_info, inferred_info) {
                     (Some(binding), Some(inferred))
                         if binding.kind == ValueKind::Undefined
@@ -13779,15 +15316,18 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     (Some(binding), _) => binding,
                     (None, Some(inferred)) => inferred,
-                    (None, None) => lowerer.capture_value_info(capture.owner_id.as_str(), name),
+                    (None, None) => {
+                        lowerer.capture_value_info(capture.owner_id.as_str(), source_name)
+                    }
                 }
             } else {
-                lowerer.capture_value_info(capture.owner_id.as_str(), name)
+                lowerer.capture_value_info(capture.owner_id.as_str(), source_name)
             };
             lowerer.declare_binding(
-                name.clone(),
+                capture.source_name.clone(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: name.clone(),
                     kind: info.kind,
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
@@ -13801,6 +15341,7 @@ impl<'a> ScriptLowerer<'a> {
                 LEXICAL_ARGUMENTS_NAME.to_string(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: LEXICAL_ARGUMENTS_NAME.to_string(),
                     kind: ValueKind::Arguments,
                     possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                     heap_shape: None,
@@ -13911,6 +15452,7 @@ impl<'a> ScriptLowerer<'a> {
                 name.clone(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: name.clone(),
                     kind: param_info.kind,
                     possible_kinds: param_info.possible_kinds,
                     heap_shape: param_info.heap_shape,
@@ -14086,14 +15628,44 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_declaration(&mut self, declaration: &Declaration) -> (StatementIr, ValueKind) {
         match declaration {
             Declaration::Lexical(lexical) => self.lower_lexical_declaration(lexical),
-            Declaration::FunctionDeclaration(_)
-            | Declaration::GeneratorDeclaration(_)
+            Declaration::FunctionDeclaration(function) => (
+                self.lower_function_declaration(function),
+                ValueKind::Undefined,
+            ),
+            Declaration::GeneratorDeclaration(_)
             | Declaration::AsyncFunctionDeclaration(_)
             | Declaration::AsyncGeneratorDeclaration(_) => {
                 self.unsupported("function or class declaration");
                 (StatementIr::Empty, ValueKind::Undefined)
             }
             Declaration::ClassDeclaration(class) => self.lower_class_declaration(class),
+        }
+    }
+
+    fn lower_function_declaration(&mut self, function: &FunctionDeclaration) -> StatementIr {
+        let key = function_declaration_key(function);
+        let Some(function_id) = self.analysis.function_declaration_ids.get(&key).cloned() else {
+            self.unsupported("function declaration");
+            return StatementIr::Empty;
+        };
+        let name = function_name(self.interner, function, None);
+        let storage_name = self.lexical_storage_name(&name);
+        let function_info = self.function_value_info(&function_id);
+        self.declare_binding(
+            name.clone(),
+            BindingInfo {
+                mode: BindingMode::Const,
+                storage_name: storage_name.clone(),
+                kind: function_info.kind,
+                possible_kinds: function_info.possible_kinds,
+                heap_shape: function_info.heap_shape.clone(),
+                function_targets: function_info.function_targets.clone(),
+            },
+        );
+        StatementIr::Lexical {
+            mode: BindingMode::Const,
+            name: storage_name,
+            init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
         }
     }
 
@@ -14121,6 +15693,10 @@ impl<'a> ScriptLowerer<'a> {
                     let static_object_iterator_values = variable.init().and_then(|expression| {
                         self.static_object_iterator_literal_values(expression)
                     });
+                    let static_to_string_regexp_object =
+                        variable.init().is_some_and(|expression| {
+                            self.static_to_string_returns_regexp_object_expr(expression)
+                        });
                     let static_iterator_values = static_generator_values
                         .clone()
                         .or_else(|| static_object_iterator_values.clone());
@@ -14146,18 +15722,30 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         self.static_string_bindings.remove(&name);
                     }
+                    if static_to_string_regexp_object {
+                        self.static_to_string_regexp_object_bindings
+                            .insert(name.clone());
+                    } else {
+                        self.static_to_string_regexp_object_bindings.remove(&name);
+                    }
 
+                    let storage_name = self.lexical_storage_name(&name);
                     self.declare_binding(
                         name.clone(),
                         BindingInfo {
                             mode,
+                            storage_name: storage_name.clone(),
                             kind: init.kind,
                             possible_kinds: init.possible_kinds,
                             heap_shape: init.heap_shape.clone(),
                             function_targets: init.function_targets.clone(),
                         },
                     );
-                    statements.push(StatementIr::Lexical { mode, name, init });
+                    statements.push(StatementIr::Lexical {
+                        mode,
+                        name: storage_name,
+                        init,
+                    });
                 }
                 Binding::Pattern(pattern) => {
                     let Some(init) = variable.init() else {
@@ -14283,6 +15871,7 @@ impl<'a> ScriptLowerer<'a> {
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                     is_script_global: false,
+                    is_lexical_metadata: false,
                 },
             );
             return;
@@ -14293,6 +15882,7 @@ impl<'a> ScriptLowerer<'a> {
             heap_shape: None,
             function_targets: BTreeSet::new(),
             is_script_global: self.current_owner_id == SCRIPT_OWNER_ID,
+            is_lexical_metadata: false,
         });
     }
 
@@ -14321,6 +15911,7 @@ impl<'a> ScriptLowerer<'a> {
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
                     is_script_global: false,
+                    is_lexical_metadata: true,
                 },
             );
         }
@@ -14391,6 +15982,53 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn function_target_is_strict(&self, function_id: &FunctionId) -> bool {
+        if StandardBuiltinId::from_function_id(function_id).is_some()
+            || HostBuiltinId::from_function_id(function_id).is_some()
+        {
+            return true;
+        }
+        let original_id = self.original_exact_function_id(function_id);
+        self.analysis
+            .function_plans
+            .get(&original_id)
+            .is_some_and(|plan| plan.strict)
+    }
+
+    fn is_current_owner_strict(&self) -> bool {
+        self.analysis
+            .owner_plans
+            .get(&self.current_owner_id)
+            .is_some_and(|owner| owner.strict)
+    }
+
+    fn default_this_info_for_function_target(&self, function_id: &FunctionId) -> ValueInfo {
+        if self.function_target_is_strict(function_id) {
+            ValueInfo::undefined()
+        } else {
+            self.global_this_info()
+        }
+    }
+
+    fn explicit_this_info_for_function_target(
+        &self,
+        function_id: &FunctionId,
+        this_arg: &TypedExpr,
+        fallback: ValueInfo,
+    ) -> ValueInfo {
+        if self.function_target_is_strict(function_id) {
+            return this_arg.value_info();
+        }
+        if this_arg.possible_kinds.is_subset_of(
+            KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
+        ) {
+            self.global_this_info()
+        } else {
+            self.boxed_receiver_info_from_arg(this_arg)
+                .unwrap_or(fallback)
+        }
+    }
+
     fn lookup_global_property(&self, name: &str) -> Option<ValueInfo> {
         self.global_properties
             .get(name)
@@ -14423,6 +16061,9 @@ impl<'a> ScriptLowerer<'a> {
         source: GlobalPropertySource,
     ) {
         if let Some(existing) = self.global_properties.get_mut(&name) {
+            if !Self::global_property_is_writable_name(&name) {
+                return;
+            }
             existing.value_info = info;
             existing.proven_present = true;
             existing.source = source;
@@ -14437,6 +16078,10 @@ impl<'a> ScriptLowerer<'a> {
                 source,
             },
         );
+    }
+
+    fn global_property_is_writable_name(name: &str) -> bool {
+        !matches!(name, "Infinity" | "NaN" | "undefined")
     }
 
     fn mark_global_property_deleted(&mut self, name: &str) {
@@ -14504,13 +16149,29 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         if let Some(binding) = self.lookup_binding(&name) {
+            if Self::is_tdz_binding_storage_name(&binding.storage_name) {
+                return TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::RuntimeThrow {
+                        name: REFERENCE_ERROR_NAME,
+                        message: "lexical binding accessed before initialization",
+                    },
+                );
+            }
             let mut info = ValueInfo {
                 kind: binding.kind,
                 possible_kinds: binding.possible_kinds,
                 heap_shape: binding.heap_shape.clone(),
                 function_targets: binding.function_targets.clone(),
             };
-            if self.current_param_names.contains(&name) {
+            if self.current_param_names.contains(&binding.storage_name)
+                && info.possible_kinds == KindSet::all_runtime_tags()
+            {
                 info = ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -14521,7 +16182,7 @@ impl<'a> ScriptLowerer<'a> {
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
                 return TypedExpr::from_info(info, ExprIr::GlobalPropertyRead { name });
             }
-            return TypedExpr::from_info(info, ExprIr::Identifier(name));
+            return TypedExpr::from_info(info, ExprIr::Identifier(binding.storage_name));
         }
 
         if let Some(builtin) = StandardBuiltinId::all_globals()
@@ -14676,15 +16337,14 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_identifier_name(name, true)
             }
             Expression::Literal(literal) => match literal.kind() {
-                LiteralKind::String(sym) => TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::String,
-                        possible_kinds: KindSet::from_kind(ValueKind::String),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::String(self.interner.resolve_expect(*sym).to_string()),
-                ),
+                LiteralKind::String(sym) => {
+                    let value = self.interner.resolve_expect(*sym).join(
+                        |string| string.to_string(),
+                        Self::utf16_units_to_runtime_string,
+                        true,
+                    );
+                    TypedExpr::from_info(Self::string_value_info(&value), ExprIr::String(value))
+                }
                 LiteralKind::Num(value) => TypedExpr::from_info(
                     ValueInfo {
                         kind: ValueKind::Number,
@@ -14808,13 +16468,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_generator_expression(&mut self, generator: &GeneratorExpression) -> TypedExpr {
         if generator.parameters().length() != 0 {
-            return self.unsupported_expr(
-                "unsupported expression form: generator expression with parameters",
-            );
-        }
-        if generator.name().is_some() {
-            return self
-                .unsupported_expr("unsupported expression form: named generator expression");
+            return self.lower_generated_iterator_function_expression(generator);
         }
 
         if let Some(statements) = self.lower_this_range_generator_function_body(generator) {
@@ -14829,6 +16483,225 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         self.unsupported_expr("unsupported expression form: generator expression")
+    }
+
+    fn lower_generated_iterator_function_expression(
+        &mut self,
+        generator: &GeneratorExpression,
+    ) -> TypedExpr {
+        let function_name = "<generator>";
+        if self
+            .lower_function_parameters(generator.parameters(), function_name)
+            .is_none()
+        {
+            return TypedExpr::undefined();
+        }
+
+        let function_id = self.alloc_generated_function_id("generator.expr");
+        let return_info = ValueInfo {
+            kind: ValueKind::Object,
+            possible_kinds: KindSet::from_kind(ValueKind::Object),
+            heap_shape: Some(Self::array_iterator_instance_shape()),
+            function_targets: BTreeSet::new(),
+        };
+        let this_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::all_runtime_tags(),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        let to_string_representation = CallableToStringRepresentation::ExactSource(
+            generator_expression_source_slice(generator, self.source_text),
+        );
+
+        let mut lowerer = ScriptLowerer::new(
+            self.interner,
+            self.analysis,
+            self.source_text,
+            function_id.clone(),
+        );
+        lowerer.function_signatures = self.function_signatures.clone();
+        lowerer.visible_function_names = self.visible_function_names.clone();
+        lowerer.global_properties = self.global_properties.clone();
+        lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        lowerer.number_prototype_match_is_string_match =
+            self.number_prototype_match_is_string_match;
+        lowerer.number_prototype_split_is_string_split =
+            self.number_prototype_split_is_string_split;
+        lowerer.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
+        lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
+        lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
+        lowerer.var_bindings = self.var_bindings.clone();
+        lowerer.used_host_builtins = self.used_host_builtins.clone();
+        lowerer.host_builtin_calls = self.host_builtin_calls;
+        lowerer.is_function_body = true;
+        lowerer.current_function_id = Some(function_id.clone());
+        lowerer.current_owner_id = function_id.clone();
+        lowerer.current_this_info = this_info.clone();
+        lowerer.current_new_target_info = ValueInfo::undefined();
+        lowerer.current_construct_this_info = None;
+        lowerer.push_scope();
+        lowerer.declare_binding(
+            LEXICAL_ARGUMENTS_NAME.to_string(),
+            BindingInfo {
+                mode: BindingMode::Let,
+                storage_name: LEXICAL_ARGUMENTS_NAME.to_string(),
+                kind: ValueKind::Arguments,
+                possible_kinds: KindSet::from_kind(ValueKind::Arguments),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+        );
+
+        let mut params = Vec::with_capacity(generator.parameters().as_ref().len());
+        let mut parameter_prefix_statements = Vec::new();
+        let parameter_names = generator
+            .parameters()
+            .as_ref()
+            .iter()
+            .flat_map(|parameter| {
+                let mut names = Vec::new();
+                collect_binding_names(self.interner, parameter.variable().binding(), &mut names);
+                names
+            })
+            .collect::<Vec<_>>();
+        for (index, parameter) in generator.parameters().as_ref().iter().enumerate() {
+            let binding = parameter.variable().binding();
+            let name = binding_parameter_storage_name(self.interner, binding, index);
+            if let Some(init) = parameter.init() {
+                if default_param_uses_current_or_later_name(
+                    init,
+                    &parameter_names[index..],
+                    self.interner,
+                ) {
+                    lowerer.unsupported_with_message(format!(
+                        "unsupported in porffor wasm-aot first slice: self- or later-param read in default initializer for `{function_name}`"
+                    ));
+                }
+            }
+            let kind = if parameter.is_rest_param() {
+                ValueKind::Array
+            } else {
+                ValueKind::Dynamic
+            };
+            let possible_kinds = if parameter.is_rest_param() {
+                KindSet::from_kind(ValueKind::Array)
+            } else {
+                KindSet::all_runtime_tags()
+            };
+            lowerer.declare_binding(
+                name.clone(),
+                BindingInfo {
+                    mode: BindingMode::Let,
+                    storage_name: name.clone(),
+                    kind,
+                    possible_kinds,
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+            );
+            lowerer.current_param_names.push(name.clone());
+            params.push(FunctionParamIr {
+                name: name.clone(),
+                kind,
+                default_init: parameter
+                    .init()
+                    .map(|expression| lowerer.lower_expression(expression)),
+                is_rest: parameter.is_rest_param(),
+            });
+            parameter_prefix_statements.extend(lowerer.lower_parameter_binding_pattern(
+                binding,
+                &name,
+                function_name,
+            ));
+        }
+
+        let return_value = lowerer.lower_generator_body_as_array_iterator(generator);
+        lowerer.record_return_info(return_value.value_info());
+        let mut statements = parameter_prefix_statements;
+        statements.push(StatementIr::Return(return_value));
+        let body = BlockIr {
+            result_kind: return_info.kind,
+            statements,
+        };
+        lowerer.pop_scope();
+
+        self.diagnostics.extend(lowerer.diagnostics.clone());
+        self.function_signatures = lowerer.function_signatures;
+        self.used_host_builtins.extend(lowerer.used_host_builtins);
+        self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
+        self.generated_functions.extend(lowerer.generated_functions);
+
+        self.function_signatures.insert(
+            function_id.clone(),
+            FunctionSignature {
+                id: function_id.clone(),
+                to_string_representation: to_string_representation.clone(),
+                flavor: FunctionFlavor::Ordinary,
+                callable: true,
+                constructable: false,
+                class_kind: ClassFunctionKind::None,
+                class_heritage_kind: ClassHeritageKind::None,
+                params: params
+                    .iter()
+                    .map(|param| FunctionParamSignature {
+                        kind: param.kind,
+                        possible_kinds: if param.is_rest {
+                            KindSet::from_kind(ValueKind::Array)
+                        } else {
+                            KindSet::all_runtime_tags()
+                        },
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                        has_default: param.default_init.is_some(),
+                        is_rest: param.is_rest,
+                    })
+                    .collect(),
+                return_kind: return_info.kind,
+                return_possible_kinds: return_info.possible_kinds,
+                return_shape: return_info.heap_shape.clone(),
+                return_targets: return_info.function_targets.clone(),
+                constructor_instance: ValueInfo::undefined(),
+                this_info: this_info.clone(),
+                this_observed: true,
+            },
+        );
+
+        self.generated_functions.push(FunctionIr {
+            id: function_id.clone(),
+            name: function_name.to_string(),
+            to_string_representation,
+            flavor: FunctionFlavor::Ordinary,
+            strict: generator.body().strict(),
+            callable: true,
+            constructable: false,
+            class_kind: ClassFunctionKind::None,
+            class_heritage_kind: ClassHeritageKind::None,
+            is_static_class_member: false,
+            is_derived_constructor: false,
+            is_synthetic_default_derived_constructor: false,
+            super_constructor_target: None,
+            uses_super: false,
+            this_before_super: false,
+            private_name_ids: BTreeMap::new(),
+            is_nested: true,
+            is_expression: true,
+            is_named_expression: false,
+            captures_lexical_this: false,
+            captures_lexical_arguments: false,
+            params,
+            body,
+            return_kind: return_info.kind,
+            return_shape: return_info.heap_shape.clone(),
+            return_targets: return_info.function_targets.clone(),
+            constructor_instance: ValueInfo::undefined(),
+            owned_env_bindings: Vec::new(),
+            captured_bindings: Vec::new(),
+        });
+
+        self.function_value_expr(function_id)
     }
 
     fn lower_generated_iterator_function(
@@ -15135,10 +17008,14 @@ impl<'a> ScriptLowerer<'a> {
         let mut lowered: Option<TypedExpr> = None;
         for element in template.elements() {
             let part = match element {
-                TemplateElement::String(sym) => TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::String),
-                    ExprIr::String(self.interner.resolve_expect(*sym).to_string()),
-                ),
+                TemplateElement::String(sym) => {
+                    let value = self.interner.resolve_expect(*sym).join(
+                        |string| string.to_string(),
+                        Self::utf16_units_to_runtime_string,
+                        true,
+                    );
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(value))
+                }
                 TemplateElement::Expr(expr) => self.lower_expression(expr),
             };
             lowered = Some(if let Some(lhs) = lowered {
@@ -15184,6 +17061,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_class_declaration(&mut self, class: &ClassDeclaration) -> (StatementIr, ValueKind) {
         let name = self.interner.resolve_expect(class.name().sym()).to_string();
+        let storage_name = self.lexical_storage_name(&name);
         let init = self.lower_class_common(
             Some(name.clone()),
             class_declaration_source_slice(class, self.source_text),
@@ -15195,6 +17073,7 @@ impl<'a> ScriptLowerer<'a> {
             name.clone(),
             BindingInfo {
                 mode: BindingMode::Const,
+                storage_name: storage_name.clone(),
                 kind: init.kind,
                 possible_kinds: init.possible_kinds,
                 heap_shape: init.heap_shape.clone(),
@@ -15204,7 +17083,7 @@ impl<'a> ScriptLowerer<'a> {
         (
             StatementIr::Lexical {
                 mode: BindingMode::Const,
-                name,
+                name: storage_name,
                 init,
             },
             ValueKind::Undefined,
@@ -15266,7 +17145,7 @@ impl<'a> ScriptLowerer<'a> {
 
         #[derive(Clone)]
         struct PublicMethodPlan<'b> {
-            key: String,
+            key: PropertyKeyIr,
             function_id: FunctionId,
             method: &'b ClassMethodDefinition,
             placement: ClassMethodPlacementIr,
@@ -15327,8 +17206,19 @@ impl<'a> ScriptLowerer<'a> {
                         ClassMethodPlacementIr::Instance
                     };
                     match method.name() {
-                        ClassElementName::PropertyName(PropertyName::Literal(name)) => {
-                            let key = self.interner.resolve_expect(name.sym()).to_string();
+                        ClassElementName::PropertyName(name) => {
+                            let key = match name {
+                                PropertyName::Literal(name) => PropertyKeyIr::StaticString(
+                                    self.interner.resolve_expect(name.sym()).to_string(),
+                                ),
+                                PropertyName::Computed(expr) => {
+                                    let Some(key) = self.lower_dynamic_object_property_key(expr)
+                                    else {
+                                        return self.unsupported_expr("computed class method");
+                                    };
+                                    key
+                                }
+                            };
                             public_methods.push(PublicMethodPlan {
                                 key,
                                 function_id: self
@@ -15383,7 +17273,6 @@ impl<'a> ScriptLowerer<'a> {
                                 kind,
                             });
                         }
-                        _ => return self.unsupported_expr("computed class method"),
                     }
                 }
                 ClassElement::FieldDefinition(field)
@@ -15465,10 +17354,13 @@ impl<'a> ScriptLowerer<'a> {
             if method.placement != ClassMethodPlacementIr::Instance {
                 continue;
             }
+            let Some(key) = method.key.static_name() else {
+                continue;
+            };
             match method.kind {
                 ClassFunctionKind::Method => {
                     prototype_shape.properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             method.function_id.clone(),
                             false,
@@ -15477,7 +17369,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 ClassFunctionKind::Getter => {
                     prototype_shape.properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: method.function_id.clone(),
@@ -15488,7 +17380,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 ClassFunctionKind::Setter => {
                     prototype_shape.properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: None,
                             setter: Some(ObjectAccessorShape {
@@ -15557,10 +17449,13 @@ impl<'a> ScriptLowerer<'a> {
             if method.placement != ClassMethodPlacementIr::Static {
                 continue;
             }
+            let Some(key) = method.key.static_name() else {
+                continue;
+            };
             match method.kind {
                 ClassFunctionKind::Method => {
                     class_properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             method.function_id.clone(),
                             false,
@@ -15569,7 +17464,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 ClassFunctionKind::Getter => {
                     class_properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: method.function_id.clone(),
@@ -15580,7 +17475,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 ClassFunctionKind::Setter => {
                     class_properties.insert(
-                        method.key.clone(),
+                        key.to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: None,
                             setter: Some(ObjectAccessorShape {
@@ -15805,7 +17700,7 @@ impl<'a> ScriptLowerer<'a> {
                 format!(
                     "{}.{}",
                     class_name.clone().unwrap_or_else(|| "<class>".to_string()),
-                    method.key
+                    class_method_debug_key(&method.key)
                 ),
                 CallableToStringRepresentation::ExactSource(class_method_source_slice(
                     method.method,
@@ -16278,9 +18173,15 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        lowerer.number_prototype_match_is_string_match =
+            self.number_prototype_match_is_string_match;
+        lowerer.number_prototype_split_is_string_split =
+            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.used_host_builtins = self.used_host_builtins.clone();
         lowerer.host_builtin_calls = self.host_builtin_calls;
@@ -16306,6 +18207,7 @@ impl<'a> ScriptLowerer<'a> {
                 binding.name.clone(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: binding.name.clone(),
                     kind: info.kind,
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
@@ -16320,6 +18222,7 @@ impl<'a> ScriptLowerer<'a> {
                 self_binding_name.clone(),
                 BindingInfo {
                     mode: BindingMode::Const,
+                    storage_name: self_binding_name.clone(),
                     kind: function_info.kind,
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
@@ -16332,6 +18235,7 @@ impl<'a> ScriptLowerer<'a> {
             LEXICAL_ARGUMENTS_NAME.to_string(),
             BindingInfo {
                 mode: BindingMode::Let,
+                storage_name: LEXICAL_ARGUMENTS_NAME.to_string(),
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
@@ -16374,6 +18278,7 @@ impl<'a> ScriptLowerer<'a> {
                 name.clone(),
                 BindingInfo {
                     mode: BindingMode::Let,
+                    storage_name: name.clone(),
                     kind: if parameter.is_rest_param() {
                         ValueKind::Array
                     } else {
@@ -16540,9 +18445,15 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
+        lowerer.number_prototype_match_is_string_match =
+            self.number_prototype_match_is_string_match;
+        lowerer.number_prototype_split_is_string_split =
+            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_deleted = self.boolean_prototype_to_string_deleted;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.static_to_string_regexp_object_bindings =
+            self.static_to_string_regexp_object_bindings.clone();
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function_id.clone());
         lowerer.current_owner_id = function_id.clone();
@@ -16554,6 +18465,7 @@ impl<'a> ScriptLowerer<'a> {
             LEXICAL_ARGUMENTS_NAME.to_string(),
             BindingInfo {
                 mode: BindingMode::Let,
+                storage_name: LEXICAL_ARGUMENTS_NAME.to_string(),
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
@@ -16781,10 +18693,7 @@ impl<'a> ScriptLowerer<'a> {
                 for arg in args {
                     self.lower_expression(arg);
                 }
-                return TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::String("Symbol()".to_string()),
-                );
+                return TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol);
             }
         }
 
@@ -17060,6 +18969,8 @@ impl<'a> ScriptLowerer<'a> {
                                 StandardBuiltinId::Uint16ArrayConstructor,
                                 StandardBuiltinId::Uint8ArrayConstructor,
                                 StandardBuiltinId::Uint8ClampedArrayConstructor,
+                                StandardBuiltinId::BigInt64ArrayConstructor,
+                                StandardBuiltinId::BigUint64ArrayConstructor,
                             ]
                             .into_iter()
                             .map(|builtin| self.function_value_expr(builtin.function_id()))
@@ -17106,7 +19017,7 @@ impl<'a> ScriptLowerer<'a> {
                             ) {
                                 return TypedExpr::from_info(
                                     ValueInfo::new(ValueKind::Number),
-                                    ExprIr::Number(base.powf(exponent).to_bits()),
+                                    ExprIr::Number(Self::static_pow(base, exponent).to_bits()),
                                 );
                             }
                         }
@@ -17137,13 +19048,34 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         if target_name == STRING_NAME
                             && field_name == "fromCharCode"
-                            && args.len() == 1
+                            && !args.is_empty()
+                        {
+                            let mut chars = args.iter().map(|arg| {
+                                TypedExpr::from_info(
+                                    ValueInfo::new(ValueKind::String),
+                                    ExprIr::StringFromCharCode {
+                                        code: Box::new(self.lower_expression(arg)),
+                                    },
+                                )
+                            });
+                            let first = chars.next().expect("fromCharCode arg exists");
+                            return chars.fold(first, |lhs, rhs| {
+                                TypedExpr::from_info(
+                                    ValueInfo::new(ValueKind::String),
+                                    ExprIr::StringConcat {
+                                        lhs: Box::new(lhs),
+                                        rhs: Box::new(rhs),
+                                    },
+                                )
+                            });
+                        }
+                        if target_name == STRING_NAME
+                            && field_name == "fromCharCode"
+                            && args.is_empty()
                         {
                             return TypedExpr::from_info(
                                 ValueInfo::new(ValueKind::String),
-                                ExprIr::StringFromCharCode {
-                                    code: Box::new(self.lower_expression(&args[0])),
-                                },
+                                ExprIr::String(String::new()),
                             );
                         }
                         if field_name == "propertyIsEnumerable"
@@ -17153,6 +19085,7 @@ impl<'a> ScriptLowerer<'a> {
                                 ERROR_NAME
                                     | EVAL_ERROR_NAME
                                     | AGGREGATE_ERROR_NAME
+                                    | SUPPRESSED_ERROR_NAME
                                     | RANGE_ERROR_NAME
                                     | REFERENCE_ERROR_NAME
                                     | SYNTAX_ERROR_NAME
@@ -17357,6 +19290,13 @@ impl<'a> ScriptLowerer<'a> {
                                     );
                                 }
                                 let builtin = match field_name.as_str() {
+                                    "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
+                                    "charCodeAt" => {
+                                        Some(StandardBuiltinId::StringPrototypeCharCodeAt)
+                                    }
+                                    "codePointAt" => {
+                                        Some(StandardBuiltinId::StringPrototypeCodePointAt)
+                                    }
                                     "anchor" => Some(StandardBuiltinId::StringPrototypeAnchor),
                                     "big" => Some(StandardBuiltinId::StringPrototypeBig),
                                     "blink" => Some(StandardBuiltinId::StringPrototypeBlink),
@@ -17383,8 +19323,14 @@ impl<'a> ScriptLowerer<'a> {
                                         Some(StandardBuiltinId::StringPrototypeReplaceAll)
                                     }
                                     "search" => Some(StandardBuiltinId::StringPrototypeSearch),
+                                    "indexOf" => Some(StandardBuiltinId::StringPrototypeIndexOf),
+                                    "lastIndexOf" => {
+                                        Some(StandardBuiltinId::StringPrototypeLastIndexOf)
+                                    }
                                     "slice" => Some(StandardBuiltinId::StringPrototypeSlice),
                                     "split" => Some(StandardBuiltinId::StringPrototypeSplit),
+                                    "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
+                                    "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                                     "startsWith" => {
                                         Some(StandardBuiltinId::StringPrototypeStartsWith)
                                     }
@@ -17421,6 +19367,66 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
+                                if field_name == "split"
+                                    && self.number_prototype_split_is_string_split
+                                    && args.len() <= 2
+                                {
+                                    if args.first().is_some_and(|separator| {
+                                        self.static_to_string_returns_regexp_object_expr(separator)
+                                    }) {
+                                        for arg in args {
+                                            self.lower_expression(arg);
+                                        }
+                                        return TypedExpr::from_info(
+                                            ValueInfo::undefined(),
+                                            ExprIr::RuntimeThrow {
+                                                name: TYPE_ERROR_NAME,
+                                                message: "Cannot convert object to primitive value",
+                                            },
+                                        );
+                                    }
+                                    let Some(args) = self.lower_call_args_expanding_spread(args)
+                                    else {
+                                        return TypedExpr::undefined();
+                                    };
+                                    return TypedExpr::from_info(
+                                        ValueInfo {
+                                            kind: ValueKind::Array,
+                                            possible_kinds: KindSet::from_kind(ValueKind::Array),
+                                            heap_shape: Some(Box::new(HeapShape::Array(
+                                                ArrayShape::default(),
+                                            ))),
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ExprIr::CallMethod {
+                                            receiver: Box::new(receiver),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                            args,
+                                        },
+                                    );
+                                }
+                                if field_name == "match"
+                                    && self.number_prototype_match_is_string_match
+                                    && args.len() <= 1
+                                {
+                                    let Some(args) = self.lower_call_args_expanding_spread(args)
+                                    else {
+                                        return TypedExpr::undefined();
+                                    };
+                                    return TypedExpr::from_info(
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ExprIr::CallMethod {
+                                            receiver: Box::new(receiver),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                            args,
+                                        },
+                                    );
+                                }
                                 let builtin = match field_name.as_str() {
                                     "toExponential" => {
                                         Some(StandardBuiltinId::NumberPrototypeToExponential)
@@ -17579,9 +19585,21 @@ impl<'a> ScriptLowerer<'a> {
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
+                                    "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
                                     "includes" => Some(StandardBuiltinId::ArrayPrototypeIncludes),
+                                    "indexOf" => Some(StandardBuiltinId::ArrayPrototypeIndexOf),
+                                    "lastIndexOf" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeLastIndexOf)
+                                    }
+                                    "find" => Some(StandardBuiltinId::ArrayPrototypeFind),
+                                    "findIndex" => Some(StandardBuiltinId::ArrayPrototypeFindIndex),
+                                    "findLast" => Some(StandardBuiltinId::ArrayPrototypeFindLast),
+                                    "findLastIndex" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeFindLastIndex)
+                                    }
                                     "every" => Some(StandardBuiltinId::ArrayPrototypeEvery),
                                     "some" => Some(StandardBuiltinId::ArrayPrototypeSome),
+                                    "forEach" => Some(StandardBuiltinId::ArrayPrototypeForEach),
                                     "filter" => Some(StandardBuiltinId::ArrayPrototypeFilter),
                                     "map" => Some(StandardBuiltinId::ArrayPrototypeMap),
                                     _ => None,
@@ -17605,7 +19623,14 @@ impl<'a> ScriptLowerer<'a> {
                                                         function_targets: BTreeSet::new(),
                                                     },
                                                     ValueInfo::new(ValueKind::Number),
+                                                    receiver.value_info(),
                                                 ],
+                                            );
+                                            self.merge_function_this_info(
+                                                &function_id,
+                                                args.get(1)
+                                                    .map(TypedExpr::value_info)
+                                                    .unwrap_or_else(ValueInfo::undefined),
                                             );
                                         }
                                     }
@@ -17683,10 +19708,43 @@ impl<'a> ScriptLowerer<'a> {
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeFlatMap)
                                     }
+                                    "at" if receiver.possible_kinds.contains(ValueKind::Array) => {
+                                        Some(StandardBuiltinId::ArrayPrototypeAt)
+                                    }
                                     "includes"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeIncludes)
+                                    }
+                                    "indexOf"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeIndexOf)
+                                    }
+                                    "lastIndexOf"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeLastIndexOf)
+                                    }
+                                    "find"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeFind)
+                                    }
+                                    "findIndex"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeFindIndex)
+                                    }
+                                    "findLast"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeFindLast)
+                                    }
+                                    "findLastIndex"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeFindLastIndex)
                                     }
                                     "every"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
@@ -17697,6 +19755,11 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeSome)
+                                    }
+                                    "forEach"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeForEach)
                                     }
                                     "filter"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
@@ -17948,9 +20011,21 @@ impl<'a> ScriptLowerer<'a> {
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
+                                    "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
                                     "includes" => Some(StandardBuiltinId::ArrayPrototypeIncludes),
+                                    "indexOf" => Some(StandardBuiltinId::ArrayPrototypeIndexOf),
+                                    "lastIndexOf" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeLastIndexOf)
+                                    }
+                                    "find" => Some(StandardBuiltinId::ArrayPrototypeFind),
+                                    "findIndex" => Some(StandardBuiltinId::ArrayPrototypeFindIndex),
+                                    "findLast" => Some(StandardBuiltinId::ArrayPrototypeFindLast),
+                                    "findLastIndex" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeFindLastIndex)
+                                    }
                                     "every" => Some(StandardBuiltinId::ArrayPrototypeEvery),
                                     "some" => Some(StandardBuiltinId::ArrayPrototypeSome),
+                                    "forEach" => Some(StandardBuiltinId::ArrayPrototypeForEach),
                                     "filter" => Some(StandardBuiltinId::ArrayPrototypeFilter),
                                     "map" => Some(StandardBuiltinId::ArrayPrototypeMap),
                                     _ => None,
@@ -18045,9 +20120,17 @@ impl<'a> ScriptLowerer<'a> {
                         | StandardBuiltinId::ArrayPrototypeConcat
                         | StandardBuiltinId::ArrayPrototypeFlat
                         | StandardBuiltinId::ArrayPrototypeFlatMap
+                        | StandardBuiltinId::ArrayPrototypeAt
                         | StandardBuiltinId::ArrayPrototypeIncludes
+                        | StandardBuiltinId::ArrayPrototypeIndexOf
+                        | StandardBuiltinId::ArrayPrototypeLastIndexOf
+                        | StandardBuiltinId::ArrayPrototypeFind
+                        | StandardBuiltinId::ArrayPrototypeFindIndex
+                        | StandardBuiltinId::ArrayPrototypeFindLast
+                        | StandardBuiltinId::ArrayPrototypeFindLastIndex
                         | StandardBuiltinId::ArrayPrototypeEvery
                         | StandardBuiltinId::ArrayPrototypeSome
+                        | StandardBuiltinId::ArrayPrototypeForEach
                         | StandardBuiltinId::ArrayPrototypeFilter
                         | StandardBuiltinId::ArrayPrototypeMap),
                     ) = StandardBuiltinId::from_function_id(&function_id)
@@ -18091,8 +20174,13 @@ impl<'a> ScriptLowerer<'a> {
                         if matches!(
                             array_builtin,
                             StandardBuiltinId::ArrayPrototypeFlatMap
+                                | StandardBuiltinId::ArrayPrototypeFind
+                                | StandardBuiltinId::ArrayPrototypeFindIndex
+                                | StandardBuiltinId::ArrayPrototypeFindLast
+                                | StandardBuiltinId::ArrayPrototypeFindLastIndex
                                 | StandardBuiltinId::ArrayPrototypeEvery
                                 | StandardBuiltinId::ArrayPrototypeSome
+                                | StandardBuiltinId::ArrayPrototypeForEach
                                 | StandardBuiltinId::ArrayPrototypeFilter
                                 | StandardBuiltinId::ArrayPrototypeMap
                         ) {
@@ -18136,14 +20224,56 @@ impl<'a> ScriptLowerer<'a> {
                                 "flatMap",
                                 self.array_flat_map_result_info(&receiver, args.first()),
                             ),
+                            StandardBuiltinId::ArrayPrototypeAt => (
+                                "at",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
                             StandardBuiltinId::ArrayPrototypeIncludes => {
                                 ("includes", ValueInfo::new(ValueKind::Boolean))
+                            }
+                            StandardBuiltinId::ArrayPrototypeIndexOf => {
+                                ("indexOf", ValueInfo::new(ValueKind::Number))
+                            }
+                            StandardBuiltinId::ArrayPrototypeLastIndexOf => {
+                                ("lastIndexOf", ValueInfo::new(ValueKind::Number))
+                            }
+                            StandardBuiltinId::ArrayPrototypeFind => (
+                                "find",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
+                            StandardBuiltinId::ArrayPrototypeFindIndex => {
+                                ("findIndex", ValueInfo::new(ValueKind::Number))
+                            }
+                            StandardBuiltinId::ArrayPrototypeFindLast => (
+                                "findLast",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
+                            StandardBuiltinId::ArrayPrototypeFindLastIndex => {
+                                ("findLastIndex", ValueInfo::new(ValueKind::Number))
                             }
                             StandardBuiltinId::ArrayPrototypeEvery => {
                                 ("every", ValueInfo::new(ValueKind::Boolean))
                             }
                             StandardBuiltinId::ArrayPrototypeSome => {
                                 ("some", ValueInfo::new(ValueKind::Boolean))
+                            }
+                            StandardBuiltinId::ArrayPrototypeForEach => {
+                                ("forEach", ValueInfo::undefined())
                             }
                             StandardBuiltinId::ArrayPrototypeFilter => (
                                 "filter",
@@ -18209,32 +20339,13 @@ impl<'a> ScriptLowerer<'a> {
                     if StandardBuiltinId::from_function_id(&function_id)
                         == Some(StandardBuiltinId::StringPrototypeSubstring)
                     {
-                        let start = args
-                            .first()
-                            .map(|arg| self.lower_expression(arg))
-                            .unwrap_or_else(TypedExpr::undefined);
-                        let end = args
-                            .get(1)
-                            .map(|arg| self.lower_expression(arg))
-                            .unwrap_or_else(TypedExpr::undefined);
-                        let length = if matches!(end.kind, ValueKind::Undefined) {
-                            end
-                        } else {
-                            TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::Number),
-                                ExprIr::CoerciveBinaryNumber {
-                                    op: ArithmeticBinaryOp::Sub,
-                                    lhs: Box::new(end),
-                                    rhs: Box::new(start.clone()),
-                                },
-                            )
-                        };
+                        let args = args.iter().map(|arg| self.lower_expression(arg)).collect();
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::String),
                             ExprIr::CallMethod {
                                 receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString("substr".to_string()),
-                                args: vec![start, length],
+                                key: PropertyKeyIr::StaticString("substring".to_string()),
+                                args,
                             },
                         );
                     }
@@ -18374,6 +20485,9 @@ impl<'a> ScriptLowerer<'a> {
                         let method_name = match string_builtin {
                             StandardBuiltinId::StringPrototypeToString => "toString",
                             StandardBuiltinId::StringPrototypeValueOf => "valueOf",
+                            StandardBuiltinId::StringPrototypeCharAt => "charAt",
+                            StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
+                            StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
                             _ => "",
                         };
                         if !method_name.is_empty() {
@@ -18439,20 +20553,15 @@ impl<'a> ScriptLowerer<'a> {
                                     | Some(StandardBuiltinId::FunctionPrototypeApply) => {
                                         if signature.flavor != FunctionFlavor::Arrow {
                                             let this_info = match args.first() {
-                                                Some(this_arg)
-                                                    if this_arg.possible_kinds.is_subset_of(
-                                                        KindSet::from_kind(ValueKind::Undefined)
-                                                            .union(KindSet::from_kind(
-                                                                ValueKind::Null,
-                                                            )),
-                                                    ) =>
-                                                {
-                                                    self.global_this_info()
-                                                }
                                                 Some(this_arg) => self
-                                                    .boxed_receiver_info_from_arg(this_arg)
-                                                    .unwrap_or_else(|| signature.this_info.clone()),
-                                                _ => signature.this_info.clone(),
+                                                    .explicit_this_info_for_function_target(
+                                                        &target_function_id,
+                                                        this_arg,
+                                                        signature.this_info.clone(),
+                                                    ),
+                                                None => self.default_this_info_for_function_target(
+                                                    &target_function_id,
+                                                ),
                                             };
                                             self.merge_function_this_info(
                                                 &target_function_id,
@@ -18721,7 +20830,8 @@ impl<'a> ScriptLowerer<'a> {
                     let exact_prepass_call =
                         self.is_prepass && self.analysis.function_plans.contains_key(function_id);
                     if !exact_prepass_call {
-                        self.merge_function_this_info(function_id, self.global_this_info());
+                        let this_info = self.default_this_info_for_function_target(function_id);
+                        self.merge_function_this_info(function_id, this_info);
                         self.merge_function_param_infos(function_id, &arg_infos);
                     } else if let Some(helper_context_id) = self
                         .exact_context_callback_targets
@@ -18730,10 +20840,11 @@ impl<'a> ScriptLowerer<'a> {
                     {
                         let original_function_id = self.original_exact_function_id(function_id);
                         let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
+                        let this_info = self.default_this_info_for_function_target(function_id);
                         self.observe_exact_callback_this_info(
                             &original_function_id,
                             &helper_context_id,
-                            self.global_this_info(),
+                            this_info,
                         );
                         self.observe_exact_callback_param_infos(
                             &original_function_id,
@@ -18795,7 +20906,8 @@ impl<'a> ScriptLowerer<'a> {
         self.mark_host_builtin_from_function_id(&function_id);
         self.host_builtin_calls +=
             usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-        self.merge_function_this_info(&function_id, self.global_this_info());
+        let this_info = self.default_this_info_for_function_target(&function_id);
+        self.merge_function_this_info(&function_id, this_info);
         let (effective_function_id, args, info) =
             self.lower_call_args_with_target(&function_id, args);
         if let Some(builtin) = StandardBuiltinId::from_function_id(&effective_function_id) {
@@ -19083,14 +21195,21 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::NumberIsFinite
             | StandardBuiltinId::NumberIsNaN
             | StandardBuiltinId::NumberIsSafeInteger => {
-                let value = match args.first().map(|arg| &arg.expr) {
-                    Some(ExprIr::Number(value)) => f64::from_bits(*value),
-                    None | Some(_) => {
+                let Some(arg) = args.first() else {
+                    return Some(TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Boolean),
+                        ExprIr::Boolean(false),
+                    ));
+                };
+                let value = match &arg.expr {
+                    ExprIr::Number(value) => f64::from_bits(*value),
+                    _ if !arg.possible_kinds.contains(ValueKind::Number) => {
                         return Some(TypedExpr::from_info(
                             ValueInfo::new(ValueKind::Boolean),
                             ExprIr::Boolean(false),
                         ));
                     }
+                    _ => return None,
                 };
                 let result = match builtin {
                     StandardBuiltinId::NumberIsFinite => value.is_finite(),
@@ -19307,6 +21426,7 @@ impl<'a> ScriptLowerer<'a> {
             ERROR_NAME => StandardBuiltinId::ErrorConstructor,
             EVAL_ERROR_NAME => StandardBuiltinId::EvalErrorConstructor,
             AGGREGATE_ERROR_NAME => StandardBuiltinId::AggregateErrorConstructor,
+            SUPPRESSED_ERROR_NAME => StandardBuiltinId::SuppressedErrorConstructor,
             RANGE_ERROR_NAME => StandardBuiltinId::RangeErrorConstructor,
             SYNTAX_ERROR_NAME => StandardBuiltinId::SyntaxErrorConstructor,
             TYPE_ERROR_NAME => StandardBuiltinId::TypeErrorConstructor,
@@ -19327,6 +21447,13 @@ impl<'a> ScriptLowerer<'a> {
                 .unsupported_expr("unsupported expression form: generator IIFE with parameters");
         }
 
+        self.lower_generator_body_as_array_iterator(generator)
+    }
+
+    fn lower_generator_body_as_array_iterator(
+        &mut self,
+        generator: &GeneratorExpression,
+    ) -> TypedExpr {
         if generator.body().statements().len() == 1 {
             if let StatementListItem::Statement(statement) = &generator.body().statements()[0] {
                 if let Statement::Expression(Expression::Yield(yield_expr)) = statement.as_ref() {
@@ -20164,6 +22291,9 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
+            if builtin == StandardBuiltinId::ProxyConstructor {
+                self.observe_proxy_handler_trap_expression_hints(new_expr.arguments());
+            }
             let args = if builtin == StandardBuiltinId::FunctionConstructor
                 || Self::is_typed_array_constructor(builtin)
             {
@@ -20403,35 +22533,10 @@ impl<'a> ScriptLowerer<'a> {
                     if param.is_rest {
                         break;
                     }
-                    let previous_kind = param.kind;
-                    param.kind = match param.kind {
-                        ValueKind::Dynamic | ValueKind::Undefined => arg.kind,
-                        existing if existing == arg.kind => existing,
-                        _ => ValueKind::Dynamic,
-                    };
-                    param.possible_kinds = if param.possible_kinds == KindSet::all_runtime_tags() {
-                        arg.possible_kinds
-                    } else {
-                        param.possible_kinds.union(arg.possible_kinds)
-                    };
-                    if previous_kind == ValueKind::Dynamic || previous_kind == ValueKind::Undefined
-                    {
-                        param.heap_shape = arg.heap_shape.clone();
-                        param.function_targets = arg.function_targets.clone();
-                    } else if previous_kind == arg.kind {
-                        if param.heap_shape != arg.heap_shape {
-                            param.heap_shape = None;
-                        }
-                        param
-                            .function_targets
-                            .extend(arg.function_targets.iter().cloned());
-                    } else {
-                        param.heap_shape = None;
-                        param
-                            .function_targets
-                            .extend(arg.function_targets.iter().cloned());
-                    }
+                    let arg_info = arg.value_info();
+                    Self::merge_signature_param_observation(param, &arg_info);
                 }
+                Self::merge_omitted_signature_params_as_undefined(signature, lowered_args.len());
             }
         } else if let Some(helper_context_id) = self
             .exact_context_callback_targets
@@ -20858,10 +22963,8 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 let proto_allowed =
                     Self::object_like_kind_set().union(KindSet::from_kind(ValueKind::Null));
-                if !target
-                    .possible_kinds
-                    .is_subset_of(Self::object_like_kind_set())
-                    || !proto.possible_kinds.is_subset_of(proto_allowed)
+                if target.possible_kinds.0 & Self::object_like_kind_set().0 == 0
+                    || proto.possible_kinds.0 & proto_allowed.0 == 0
                 {
                     self.unsupported_with_message(format!(
                         "unsupported in porffor wasm-aot first slice: Object.setPrototypeOf requires object and object-or-null prototype"
@@ -20909,21 +23012,33 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 if let Some(key_arg) = args.get(1) {
                     if let ExprIr::String(key) = &key_arg.expr {
-                        if target
-                            .function_targets
-                            .contains(&StandardBuiltinId::ArrayBufferConstructor.function_id())
-                            && key == "Symbol.species"
+                        let species_getter = if key == "Symbol.species"
+                            && target
+                                .function_targets
+                                .contains(&StandardBuiltinId::ArrayConstructor.function_id())
                         {
+                            Some(StandardBuiltinId::ArraySpeciesGetter)
+                        } else if key == "Symbol.species"
+                            && target
+                                .function_targets
+                                .contains(&StandardBuiltinId::ArrayBufferConstructor.function_id())
+                        {
+                            Some(StandardBuiltinId::ArrayBufferSpeciesGetter)
+                        } else if key == "Symbol.species"
+                            && target
+                                .function_targets
+                                .contains(&StandardBuiltinId::RegExpConstructor.function_id())
+                        {
+                            Some(StandardBuiltinId::RegExpSpeciesGetter)
+                        } else {
+                            None
+                        };
+                        if let Some(species_getter) = species_getter {
                             return Some(ValueInfo {
                                 kind: ValueKind::Object,
                                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                                 heap_shape: Some(Self::property_descriptor_shape(vec![
-                                    (
-                                        "get",
-                                        Self::standard_builtin_value_info(
-                                            StandardBuiltinId::ArrayBufferSpeciesGetter,
-                                        ),
-                                    ),
+                                    ("get", Self::standard_builtin_value_info(species_getter)),
                                     ("set", ValueInfo::undefined()),
                                     ("enumerable", Self::boolean_value_info()),
                                     ("configurable", Self::boolean_value_info()),
@@ -21063,24 +23178,11 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ObjectIsSealed
             | StandardBuiltinId::ObjectIsFrozen
             | StandardBuiltinId::ObjectIsExtensible => Some(ValueInfo::new(ValueKind::Boolean)),
-            StandardBuiltinId::ObjectFreeze | StandardBuiltinId::ObjectPreventExtensions => {
-                let Some(target) = args.first() else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object integrity builtin requires object"
-                    ));
-                    return None;
-                };
-                if !target
-                    .possible_kinds
-                    .is_subset_of(Self::object_like_kind_set())
-                {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object integrity builtin requires object"
-                    ));
-                    return None;
-                }
-                Some(target.value_info())
-            }
+            StandardBuiltinId::ObjectFreeze | StandardBuiltinId::ObjectPreventExtensions => Some(
+                args.first()
+                    .map(TypedExpr::value_info)
+                    .unwrap_or_else(ValueInfo::undefined),
+            ),
             StandardBuiltinId::ObjectPrototypeHasOwnProperty => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
@@ -21122,13 +23224,37 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Box::new(Self::empty_object_shape())),
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ReflectApply => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ReflectGet => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
-            StandardBuiltinId::ReflectHas => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::ReflectGetOwnPropertyDescriptor => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: Some(Box::new(Self::empty_object_shape())),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ReflectHas
+            | StandardBuiltinId::ReflectSet
+            | StandardBuiltinId::ReflectDefineProperty
+            | StandardBuiltinId::ReflectDeleteProperty
+            | StandardBuiltinId::ReflectPreventExtensions
+            | StandardBuiltinId::ReflectSetPrototypeOf => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::ReflectOwnKeys => {
+                let shape = ArrayShape::default();
+                Some(Self::value_info_from_shape(Some(Box::new(
+                    HeapShape::Array(shape),
+                ))))
+            }
             StandardBuiltinId::ArrayConstructor => {
                 let mut shape = ArrayShape::default();
                 if !(args.len() == 1
@@ -21262,9 +23388,51 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayPrototypeAt => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ArrayPrototypeIncludes => Some(ValueInfo {
                 kind: ValueKind::Boolean,
                 possible_kinds: KindSet::from_kind(ValueKind::Boolean),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeIndexOf => Some(ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeLastIndexOf => Some(ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeFind => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeFindIndex => Some(ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeFindLast => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeFindLastIndex => Some(ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
@@ -21280,6 +23448,7 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayPrototypeForEach => Some(ValueInfo::undefined()),
             StandardBuiltinId::ArrayPrototypeFilter => Some(ValueInfo {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
@@ -21345,6 +23514,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayBufferSpeciesGetter => Some(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayBufferConstructor,
             )),
+            StandardBuiltinId::RegExpSpeciesGetter => Some(Self::standard_builtin_value_info(
+                StandardBuiltinId::RegExpConstructor,
+            )),
             StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
@@ -21401,6 +23573,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::DataViewPrototypeBufferGetter => Some(Self::value_info_from_shape(
                 Some(Self::array_buffer_instance_shape()),
             )),
+            StandardBuiltinId::TypedArrayPrototypeBufferGetter => Some(
+                Self::value_info_from_shape(Some(Self::array_buffer_instance_shape())),
+            ),
             StandardBuiltinId::DataViewPrototypeByteLengthGetter
             | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
             | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
@@ -21424,7 +23599,9 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::Uint32ArrayConstructor
             | StandardBuiltinId::Uint16ArrayConstructor
             | StandardBuiltinId::Uint8ArrayConstructor
-            | StandardBuiltinId::Uint8ClampedArrayConstructor => Some(Self::value_info_from_shape(
+            | StandardBuiltinId::Uint8ClampedArrayConstructor
+            | StandardBuiltinId::BigInt64ArrayConstructor
+            | StandardBuiltinId::BigUint64ArrayConstructor => Some(Self::value_info_from_shape(
                 Some(Self::typed_array_instance_shape_for_constructor(builtin)),
             )),
             StandardBuiltinId::DataViewPrototypeGetUint8
@@ -21492,7 +23669,22 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::StringPrototypeToString
             | StandardBuiltinId::StringPrototypeValueOf => Some(ValueInfo::new(ValueKind::String)),
-            StandardBuiltinId::StringPrototypeStartsWith => {
+            StandardBuiltinId::StringPrototypeCharAt => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::StringPrototypeCharCodeAt => Some(ValueInfo::new(ValueKind::Number)),
+            StandardBuiltinId::StringPrototypeIndexOf
+            | StandardBuiltinId::StringPrototypeLastIndexOf => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::StringPrototypeCodePointAt => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::StringPrototypeEndsWith
+            | StandardBuiltinId::StringPrototypeIncludes
+            | StandardBuiltinId::StringPrototypeStartsWith => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::BooleanConstructor => {
@@ -21507,6 +23699,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
+            | StandardBuiltinId::SuppressedErrorConstructor
             | StandardBuiltinId::RangeErrorConstructor
             | StandardBuiltinId::SyntaxErrorConstructor
             | StandardBuiltinId::TypeErrorConstructor
@@ -21534,6 +23727,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSlice
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
+            | StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::StringPrototypeMatch
@@ -21543,7 +23737,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
             | StandardBuiltinId::RegExpLegacyStaticGetter
-            | StandardBuiltinId::RegExpPrototypeSymbolMatch => Some(ValueInfo {
+            | StandardBuiltinId::RegExpPrototypeSymbolMatch
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
@@ -21631,6 +23826,7 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ThrowTypeError => Some(ValueInfo::undefined()),
         }
     }
 
@@ -21692,6 +23888,37 @@ impl<'a> ScriptLowerer<'a> {
             return;
         };
         let trap_this = handler.value_info();
+        if let Some(ObjectShapeProperty::Data(trap)) =
+            read_heap_shape_property(handler_shape, "get")
+        {
+            if trap.kind == ValueKind::Function && !trap.function_targets.is_empty() {
+                let trap_args = [
+                    target.value_info(),
+                    ValueInfo::new(ValueKind::String),
+                    ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                ];
+                for function_id in &trap.function_targets {
+                    self.merge_function_this_info(function_id, trap_this.clone());
+                    self.merge_function_param_infos(function_id, &trap_args);
+                }
+            }
+        }
+        if let Some(ObjectShapeProperty::Data(trap)) =
+            read_heap_shape_property(handler_shape, "has")
+        {
+            if trap.kind == ValueKind::Function && !trap.function_targets.is_empty() {
+                let trap_args = [target.value_info(), ValueInfo::new(ValueKind::String)];
+                for function_id in &trap.function_targets {
+                    self.merge_function_this_info(function_id, trap_this.clone());
+                    self.merge_function_param_infos(function_id, &trap_args);
+                }
+            }
+        }
         if let Some(ObjectShapeProperty::Data(trap)) =
             read_heap_shape_property(handler_shape, "getOwnPropertyDescriptor")
         {
@@ -21827,6 +24054,7 @@ impl<'a> ScriptLowerer<'a> {
                     .extend(arg.function_targets.iter().cloned());
             }
         }
+        Self::merge_omitted_signature_params_as_undefined(observation, args.len());
     }
 
     fn forwarded_apply_arg_infos(&self, apply_arg: Option<&TypedExpr>) -> Option<Vec<ValueInfo>> {
@@ -22261,6 +24489,124 @@ impl<'a> ScriptLowerer<'a> {
         Some(self.function_value_expr(function_id))
     }
 
+    fn observe_proxy_handler_trap_expression_hints(&mut self, args: &[Expression]) {
+        let Some(Expression::ObjectLiteral(handler)) = args.get(1) else {
+            return;
+        };
+        for property in handler.properties() {
+            match property {
+                PropertyDefinition::Property(PropertyName::Literal(name), value) => {
+                    let key = self.interner.resolve_expect(name.sym()).to_string();
+                    if let Expression::FunctionExpression(function) = value {
+                        let function_key = function_expression_key(function);
+                        if let Some(function_id) =
+                            self.analysis.function_expr_ids.get(&function_key).cloned()
+                        {
+                            self.merge_proxy_trap_signature_hint(&key, &function_id);
+                        }
+                    }
+                }
+                PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
+                    let Some(key) = self
+                        .try_static_string_key(expr)
+                        .or_else(|| self.static_number_property_key(expr))
+                    else {
+                        continue;
+                    };
+                    if let Expression::FunctionExpression(function) = value {
+                        let function_key = function_expression_key(function);
+                        if let Some(function_id) =
+                            self.analysis.function_expr_ids.get(&function_key).cloned()
+                        {
+                            self.merge_proxy_trap_signature_hint(&key, &function_id);
+                        }
+                    }
+                }
+                PropertyDefinition::MethodDefinition(method) => {
+                    if method.kind() != MethodDefinitionKind::Ordinary {
+                        continue;
+                    }
+                    let Some(key) = (match method.name() {
+                        PropertyName::Literal(name) => {
+                            Some(self.interner.resolve_expect(name.sym()).to_string())
+                        }
+                        PropertyName::Computed(expr) => self
+                            .try_static_string_key(expr)
+                            .or_else(|| self.static_number_property_key(expr)),
+                    }) else {
+                        continue;
+                    };
+                    let function_key = object_method_key(method);
+                    if let Some(function_id) =
+                        self.analysis.function_expr_ids.get(&function_key).cloned()
+                    {
+                        self.merge_proxy_trap_signature_hint(&key, &function_id);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn merge_proxy_trap_signature_hint(&mut self, trap_name: &str, function_id: &FunctionId) {
+        let target_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: Self::object_like_kind_set(),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        let receiver_info = target_info.clone();
+        match trap_name {
+            "get" => self.merge_function_param_infos(
+                function_id,
+                &[
+                    target_info,
+                    ValueInfo::new(ValueKind::String),
+                    receiver_info,
+                ],
+            ),
+            "has" | "getOwnPropertyDescriptor" | "deleteProperty" => self
+                .merge_function_param_infos(
+                    function_id,
+                    &[target_info, ValueInfo::new(ValueKind::String)],
+                ),
+            "defineProperty" => self.merge_function_param_infos(
+                function_id,
+                &[
+                    target_info,
+                    ValueInfo::new(ValueKind::String),
+                    ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object),
+                        heap_shape: Some(Self::generic_property_descriptor_shape()),
+                        function_targets: BTreeSet::new(),
+                    },
+                ],
+            ),
+            _ => {}
+        }
+    }
+
+    fn observe_proxy_trap_value_hint(&mut self, trap_name: &str, value: &Expression) {
+        let Expression::FunctionExpression(function) = value else {
+            return;
+        };
+        let function_key = function_expression_key(function);
+        if let Some(function_id) = self.analysis.function_expr_ids.get(&function_key).cloned() {
+            self.merge_proxy_trap_signature_hint(trap_name, &function_id);
+        }
+    }
+
+    fn observe_proxy_trap_method_hint(&mut self, trap_name: &str, method: &ObjectMethodDefinition) {
+        if method.kind() != MethodDefinitionKind::Ordinary {
+            return;
+        }
+        let function_key = object_method_key(method);
+        if let Some(function_id) = self.analysis.function_expr_ids.get(&function_key).cloned() {
+            self.merge_proxy_trap_signature_hint(trap_name, &function_id);
+        }
+    }
+
     fn lower_object_literal(&mut self, object: &ObjectLiteral) -> TypedExpr {
         let mut properties = Vec::with_capacity(object.properties().len());
         let mut shape = ObjectShape::default();
@@ -22268,6 +24614,7 @@ impl<'a> ScriptLowerer<'a> {
             match property {
                 PropertyDefinition::Property(PropertyName::Literal(name), value) => {
                     let key = self.interner.resolve_expect(name.sym()).to_string();
+                    self.observe_proxy_trap_value_hint(&key, value);
                     let lowered = self.lower_expression(value);
                     shape
                         .properties
@@ -22291,72 +24638,107 @@ impl<'a> ScriptLowerer<'a> {
                     });
                 }
                 PropertyDefinition::MethodDefinition(method) => {
-                    let key = match method.name() {
+                    if matches!(
+                        method.kind(),
+                        MethodDefinitionKind::Generator
+                            | MethodDefinitionKind::AsyncGenerator
+                            | MethodDefinitionKind::Async
+                    ) {
+                        return self.unsupported_expr("object literal method");
+                    }
+
+                    let static_key = match method.name() {
                         PropertyName::Literal(name) => {
-                            self.interner.resolve_expect(name.sym()).to_string()
+                            Some(self.interner.resolve_expect(name.sym()).to_string())
                         }
-                        PropertyName::Computed(expr) => {
-                            let Some(key) = self
-                                .try_static_string_key(expr)
-                                .or_else(|| self.static_number_property_key(expr))
-                            else {
-                                return self.unsupported_expr("computed object key");
-                            };
-                            key
-                        }
+                        PropertyName::Computed(expr) => self
+                            .try_static_string_key(expr)
+                            .or_else(|| self.static_number_property_key(expr)),
                     };
-                    let Some(function) = self.lower_object_method_function(method, &key) else {
+
+                    if let Some(key) = static_key {
+                        self.observe_proxy_trap_method_hint(&key, method);
+                        let Some(function) = self.lower_object_method_function(method, &key) else {
+                            return TypedExpr::undefined();
+                        };
+                        match method.kind() {
+                            MethodDefinitionKind::Ordinary => {
+                                shape.properties.insert(
+                                    key.clone(),
+                                    ObjectShapeProperty::Data(function.value_info()),
+                                );
+                                properties.push(ObjectPropertyIr::Method { key, function });
+                            }
+                            MethodDefinitionKind::Get => {
+                                let function_id = self
+                                    .resolve_single_function_target(&function)
+                                    .expect("getter should resolve single target");
+                                let entry = shape.properties.remove(&key);
+                                let setter = match entry {
+                                    Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
+                                    _ => None,
+                                };
+                                shape.properties.insert(
+                                    key.clone(),
+                                    ObjectShapeProperty::Accessor {
+                                        getter: Some(ObjectAccessorShape { function_id }),
+                                        setter,
+                                    },
+                                );
+                                properties.push(ObjectPropertyIr::Getter { key, function });
+                            }
+                            MethodDefinitionKind::Set => {
+                                let function_id = self
+                                    .resolve_single_function_target(&function)
+                                    .expect("setter should resolve single target");
+                                let entry = shape.properties.remove(&key);
+                                let getter = match entry {
+                                    Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
+                                    _ => None,
+                                };
+                                shape.properties.insert(
+                                    key.clone(),
+                                    ObjectShapeProperty::Accessor {
+                                        getter,
+                                        setter: Some(ObjectAccessorShape { function_id }),
+                                    },
+                                );
+                                properties.push(ObjectPropertyIr::Setter { key, function });
+                            }
+                            MethodDefinitionKind::Generator
+                            | MethodDefinitionKind::AsyncGenerator
+                            | MethodDefinitionKind::Async => unreachable!(),
+                        }
+                        continue;
+                    }
+
+                    let PropertyName::Computed(expr) = method.name() else {
+                        return self.unsupported_expr("computed object key");
+                    };
+                    let key = self.lower_expression(expr);
+                    if !key
+                        .possible_kinds
+                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
+                    {
+                        return self.unsupported_expr("computed object key");
+                    }
+                    let Some(function) = self.lower_object_method_function(method, "<computed>")
+                    else {
                         return TypedExpr::undefined();
                     };
                     match method.kind() {
                         MethodDefinitionKind::Ordinary => {
-                            shape.properties.insert(
-                                key.clone(),
-                                ObjectShapeProperty::Data(function.value_info()),
-                            );
-                            properties.push(ObjectPropertyIr::Method { key, function });
+                            properties.push(ObjectPropertyIr::ComputedMethod { key, function });
                         }
                         MethodDefinitionKind::Get => {
-                            let function_id = self
-                                .resolve_single_function_target(&function)
-                                .expect("getter should resolve single target");
-                            let entry = shape.properties.remove(&key);
-                            let setter = match entry {
-                                Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
-                                _ => None,
-                            };
-                            shape.properties.insert(
-                                key.clone(),
-                                ObjectShapeProperty::Accessor {
-                                    getter: Some(ObjectAccessorShape { function_id }),
-                                    setter,
-                                },
-                            );
-                            properties.push(ObjectPropertyIr::Getter { key, function });
+                            properties.push(ObjectPropertyIr::ComputedGetter { key, function });
                         }
                         MethodDefinitionKind::Set => {
-                            let function_id = self
-                                .resolve_single_function_target(&function)
-                                .expect("setter should resolve single target");
-                            let entry = shape.properties.remove(&key);
-                            let getter = match entry {
-                                Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
-                                _ => None,
-                            };
-                            shape.properties.insert(
-                                key.clone(),
-                                ObjectShapeProperty::Accessor {
-                                    getter,
-                                    setter: Some(ObjectAccessorShape { function_id }),
-                                },
-                            );
-                            properties.push(ObjectPropertyIr::Setter { key, function });
+                            properties.push(ObjectPropertyIr::ComputedSetter { key, function });
                         }
                         MethodDefinitionKind::Generator
                         | MethodDefinitionKind::AsyncGenerator
-                        | MethodDefinitionKind::Async => {
-                            return self.unsupported_expr("object literal method");
-                        }
+                        | MethodDefinitionKind::Async => unreachable!(),
                     }
                 }
                 PropertyDefinition::CoverInitializedName(_identifier, _) => {
@@ -22367,6 +24749,7 @@ impl<'a> ScriptLowerer<'a> {
                         .try_static_string_key(expr)
                         .or_else(|| self.static_number_property_key(expr))
                     {
+                        self.observe_proxy_trap_value_hint(&key, value);
                         let lowered = self.lower_expression(value);
                         shape
                             .properties
@@ -22381,7 +24764,7 @@ impl<'a> ScriptLowerer<'a> {
                     let key = self.lower_expression(expr);
                     if !key
                         .possible_kinds
-                        .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
+                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
                     {
                         return self.unsupported_expr("computed object key");
                     }
@@ -22475,6 +24858,17 @@ impl<'a> ScriptLowerer<'a> {
         properties.push(ObjectPropertyIr::NonEnumerableData {
             key: "Symbol.match".to_string(),
             value: symbol_match,
+        });
+
+        let symbol_search =
+            self.function_value_expr(StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id());
+        shape.properties.insert(
+            "Symbol.search".to_string(),
+            ObjectShapeProperty::Data(symbol_search.value_info()),
+        );
+        properties.push(ObjectPropertyIr::NonEnumerableData {
+            key: "Symbol.search".to_string(),
+            value: symbol_search,
         });
 
         for (name, flag) in [
@@ -22783,6 +25177,7 @@ impl<'a> ScriptLowerer<'a> {
             ERROR_NAME,
             EVAL_ERROR_NAME,
             AGGREGATE_ERROR_NAME,
+            SUPPRESSED_ERROR_NAME,
             RANGE_ERROR_NAME,
             SYNTAX_ERROR_NAME,
             TYPE_ERROR_NAME,
@@ -22798,6 +25193,7 @@ impl<'a> ScriptLowerer<'a> {
             ERROR_NAME,
             EVAL_ERROR_NAME,
             AGGREGATE_ERROR_NAME,
+            SUPPRESSED_ERROR_NAME,
             RANGE_ERROR_NAME,
             SYNTAX_ERROR_NAME,
             TYPE_ERROR_NAME,
@@ -22849,7 +25245,7 @@ impl<'a> ScriptLowerer<'a> {
         }
         if lowered
             .possible_kinds
-            .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
+            .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
         {
             return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
         }
@@ -22875,10 +25271,14 @@ impl<'a> ScriptLowerer<'a> {
 
     fn static_number_property_key(&self, expr: &Expression) -> Option<String> {
         let value = self.try_constant_array_index_expr(expr)?;
+        Some(Self::static_number_property_key_from_value(value))
+    }
+
+    fn static_number_property_key_from_value(value: f64) -> String {
         if value.fract() == 0.0 {
-            Some(format!("{value:.0}"))
+            format!("{value:.0}")
         } else {
-            Some(value.to_string())
+            value.to_string()
         }
     }
 
@@ -22892,6 +25292,19 @@ impl<'a> ScriptLowerer<'a> {
             },
             ExprIr::Number(value.to_bits()),
         )
+    }
+
+    fn static_array_numeric_property_key(&self, expr: &Expression) -> Option<PropertyKeyIr> {
+        let value = self.try_constant_array_index_expr(expr)?;
+        if value <= MAX_ARRAY_INDEX {
+            Some(PropertyKeyIr::ArrayIndex(Box::new(
+                self.static_number_index_expr(value),
+            )))
+        } else {
+            Some(PropertyKeyIr::StaticString(
+                Self::static_number_property_key_from_value(value),
+            ))
+        }
     }
 
     fn narrow_array_index_expr(&mut self, index: &mut TypedExpr) -> bool {
@@ -22976,8 +25389,12 @@ impl<'a> ScriptLowerer<'a> {
             if name == "toString"
                 && self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype")
             {
-                return self.function_value_expr(
-                    StandardBuiltinId::FunctionPrototypeToString.function_id(),
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::FunctionPrototypeToString),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: key.clone(),
+                    },
                 );
             }
             if let Some(ObjectShapeProperty::Accessor {
@@ -23025,8 +25442,12 @@ impl<'a> ScriptLowerer<'a> {
                 && (target.kind == ValueKind::Function
                     || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
             {
-                return self.function_value_expr(
-                    StandardBuiltinId::FunctionPrototypeToString.function_id(),
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::FunctionPrototypeToString),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: key.clone(),
+                    },
                 );
             }
             if name == "from" && Self::is_typed_array_constructor_target(&target) {
@@ -23170,9 +25591,74 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "at" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeAt),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             if name == "includes" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeIncludes),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "indexOf" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeIndexOf),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "lastIndexOf" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeLastIndexOf),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "find" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFind),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "findIndex" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFindIndex),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "findLast" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFindLast),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "findLastIndex" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(
+                        StandardBuiltinId::ArrayPrototypeFindLastIndex,
+                    ),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),
@@ -23191,6 +25677,15 @@ impl<'a> ScriptLowerer<'a> {
             if name == "some" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSome),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "forEach" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeForEach),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),
@@ -23309,6 +25804,34 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        if let Some(key) = self.static_array_numeric_property_key(expr) {
+            let info = match &key {
+                PropertyKeyIr::StaticString(name) => {
+                    self.read_object_shape(&target, name).unwrap_or(ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    })
+                }
+                PropertyKeyIr::ArrayIndex(index) => {
+                    self.read_array_shape(&target, index).unwrap_or(ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    })
+                }
+                _ => unreachable!("array numeric property helper only returns static keys"),
+            };
+            return TypedExpr::from_info(
+                info,
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key,
+                },
+            );
+        }
         let mut index = self.lower_expression(expr);
         if !self.narrow_array_index_expr(&mut index) {
             let string_or_boolean_key =
@@ -23363,6 +25886,14 @@ impl<'a> ScriptLowerer<'a> {
             let builtin = match name.as_str() {
                 "toString" => Some(StandardBuiltinId::StringPrototypeToString),
                 "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
+                "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
+                "charCodeAt" => Some(StandardBuiltinId::StringPrototypeCharCodeAt),
+                "codePointAt" => Some(StandardBuiltinId::StringPrototypeCodePointAt),
+                "indexOf" => Some(StandardBuiltinId::StringPrototypeIndexOf),
+                "lastIndexOf" => Some(StandardBuiltinId::StringPrototypeLastIndexOf),
+                "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
+                "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
+                "startsWith" => Some(StandardBuiltinId::StringPrototypeStartsWith),
                 _ => None,
             };
             if let Some(builtin) = builtin {
@@ -23444,6 +25975,20 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "callee" {
+                return TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             return self.unsupported_expr("unsupported arguments dot access");
         }
         let PropertyAccessField::Expr(expr) = field else {
@@ -23489,6 +26034,8 @@ impl<'a> ScriptLowerer<'a> {
             AssignOp::Assign => match lhs {
                 AssignTarget::Identifier(identifier) => {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    let static_to_string_regexp_object =
+                        self.static_to_string_returns_regexp_object_expr(rhs);
                     let static_generator_values = self.static_generator_call_values_owned(rhs);
                     let static_object_iterator_values = static_generator_values
                         .is_none()
@@ -23508,13 +26055,24 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         self.static_iterator_binding_values.remove(&name);
                     }
-                    self.lower_identifier_assign_value(name, value)
+                    let result = self.lower_identifier_assign_value(name.clone(), value);
+                    if static_to_string_regexp_object {
+                        self.static_to_string_regexp_object_bindings.insert(name);
+                    } else {
+                        self.static_to_string_regexp_object_bindings.remove(&name);
+                    }
+                    result
                 }
                 AssignTarget::Access(access) => self.lower_property_assign(access, rhs),
                 AssignTarget::Pattern(pattern) => self.lower_pattern_assign(pattern, rhs),
                 _ => self.unsupported_expr("non-identifier assignment target"),
             },
-            AssignOp::Add | AssignOp::Sub | AssignOp::Mul | AssignOp::Div | AssignOp::Mod => {
+            AssignOp::Add
+            | AssignOp::Sub
+            | AssignOp::Mul
+            | AssignOp::Div
+            | AssignOp::Mod
+            | AssignOp::Exp => {
                 if matches!(op, AssignOp::Add) {
                     if let AssignTarget::Access(access) = lhs {
                         if let PropertyAccess::Simple(simple_access) = access {
@@ -23577,6 +26135,8 @@ impl<'a> ScriptLowerer<'a> {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let value = self.lower_expression(rhs);
                 let binding = self.lookup_binding(&name);
+                let binding_storage_name =
+                    binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
                 let rhs_may_string = value.possible_kinds.contains(ValueKind::String);
                 let binding_allows_string_add = binding.as_ref().is_some_and(|binding| {
@@ -23645,11 +26205,12 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Mul => ArithmeticBinaryOp::Mul,
                     AssignOp::Div => ArithmeticBinaryOp::Div,
                     AssignOp::Mod => ArithmeticBinaryOp::Mod,
+                    AssignOp::Exp => ArithmeticBinaryOp::Exp,
                     _ => unreachable!(),
                 };
-                let expr = if self.lookup_binding(&name).is_some() {
+                let expr = if let Some(storage_name) = binding_storage_name {
                     ExprIr::CompoundAssignIdentifier {
-                        name,
+                        name: storage_name,
                         op,
                         value: Box::new(value),
                     }
@@ -23668,6 +26229,8 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let binding = self.lookup_binding(&name);
+                let binding_storage_name =
+                    binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
                 if binding
                     .as_ref()
@@ -23695,7 +26258,7 @@ impl<'a> ScriptLowerer<'a> {
                         .or_else(|| global_info.as_ref().map(|info| info.value_info.clone()))
                         .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
                     if binding.is_some() {
-                        ExprIr::Identifier(name.clone())
+                        ExprIr::Identifier(binding_storage_name.clone().expect("binding storage"))
                     } else {
                         ExprIr::GlobalPropertyRead { name: name.clone() }
                     },
@@ -23717,12 +26280,12 @@ impl<'a> ScriptLowerer<'a> {
                         rhs: Box::new(rhs_value),
                     },
                 );
-                if binding.is_some() {
+                if let Some(storage_name) = binding_storage_name {
                     self.set_binding_value_info(&name, value.value_info());
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::AssignIdentifier {
-                            name,
+                            name: storage_name,
                             value: Box::new(value),
                         },
                     )
@@ -23738,7 +26301,6 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 }
             }
-            AssignOp::Exp => self.unsupported_expr("exponentiation assignment"),
             AssignOp::And
             | AssignOp::Or
             | AssignOp::Xor
@@ -23750,6 +26312,8 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let binding = self.lookup_binding(&name);
+                let binding_storage_name =
+                    binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
                 if binding
                     .as_ref()
@@ -23786,7 +26350,7 @@ impl<'a> ScriptLowerer<'a> {
                         .or_else(|| global_info.as_ref().map(|info| info.value_info.clone()))
                         .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
                     if binding.is_some() {
-                        ExprIr::Identifier(name.clone())
+                        ExprIr::Identifier(binding_storage_name.clone().expect("binding storage"))
                     } else {
                         ExprIr::GlobalPropertyRead { name: name.clone() }
                     },
@@ -23799,12 +26363,12 @@ impl<'a> ScriptLowerer<'a> {
                         rhs: Box::new(self.lower_expression(rhs)),
                     },
                 );
-                if binding.is_some() {
+                if let Some(storage_name) = binding_storage_name {
                     self.set_binding_value_info(&name, value.value_info());
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::AssignIdentifier {
-                            name,
+                            name: storage_name,
                             value: Box::new(value),
                         },
                     )
@@ -23868,6 +26432,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_identifier_assign_value(&mut self, name: String, value: TypedExpr) -> TypedExpr {
         if let Some(binding) = self.lookup_binding(&name) {
+            let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
                 return self.unsupported_expr("assignment to const binding");
             }
@@ -23894,7 +26459,7 @@ impl<'a> ScriptLowerer<'a> {
             TypedExpr::from_info(
                 value.value_info(),
                 ExprIr::AssignIdentifier {
-                    name,
+                    name: storage_name,
                     value: Box::new(value),
                 },
             )
@@ -24085,17 +26650,24 @@ impl<'a> ScriptLowerer<'a> {
         init: TypedExpr,
     ) -> StatementIr {
         self.static_string_bindings.remove(&name);
+        self.static_to_string_regexp_object_bindings.remove(&name);
+        let storage_name = self.lexical_storage_name(&name);
         self.declare_binding(
             name.clone(),
             BindingInfo {
                 mode,
+                storage_name: storage_name.clone(),
                 kind: init.kind,
                 possible_kinds: init.possible_kinds,
                 heap_shape: init.heap_shape.clone(),
                 function_targets: init.function_targets.clone(),
             },
         );
-        StatementIr::Lexical { mode, name, init }
+        StatementIr::Lexical {
+            mode,
+            name: storage_name,
+            init,
+        }
     }
 
     fn lower_array_literal_pattern_assign(
@@ -24465,6 +27037,20 @@ impl<'a> ScriptLowerer<'a> {
                         {
                             self.number_prototype_to_string_deleted = true;
                         }
+                        if self.is_number_prototype_property_expr(
+                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
+                            "match",
+                        ) {
+                            self.number_prototype_match_is_string_match =
+                                self.is_string_prototype_property_expr(rhs, "match");
+                        }
+                        if self.is_number_prototype_property_expr(
+                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
+                            "split",
+                        ) {
+                            self.number_prototype_split_is_string_split =
+                                self.is_string_prototype_property_expr(rhs, "split");
+                        }
                         if let PropertyKeyIr::StaticString(key_name) = &key {
                             if self.is_global_this_expr(access.target()) {
                                 self.set_global_property_value_info_with_source(
@@ -24505,22 +27091,26 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                             PropertyAccessField::Expr(expr) => {
-                                let mut index = self.lower_expression(expr);
-                                if let ExprIr::String(key) = &index.expr {
-                                    if key == "Symbol.isConcatSpreadable" {
-                                        PropertyKeyIr::StaticString(key.clone())
-                                    } else {
-                                        PropertyKeyIr::StringExpr(Box::new(index))
-                                    }
-                                } else if index.possible_kinds.is_subset_of(
-                                    KindSet::from_kind(ValueKind::String)
-                                        .union(KindSet::from_kind(ValueKind::Boolean)),
-                                ) {
-                                    PropertyKeyIr::StringExpr(Box::new(index))
-                                } else if self.narrow_array_index_expr(&mut index) {
-                                    PropertyKeyIr::ArrayIndex(Box::new(index))
+                                if let Some(key) = self.static_array_numeric_property_key(expr) {
+                                    key
                                 } else {
-                                    return self.unsupported_expr("array index must be number");
+                                    let mut index = self.lower_expression(expr);
+                                    if let ExprIr::String(key) = &index.expr {
+                                        if key == "Symbol.isConcatSpreadable" {
+                                            PropertyKeyIr::StaticString(key.clone())
+                                        } else {
+                                            PropertyKeyIr::StringExpr(Box::new(index))
+                                        }
+                                    } else if index.possible_kinds.is_subset_of(
+                                        KindSet::from_kind(ValueKind::String)
+                                            .union(KindSet::from_kind(ValueKind::Boolean)),
+                                    ) {
+                                        PropertyKeyIr::StringExpr(Box::new(index))
+                                    } else if self.narrow_array_index_expr(&mut index) {
+                                        PropertyKeyIr::ArrayIndex(Box::new(index))
+                                    } else {
+                                        return self.unsupported_expr("array index must be number");
+                                    }
                                 }
                             }
                         };
@@ -24607,6 +27197,20 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         };
                         let value = self.lower_expression(rhs);
+                        if self.is_number_prototype_property_expr(
+                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
+                            "match",
+                        ) {
+                            self.number_prototype_match_is_string_match =
+                                self.is_string_prototype_property_expr(rhs, "match");
+                        }
+                        if self.is_number_prototype_property_expr(
+                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
+                            "split",
+                        ) {
+                            self.number_prototype_split_is_string_split =
+                                self.is_string_prototype_property_expr(rhs, "split");
+                        }
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
@@ -24819,7 +27423,11 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::BigInt((*bits).wrapping_neg()),
                     );
                 }
-                if !lowered_target.possible_kinds.contains(ValueKind::Number) {
+                if lowered_target.possible_kinds.contains(ValueKind::BigInt)
+                    || !lowered_target
+                        .possible_kinds
+                        .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
+                {
                     return self.unsupported_expr("coercive unary minus");
                 }
                 TypedExpr::from_info(
@@ -24859,7 +27467,17 @@ impl<'a> ScriptLowerer<'a> {
                 },
             ),
             UnaryOp::Delete => unreachable!(),
-            UnaryOp::Tilde => self.unsupported_expr("unsupported unary operator"),
+            UnaryOp::Tilde => TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::BitwiseNumber {
+                    op: BitwiseBinaryOp::Xor,
+                    lhs: Box::new(lowered_target),
+                    rhs: Box::new(TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        ExprIr::Number((-1.0f64).to_bits()),
+                    )),
+                },
+            ),
         }
     }
 
@@ -24915,6 +27533,17 @@ impl<'a> ScriptLowerer<'a> {
         lhs: &Expression,
         rhs: &Expression,
     ) -> TypedExpr {
+        if matches!(arithmetic, ArithmeticOp::Exp) {
+            if let (Some(lhs), Some(rhs)) =
+                (self.static_number_expr(lhs), self.static_number_expr(rhs))
+            {
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::Number(Self::static_pow(lhs, rhs).to_bits()),
+                );
+            }
+        }
+
         let lhs = self.lower_expression(lhs);
         let rhs = self.lower_expression(rhs);
 
@@ -25195,13 +27824,127 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             ArithmeticOp::Exp => {
+                if let (ExprIr::Number(lhs), ExprIr::Number(rhs)) = (&lhs.expr, &rhs.expr) {
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        ExprIr::Number(
+                            Self::static_pow(f64::from_bits(*lhs), f64::from_bits(*rhs)).to_bits(),
+                        ),
+                    );
+                }
                 if let (ExprIr::BigInt(lhs), ExprIr::BigInt(rhs)) = (&lhs.expr, &rhs.expr) {
-                    if let Ok(exponent) = u32::try_from(*rhs) {
+                    let rhs_signed = *rhs as i64;
+                    if rhs_signed >= 0 {
+                        let exponent = rhs_signed as u64;
+                        if let Ok(exponent) = u32::try_from(exponent) {
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::BigInt),
+                                ExprIr::BigInt(lhs.wrapping_pow(exponent)),
+                            );
+                        }
+                    }
+                }
+                let lhs_primitive = self.to_primitive_info(&lhs, ToPrimitiveHint::Number);
+                let rhs_primitive = self.to_primitive_info(&rhs, ToPrimitiveHint::Number);
+                let bigint_or_number_info = || {
+                    let possible_kinds = KindSet::from_kind(ValueKind::Number)
+                        .union(KindSet::from_kind(ValueKind::BigInt));
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    }
+                };
+                let bigint_exp_expr = |lhs: TypedExpr, rhs: TypedExpr, info: ValueInfo| {
+                    TypedExpr::from_info(
+                        info,
+                        ExprIr::CoerciveBinaryNumber {
+                            op: ArithmeticBinaryOp::Exp,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        },
+                    )
+                };
+                if let (Some(lhs_primitive), Some(rhs_primitive)) = (&lhs_primitive, &rhs_primitive)
+                {
+                    let lhs_has_bigint = lhs_primitive.possible_kinds.contains(ValueKind::BigInt);
+                    let rhs_has_bigint = rhs_primitive.possible_kinds.contains(ValueKind::BigInt);
+                    if lhs_has_bigint || rhs_has_bigint {
+                        let result_info = if lhs_primitive
+                            .possible_kinds
+                            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+                            && rhs_primitive
+                                .possible_kinds
+                                .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+                        {
+                            ValueInfo::new(ValueKind::BigInt)
+                        } else {
+                            bigint_or_number_info()
+                        };
+                        return bigint_exp_expr(lhs, rhs, result_info);
+                    } else {
                         return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::BigInt),
-                            ExprIr::BigInt(lhs.wrapping_pow(exponent)),
+                            ValueInfo::new(ValueKind::Number),
+                            ExprIr::CoerciveBinaryNumber {
+                                op: ArithmeticBinaryOp::Exp,
+                                lhs: Box::new(lhs),
+                                rhs: Box::new(rhs),
+                            },
                         );
                     }
+                }
+                if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                    && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                    && (lhs.possible_kinds.contains(ValueKind::BigInt)
+                        || rhs.possible_kinds.contains(ValueKind::BigInt))
+                {
+                    let result_info = if lhs
+                        .possible_kinds
+                        .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+                        && rhs
+                            .possible_kinds
+                            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+                    {
+                        ValueInfo::new(ValueKind::BigInt)
+                    } else {
+                        bigint_or_number_info()
+                    };
+                    return bigint_exp_expr(lhs, rhs, result_info);
+                }
+                if lhs
+                    .possible_kinds
+                    .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
+                    && rhs
+                        .possible_kinds
+                        .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
+                {
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        ExprIr::CoerciveBinaryNumber {
+                            op: ArithmeticBinaryOp::Exp,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        },
+                    );
+                }
+                let lhs = match self.coerce_expr_to_number(lhs.clone()) {
+                    Some(lhs) => lhs,
+                    None => return self.unsupported_expr("exponentiation operator"),
+                };
+                let rhs = match self.coerce_expr_to_number(rhs.clone()) {
+                    Some(rhs) => rhs,
+                    None => return self.unsupported_expr("exponentiation operator"),
+                };
+                if lhs.kind == ValueKind::Number && rhs.kind == ValueKind::Number {
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        ExprIr::BinaryNumber {
+                            op: ArithmeticBinaryOp::Exp,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        },
+                    );
                 }
                 self.unsupported_expr("exponentiation operator")
             }
@@ -25388,6 +28131,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
+            | StandardBuiltinId::SuppressedErrorConstructor
             | StandardBuiltinId::RangeErrorConstructor
             | StandardBuiltinId::SyntaxErrorConstructor
             | StandardBuiltinId::TypeErrorConstructor
@@ -25571,14 +28315,19 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(signature) = self.function_signatures.get(function_id) else {
                     return None;
                 };
-                if !signature
-                    .return_possible_kinds
-                    .is_subset_of(KindSet::PRIMITIVE_ONLY)
-                {
-                    self.unsupported_expr("heap ToPrimitive hook must return primitive");
-                    return None;
+                for kind in [
+                    ValueKind::Undefined,
+                    ValueKind::Null,
+                    ValueKind::Boolean,
+                    ValueKind::Number,
+                    ValueKind::String,
+                    ValueKind::Symbol,
+                    ValueKind::BigInt,
+                ] {
+                    if signature.return_possible_kinds.contains(kind) {
+                        return_kinds = return_kinds.union(KindSet::from_kind(kind));
+                    }
                 }
-                return_kinds = return_kinds.union(signature.return_possible_kinds);
             }
             if return_kinds != KindSet::EMPTY {
                 return Some(return_kinds);
@@ -27010,6 +29759,85 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn static_is_integral_number(value: f64) -> bool {
+        value.is_finite() && value.trunc() == value
+    }
+
+    fn static_is_odd_integral_number(value: f64) -> bool {
+        Self::static_is_integral_number(value)
+            && value.abs() <= 9_007_199_254_740_991.0
+            && (value.abs() as u64) % 2 == 1
+    }
+
+    fn static_is_negative_zero(value: f64) -> bool {
+        value.to_bits() == (-0.0f64).to_bits()
+    }
+
+    fn static_pow(base: f64, exponent: f64) -> f64 {
+        if exponent == 0.0 {
+            return 1.0;
+        }
+        if exponent.is_nan() || base.is_nan() {
+            return f64::NAN;
+        }
+        if exponent.is_infinite() {
+            let abs_base = base.abs();
+            if abs_base > 1.0 {
+                return if exponent.is_sign_positive() {
+                    f64::INFINITY
+                } else {
+                    0.0
+                };
+            }
+            if abs_base == 1.0 {
+                return f64::NAN;
+            }
+            return if exponent.is_sign_positive() {
+                0.0
+            } else {
+                f64::INFINITY
+            };
+        }
+        if base == f64::INFINITY {
+            return if exponent > 0.0 { f64::INFINITY } else { 0.0 };
+        }
+        if base == f64::NEG_INFINITY {
+            if exponent > 0.0 {
+                return if Self::static_is_odd_integral_number(exponent) {
+                    f64::NEG_INFINITY
+                } else {
+                    f64::INFINITY
+                };
+            }
+            return if Self::static_is_odd_integral_number(exponent) {
+                -0.0
+            } else {
+                0.0
+            };
+        }
+        if Self::static_is_negative_zero(base) {
+            if exponent > 0.0 {
+                return if Self::static_is_odd_integral_number(exponent) {
+                    -0.0
+                } else {
+                    0.0
+                };
+            }
+            return if Self::static_is_odd_integral_number(exponent) {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
+        }
+        if base == 0.0 {
+            return if exponent > 0.0 { 0.0 } else { f64::INFINITY };
+        }
+        if base < 0.0 && !Self::static_is_integral_number(exponent) {
+            return f64::NAN;
+        }
+        base.powf(exponent)
+    }
+
     fn static_number_expr(&self, expr: &Expression) -> Option<f64> {
         match Self::unwrap_parenthesized_expr(expr) {
             Expression::Literal(literal) => match literal.kind() {
@@ -27042,7 +29870,7 @@ impl<'a> ScriptLowerer<'a> {
                     BinaryOp::Arithmetic(ArithmeticOp::Mul) => Some(lhs * rhs),
                     BinaryOp::Arithmetic(ArithmeticOp::Div) => Some(lhs / rhs),
                     BinaryOp::Arithmetic(ArithmeticOp::Mod) => Some(lhs % rhs),
-                    BinaryOp::Arithmetic(ArithmeticOp::Exp) => Some(lhs.powf(rhs)),
+                    BinaryOp::Arithmetic(ArithmeticOp::Exp) => Some(Self::static_pow(lhs, rhs)),
                     _ => None,
                 }
             }
@@ -27061,6 +29889,14 @@ impl<'a> ScriptLowerer<'a> {
                     (NUMBER_NAME, "POSITIVE_INFINITY") => Some(f64::INFINITY),
                     (NUMBER_NAME, "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
                     (NUMBER_NAME, "NaN") => Some(f64::NAN),
+                    (MATH_NAME, "E") => Some(std::f64::consts::E),
+                    (MATH_NAME, "LN10") => Some(std::f64::consts::LN_10),
+                    (MATH_NAME, "LN2") => Some(std::f64::consts::LN_2),
+                    (MATH_NAME, "LOG10E") => Some(std::f64::consts::LOG10_E),
+                    (MATH_NAME, "LOG2E") => Some(std::f64::consts::LOG2_E),
+                    (MATH_NAME, "PI") => Some(std::f64::consts::PI),
+                    (MATH_NAME, "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
+                    (MATH_NAME, "SQRT2") => Some(std::f64::consts::SQRT_2),
                     _ => None,
                 }
             }
@@ -27873,6 +30709,7 @@ impl<'a> ScriptLowerer<'a> {
                 binding.heap_shape = info.heap_shape.clone();
                 binding.function_targets = info.function_targets.clone();
                 self.static_string_bindings.remove(name);
+                self.static_to_string_regexp_object_bindings.remove(name);
                 self.record_param_kind(name, info.kind);
                 return Some(());
             }
@@ -27883,6 +30720,7 @@ impl<'a> ScriptLowerer<'a> {
             binding.heap_shape = info.heap_shape;
             binding.function_targets = info.function_targets;
             self.static_string_bindings.remove(name);
+            self.static_to_string_regexp_object_bindings.remove(name);
             return Some(());
         }
         None
@@ -28359,6 +31197,9 @@ impl<'a> ScriptLowerer<'a> {
                             ARRAY_BUFFER_NAME => Some(Self::value_info_from_shape(Some(
                                 Self::array_buffer_instance_shape(),
                             ))),
+                            DATA_VIEW_NAME => Some(Self::value_info_from_shape(Some(
+                                Self::data_view_instance_shape(),
+                            ))),
                             SHARED_ARRAY_BUFFER_NAME => Some(Self::value_info_from_shape(Some(
                                 Self::shared_array_buffer_instance_shape(),
                             ))),
@@ -28396,10 +31237,13 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_script_global_var_capture(&self, name: &str, capture: &CaptureBindingPlan) -> bool {
+        if Self::is_tdz_binding_storage_name(name) {
+            return false;
+        }
         capture.owner_id == SCRIPT_OWNER_ID
             && self
                 .var_bindings
-                .get(name)
+                .get(capture.source_name.as_str())
                 .is_some_and(|binding| binding.is_script_global)
     }
 
@@ -28431,7 +31275,7 @@ impl<'a> ScriptLowerer<'a> {
             .owner_free_refs
             .get(owner_id)
             .into_iter()
-            .flat_map(|refs| refs.iter())
+            .flat_map(|refs| refs.keys())
             .filter(|name| !local_bindings.contains(*name))
             .filter_map(|name| {
                 let capture_owner_id = self.resolve_generated_capture_owner(owner_id, name)?;
@@ -28587,6 +31431,7 @@ impl<'a> ScriptLowerer<'a> {
                     let function_targets = binding.function_targets.clone();
                     Some(BindingInfo {
                         mode,
+                        storage_name: name.to_string(),
                         kind,
                         possible_kinds: binding.possible_kinds,
                         heap_shape,
@@ -28603,6 +31448,7 @@ impl<'a> ScriptLowerer<'a> {
                 binding.possible_kinds = KindSet::from_kind(kind);
                 binding.heap_shape = None;
                 binding.function_targets.clear();
+                self.static_to_string_regexp_object_bindings.remove(name);
                 self.record_param_kind(name, kind);
                 return Some(());
             }
@@ -28612,6 +31458,7 @@ impl<'a> ScriptLowerer<'a> {
             binding.possible_kinds = KindSet::from_kind(kind);
             binding.heap_shape = None;
             binding.function_targets.clear();
+            self.static_to_string_regexp_object_bindings.remove(name);
             return Some(());
         }
         None
@@ -28683,6 +31530,11 @@ impl<'a> ScriptLowerer<'a> {
                         .get(name)
                         .map(|binding| binding.is_script_global)
                         .or_else(|| right.get(name).map(|binding| binding.is_script_global))
+                        .unwrap_or(false),
+                    is_lexical_metadata: left
+                        .get(name)
+                        .map(|binding| binding.is_lexical_metadata)
+                        .or_else(|| right.get(name).map(|binding| binding.is_lexical_metadata))
                         .unwrap_or(false),
                 },
             );
@@ -29237,6 +32089,16 @@ mod tests {
     }
 
     #[test]
+    fn lowers_object_function_property_call_arg_coercion_ir() {
+        let program = lower_script(
+            r#"var h = { get: function(_, key) { return key * 10; } }; h.get({}, "1");"#,
+        );
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("coercive_numeric_ops=2"));
+    }
+
+    #[test]
     fn lowers_heap_loose_equality_ir() {
         let program = lower_script("let object = {}; object == undefined; null != object;");
         assert!(program.is_wasm_supported());
@@ -29318,6 +32180,44 @@ mod tests {
         assert!(summary.contains("functions=2"));
         assert!(summary.contains("calls=1"));
         assert!(summary.contains("returns=2"));
+    }
+
+    #[test]
+    fn marks_function_body_use_strict_directive() {
+        let program = lower_script(r#"function f() { "use strict"; return this; } f();"#);
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("function should be lowered");
+        assert!(function.strict);
+    }
+
+    #[test]
+    fn marks_script_use_strict_directive() {
+        let program = lower_script(r#""use strict"; function f() { return this; } f();"#);
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.strict);
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("function should be lowered");
+        assert!(function.strict);
+    }
+
+    #[test]
+    fn lowers_block_function_declarations_as_hoisted_bindings() {
+        let program = lower_script(
+            "let value = 0; if (true) { value = nested(); function nested() { return 7; } } value;",
+        );
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("functions=2"));
+        assert!(summary.contains("calls=1"));
     }
 
     #[test]
@@ -29649,6 +32549,129 @@ mod tests {
         assert_eq!(script.owned_env_bindings.len(), 1);
         assert_eq!(script.owned_env_bindings[0].name, "x");
         assert_eq!(script.functions[0].captured_bindings[0].name, "x");
+        assert_eq!(
+            script.functions[0].captured_bindings[0].slot,
+            script.owned_env_bindings[0].slot
+        );
+        assert_eq!(script.functions[0].captured_bindings[0].hops, 0);
+    }
+
+    #[test]
+    fn lowers_for_in_let_closure_capture_metadata() {
+        let program = lower_script(
+            "function fn(x) { let callbacks = []; for (let p in x) { callbacks.push(function () { return p; }); } return callbacks[0](); } fn({ a: 1 });",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let outer = script
+            .functions
+            .iter()
+            .find(|function| function.name == "fn")
+            .expect("outer function should be lowered");
+        let owned_names = outer
+            .owned_env_bindings
+            .iter()
+            .map(|binding| binding.name.as_str())
+            .collect::<Vec<_>>();
+        let loop_binding = outer
+            .owned_env_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$forin.lex.") && binding.name.ends_with(".p"))
+            .expect("loop binding should own an aliased env slot");
+        assert!(owned_names.contains(&loop_binding.name.as_str()));
+        let closure = script
+            .functions
+            .iter()
+            .find(|function| function.is_expression)
+            .expect("loop closure should be lowered");
+        assert_eq!(closure.captured_bindings.len(), 1);
+        assert_eq!(closure.captured_bindings[0].name, loop_binding.name);
+        assert_eq!(closure.captured_bindings[0].slot, loop_binding.slot);
+    }
+
+    #[test]
+    fn lowers_shadowed_for_in_let_closure_to_loop_binding() {
+        let program = lower_script(
+            "let x = 'outside'; var f; for (let x in { a: 0 }) { f = function () { return x; }; } f();",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let closure = script
+            .functions
+            .iter()
+            .find(|function| function.is_expression)
+            .expect("loop closure should be lowered");
+        assert_eq!(closure.captured_bindings.len(), 1);
+        let captured = &closure.captured_bindings[0];
+        assert!(captured.name.starts_with("$forin.lex."));
+        assert!(captured.name.ends_with(".x"));
+        assert_ne!(captured.name, "x");
+        assert!(script
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == captured.name && binding.slot == captured.slot));
+    }
+
+    #[test]
+    fn lowers_for_in_head_lexical_tdz_for_target_expression() {
+        fn has_reference_error_throw(expr: &TypedExpr) -> bool {
+            match &expr.expr {
+                ExprIr::RuntimeThrow {
+                    name: REFERENCE_ERROR_NAME,
+                    ..
+                } => true,
+                ExprIr::ObjectLiteral(properties) => {
+                    properties.iter().any(|property| match property {
+                        ObjectPropertyIr::Data { value, .. }
+                        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
+                            has_reference_error_throw(value)
+                        }
+                        ObjectPropertyIr::ComputedData { key, value } => {
+                            has_reference_error_throw(key) || has_reference_error_throw(value)
+                        }
+                        ObjectPropertyIr::ComputedMethod { key, function }
+                        | ObjectPropertyIr::ComputedGetter { key, function }
+                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                            has_reference_error_throw(key) || has_reference_error_throw(function)
+                        }
+                        ObjectPropertyIr::Method { function, .. }
+                        | ObjectPropertyIr::Getter { function, .. }
+                        | ObjectPropertyIr::Setter { function, .. } => {
+                            has_reference_error_throw(function)
+                        }
+                    })
+                }
+                ExprIr::TypeOf { expr } => has_reference_error_throw(expr),
+                _ => false,
+            }
+        }
+
+        let program = lower_script("let x = 1; for (let x in { x }) {}");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::ForInObject { target, .. } = &script.body.statements[1] else {
+            panic!("expected for-in object statement");
+        };
+        assert!(has_reference_error_throw(target));
+    }
+
+    #[test]
+    fn lowers_for_in_head_function_capture_to_tdz_binding() {
+        let program = lower_script(
+            "let x = 'outside'; var f; for (let x in { i: f = function () { return typeof x; } }) {} f();",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let closure = script
+            .functions
+            .iter()
+            .find(|function| function.is_expression)
+            .expect("head closure should be lowered");
+        assert_eq!(closure.captured_bindings.len(), 1);
+        assert!(closure.captured_bindings[0]
+            .name
+            .starts_with(TDZ_BINDING_STORAGE_PREFIX));
+        assert!(closure.captured_bindings[0].name.ends_with(".x"));
     }
 
     #[test]
@@ -29777,6 +32800,20 @@ mod tests {
     }
 
     #[test]
+    fn lowers_lone_surrogate_string_literal_with_internal_marker() {
+        let program = lower_script("\"\\uD800\";");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::String(value) = &expr.expr else {
+            panic!("expected string literal expression");
+        };
+        assert_eq!(value, &format!("{JS_STRING_SURROGATE_SENTINEL}D800"));
+    }
+
+    #[test]
     fn rejects_label_on_unsupported_statement_kind() {
         let program = lower_script("label: 1;");
         assert!(!program.is_wasm_supported());
@@ -29851,6 +32888,39 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn lowers_catch_parameter_source_alias_for_redeclared_var() {
+        let program =
+            lower_script("foo = \"prior\"; try { throw 1; } catch (foo) { var foo = \"init\"; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let (catch_name, catch_source_name, catch_block) = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| {
+                if let StatementIr::TryCatch {
+                    catch_name,
+                    catch_source_name,
+                    catch_block,
+                    ..
+                } = statement
+                {
+                    Some((catch_name, catch_source_name, catch_block))
+                } else {
+                    None
+                }
+            })
+            .expect("expected try/catch statement");
+
+        assert_eq!(catch_source_name, "foo");
+        assert_ne!(catch_name, catch_source_name);
+        let StatementIr::Var(declarators) = &catch_block.statements[0] else {
+            panic!("expected var declaration in catch block");
+        };
+        assert_eq!(declarators[0].name, "foo");
     }
 
     #[test]
