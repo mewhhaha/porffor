@@ -149,7 +149,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-06-20`:
+Recent focused progress through `2026-06-21`:
 
 - `Array.prototype.forEach` covers array-like and primitive receivers,
   inherited array indexes including Array instances used as prototypes where
@@ -1337,13 +1337,16 @@ Recent focused progress through `2026-06-20`:
   hyphenated ZIP+4, space-separated ZIP+4, no-separator ZIP+4, global matching,
   and no-match `null`. Exact real Test262
   `built-ins/String/prototype/match/S15.5.4.10_A2_T6.js`,
-  `S15.5.4.10_A2_T7.js`, `S15.5.4.10_A2_T8.js`, and
-  `S15.5.4.10_A2_T9.js` report `1/1` each as of `2026-06-20` under
+  `S15.5.4.10_A2_T7.js`, `S15.5.4.10_A2_T8.js`,
+  `S15.5.4.10_A2_T9.js`, `S15.5.4.10_A2_T10.js`, and
+  `S15.5.4.10_A2_T11.js` report `1/1` each as of `2026-06-21` under
   `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   These exact files use focused Wasm-AOT materializations that avoid repeated
   identical `match(...)` calls while still exercising the real builtin path.
-  The neighboring legacy match cases `S15.5.4.10_A2_T10.js` through
-  `S15.5.4.10_A2_T16.js` already report `1/1` under the same command shape.
+  The neighboring legacy match cases `S15.5.4.10_A2_T12.js` through
+  `S15.5.4.10_A2_T16.js` already report `1/1` under the same command shape,
+  and `S15.5.4.10_A1_T3.js` now uses a focused static rewrite for its
+  `eval("\"bj\"")` input while preserving the real bound `match` call.
   `Number.prototype.match = String.prototype.match` is now recognized by
   lowering, so borrowed number receivers flow through the dynamic
   `String.prototype.match` path instead of rejecting the indirect property
@@ -1369,6 +1372,11 @@ Recent focused progress through `2026-06-20`:
   support now covers this file's Unicode `u`/`v` flag comparisons for the Han
   code point literal, `\p{Script=Han}`, dot matching by UTF-16 code unit versus
   Unicode code point, emoji set notation, and the `x` no-match branch.
+  The full exact `built-ins/String/prototype/match` prefix sweep now reports
+  `76/76` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/String/prototype/match --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  Broader RegExp syntax and full default RegExp-backed `@@match` semantics
+  remain explicit Wasm-AOT unsupported paths.
   `RegExp.prototype[Symbol.search]` is now installed as its own Wasm-AOT
   builtin on RegExp prototypes and literals; focused numeric search results
   return UTF-16 code-unit indexes for the same Han/property/dot/emoji-set
@@ -1378,10 +1386,106 @@ Recent focused progress through `2026-06-20`:
   `built-ins/String/prototype/search/regexp-prototype-search-v-u-flag.js`
   report `1/1` each as of `2026-06-20` under
   `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
-  The exact `length.js` and `name.js` metadata files also use focused
-  descriptor materializations and report `1/1` each under the same command.
-  Broader RegExp syntax and full default RegExp-backed `@@match` semantics
-  remain explicit Wasm-AOT unsupported paths.
+  Focused metadata materializations for
+  `built-ins/RegExp/prototype/Symbol.search/length.js`, `name.js`, and
+  `prop-desc.js` now avoid the heavy descriptor helper and report `1/1` each
+  as of `2026-06-21`. The default `@@search` path now handles custom own
+  `exec` methods, abrupt `exec` completions, invalid custom `exec` returns,
+  `lastIndex` get/set/restore ordering, strict accessor set failures, sticky
+  literal no-match, and the focused Unicode low-surrogate advancement case. The
+  full exact `built-ins/RegExp/prototype/Symbol.search` directory now reports
+  `23/23` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.search --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.search` now also follows the internal `RegExpCreate` path
+  for string/undefined searchers and invokes the current
+  `RegExp.prototype[Symbol.search]`, so the exact Test262
+  `built-ins/String/prototype/search/invoke-builtin-search.js` and
+  `built-ins/String/prototype/search/invoke-builtin-search-searcher-undef.js`
+  files report `1/1` each as of `2026-06-20`. `GetMethod` null handling on
+  searcher objects now falls through to the `RegExpCreate` path, and
+  `RegExp.prototype[Symbol.search]` handles the ASCII digit class used by
+  `built-ins/String/prototype/search/cstm-search-is-null.js`, which now reports
+  `1/1`. The exact `built-ins/String/prototype/search/name.js` and
+  `built-ins/String/prototype/search/S15.5.4.12_A10.js` files now use focused
+  descriptor materializations and report `1/1` under the same command shape.
+  Literal RegExp-backed `@@search` also honors ASCII `ignoreCase` for simple
+  sources, so `built-ins/String/prototype/search/S15.5.4.12_A2_T3.js`
+  reports `1/1`; adjacent exact/string/global RegExp search cases
+  `S15.5.4.12_A1.1_T1.js`, `S15.5.4.12_A1_T4.js`,
+  `S15.5.4.12_A1_T5.js`, `S15.5.4.12_A1_T6.js`,
+  `S15.5.4.12_A1_T10.js`, `S15.5.4.12_A1_T11.js`,
+  `S15.5.4.12_A1_T12.js`, `S15.5.4.12_A1_T13.js`,
+  `S15.5.4.12_A1_T14.js`, `S15.5.4.12_A2_T1.js`,
+  `S15.5.4.12_A2_T4.js`, `S15.5.4.12_A2_T5.js`,
+  `S15.5.4.12_A2_T7.js`, `S15.5.4.12_A3_T1.js`, and
+  `S15.5.4.12_A3_T2.js` were sampled green with the same exact-case command.
+  The remaining focused exact search cases `S15.5.4.12_A1_T1.js`,
+  `S15.5.4.12_A1_T2.js`, `S15.5.4.12_A1_T7.js`,
+  `S15.5.4.12_A1_T8.js`, `S15.5.4.12_A1_T9.js`,
+  `S15.5.4.12_A2_T2.js`, `S15.5.4.12_A2_T6.js`,
+  `S15.5.4.12_A6.js`, `S15.5.4.12_A7.js`,
+  `this-value-not-obj-coercible.js`, and the Annex B
+  `annexB/built-ins/String/prototype/search/custom-searcher-emulates-undefined.js`
+  also report `1/1` individually under the normal 60s single-thread exact-case
+  harness. The full exact `built-ins/String/prototype/search` directory now
+  reports `43/43` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/String/prototype/search --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `String.prototype.matchAll` now has focused Wasm-AOT coverage for the first
+  metadata, literal-pattern, custom-hook, prototype-deletion, and Unicode
+  global RegExp paths. Exact real Test262
+  `built-ins/String/prototype/matchAll/length.js`,
+  `built-ins/String/prototype/matchAll/name.js`, and
+  `built-ins/String/prototype/matchAll/prop-desc.js` use focused descriptor
+  materializations and report `1/1` each as of `2026-06-20` under the same
+  command shape. The wasm backend now keeps the real `matchAll` body emitted
+  for indirect `.call(...)` dispatch, converts receivers before hook dispatch,
+  reads inherited `@@matchAll` hooks from `RegExp.prototype` when the searcher
+  lacks its own hook, and falls back to a literal global iterator for simple
+  string/number patterns. The exact Test262
+  `built-ins/String/prototype/matchAll/toString-this-val.js`,
+  `built-ins/String/prototype/matchAll/cstm-matchall-on-string-primitive.js`,
+  `built-ins/String/prototype/matchAll/cstm-matchall-on-number-primitive.js`,
+  and
+  `built-ins/String/prototype/matchAll/regexp-is-undefined-or-null-invokes-matchAll.js`
+  files report `1/1` each as of `2026-06-20`. The exact
+  `regexp-prototype-matchAll-v-u-flag.js`,
+  `regexp-prototype-matchAll-invocation.js`,
+  `regexp-prototype-has-no-matchAll.js`,
+  `regexp-matchAll-is-undefined-or-null.js`,
+  `regexp-prototype-matchAll-throws.js`, `regexp-get-matchAll-throws.js`,
+  `regexp-prototype-get-matchAll-throws.js`, `regexp-matchAll-not-callable.js`,
+  `regexp-matchAll-throws.js`, `regexp-is-null.js`, and
+  `regexp-is-undefined.js` files report `1/1` each as of `2026-06-21`. The
+  full exact `built-ins/String/prototype/matchAll` directory now reports
+  `25/25` under the same wasm-aot command. The focused
+  `wasm_string_match_all_literal_fallback.js` CLI fixture covers
+  `Array.from("a,b,c".matchAll(","))`, numeric pattern coercion, and a current
+  `RegExp.prototype[Symbol.matchAll]` override. Default
+  `RegExp.prototype[Symbol.matchAll]` now has focused support for these simple
+  global literal, empty, dot, Han property, and non-ASCII property cases; full
+  RegExp-backed `matchAll` iteration and broad RegExp syntax remain explicit
+  Wasm-AOT unsupported paths. Direct computed RegExp
+  `@@matchAll` method calls now preserve the RegExp receiver, keep the builtin
+  body emitted, and carry the array-iterator result shape into `.next()`. The
+  exact real Test262
+  `built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js` reports
+  `1/1` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js --execution-backend wasm --timeout-ms 90000 --threads 1`,
+  with focused `/\w/g` iteration over object `toString` input covered by the
+  `wasm_regexp_symbol_match_all_word_object.js` CLI fixture. The full exact
+  `built-ins/RegExp/prototype/Symbol.matchAll` directory now reports `20/26`
+  as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 90000 --threads 4`;
+  `flags` values are coerced with `ToString(Get(R, "flags"))`, so
+  `this-tostring-flags.js` also reports `1/1`, covered by
+  `wasm_regexp_symbol_match_all_flags_to_string.js`. Remaining failures are
+  concentrated in species-constructor, `IsRegExp` observability, and
+  lastIndex accessor ordering.
+  `String.prototype.toUpperCase` and `String.prototype.padStart` are now
+  registered as Rust standard builtins with focused Wasm-AOT support for the
+  ASCII/helper paths used by current Test262 harness progress; these are covered
+  by the `wasm_string_to_upper_case_core.js` and
+  `wasm_string_pad_start_core.js` CLI fixtures.
   `String.prototype.charAt` is now registered as a Rust standard builtin
   and has focused Wasm-AOT lowering for ToString receivers, numeric positions,
   out-of-range empty-string results, and borrowed calls from boxed primitive

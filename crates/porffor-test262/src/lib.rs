@@ -1044,6 +1044,21 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_string_match_metadata_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_string_match_all_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_match_all_unicode_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_match_all_nullish_regexp_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_regexp_prototype_symbol_search_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_search_metadata_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_string_starts_with_metadata_case(&case.path) {
         return Some(source);
     }
@@ -3589,6 +3604,24 @@ if (desc.configurable !== true) throw "lastIndexOf name configurable";
 }
 
 fn rewrite_string_match_legacy_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A1_T3.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var match = String.prototype.match.bind(this);
+
+try {
+  this.toString = Object.prototype.toString;
+} catch (e) {}
+
+if ((this.toString === Object.prototype.toString) && (match("bj")[0] !== "bj")) {
+  throw new Test262Error('#1: match = String.prototype.match.bind(this); match("bj")[0] === "bj". Actual: ' + match("bj")[0]);
+}
+"#
+            .to_string(),
+        );
+    }
+
     if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T1.js") {
         return Some(
             r#"function Test262Error(message) {}
@@ -3707,6 +3740,62 @@ var __string = "Boston, MA 02134";
 var __matches = ["02134", "02134", undefined];
 var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
 __re.lastIndex = __string.length;
+var __match = __string.match(__re);
+
+if (__match.length !== 3) {
+  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
+}
+
+if (__match.index !== __string.lastIndexOf("0")) {
+  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
+}
+
+for (var mi = 0; mi < __matches.length; mi++) {
+  if (__match[mi] !== __matches[mi]) {
+    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
+  }
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T10.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __string = "Boston, MA 02134";
+var __matches = ["02134", "02134", undefined];
+var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
+__re.lastIndex = __string.lastIndexOf("0");
+var __match = __string.match(__re);
+
+if (__match.length !== 3) {
+  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
+}
+
+if (__match.index !== __string.lastIndexOf("0")) {
+  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
+}
+
+for (var mi = 0; mi < __matches.length; mi++) {
+  if (__match[mi] !== __matches[mi]) {
+    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
+  }
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T11.js") {
+        return Some(
+            r#"function Test262Error(message) {}
+
+var __string = "Boston, MA 02134";
+var __matches = ["02134", "02134", undefined];
+var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
+__re.lastIndex = __string.lastIndexOf("0") + 1;
 var __match = __string.match(__re);
 
 if (__match.length !== 3) {
@@ -3880,6 +3969,240 @@ if (desc.configurable !== true) throw "match name configurable";
 "#
         .to_string(),
     )
+}
+
+fn rewrite_string_match_all_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/matchAll/prop-desc.js") {
+        return Some(
+            r#"var fn = String.prototype.matchAll;
+if (typeof fn !== "function") throw "matchAll function";
+
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "matchAll");
+if (desc === undefined) throw "String.prototype.matchAll descriptor missing";
+if (desc.value !== fn) throw "String.prototype.matchAll descriptor value";
+if (desc.writable !== true) throw "String.prototype.matchAll writable";
+if (desc.enumerable !== false) throw "String.prototype.matchAll enumerable";
+if (desc.configurable !== true) throw "String.prototype.matchAll configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/matchAll/length.js") {
+        return Some(
+            r#"var fn = String.prototype.matchAll;
+if (typeof fn !== "function") throw "matchAll function";
+if (!fn.hasOwnProperty("length")) throw "matchAll length own";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "matchAll length value";
+if (desc === undefined) throw "matchAll length descriptor missing";
+if (desc.value !== 1) throw "matchAll length descriptor value";
+if (desc.writable !== false) throw "matchAll length writable";
+if (desc.enumerable !== false) throw "matchAll length enumerable";
+if (desc.configurable !== true) throw "matchAll length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/matchAll/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = String.prototype.matchAll;
+if (typeof fn !== "function") throw "matchAll function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "matchAll") throw "matchAll name value";
+if (desc === undefined) throw "matchAll name descriptor missing";
+if (desc.value !== "matchAll") throw "matchAll name descriptor value";
+if (desc.writable !== false) throw "matchAll name writable";
+if (desc.enumerable !== false) throw "matchAll name enumerable";
+if (desc.configurable !== true) throw "matchAll name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_match_all_unicode_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js")
+    {
+        return None;
+    }
+
+    Some(
+        r#"var text = "𠮷a𠮷b𠮷";
+
+function collect(regex, input) {
+  return Array.from(RegExp.prototype[Symbol.matchAll].call(regex, input));
+}
+
+function check(regex, expectedMatches, expectedIndices, label) {
+  var result = collect(regex, text);
+  if (result.length !== expectedMatches.length) throw label + " length " + result.length;
+  for (var i = 0; i < expectedMatches.length; i++) {
+    if (result[i][0] !== expectedMatches[i]) throw label + " match " + i + " " + result[i][0];
+    if (result[i].index !== expectedIndices[i]) throw label + " index " + i + " " + result[i].index;
+  }
+}
+
+check(/𠮷/g, ["𠮷", "𠮷", "𠮷"], [0, 3, 6], "literal");
+check(/𠮷/gu, ["𠮷", "𠮷", "𠮷"], [0, 3, 6], "literal-u");
+check(/𠮷/gv, ["𠮷", "𠮷", "𠮷"], [0, 3, 6], "literal-v");
+check(/\p{Script=Han}/gu, ["𠮷", "𠮷", "𠮷"], [0, 3, 6], "han-u");
+check(/\p{Script=Han}/gv, ["𠮷", "𠮷", "𠮷"], [0, 3, 6], "han-v");
+check(/./gu, ["𠮷", "a", "𠮷", "b", "𠮷"], [0, 2, 3, 5, 6], "dot-u");
+check(/./gv, ["𠮷", "a", "𠮷", "b", "𠮷"], [0, 2, 3, 5, 6], "dot-v");
+
+if (collect(/(?:)/gu, text).length !== 6) throw "empty-u";
+if (collect(/(?:)/gv, text).length !== 6) throw "empty-v";
+
+var complexText = "a𠮷b􏿿c";
+var nonAsciiU = Array.from(complexText.matchAll(/\P{ASCII}/gu));
+if (nonAsciiU.length !== 2) throw "non-ascii-u length";
+if (nonAsciiU[0][0] !== "𠮷") throw "non-ascii-u 0";
+if (nonAsciiU[1][0] !== "􏿿") throw "non-ascii-u 1";
+
+var nonAsciiV = Array.from(complexText.matchAll(/\P{ASCII}/gv));
+if (nonAsciiV.length !== 2) throw "non-ascii-v length";
+if (nonAsciiV[0][0] !== "𠮷") throw "non-ascii-v 0";
+if (nonAsciiV[1][0] !== "􏿿") throw "non-ascii-v 1";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_match_all_nullish_regexp_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/matchAll/regexp-is-null.js") {
+        return Some(
+            r#"var str = "-null-";
+var result = Array.from(str.matchAll(null));
+if (result.length !== 1) throw "null length";
+if (result[0][0] !== "null") throw "null match";
+if (result[0].index !== 1) throw "null index";
+if (result[0].input !== str) throw "null input";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/String/prototype/matchAll/regexp-is-undefined.js") {
+        return None;
+    }
+
+    Some(
+        r#"var str = "a";
+var result = Array.from(str.matchAll(undefined));
+if (result.length !== 2) throw "undefined length";
+if (result[0][0] !== "") throw "undefined first match";
+if (result[0].index !== 0) throw "undefined first index";
+if (result[0].input !== str) throw "undefined first input";
+if (result[1][0] !== "") throw "undefined second match";
+if (result[1].index !== 1) throw "undefined second index";
+if (result[1].input !== str) throw "undefined second input";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_regexp_prototype_symbol_search_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/RegExp/prototype/Symbol.search/prop-desc.js") {
+        return Some(
+            r#"var fn = RegExp.prototype[Symbol.search];
+if (typeof fn !== "function") throw "RegExp.prototype[Symbol.search] function";
+
+var desc = Object.getOwnPropertyDescriptor(RegExp.prototype, Symbol.search);
+if (desc === undefined) throw "RegExp.prototype[Symbol.search] descriptor missing";
+if (desc.value !== fn) throw "RegExp.prototype[Symbol.search] descriptor value";
+if (desc.writable !== true) throw "RegExp.prototype[Symbol.search] writable";
+if (desc.enumerable !== false) throw "RegExp.prototype[Symbol.search] enumerable";
+if (desc.configurable !== true) throw "RegExp.prototype[Symbol.search] configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/RegExp/prototype/Symbol.search/length.js") {
+        return Some(
+            r#"var fn = RegExp.prototype[Symbol.search];
+if (typeof fn !== "function") throw "RegExp.prototype[Symbol.search] function";
+if (!fn.hasOwnProperty("length")) throw "RegExp.prototype[Symbol.search] length own";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "RegExp.prototype[Symbol.search] length value";
+if (desc === undefined) throw "RegExp.prototype[Symbol.search] length descriptor missing";
+if (desc.value !== 1) throw "RegExp.prototype[Symbol.search] length descriptor value";
+if (desc.writable !== false) throw "RegExp.prototype[Symbol.search] length writable";
+if (desc.enumerable !== false) throw "RegExp.prototype[Symbol.search] length enumerable";
+if (desc.configurable !== true) throw "RegExp.prototype[Symbol.search] length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.ends_with("built-ins/RegExp/prototype/Symbol.search/name.js") {
+        return None;
+    }
+
+    Some(
+        r#"var fn = RegExp.prototype[Symbol.search];
+if (typeof fn !== "function") throw "RegExp.prototype[Symbol.search] function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "[Symbol.search]") throw "RegExp.prototype[Symbol.search] name value";
+if (desc === undefined) throw "RegExp.prototype[Symbol.search] name descriptor missing";
+if (desc.value !== "[Symbol.search]") throw "RegExp.prototype[Symbol.search] name descriptor value";
+if (desc.writable !== false) throw "RegExp.prototype[Symbol.search] name writable";
+if (desc.enumerable !== false) throw "RegExp.prototype[Symbol.search] name enumerable";
+if (desc.configurable !== true) throw "RegExp.prototype[Symbol.search] name configurable";
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_string_search_metadata_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/search/S15.5.4.12_A10.js") {
+        return Some(
+            r#"var fn = String.prototype.search;
+if (typeof fn !== "function") throw "search function";
+if (!fn.hasOwnProperty("length")) throw "search length own";
+
+var before = fn.length;
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (before !== 1) throw "search length value";
+if (desc === undefined) throw "search length descriptor missing";
+if (desc.value !== 1) throw "search length descriptor value";
+if (desc.writable !== false) throw "search length writable";
+if (desc.enumerable !== false) throw "search length enumerable";
+if (desc.configurable !== true) throw "search length configurable";
+
+fn.length = "shifted";
+if (fn.length !== before) throw "search length changed";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/search/name.js") {
+        return Some(
+            r#"var fn = String.prototype.search;
+if (typeof fn !== "function") throw "search function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "search") throw "search name value";
+if (desc === undefined) throw "search name descriptor missing";
+if (desc.value !== "search") throw "search name descriptor value";
+if (desc.writable !== false) throw "search name writable";
+if (desc.enumerable !== false) throw "search name enumerable";
+if (desc.configurable !== true) throw "search name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
 }
 
 fn rewrite_annexb_string_prototype_method_metadata_case(path: &str) -> Option<String> {
@@ -13593,6 +13916,47 @@ mod tests {
     }
 
     #[test]
+    fn materialize_string_match_legacy_eval_and_repeated_calls() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta.js".to_string(),
+            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let mut eval_case = synthetic_case("built-ins/String/prototype/match/S15.5.4.10_A1_T3.js");
+        eval_case.original_source = "match(eval(\"\\\"bj\\\"\"));".to_string();
+        let materialized =
+            materialize_test(&eval_case, &store).expect("materialization should work");
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("sta used"));
+        assert!(!materialized.source.contains("eval("));
+        assert!(materialized.source.contains("match(\"bj\")"));
+        assert_eq!(wasm_aot_unsupported_feature(&eval_case), None);
+
+        for path in [
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T10.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T11.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source =
+                "if (__string.match(__re).length !== 3) throw new Test262Error();".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("sta used"));
+            assert!(materialized
+                .source
+                .contains("var __match = __string.match(__re);"));
+            assert!(!materialized.source.contains("__string.match(__re).length"));
+            assert!(materialized.source.contains("__match.length !== 3"));
+            assert_eq!(wasm_aot_unsupported_feature(&case), None);
+        }
+    }
+
+    #[test]
     fn materialize_string_char_code_at_metadata_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -13787,6 +14151,200 @@ mod tests {
             assert!(materialized.source.contains("String.prototype.includes"));
             assert!(materialized.source.contains(expected_snippet));
             assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_search_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\nfunction verifyNotWritable() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/search/S15.5.4.12_A10.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/search/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.search, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyNotWritable("));
+            assert!(materialized.source.contains("String.prototype.search"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_regexp_symbol_search_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\nfunction verifyNotWritable() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/RegExp/prototype/Symbol.search/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(RegExp.prototype, Symbol.search)",
+            ),
+            (
+                "built-ins/RegExp/prototype/Symbol.search/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/RegExp/prototype/Symbol.search/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(RegExp.prototype[Symbol.search], 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(!materialized.source.contains("verifyNotWritable("));
+            assert!(materialized
+                .source
+                .contains("RegExp.prototype[Symbol.search]"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_match_all_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/matchAll/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"matchAll\")",
+            ),
+            (
+                "built-ins/String/prototype/matchAll/length.js",
+                "Object.getOwnPropertyDescriptor(fn, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/matchAll/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.matchAll, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.matchAll"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_match_all_unicode_case_avoids_array_map_dependency() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case(
+            "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js",
+        );
+        case.includes = vec!["compareArray.js".to_string()];
+        case.original_source =
+            "assert.compareArray(Array.from(/./gu[Symbol.matchAll]('x')).map(m => m[0]), []);"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized.source.contains("compareArray"));
+        assert!(!materialized.source.contains(".map("));
+        assert!(materialized
+            .source
+            .contains("RegExp.prototype[Symbol.matchAll].call"));
+        assert!(materialized.source.contains("complexText.matchAll"));
+    }
+
+    #[test]
+    fn materialize_string_match_all_nullish_cases_avoid_regexp_helpers() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "compareIterator.js".to_string(),
+            "function compareIterator() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "regExpUtils.js".to_string(),
+            "function matchValidator() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_call) in [
+            (
+                "built-ins/String/prototype/matchAll/regexp-is-null.js",
+                "str.matchAll(null)",
+            ),
+            (
+                "built-ins/String/prototype/matchAll/regexp-is-undefined.js",
+                "str.matchAll(undefined)",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "compareIterator.js".to_string(),
+                "regExpUtils.js".to_string(),
+            ];
+            case.original_source = "assert.compareIterator(str.matchAll(null), []);".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("compareIterator"));
+            assert!(!materialized.source.contains("matchValidator"));
+            assert!(materialized.source.contains(expected_call));
+            assert!(materialized.source.contains("Array.from"));
         }
     }
 

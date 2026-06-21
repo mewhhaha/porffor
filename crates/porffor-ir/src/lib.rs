@@ -370,6 +370,8 @@ pub const BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.set";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.match]";
+pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype[Symbol.matchAll]";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.search]";
 pub const BUILTIN_REGEXP_ESCAPE_FUNCTION_ID: &str = "$builtin.RegExp.escape";
@@ -437,12 +439,16 @@ pub const BUILTIN_STRING_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID: &str =
     "$builtin.String.prototype.lastIndexOf";
 pub const BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID: &str = "$builtin.String.prototype.slice";
 pub const BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID: &str = "$builtin.String.prototype.split";
+pub const BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID: &str =
+    "$builtin.String.prototype.padStart";
 pub const BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.endsWith";
 pub const BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
     "$builtin.String.prototype.includes";
 pub const BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.startsWith";
+pub const BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.toUpperCase";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.trimStart";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID: &str = "$builtin.String.prototype.trimEnd";
@@ -729,6 +735,7 @@ pub enum StandardBuiltinId {
     RegExpLegacyStaticGetter,
     RegExpLegacyStaticSetter,
     RegExpPrototypeSymbolMatch,
+    RegExpPrototypeSymbolMatchAll,
     RegExpPrototypeSymbolSearch,
     RegExpEscape,
     JsonParse,
@@ -832,9 +839,11 @@ pub enum StandardBuiltinId {
     StringPrototypeLastIndexOf,
     StringPrototypeSlice,
     StringPrototypeSplit,
+    StringPrototypePadStart,
     StringPrototypeEndsWith,
     StringPrototypeIncludes,
     StringPrototypeStartsWith,
+    StringPrototypeToUpperCase,
     StringPrototypeTrimStart,
     StringPrototypeTrimEnd,
     BooleanConstructor,
@@ -922,9 +931,11 @@ impl StandardBuiltinId {
             | Self::StringPrototypeLastIndexOf
             | Self::StringPrototypeSlice
             | Self::StringPrototypeSplit
+            | Self::StringPrototypePadStart
             | Self::StringPrototypeEndsWith
             | Self::StringPrototypeIncludes
             | Self::StringPrototypeStartsWith
+            | Self::StringPrototypeToUpperCase
             | Self::StringPrototypeTrimStart
             | Self::StringPrototypeTrimEnd
             | Self::BooleanPrototypeToString
@@ -1113,6 +1124,7 @@ impl StandardBuiltinId {
             | Self::RegExpLegacyStaticGetter
             | Self::RegExpLegacyStaticSetter
             | Self::RegExpPrototypeSymbolMatch
+            | Self::RegExpPrototypeSymbolMatchAll
             | Self::RegExpPrototypeSymbolSearch
             | Self::RegExpEscape
             | Self::JsonParse
@@ -1345,6 +1357,7 @@ impl StandardBuiltinId {
             Self::RegExpLegacyStaticGetter => "get RegExp legacy static",
             Self::RegExpLegacyStaticSetter => "set RegExp legacy static",
             Self::RegExpPrototypeSymbolMatch => "RegExp.prototype[Symbol.match]",
+            Self::RegExpPrototypeSymbolMatchAll => "RegExp.prototype[Symbol.matchAll]",
             Self::RegExpPrototypeSymbolSearch => "RegExp.prototype[Symbol.search]",
             Self::RegExpEscape => "RegExp.escape",
             Self::JsonParse => "JSON.parse",
@@ -1448,9 +1461,11 @@ impl StandardBuiltinId {
             Self::StringPrototypeLastIndexOf => "String.prototype.lastIndexOf",
             Self::StringPrototypeSlice => "String.prototype.slice",
             Self::StringPrototypeSplit => "String.prototype.split",
+            Self::StringPrototypePadStart => "String.prototype.padStart",
             Self::StringPrototypeEndsWith => "String.prototype.endsWith",
             Self::StringPrototypeIncludes => "String.prototype.includes",
             Self::StringPrototypeStartsWith => "String.prototype.startsWith",
+            Self::StringPrototypeToUpperCase => "String.prototype.toUpperCase",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
             Self::StringPrototypeTrimEnd => "String.prototype.trimEnd",
             Self::BooleanConstructor => BOOLEAN_NAME,
@@ -1837,6 +1852,9 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeSymbolMatch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID.to_string()
             }
+            Self::RegExpPrototypeSymbolMatchAll => {
+                BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID.to_string()
+            }
             Self::RegExpPrototypeSymbolSearch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID.to_string()
             }
@@ -1980,6 +1998,9 @@ impl StandardBuiltinId {
             }
             Self::StringPrototypeSlice => BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID.to_string(),
             Self::StringPrototypeSplit => BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID.to_string(),
+            Self::StringPrototypePadStart => {
+                BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID.to_string()
+            }
             Self::StringPrototypeEndsWith => {
                 BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID.to_string()
             }
@@ -1988,6 +2009,9 @@ impl StandardBuiltinId {
             }
             Self::StringPrototypeStartsWith => {
                 BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeToUpperCase => {
+                BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID.to_string()
             }
             Self::StringPrototypeTrimStart => {
                 BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID.to_string()
@@ -2337,6 +2361,9 @@ impl StandardBuiltinId {
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolMatch)
             }
+            BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeSymbolMatchAll)
+            }
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolSearch)
             }
@@ -2452,10 +2479,14 @@ impl StandardBuiltinId {
             }
             BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID => Some(Self::StringPrototypeSlice),
             BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID => Some(Self::StringPrototypeSplit),
+            BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID => Some(Self::StringPrototypePadStart),
             BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID => Some(Self::StringPrototypeEndsWith),
             BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::StringPrototypeIncludes),
             BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID => {
                 Some(Self::StringPrototypeStartsWith)
+            }
+            BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID => {
+                Some(Self::StringPrototypeToUpperCase)
             }
             BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID => Some(Self::StringPrototypeTrimStart),
             BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID => Some(Self::StringPrototypeTrimEnd),
@@ -2700,6 +2731,7 @@ impl StandardBuiltinId {
             Self::RegExpLegacyStaticGetter,
             Self::RegExpLegacyStaticSetter,
             Self::RegExpPrototypeSymbolMatch,
+            Self::RegExpPrototypeSymbolMatchAll,
             Self::RegExpPrototypeSymbolSearch,
             Self::RegExpEscape,
             Self::JsonParse,
@@ -2803,9 +2835,11 @@ impl StandardBuiltinId {
             Self::StringPrototypeLastIndexOf,
             Self::StringPrototypeSlice,
             Self::StringPrototypeSplit,
+            Self::StringPrototypePadStart,
             Self::StringPrototypeEndsWith,
             Self::StringPrototypeIncludes,
             Self::StringPrototypeStartsWith,
+            Self::StringPrototypeToUpperCase,
             Self::StringPrototypeTrimStart,
             Self::StringPrototypeTrimEnd,
             Self::BooleanConstructor,
@@ -3009,9 +3043,11 @@ impl StandardBuiltinId {
             Self::StringPrototypeLastIndexOf => Some("lastIndexOf"),
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
+            Self::StringPrototypePadStart => Some("padStart"),
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
+            Self::StringPrototypeToUpperCase => Some("toUpperCase"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             _ => self.string_html_method_name(),
@@ -3195,6 +3231,7 @@ impl StandardBuiltinId {
             Self::RegExpLegacyStaticGetter => Some("get RegExp legacy static"),
             Self::RegExpLegacyStaticSetter => Some("set RegExp legacy static"),
             Self::RegExpPrototypeSymbolMatch => Some("[Symbol.match]"),
+            Self::RegExpPrototypeSymbolMatchAll => Some("[Symbol.matchAll]"),
             Self::RegExpPrototypeSymbolSearch => Some("[Symbol.search]"),
             Self::RegExpEscape => Some("escape"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
@@ -3294,9 +3331,11 @@ impl StandardBuiltinId {
             Self::StringPrototypeLastIndexOf => Some("lastIndexOf"),
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
+            Self::StringPrototypePadStart => Some("padStart"),
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
+            Self::StringPrototypeToUpperCase => Some("toUpperCase"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -4150,12 +4189,20 @@ pub enum DeleteIdentifierKindIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForLexicalInitIr {
+    pub mode: BindingMode,
+    pub name: String,
+    pub init: TypedExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForInitIr {
     Lexical {
         mode: BindingMode,
         name: String,
         init: TypedExpr,
     },
+    LexicalBlock(Vec<ForLexicalInitIr>),
     Var(Vec<VarDeclaratorIr>),
     Expression(TypedExpr),
 }
@@ -4839,6 +4886,16 @@ impl IrSummaryCounts {
                     BindingMode::Var => self.vars += 1,
                 }
                 self.visit_expr(init);
+            }
+            ForInitIr::LexicalBlock(bindings) => {
+                for binding in bindings {
+                    match binding.mode {
+                        BindingMode::Let => self.lets += 1,
+                        BindingMode::Const => self.consts += 1,
+                        BindingMode::Var => self.vars += 1,
+                    }
+                    self.visit_expr(&binding.init);
+                }
             }
             ForInitIr::Var(declarators) => {
                 self.vars += declarators.len();
@@ -8286,6 +8343,11 @@ fn statement_contains_this_before_super(
                     ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
                         expr_contains_this_before_super(init, state);
                     }
+                    ForInitIr::LexicalBlock(bindings) => {
+                        for binding in bindings {
+                            expr_contains_this_before_super(&binding.init, state);
+                        }
+                    }
                     ForInitIr::Var(decls) => {
                         for decl in decls {
                             if let Some(init) = &decl.init {
@@ -9094,6 +9156,13 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "Symbol.matchAll".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "Symbol.search".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
@@ -9467,6 +9536,8 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeIndexOf,
                 StandardBuiltinId::StringPrototypeLastIndexOf,
                 StandardBuiltinId::StringPrototypeSplit,
+                StandardBuiltinId::StringPrototypePadStart,
+                StandardBuiltinId::StringPrototypeToUpperCase,
                 StandardBuiltinId::StringPrototypeTrimStart,
                 StandardBuiltinId::StringPrototypeTrimEnd,
             ] {
@@ -10480,6 +10551,13 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::StringPrototypeMatchAll
+            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::array_iterator_instance_shape()),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::JsonStringify => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String)
@@ -11185,6 +11263,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSubstring
             | StandardBuiltinId::StringPrototypeSup
             | StandardBuiltinId::StringPrototypeSlice
+            | StandardBuiltinId::StringPrototypePadStart
+            | StandardBuiltinId::StringPrototypeToUpperCase
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
             | StandardBuiltinId::Escape
@@ -11195,7 +11275,6 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::StringPrototypeMatch
-            | StandardBuiltinId::StringPrototypeMatchAll
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
@@ -14013,6 +14092,16 @@ impl<'a> ScriptLowerer<'a> {
                     ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
                         self.infer_expr_throw_info(init)
                     }
+                    ForInitIr::LexicalBlock(bindings) => {
+                        let mut info = None;
+                        for binding in bindings {
+                            info = self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&binding.init),
+                            );
+                        }
+                        info
+                    }
                     ForInitIr::Var(decls) => {
                         let mut info = None;
                         for decl in decls {
@@ -14844,22 +14933,74 @@ impl<'a> ScriptLowerer<'a> {
             }
         };
 
-        if list.as_ref().len() != 1 {
-            self.unsupported("multi-binding lexical declaration");
-            return None;
+        let mut bindings = Vec::with_capacity(list.as_ref().len());
+        for variable in list.as_ref() {
+            bindings.push(self.lower_for_lexical_binding(mode, variable)?);
         }
 
-        let variable = &list.as_ref()[0];
+        if bindings.len() == 1 {
+            let binding = bindings.remove(0);
+            return Some(ForInitIr::Lexical {
+                mode: binding.mode,
+                name: binding.name,
+                init: binding.init,
+            });
+        }
+
+        Some(ForInitIr::LexicalBlock(bindings))
+    }
+
+    fn lower_for_lexical_binding(
+        &mut self,
+        mode: BindingMode,
+        variable: &Variable,
+    ) -> Option<ForLexicalInitIr> {
         let Binding::Identifier(identifier) = variable.binding() else {
             self.unsupported("destructuring binding");
             return None;
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        let init = variable
+        let static_generator_values = variable
             .init()
-            .map(|expression| self.lower_expression(expression))
-            .unwrap_or_else(TypedExpr::undefined);
+            .and_then(|expression| self.static_generator_call_values_owned(expression));
+        let static_object_iterator_values = variable
+            .init()
+            .and_then(|expression| self.static_object_iterator_literal_values(expression));
+        let static_to_string_regexp_object = variable
+            .init()
+            .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
+        let static_iterator_values = static_generator_values
+            .clone()
+            .or_else(|| static_object_iterator_values.clone());
+        let init = if let Some(values) = &static_generator_values {
+            self.array_iterator_from_static_generator_values(values)
+        } else {
+            variable
+                .init()
+                .map(|expression| self.lower_expression(expression))
+                .unwrap_or_else(TypedExpr::undefined)
+        };
+        if let Some(values) = static_iterator_values {
+            self.static_iterator_binding_values
+                .insert(name.clone(), values);
+        } else {
+            self.static_iterator_binding_values.remove(&name);
+        }
+        if let Some(value) = variable
+            .init()
+            .and_then(|expression| self.static_string_expression(expression))
+        {
+            self.static_string_bindings.insert(name.clone(), value);
+        } else {
+            self.static_string_bindings.remove(&name);
+        }
+        if static_to_string_regexp_object {
+            self.static_to_string_regexp_object_bindings
+                .insert(name.clone());
+        } else {
+            self.static_to_string_regexp_object_bindings.remove(&name);
+        }
 
         let storage_name = self.lexical_storage_name(&name);
         self.declare_binding(
@@ -14873,7 +15014,7 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: init.function_targets.clone(),
             },
         );
-        Some(ForInitIr::Lexical {
+        Some(ForLexicalInitIr {
             mode,
             name: storage_name,
             init,
@@ -19154,6 +19295,41 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                     let receiver = self.lower_property_target(access.target());
+                    let string_from_code_point_apply_call = if let PropertyAccessField::Const(
+                        field,
+                    ) = access.field()
+                    {
+                        self.interner.resolve_expect(field.sym()).to_string() == "apply"
+                            && matches!(
+                                    Self::unwrap_parenthesized_expr(access.target()),
+                                    Expression::PropertyAccess(target_access)
+                                        if matches!(
+                                            target_access,
+                                            PropertyAccess::Simple(target_access)
+                                                if matches!(
+                                                (
+                                                    Self::unwrap_parenthesized_expr(target_access.target()),
+                                                    target_access.field(),
+                                                ),
+                                                (
+                                                    Expression::Identifier(target),
+                                                    PropertyAccessField::Const(field),
+                                                ) if self
+                                                    .interner
+                                                    .resolve_expect(target.sym())
+                                                    .to_string()
+                                                    == STRING_NAME
+                                                    && self
+                                                        .interner
+                                                        .resolve_expect(field.sym())
+                                                        .to_string()
+                                                        == "fromCodePoint"
+                                            )
+                                    )
+                            )
+                    } else {
+                        false
+                    };
                     if let Some(result) =
                         self.lower_static_iterator_from_wrapper_method_call(&receiver, access, args)
                     {
@@ -19223,6 +19399,43 @@ impl<'a> ScriptLowerer<'a> {
                                         receiver: Box::new(receiver),
                                         key: PropertyKeyIr::StaticString(field_name),
                                         args: Vec::new(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    if let PropertyAccessField::Expr(expr) = access.field() {
+                        if let Some(symbol_key) = self.try_static_string_key(expr) {
+                            let builtin = match symbol_key.as_str() {
+                                "Symbol.match" => {
+                                    Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
+                                }
+                                "Symbol.matchAll" => {
+                                    Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
+                                }
+                                "Symbol.search" => {
+                                    Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
+                                }
+                                _ => None,
+                            };
+                            if let Some(builtin) = builtin {
+                                let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                                    return TypedExpr::undefined();
+                                };
+                                let info = self
+                                    .standard_builtin_call_info(builtin, &args, "call")
+                                    .unwrap_or(ValueInfo {
+                                        kind: ValueKind::Dynamic,
+                                        possible_kinds: KindSet::all_runtime_tags(),
+                                        heap_shape: None,
+                                        function_targets: BTreeSet::new(),
+                                    });
+                                return TypedExpr::from_info(
+                                    info,
+                                    ExprIr::CallMethod {
+                                        receiver: Box::new(receiver),
+                                        key: PropertyKeyIr::StaticString(symbol_key),
+                                        args,
                                     },
                                 );
                             }
@@ -19329,10 +19542,14 @@ impl<'a> ScriptLowerer<'a> {
                                     }
                                     "slice" => Some(StandardBuiltinId::StringPrototypeSlice),
                                     "split" => Some(StandardBuiltinId::StringPrototypeSplit),
+                                    "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
                                     "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
                                     "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                                     "startsWith" => {
                                         Some(StandardBuiltinId::StringPrototypeStartsWith)
+                                    }
+                                    "toUpperCase" => {
+                                        Some(StandardBuiltinId::StringPrototypeToUpperCase)
                                     }
                                     "toString" => Some(StandardBuiltinId::StringPrototypeToString),
                                     "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
@@ -20488,6 +20705,8 @@ impl<'a> ScriptLowerer<'a> {
                             StandardBuiltinId::StringPrototypeCharAt => "charAt",
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
                             StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
+                            StandardBuiltinId::StringPrototypePadStart => "padStart",
+                            StandardBuiltinId::StringPrototypeToUpperCase => "toUpperCase",
                             _ => "",
                         };
                         if !method_name.is_empty() {
@@ -20500,6 +20719,18 @@ impl<'a> ScriptLowerer<'a> {
                                 },
                             );
                         }
+                    }
+                    if StandardBuiltinId::from_function_id(&function_id)
+                        == Some(StandardBuiltinId::ArrayIteratorNext)
+                    {
+                        return TypedExpr::from_info(
+                            info,
+                            ExprIr::CallMethod {
+                                receiver: Box::new(receiver),
+                                key: PropertyKeyIr::StaticString("next".to_string()),
+                                args,
+                            },
+                        );
                     }
                     if let Some(method_name) = StandardBuiltinId::from_function_id(&function_id)
                         .and_then(StandardBuiltinId::string_html_method_name)
@@ -20637,6 +20868,14 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                         }
+                    }
+                    if string_from_code_point_apply_call
+                        && matches!(
+                            StandardBuiltinId::from_function_id(&function_id),
+                            Some(StandardBuiltinId::FunctionPrototypeApply)
+                        )
+                    {
+                        info = ValueInfo::new(ValueKind::String);
                     }
                     if matches!(
                         StandardBuiltinId::from_function_id(&function_id),
@@ -23687,6 +23926,13 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeStartsWith => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            StandardBuiltinId::StringPrototypeMatchAll
+            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::array_iterator_instance_shape()),
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::BooleanConstructor => {
                 if context == "construct" {
                     Some(Self::boxed_primitive_instance_info(ValueInfo::new(
@@ -23725,13 +23971,14 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSubstring
             | StandardBuiltinId::StringPrototypeSup
             | StandardBuiltinId::StringPrototypeSlice
+            | StandardBuiltinId::StringPrototypePadStart
+            | StandardBuiltinId::StringPrototypeToUpperCase
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
             | StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::StringPrototypeMatch
-            | StandardBuiltinId::StringPrototypeMatchAll
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
@@ -25894,6 +26141,8 @@ impl<'a> ScriptLowerer<'a> {
                 "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
                 "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                 "startsWith" => Some(StandardBuiltinId::StringPrototypeStartsWith),
+                "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
+                "toUpperCase" => Some(StandardBuiltinId::StringPrototypeToUpperCase),
                 _ => None,
             };
             if let Some(builtin) = builtin {
@@ -26139,6 +26388,12 @@ impl<'a> ScriptLowerer<'a> {
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
                 let rhs_may_string = value.possible_kinds.contains(ValueKind::String);
+                let binding_known_string = binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.kind == ValueKind::String);
+                let global_known_string = global_info.as_ref().is_some_and(|info| {
+                    info.proven_present && info.value_info.kind == ValueKind::String
+                });
                 let binding_allows_string_add = binding.as_ref().is_some_and(|binding| {
                     binding.kind == ValueKind::String
                         || binding.kind == ValueKind::Dynamic
@@ -26153,8 +26408,11 @@ impl<'a> ScriptLowerer<'a> {
                             || info.value_info.possible_kinds.contains(ValueKind::String))
                 });
                 let string_add = matches!(op, AssignOp::Add)
-                    && value.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                    && (rhs_may_string || binding_allows_string_add || global_allows_string_add);
+                    && ((binding_known_string || global_known_string)
+                        || (value.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                            && (rhs_may_string
+                                || binding_allows_string_add
+                                || global_allows_string_add)));
                 if !string_add && value.kind != ValueKind::Number {
                     return self.unsupported_expr("coercive compound assignment");
                 }
@@ -26174,7 +26432,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
 
                     if string_add {
-                        if !rhs_may_string && !binding_allows_string_add {
+                        if !binding_known_string && !rhs_may_string && !binding_allows_string_add {
                             return self
                                 .unsupported_expr("compound assignment on non-string binding");
                         }
@@ -26184,7 +26442,8 @@ impl<'a> ScriptLowerer<'a> {
                     self.set_binding_value_info(&name, result_info.clone());
                 } else if global_info.as_ref().is_some_and(|info| {
                     info.proven_present
-                        && ((string_add && (rhs_may_string || global_allows_string_add))
+                        && ((string_add
+                            && (global_known_string || rhs_may_string || global_allows_string_add))
                             || (!string_add && info.value_info.kind == ValueKind::Number))
                 }) {
                     self.set_global_property_value_info(name.clone(), result_info.clone());
@@ -31993,6 +32252,22 @@ mod tests {
     }
 
     #[test]
+    fn lowers_for_multi_binding_lexical_init_ir() {
+        let program = lower_script("for (let i = 0, j = 1; i < 1; i = i + 1) { j; }");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::For {
+            init: Some(ForInitIr::LexicalBlock(bindings)),
+            ..
+        } = &script.body.statements[0]
+        else {
+            panic!("expected multi-binding lexical for initializer");
+        };
+        assert_eq!(bindings.len(), 2);
+        assert!(program.ir_summary().contains("lets=2"));
+    }
+
+    #[test]
     fn lowers_update_and_compound_ir() {
         let program = lower_script("let i = 2; let x = i++; x += ++i; x;");
         assert!(program.is_wasm_supported());
@@ -32002,6 +32277,17 @@ mod tests {
         assert!(summary.contains("postfix_updates=1"));
         assert!(summary.contains("prefix_updates=1"));
         assert!(summary.contains("compound_assigns=1"));
+    }
+
+    #[test]
+    fn lowers_string_compound_add_with_dynamic_rhs_ir() {
+        let program = lower_script(
+            r#"let result = String.fromCodePoint.apply(null, [65]); result += String.fromCodePoint.apply(null, [66]); result;"#,
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert_eq!(script.result_kind(), ValueKind::String);
+        assert!(program.ir_summary().contains("compound_assigns=1"));
     }
 
     #[test]
