@@ -1513,10 +1513,15 @@ Recent focused progress through `2026-06-21`:
   `Iterator()`/`new Iterator()` calls still throw, and
   `Iterator.prototype.toArray` now accepts plain iterator objects, rejects
   primitive receivers and non-callable `next`, reads `next` once, propagates
-  abrupt `next`/`done`/`value` paths, and handles already-exhausted generator
-  iterators. The full exact real Test262 `built-ins/Iterator/prototype/toArray`
-  leaf now reports `18/18` as of `2026-06-21` under
+  abrupt `next`/`done`/`value` paths while preserving thrown getter values,
+  does not close the iterator when result `value` access throws, and handles
+  already-exhausted generator iterators. The full exact real Test262
+  `built-ins/Iterator/prototype/toArray` leaf now reports `18/18` as of
+  `2026-06-21` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/toArray` leaf reports `10/10`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
   with focused coverage in
   `wasm_iterator_to_array_direct_iterator.js` and
   `wasm_iterator_to_array_exhausted_generator.js`.
@@ -1552,11 +1557,16 @@ Recent focused progress through `2026-06-21`:
   `Iterator.prototype.forEach` is now registered as a Rust standard builtin and
   has Wasm-AOT support for direct iterator iteration, callback value/index
   calls, argument validation before `next`, iterator close on invalid callback
-  and callback throw, throwing `next`/`done`/`value` paths, plain iterator
-  receivers, exhausted generators, and metadata. The full exact real Test262
+  and callback throw, throwing `next`/`done`/`value` paths while preserving
+  thrown getter values, no iterator close for abrupt `next` or result `value`
+  access, plain iterator receivers, exhausted generators, and metadata. The
+  full exact real Test262
   `built-ins/Iterator/prototype/forEach` leaf reports `27/27` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  and the staging `staging/sm/Iterator/prototype/forEach` leaf reports `12/12`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_for_each.js`.
   `Iterator.prototype.some` is now registered as a Rust standard builtin and
   has Wasm-AOT support for Boolean terminal iteration, callback value/index
@@ -1631,15 +1641,19 @@ Recent focused progress through `2026-06-21`:
   and `return`, mapper value/index calls with `undefined` this, one-level
   array and iterator flattening, iterator-result fallback when the mapped
   value has no callable iterator method, primitive mapper-result TypeErrors,
-  argument validation before `next`, iterator close on invalid mapper, mapper
-  throw, and mapped primitive results, deferred non-callable `next` errors,
-  plain iterator receivers, parallel advancement, closed underlying
-  iterators, ordinary exhaustion without `return`, helper reentrancy
-  rejection, throwing `next`/`done`/`value`/`return` paths, chained helpers,
-  and metadata. The exact real Test262
+  outer iterator close while preserving inner iterator `next`/`done`/`value`
+  abrupt completions, argument validation before `next`, iterator close on
+  invalid mapper, mapper throw, and mapped primitive results, deferred
+  non-callable `next` errors, plain iterator receivers, parallel advancement,
+  closed underlying iterators, ordinary exhaustion without `return`, helper
+  reentrancy rejection, throwing `next`/`done`/`value`/`return` paths, chained
+  helpers, and metadata. The exact real Test262
   `built-ins/Iterator/prototype/flatMap` leaf reports `44/44` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/flatMap` leaf reports `8/8`
+  under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_flat_map.js`.
   `Iterator.prototype.take` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy bounded helper iteration, helper `next` and

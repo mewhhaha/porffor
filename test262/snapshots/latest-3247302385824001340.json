@@ -28,43 +28,43 @@
   "slowest_tests": [
     {
       "path": "built-ins/Iterator/prototype/flatMap/iterable-to-iterator-fallback.js",
-      "duration_ms": 63117
+      "duration_ms": 68535
     },
     {
       "path": "built-ins/Iterator/prototype/flatMap/non-constructible.js",
-      "duration_ms": 57160
-    },
-    {
-      "path": "built-ins/Iterator/prototype/flatMap/return-is-not-forwarded-after-exhaustion.js",
-      "duration_ms": 56169
+      "duration_ms": 60677
     },
     {
       "path": "built-ins/Iterator/prototype/flatMap/iterator-already-exhausted.js",
-      "duration_ms": 54423
+      "duration_ms": 59305
+    },
+    {
+      "path": "built-ins/Iterator/prototype/flatMap/mapper-throws-then-closing-iterator-also-throws.js",
+      "duration_ms": 57977
+    },
+    {
+      "path": "built-ins/Iterator/prototype/flatMap/return-is-not-forwarded-after-exhaustion.js",
+      "duration_ms": 57682
+    },
+    {
+      "path": "built-ins/Iterator/prototype/flatMap/mapper-throws.js",
+      "duration_ms": 56649
     },
     {
       "path": "built-ins/Iterator/prototype/flatMap/mapper-args.js",
-      "duration_ms": 54188
+      "duration_ms": 56310
     },
     {
-      "path": "built-ins/Iterator/prototype/flatMap/this-non-object.js",
-      "duration_ms": 53543
-    },
-    {
-      "path": "built-ins/Iterator/prototype/flatMap/flattens-only-depth-1.js",
-      "duration_ms": 53133
+      "path": "built-ins/Iterator/prototype/flatMap/mapper-returns-non-object.js",
+      "duration_ms": 55286
     },
     {
       "path": "built-ins/Iterator/prototype/flatMap/underlying-iterator-advanced-in-parallel.js",
-      "duration_ms": 52810
+      "duration_ms": 55181
     },
     {
-      "path": "built-ins/Iterator/prototype/flatMap/flattens-iterator.js",
-      "duration_ms": 52691
-    },
-    {
-      "path": "built-ins/Iterator/prototype/flatMap/this-plain-iterator.js",
-      "duration_ms": 52464
+      "path": "built-ins/Iterator/prototype/flatMap/flattens-iterable.js",
+      "duration_ms": 55018
     }
   ],
   "timeout_list": [],

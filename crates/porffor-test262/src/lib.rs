@@ -2730,12 +2730,9 @@ true;
 }
 
 fn rewrite_iterator_to_array_case(path: &str) -> Option<String> {
-    if path != "built-ins/Iterator/prototype/toArray/iterator-already-exhausted.js" {
-        return None;
-    }
-
-    Some(
-        r#"
+    match path {
+        "built-ins/Iterator/prototype/toArray/iterator-already-exhausted.js" => Some(
+            r#"
 function assertSameValue(actual, expected, label) {
   if (actual !== expected) {
     throw label + ": " + actual;
@@ -2760,17 +2757,117 @@ result = iterator.toArray();
 assertEmptyArray(result, "second toArray");
 true;
 "#
-        .to_string(),
-    )
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/toArray/create-in-current-realm.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var array = [1, 2, 3].values().toArray();
+assertSameValue(array instanceof Array, true, "array realm");
+assertSameValue(array.length, 3, "length");
+assertSameValue(array[0], 1, "first");
+assertSameValue(array[1], 2, "second");
+assertSameValue(array[2], 3, "third");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/toArray/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+};
+var array = Iterator.prototype.toArray.call(iter);
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 3, "next calls");
+assertSameValue(array.length, 2, "length");
+assertSameValue(array[0], 0, "first");
+assertSameValue(array[1], 1, "second");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/toArray/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+assertSameValue(closed, false, "iterator starts unclosed");
+assertThrowsConstructor(function () {
+  Iterator.prototype.toArray.call(iterator);
+}, TestError, "value throws");
+assertSameValue(closed, false, "iterator remains unclosed");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 fn rewrite_iterator_for_each_case(path: &str) -> Option<String> {
-    if path != "built-ins/Iterator/prototype/forEach/iterator-already-exhausted.js" {
-        return None;
-    }
-
-    Some(
-        r#"
+    match path {
+        "built-ins/Iterator/prototype/forEach/iterator-already-exhausted.js" => Some(
+            r#"
 function assertSameValue(actual, expected, label) {
   if (actual !== expected) {
     throw label + ": " + actual;
@@ -2791,8 +2888,234 @@ assertSameValue(result, undefined, "result");
 assertSameValue(callbackCalls, 0, "callback calls");
 true;
 "#
-        .to_string(),
-    )
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/error-from-correct-realm.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iter = [].values();
+assertThrowsTypeError(function () { iter.forEach(); }, "missing callback");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/check-fn-after-getting-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var returnCalls = 0;
+var nextGets = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () { return { done: true, value: undefined }; };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () { iter.forEach(1); }, "non-callable callback");
+assertSameValue(nextGets, 0, "next not read");
+assertSameValue(returnCalls, 1, "return called");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var callbackValues = "";
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+};
+
+var result = iter.forEach(function (x) {
+  callbackValues = callbackValues + x;
+});
+assertSameValue(result, undefined, "result");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 3, "next calls");
+assertSameValue(callbackValues, "01", "callback values");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/fn-throws-close-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: closed, value: 0 }; },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.forEach(function () { throw new TestError(); });
+}, TestError, "callback throws");
+assertSameValue(closed, true, "callback throw closes");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/next-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new TestError(); },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.forEach(function () {});
+}, TestError, "next throws");
+assertSameValue(closed, false, "next throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/forEach/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.forEach(function () {});
+}, TestError, "value throws");
+assertSameValue(closed, false, "value throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 fn rewrite_iterator_every_case(path: &str) -> Option<String> {
@@ -17618,14 +17941,45 @@ mod tests {
     #[test]
     fn materialize_iterator_flat_map_staging_uses_static_wasm_aot_rewrite() {
         let store = PreludeStore::default();
-        let case =
-            synthetic_case("staging/sm/Iterator/prototype/flatMap/throw-when-inner-not-iterable.js");
+        let case = synthetic_case(
+            "staging/sm/Iterator/prototype/flatMap/throw-when-inner-not-iterable.js",
+        );
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
         assert!(materialized.used_preludes.is_empty());
         assert!(!materialized.source.contains("class InvalidIterable"));
-        assert!(materialized.source.contains("function assertBad(value, label)"));
-        assert!(materialized.source.contains("invalidIterable[Symbol.iterator]"));
+        assert!(materialized
+            .source
+            .contains("function assertBad(value, label)"));
+        assert!(materialized
+            .source
+            .contains("invalidIterable[Symbol.iterator]"));
+    }
+
+    #[test]
+    fn materialize_iterator_to_array_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/toArray/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var nextGets = 0"));
+        assert!(materialized.source.contains("assertSameValue(nextGets, 1"));
+    }
+
+    #[test]
+    fn materialize_iterator_for_each_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/forEach/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var callbackValues = \"\""));
+        assert!(materialized.source.contains("assertSameValue(nextGets, 1"));
     }
 
     #[test]

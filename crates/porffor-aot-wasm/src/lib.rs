@@ -56148,7 +56148,16 @@ impl<'a> FunctionBuilder<'a> {
                     done_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(done_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
                 self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
                 function.instruction(&Instruction::BrIf(1));
                 function.instruction(&Instruction::I64Const(self.strings.payload("value")));
@@ -56163,7 +56172,16 @@ impl<'a> FunctionBuilder<'a> {
                     value_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
                 self.emit_array_write(
                     result_payload_local,
                     index_local,
@@ -56519,7 +56537,16 @@ impl<'a> FunctionBuilder<'a> {
                     done_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(done_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
                 self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
                 function.instruction(&Instruction::BrIf(1));
 
@@ -56535,7 +56562,16 @@ impl<'a> FunctionBuilder<'a> {
                     value_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
 
                 function.instruction(&Instruction::LocalGet(index_local));
                 function.instruction(&Instruction::F64ConvertI64U);

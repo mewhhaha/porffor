@@ -122,4 +122,59 @@ if (returnCalls !== 1) {
   throw "callback close";
 }
 
+function NextSentinelError() {}
+let nextClosed = false;
+let nextThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new NextSentinelError();
+  },
+  return: function () {
+    nextClosed = true;
+    return {};
+  },
+};
+let nextThrowMatched = false;
+try {
+  nextThrowIterator.forEach(function () {});
+} catch (error) {
+  nextThrowMatched = error instanceof NextSentinelError;
+}
+if (!nextThrowMatched) {
+  throw "next throw constructor";
+}
+if (nextClosed) {
+  throw "next throw close";
+}
+
+function ValueSentinelError() {}
+let valueClosed = false;
+let valueThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new ValueSentinelError();
+      },
+    };
+  },
+  return: function () {
+    valueClosed = true;
+    return {};
+  },
+};
+let valueThrowMatched = false;
+try {
+  valueThrowIterator.forEach(function () {});
+} catch (error) {
+  valueThrowMatched = error instanceof ValueSentinelError;
+}
+if (!valueThrowMatched) {
+  throw "value throw constructor";
+}
+if (valueClosed) {
+  throw "value throw close";
+}
+
 true;
