@@ -9,68 +9,65 @@
   "manifest_hash": 16612616807124510642,
   "run_kind": "full",
   "total": 26,
-  "passed": 20,
+  "passed": 22,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
     "Lowering": 0,
     "Parser": 0,
-    "Runtime": 6,
+    "Runtime": 4,
     "Unsupported": 0,
     "WasmBackend": 0
   },
   "counts_per_outcome": {
     "Bug": 4,
-    "Crash": 2,
+    "Crash": 0,
     "NotImplemented": 0,
-    "Success": 20
+    "Success": 22
   },
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor-species-is-null-or-undefined.js",
-      "duration_ms": 97330
-    },
-    {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js",
-      "duration_ms": 90526
-    },
-    {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-lastindex-cached.js",
-      "duration_ms": 89871
-    },
-    {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-get-flags.js",
-      "duration_ms": 89172
-    },
-    {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor.js",
-      "duration_ms": 87907
+      "duration_ms": 96584
     },
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-tostring-flags.js",
-      "duration_ms": 87748
+      "duration_ms": 88633
     },
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor-is-undefined.js",
-      "duration_ms": 87706
+      "duration_ms": 87587
     },
     {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/length.js",
-      "duration_ms": 77583
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor.js",
+      "duration_ms": 85930
     },
     {
-      "path": "built-ins/RegExp/prototype/Symbol.matchAll/name.js",
-      "duration_ms": 77150
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-lastindex-cached.js",
+      "duration_ms": 85497
+    },
+    {
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js",
+      "duration_ms": 85003
+    },
+    {
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-get-flags.js",
+      "duration_ms": 84967
     },
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/prop-desc.js",
-      "duration_ms": 75452
+      "duration_ms": 73451
+    },
+    {
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/length.js",
+      "duration_ms": 73002
+    },
+    {
+      "path": "built-ins/RegExp/prototype/Symbol.matchAll/name.js",
+      "duration_ms": 72915
     }
   ],
-  "timeout_list": [
-    "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor-species-is-null-or-undefined.js",
-    "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js"
-  ],
+  "timeout_list": [],
   "failures": [
     {
       "test_path": "built-ins/RegExp/prototype/Symbol.matchAll/isregexp-called-once.js",
@@ -79,14 +76,6 @@
       "origin": "boa-runtime",
       "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@295200)",
       "detail_hash": 15401689032268328201
-    },
-    {
-      "test_path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor-species-is-null-or-undefined.js",
-      "kind": "Runtime",
-      "outcome": "Crash",
-      "origin": "unknown",
-      "detail": "[origin:unknown] timeout exceeded after 97330ms",
-      "detail_hash": 9464751025865695668
     },
     {
       "test_path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor.js",
@@ -111,14 +100,6 @@
       "origin": "boa-runtime",
       "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@313656)",
       "detail_hash": 14716585034511984046
-    },
-    {
-      "test_path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js",
-      "kind": "Runtime",
-      "outcome": "Crash",
-      "origin": "unknown",
-      "detail": "[origin:unknown] timeout exceeded after 90526ms",
-      "detail_hash": 10607086352141638737
     }
   ],
   "completed_paths": [

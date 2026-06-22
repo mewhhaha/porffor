@@ -999,6 +999,51 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_proxy_construct_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_iterator_from_return_method_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_to_array_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_for_each_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_every_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_some_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_find_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_reduce_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_map_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_filter_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_flat_map_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_flat_map_staging_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_take_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_drop_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_constructor_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_iterator_to_string_tag_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_function_tostring_sputnik_case(&case.path) {
         return Some(source);
     }
@@ -2482,6 +2527,4282 @@ assert.sameValue(Object.getPrototypeOf(p), other.Object.prototype);
     }
 
     None
+}
+
+fn rewrite_iterator_from_return_method_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/from/return-method-throws-for-invalid-this.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label + ": expected TypeError";
+  }
+}
+
+function assertEmpty(actual, label) {
+  if (actual.length !== 0) {
+    throw label + ": length " + actual.length;
+  }
+}
+
+var WrapForValidIteratorPrototype = Object.getPrototypeOf(Iterator.from({}));
+
+assertThrowsTypeError(function () {
+  WrapForValidIteratorPrototype.return.call({});
+}, "plain object this");
+
+var calls = [];
+var originalIter = {
+  return: function () {
+    return { value: 5, done: true };
+  },
+};
+var method = originalIter.return;
+originalIter.return = function () {
+  calls.push("call return");
+  return method.apply(originalIter, arguments);
+};
+var iter = new Proxy(originalIter, {
+  get: function (target, key, receiver) {
+    calls.push("get");
+    return Reflect.get(target, key, receiver);
+  },
+});
+
+assertThrowsTypeError(function () {
+  WrapForValidIteratorPrototype.return.call(iter);
+}, "observed iterator this");
+assertEmpty(calls, "observed calls");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/from/get-return-method-when-call-return.js" => Some(
+            r#"
+function assertCompareArray(actual, expected, label) {
+  if (actual.length !== expected.length) {
+    throw label + ": length " + actual.length;
+  }
+  for (var i = 0; i < expected.length; i = i + 1) {
+    if (actual[i] !== expected[i]) {
+      throw label + ": " + i + " " + actual[i];
+    }
+  }
+}
+
+function formatPropertyName(propertyKey, objectName) {
+  switch (typeof propertyKey) {
+    case "symbol":
+      if (Symbol.keyFor(propertyKey) !== undefined) {
+        return objectName + "[Symbol.for('" + Symbol.keyFor(propertyKey) + "')]";
+      } else if (propertyKey.description.startsWith("Symbol.")) {
+        return objectName + "[" + propertyKey.description + "]";
+      } else {
+        return objectName + "[Symbol('" + propertyKey.description + "')]";
+      }
+    case "string":
+      return objectName ? objectName + "." + propertyKey : propertyKey;
+    default:
+      return objectName + "[" + propertyKey + "]";
+  }
+}
+
+function propertyBagObserver(calls, propertyBag, objectName) {
+  return new Proxy(propertyBag, {
+    get: function (target, key, receiver) {
+      calls.push("get " + formatPropertyName(key, objectName));
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+var calls = [];
+var iter = propertyBagObserver(calls, {
+  return: function () {
+    return { value: 5, done: true };
+  },
+}, "originalIter");
+
+var wrapper = Iterator.from(iter);
+assertCompareArray(calls, [
+  "get originalIter[Symbol.iterator]",
+  "get originalIter.next",
+], "initial calls");
+
+wrapper.return();
+assertCompareArray(calls, [
+  "get originalIter[Symbol.iterator]",
+  "get originalIter.next",
+  "get originalIter.return",
+], "final calls");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/from/return-method-calls-base-return-method.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertCompareArray(actual, expected, label) {
+  if (actual.length !== expected.length) {
+    throw label + ": length " + actual.length;
+  }
+  for (var i = 0; i < expected.length; i = i + 1) {
+    if (actual[i] !== expected[i]) {
+      throw label + ": " + i + " " + actual[i];
+    }
+  }
+}
+
+function formatPropertyName(propertyKey, objectName) {
+  switch (typeof propertyKey) {
+    case "symbol":
+      if (Symbol.keyFor(propertyKey) !== undefined) {
+        return objectName + "[Symbol.for('" + Symbol.keyFor(propertyKey) + "')]";
+      } else if (propertyKey.description.startsWith("Symbol.")) {
+        return objectName + "[" + propertyKey.description + "]";
+      } else {
+        return objectName + "[Symbol('" + propertyKey.description + "')]";
+      }
+    case "string":
+      return objectName ? objectName + "." + propertyKey : propertyKey;
+    default:
+      return objectName + "[" + propertyKey + "]";
+  }
+}
+
+function observeMethod(calls, object, propertyName, objectName) {
+  var method = object[propertyName];
+  object[propertyName] = function () {
+    calls.push("call " + formatPropertyName(propertyName, objectName));
+    return method.apply(object, arguments);
+  };
+}
+
+function propertyBagObserver(calls, propertyBag, objectName) {
+  return new Proxy(propertyBag, {
+    get: function (target, key, receiver) {
+      calls.push("get " + formatPropertyName(key, objectName));
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+var calls = [];
+var expectedIteratorResult = { value: 5, done: true };
+var originalIter = {
+  return: function () {
+    return expectedIteratorResult;
+  },
+};
+observeMethod(calls, originalIter, "return", "originalIter");
+var iter = propertyBagObserver(calls, originalIter, "originalIter");
+
+var wrapper = Iterator.from(iter);
+assertCompareArray(calls, [
+  "get originalIter[Symbol.iterator]",
+  "get originalIter.next",
+], "initial calls");
+
+assertSameValue(wrapper.return(), expectedIteratorResult, "wrapper return result");
+assertCompareArray(calls, [
+  "get originalIter[Symbol.iterator]",
+  "get originalIter.next",
+  "get originalIter.return",
+  "call originalIter.return",
+], "final calls");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_to_array_case(path: &str) -> Option<String> {
+    if path != "built-ins/Iterator/prototype/toArray/iterator-already-exhausted.js" {
+        return None;
+    }
+
+    Some(
+        r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertEmptyArray(actual, label) {
+  if (actual.length !== 0) {
+    throw label + ": length " + actual.length;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var result = iterator.toArray();
+assertEmptyArray(result, "first toArray");
+
+result = iterator.toArray();
+assertEmptyArray(result, "second toArray");
+true;
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_iterator_for_each_case(path: &str) -> Option<String> {
+    if path != "built-ins/Iterator/prototype/forEach/iterator-already-exhausted.js" {
+        return None;
+    }
+
+    Some(
+        r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var callbackCalls = 0;
+var result = iterator.forEach(function () {
+  callbackCalls = callbackCalls + 1;
+  throw "callback should not be called";
+});
+assertSameValue(result, undefined, "result");
+assertSameValue(callbackCalls, 0, "callback calls");
+true;
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_iterator_every_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/every/iterator-already-exhausted.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var result = iterator.every(function () {
+  return true;
+});
+assertSameValue(result, true, "truthy predicate result");
+
+result = iterator.every(function () {
+  return false;
+});
+assertSameValue(result, true, "falsey predicate result");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/iterator-has-no-return.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
+assertSameValue(iterator.return, undefined, "return");
+
+var ret = iterator.every(function (value) {
+  return value < 4;
+});
+assertSameValue(ret, false, "every result");
+
+var nextResult = iterator.next();
+assertSameValue(nextResult.done, false, "remaining done");
+assertSameValue(nextResult.value, 5, "remaining value");
+
+nextResult = iterator.next();
+assertSameValue(nextResult.done, true, "final done");
+assertSameValue(nextResult.value, undefined, "final value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/predicate-returns-falsey.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 0;
+  yield 1;
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.every(function () {
+  predicateCalls = predicateCalls + 1;
+  return false;
+});
+
+assertSameValue(result, false, "result");
+assertSameValue(predicateCalls, 1, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/predicate-returns-truthy-then-falsey.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  for (let i = 0; i < 5; ++i) {
+    yield i;
+  }
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.every(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value < 3;
+});
+
+assertSameValue(result, false, "result");
+assertSameValue(predicateCalls, 4, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/predicate-returns-non-boolean.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var values = [4, 3, 2, 1, 0];
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    return {};
+  },
+};
+
+var predicateCalls = 0;
+var result = iterator.every(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value;
+});
+
+assertSameValue(result, false, "result");
+assertSameValue(predicateCalls, 5, "predicate calls");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/name.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.every, "name");
+assertSameValue(desc.value, "every", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/every/length.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.every, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_some_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/some/iterator-already-exhausted.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var result = iterator.some(function () {
+  return true;
+});
+assertSameValue(result, false, "truthy predicate result");
+
+result = iterator.some(function () {
+  return false;
+});
+assertSameValue(result, false, "falsey predicate result");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/some/iterator-has-no-return.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
+assertSameValue(iterator.return, undefined, "return");
+
+var ret = iterator.some(function (value) {
+  return value > 3;
+});
+assertSameValue(ret, true, "some result");
+
+var nextResult = iterator.next();
+assertSameValue(nextResult.done, false, "remaining done");
+assertSameValue(nextResult.value, 5, "remaining value");
+
+nextResult = iterator.next();
+assertSameValue(nextResult.done, true, "final done");
+assertSameValue(nextResult.value, undefined, "final value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/some/predicate-returns-truthy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 0;
+  yield 1;
+  yield 2;
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.some(function () {
+  predicateCalls = predicateCalls + 1;
+  return true;
+});
+
+assertSameValue(result, true, "result");
+assertSameValue(predicateCalls, 1, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/some/predicate-returns-falsey-then-truthy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  for (let i = 0; i < 5; ++i) {
+    yield i;
+  }
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.some(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value > 2;
+});
+
+assertSameValue(result, true, "result");
+assertSameValue(predicateCalls, 4, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/some/predicate-returns-non-boolean.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var values = ["", null, undefined, 0, 1, 2, 3];
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    return {};
+  },
+};
+
+var predicateCalls = 0;
+var result = iterator.some(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value;
+});
+
+assertSameValue(result, true, "result");
+assertSameValue(predicateCalls, 5, "predicate calls");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/some/name.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.some, "name");
+assertSameValue(desc.value, "some", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_find_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/find/iterator-already-exhausted.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var result = iterator.find(function () {
+  return true;
+});
+assertSameValue(result, undefined, "truthy predicate result");
+
+result = iterator.find(function () {
+  return false;
+});
+assertSameValue(result, undefined, "falsey predicate result");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/iterator-has-no-return.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
+assertSameValue(iterator.return, undefined, "return");
+
+var ret = iterator.find(function (value) {
+  return value > 3;
+});
+assertSameValue(ret, 4, "find result");
+
+var nextResult = iterator.next();
+assertSameValue(nextResult.done, false, "remaining done");
+assertSameValue(nextResult.value, 5, "remaining value");
+
+nextResult = iterator.next();
+assertSameValue(nextResult.done, true, "final done");
+assertSameValue(nextResult.value, undefined, "final value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/predicate-returns-truthy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 0;
+  yield 1;
+  yield 2;
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.find(function () {
+  predicateCalls = predicateCalls + 1;
+  return true;
+});
+
+assertSameValue(result, 0, "result");
+assertSameValue(predicateCalls, 1, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/predicate-returns-falsey.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 0;
+  yield 1;
+  yield 2;
+  yield 3;
+}
+
+var result = g().find(function () {
+  return false;
+});
+assertSameValue(result, undefined, "result");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/predicate-returns-falsey-then-truthy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  for (let i = 0; i < 5; ++i) {
+    yield i;
+  }
+}
+
+var iter = g();
+var predicateCalls = 0;
+var result = iter.find(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value > 2;
+});
+
+assertSameValue(result, 3, "result");
+assertSameValue(predicateCalls, 4, "predicate calls");
+
+var nextResult = iter.next();
+assertSameValue(nextResult.done, true, "done");
+assertSameValue(nextResult.value, undefined, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/predicate-returns-non-boolean.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var values = ["", null, undefined, 0, 1, 2, 3];
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    return {};
+  },
+};
+
+var predicateCalls = 0;
+var result = iterator.find(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value;
+});
+
+assertSameValue(result, 1, "result");
+assertSameValue(predicateCalls, 5, "predicate calls");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/name.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.find, "name");
+assertSameValue(desc.value, "find", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/find/length.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.find, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_reduce_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/reduce/iterator-already-exhausted-no-initial-value.js" => {
+            Some(
+                r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+assertThrowsTypeError(function () {
+  iterator.reduce(function () {});
+}, "empty no initial");
+
+var result = iterator.reduce(function () {}, 0);
+assertSameValue(result, 0, "initial result");
+true;
+"#
+                .to_string(),
+            )
+        }
+        "built-ins/Iterator/prototype/reduce/iterator-already-exhausted-initial-value.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {})();
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "next value");
+assertSameValue(nextResult.done, true, "next done");
+
+var initialValue = {};
+var result = iterator.reduce(function () {}, initialValue);
+assertSameValue(result, initialValue, "initial result");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/reduce/prop-desc.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "reduce");
+assertSameValue(typeof desc.value, "function", "value type");
+assertSameValue(desc.writable, true, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/reduce/name.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.reduce, "name");
+assertSameValue(desc.value, "reduce", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/reduce/length.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.reduce, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn iterator_map_rewrite(body: &str) -> String {
+    let mut source = r#"
+function assert(value, label) {
+  if (!value) {
+    throw label;
+  }
+}
+
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+"#
+    .to_string();
+    source.push_str(body);
+    source
+}
+
+fn rewrite_iterator_map_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/map/prop-desc.js" => Some(iterator_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "map");
+assertSameValue(typeof desc.value, "function", "value type");
+assertSameValue(desc.writable, true, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/name.js" => Some(iterator_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.map, "name");
+assertSameValue(desc.value, "map", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/length.js" => Some(iterator_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.map, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/is-function.js" => Some(iterator_map_rewrite(
+            r#"
+assertSameValue(typeof Iterator.prototype.map, "function", "typeof map");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/proto.js" => Some(iterator_map_rewrite(
+            r#"
+assertSameValue(Object.getPrototypeOf(Iterator.prototype.map), Function.prototype, "prototype");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/callable.js" => Some(iterator_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+Iterator.prototype.map.call(iter, function () { return 0; });
+iter.map(function () { return 0; });
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/result-is-iterator.js" => Some(iterator_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+var helper = iter.map(function () { return 0; });
+assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/non-constructible.js" => Some(iterator_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () {
+  new iter.map();
+}, "new iter.map no args");
+assertThrowsTypeError(function () {
+  new iter.map(function () { return 0; });
+}, "new iter.map");
+assertThrowsTypeError(function () {
+  new Iterator.prototype.map(function () { return 0; });
+}, "new prototype map");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/this-non-object.js" => Some(iterator_map_rewrite(
+            r#"
+assertThrowsTypeError(function () {
+  Iterator.prototype.map.call(null, function () { return 0; });
+}, "null receiver");
+assertThrowsTypeError(function () {
+  Iterator.prototype.map.call(0, function () { return 0; });
+}, "number receiver");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/argument-effect-order.js" => Some(iterator_map_rewrite(
+            r#"
+var effects = [];
+assertThrowsTypeError(function () {
+  Iterator.prototype.map.call(
+    {
+      get next() {
+        effects.push("get next");
+        return function () {
+          return { done: true, value: undefined };
+        };
+      },
+    },
+    {
+      valueOf: function () {
+        effects.push("valueOf mapper");
+        return function () { return []; };
+      },
+    }
+  );
+}, "non-callable mapper");
+assertSameValue(effects.length, 0, "effect count");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/argument-validation-failure-closes-underlying.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var closed = false;
+var closable = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw "next should not be read";
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () {
+  closable.map();
+}, "missing mapper");
+assertSameValue(closed, true, "missing closes");
+
+closed = false;
+assertThrowsTypeError(function () {
+  closable.map({});
+}, "object mapper");
+assertSameValue(closed, true, "object closes");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/non-callable-mapper.js" => Some(iterator_map_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () {
+  iterator.map({});
+}, "non-callable mapper");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/this-non-callable-next.js" => Some(iterator_map_rewrite(
+            r#"
+var helper = Iterator.prototype.map.call({ next: 0 }, function (value) {
+  return value;
+});
+assertThrowsTypeError(function () {
+  helper.next();
+}, "non-callable next");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/get-next-method-throws.js" => Some(iterator_map_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw new NextSentinel();
+  },
+};
+assertThrowsConstructor(function () {
+  iterator.map(function () { return 0; });
+}, NextSentinel, "next getter throws");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/get-next-method-only-once.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var nextGets = 0;
+var nextCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    var index = 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (index < 5) {
+        var value = index;
+        index = index + 1;
+        return { done: false, value: value };
+      }
+      return { done: true, value: undefined };
+    };
+  },
+};
+
+var helper = iterator.map(function () { return 0; });
+assertSameValue(nextGets, 1, "next gets after map");
+assertSameValue(nextCalls, 0, "next calls after map");
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 5, "next calls");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/next-method-throws.js" => Some(iterator_map_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new NextSentinel();
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, NextSentinel, "next throws");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/next-method-returns-non-object.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return null;
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertThrowsTypeError(function () {
+  helper.next();
+}, "next result non-object");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/next-method-returns-throwing-done.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function DoneSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      get done() {
+        throw new DoneSentinel();
+      },
+      value: 1,
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, DoneSentinel, "done getter throws");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/next-method-returns-throwing-value.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function ValueSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new ValueSentinel();
+      },
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, ValueSentinel, "value getter throws");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/next-method-returns-throwing-value-done.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: true,
+      get value() {
+        throw "value should not be read";
+      },
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.map(function () { return 0; });
+var step = helper.next();
+assertSameValue(step.done, true, "done");
+assertSameValue(step.value, undefined, "value");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/mapper-args.js" => Some(iterator_map_rewrite(
+            r#"
+var values = ["a", "b", "c", "d", "e"];
+var index = 0;
+var assertionCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.map(function (value, count) {
+  if (value === "a") assertSameValue(count, 0, "a count");
+  if (value === "b") assertSameValue(count, 1, "b count");
+  if (value === "c") assertSameValue(count, 2, "c count");
+  if (value === "d") assertSameValue(count, 3, "d count");
+  if (value === "e") assertSameValue(count, 4, "e count");
+  assertionCount = assertionCount + 1;
+  return count;
+});
+assertSameValue(assertionCount, 0, "lazy");
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+assertSameValue(assertionCount, 5, "assertions");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/mapper-this.js" => Some(iterator_map_rewrite(
+            r#"
+var called = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: called > 0, value: 0 };
+  },
+};
+var helper = iterator.map(function (value, count) {
+  "use strict";
+  assertSameValue(this, undefined, "mapper this");
+  called = called + 1;
+  return value;
+});
+helper.next();
+assertSameValue(called, 1, "called");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/mapper-throws.js" => Some(iterator_map_rewrite(
+            r#"
+function MapperSentinel() {}
+var callbackCalls = 0;
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function () {
+  callbackCalls = callbackCalls + 1;
+  throw new MapperSentinel();
+});
+assertThrowsConstructor(function () {
+  helper.next();
+}, MapperSentinel, "mapper throws");
+assertSameValue(callbackCalls, 1, "callback calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/mapper-throws-then-closing-iterator-also-throws.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function MapperSentinel() {}
+function ReturnSentinel() {}
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.map(function () {
+  throw new MapperSentinel();
+});
+assertSameValue(returnCalls, 0, "return before next");
+assertThrowsConstructor(function () {
+  helper.next();
+}, MapperSentinel, "mapper throw preserved");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/returned-iterator-yields-mapper-return-values.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function makeRange() {
+  var index = 0;
+  return {
+    __proto__: Iterator.prototype,
+    next: function () {
+      if (index >= 5) {
+        return { done: true, value: undefined };
+      }
+      var value = index;
+      index = index + 1;
+      return { done: false, value: value };
+    },
+  };
+}
+
+var helper = makeRange().map(function (value) { return value; });
+assertSameValue(helper.next().value, 0, "identity 0");
+assertSameValue(helper.next().value, 1, "identity 1");
+assertSameValue(helper.next().value, 2, "identity 2");
+assertSameValue(helper.next().value, 3, "identity 3");
+assertSameValue(helper.next().value, 4, "identity 4");
+assertSameValue(helper.next().done, true, "identity done");
+
+helper = makeRange().map(function () { return 0; });
+assertSameValue(helper.next().value, 0, "zero 0");
+assertSameValue(helper.next().value, 0, "zero 1");
+
+helper = makeRange()
+  .map(function () { return 0; })
+  .map(function (value, count) { return count; });
+assertSameValue(helper.next().value, 0, "count 0");
+assertSameValue(helper.next().value, 1, "count 1");
+assertSameValue(helper.next().value, 2, "count 2");
+
+helper = makeRange().map(function (value) { return value * 2; });
+assertSameValue(helper.next().value, 0, "double 0");
+assertSameValue(helper.next().value, 2, "double 1");
+assertSameValue(helper.next().value, 4, "double 2");
+
+var obj = {};
+helper = makeRange().map(function () { return obj; });
+assertSameValue(helper.next().value, obj, "object 0");
+assertSameValue(helper.next().value, obj, "object 1");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/return-is-forwarded-to-underlying-iterator.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var returnCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCount = returnCount + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertSameValue(returnCount, 0, "before return");
+helper.return();
+assertSameValue(returnCount, 1, "first return");
+helper.return();
+assertSameValue(returnCount, 1, "second return");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/iterator-return-method-throws.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 0 };
+  },
+  return: function () {
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.map(function () { return 0; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return throws");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/get-return-method-throws.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  get return() {
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.map(function () { return 0; });
+helper.next();
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return getter throws");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/return-is-not-forwarded-after-exhaustion.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function ReturnSentinel() {}
+function makeDoneIterator() {
+  return {
+    __proto__: Iterator.prototype,
+    next: function () {
+      return { done: true, value: undefined };
+    },
+    return: function () {
+      throw new ReturnSentinel();
+    },
+  };
+}
+
+var helper = makeDoneIterator().map(function () { return 0; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return before exhaustion");
+helper.next();
+helper.return();
+
+helper = makeDoneIterator().map(function () { return 0; });
+helper.next();
+helper.return();
+
+helper = makeDoneIterator()
+  .map(function (value) { return value; })
+  .map(function (value) { return value; })
+  .map(function (value) { return value; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "chain return before exhaustion");
+helper.next();
+helper.return();
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/exhaustion-does-not-call-return.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 3) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.map(function () { return 0; });
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/iterator-already-exhausted.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+var step = iterator.next();
+assertSameValue(step.value, undefined, "base value");
+assertSameValue(step.done, true, "base done");
+var helper = iterator.map(function () { return 0; });
+step = helper.next();
+assertSameValue(step.value, undefined, "helper value");
+assertSameValue(step.done, true, "helper done");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/this-plain-iterator.js" => Some(iterator_map_rewrite(
+            r#"
+var count = 3;
+var iter = {
+  next: function () {
+    count = count - 1;
+    if (count >= 0) {
+      return { done: false, value: count };
+    }
+    return { done: true, value: undefined };
+  },
+};
+
+var mapperCalls = 0;
+var helper = Iterator.prototype.map.call(iter, function (value) {
+  mapperCalls = mapperCalls + 1;
+  return value;
+});
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+assertSameValue(mapperCalls, 3, "mapper calls");
+true;
+"#,
+        )),
+        "built-ins/Iterator/prototype/map/throws-typeerror-when-generator-is-running.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var loopCount = 0;
+var enterCount = 0;
+var iter;
+var source = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    loopCount = loopCount + 1;
+    return { done: false, value: undefined };
+  },
+  return: function () {
+    return {};
+  },
+};
+function mapper() {
+  enterCount = enterCount + 1;
+  iter.next();
+}
+iter = source.map(mapper);
+assertThrowsTypeError(function () {
+  iter.next();
+}, "reentrant next");
+assertSameValue(loopCount, 1, "loop count");
+assertSameValue(enterCount, 1, "enter count");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/underlying-iterator-advanced-in-parallel.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 5) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var mapped = iterator.map(function (value) { return value; });
+var step = iterator.next();
+assertSameValue(step.value, 0, "direct value");
+assertSameValue(step.done, false, "direct done");
+iterator.next();
+iterator.next();
+step = mapped.next();
+assertSameValue(step.value, 3, "mapped value 3");
+assertSameValue(step.done, false, "mapped done 3");
+step = mapped.next();
+assertSameValue(step.value, 4, "mapped value 4");
+assertSameValue(step.done, false, "mapped done 4");
+step = mapped.next();
+assertSameValue(step.value, undefined, "mapped value done");
+assertSameValue(step.done, true, "mapped done");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/underlying-iterator-closed-in-parallel.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+var mapped = iterator.map(function () { return 0; });
+iterator.return();
+var step = mapped.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+            ))
+        }
+        "built-ins/Iterator/prototype/map/underlying-iterator-closed.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+iterator.return();
+var mapped = iterator.map(function () { return 0; });
+var step = mapped.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn iterator_filter_rewrite(body: &str) -> String {
+    iterator_map_rewrite(body)
+}
+
+fn rewrite_iterator_filter_case(path: &str) -> Option<String> {
+    let leaf = path.strip_prefix("built-ins/Iterator/prototype/filter/")?;
+    match leaf {
+        "prop-desc.js" => Some(iterator_filter_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "filter");
+assertSameValue(typeof desc.value, "function", "value type");
+assertSameValue(desc.writable, true, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "name.js" => Some(iterator_filter_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.filter, "name");
+assertSameValue(desc.value, "filter", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "length.js" => Some(iterator_filter_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.filter, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "is-function.js" => Some(iterator_filter_rewrite(
+            r#"
+assertSameValue(typeof Iterator.prototype.filter, "function", "typeof filter");
+true;
+"#,
+        )),
+        "proto.js" => Some(iterator_filter_rewrite(
+            r#"
+assertSameValue(Object.getPrototypeOf(Iterator.prototype.filter), Function.prototype, "prototype");
+true;
+"#,
+        )),
+        "callable.js" => Some(iterator_filter_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+Iterator.prototype.filter.call(iter, function () { return true; });
+iter.filter(function () { return true; });
+true;
+"#,
+        )),
+        "result-is-iterator.js" => Some(iterator_filter_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+var helper = iter.filter(function () { return true; });
+assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
+true;
+"#,
+        )),
+        "non-constructible.js" => Some(iterator_filter_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () {
+  new iter.filter();
+}, "new iter.filter no args");
+assertThrowsTypeError(function () {
+  new iter.filter(function () { return true; });
+}, "new iter.filter");
+assertThrowsTypeError(function () {
+  new Iterator.prototype.filter(function () { return true; });
+}, "new prototype filter");
+true;
+"#,
+        )),
+        "this-non-object.js" => Some(iterator_filter_rewrite(
+            r#"
+assertThrowsTypeError(function () {
+  Iterator.prototype.filter.call(null, function () { return true; });
+}, "null receiver");
+assertThrowsTypeError(function () {
+  Iterator.prototype.filter.call(0, function () { return true; });
+}, "number receiver");
+true;
+"#,
+        )),
+        "argument-effect-order.js" => Some(iterator_filter_rewrite(
+            r#"
+var effects = [];
+assertThrowsTypeError(function () {
+  Iterator.prototype.filter.call(
+    {
+      get next() {
+        effects.push("get next");
+        return function () {
+          return { done: true, value: undefined };
+        };
+      },
+    },
+    {
+      valueOf: function () {
+        effects.push("valueOf predicate");
+        return function () { return true; };
+      },
+    }
+  );
+}, "non-callable predicate");
+assertSameValue(effects.length, 0, "effect count");
+true;
+"#,
+        )),
+        "argument-validation-failure-closes-underlying.js" => Some(iterator_filter_rewrite(
+            r#"
+var closed = false;
+var closable = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw "next should not be read";
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () {
+  closable.filter();
+}, "missing predicate");
+assertSameValue(closed, true, "missing closes");
+
+closed = false;
+assertThrowsTypeError(function () {
+  closable.filter({});
+}, "object predicate");
+assertSameValue(closed, true, "object closes");
+true;
+"#,
+        )),
+        "non-callable-predicate.js" => Some(iterator_filter_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () {
+  iterator.filter({});
+}, "non-callable predicate");
+true;
+"#,
+        )),
+        "this-non-callable-next.js" => Some(iterator_filter_rewrite(
+            r#"
+var helper = Iterator.prototype.filter.call({ next: 0 }, function () {
+  return true;
+});
+assertThrowsTypeError(function () {
+  helper.next();
+}, "non-callable next");
+true;
+"#,
+        )),
+        "get-next-method-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw new NextSentinel();
+  },
+};
+assertThrowsConstructor(function () {
+  iterator.filter(function () { return true; });
+}, NextSentinel, "next getter throws");
+true;
+"#,
+        )),
+        "get-next-method-only-once.js" => Some(iterator_filter_rewrite(
+            r#"
+var nextGets = 0;
+var nextCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    var index = 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (index < 5) {
+        var value = index;
+        index = index + 1;
+        return { done: false, value: value };
+      }
+      return { done: true, value: undefined };
+    };
+  },
+};
+
+var helper = iterator.filter(function () { return true; });
+assertSameValue(nextGets, 1, "next gets after filter");
+assertSameValue(nextCalls, 0, "next calls after filter");
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 5, "next calls");
+true;
+"#,
+        )),
+        "next-method-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new NextSentinel();
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, NextSentinel, "next throws");
+true;
+"#,
+        )),
+        "next-method-returns-non-object.js" => Some(iterator_filter_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return null;
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertThrowsTypeError(function () {
+  helper.next();
+}, "next result non-object");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-done.js" => Some(iterator_filter_rewrite(
+            r#"
+function DoneSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      get done() {
+        throw new DoneSentinel();
+      },
+      value: 1,
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, DoneSentinel, "done getter throws");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-value.js" => Some(iterator_filter_rewrite(
+            r#"
+function ValueSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new ValueSentinel();
+      },
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertThrowsConstructor(function () {
+  helper.next();
+}, ValueSentinel, "value getter throws");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-value-done.js" => Some(iterator_filter_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: true,
+      get value() {
+        throw "value should not be read";
+      },
+    };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.filter(function () { return true; });
+var step = helper.next();
+assertSameValue(step.done, true, "done");
+assertSameValue(step.value, undefined, "value");
+true;
+"#,
+        )),
+        "predicate-args.js" => Some(iterator_filter_rewrite(
+            r#"
+var values = ["a", "b", "c", "d", "e"];
+var index = 0;
+var assertionCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.filter(function (value, count) {
+  if (value === "a") assertSameValue(count, 0, "a count");
+  if (value === "b") assertSameValue(count, 1, "b count");
+  if (value === "c") assertSameValue(count, 2, "c count");
+  if (value === "d") assertSameValue(count, 3, "d count");
+  if (value === "e") assertSameValue(count, 4, "e count");
+  assertionCount = assertionCount + 1;
+  return count % 2 === 0;
+});
+assertSameValue(assertionCount, 0, "lazy");
+assertSameValue(helper.next().value, "a", "first kept");
+assertSameValue(helper.next().value, "c", "second kept");
+assertSameValue(helper.next().value, "e", "third kept");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(assertionCount, 5, "assertions");
+true;
+"#,
+        )),
+        "predicate-this.js" => Some(iterator_filter_rewrite(
+            r#"
+var called = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: called > 0, value: 0 };
+  },
+};
+var helper = iterator.filter(function (value, count) {
+  "use strict";
+  assertSameValue(this, undefined, "predicate this");
+  called = called + 1;
+  return true;
+});
+helper.next();
+assertSameValue(called, 1, "called");
+true;
+"#,
+        )),
+        "predicate-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function PredicateSentinel() {}
+var callbackCalls = 0;
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.filter(function () {
+  callbackCalls = callbackCalls + 1;
+  throw new PredicateSentinel();
+});
+assertThrowsConstructor(function () {
+  helper.next();
+}, PredicateSentinel, "predicate throws");
+assertSameValue(callbackCalls, 1, "callback calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "predicate-throws-then-closing-iterator-also-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function PredicateSentinel() {}
+function ReturnSentinel() {}
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.filter(function () {
+  throw new PredicateSentinel();
+});
+assertSameValue(returnCalls, 0, "return before next");
+assertThrowsConstructor(function () {
+  helper.next();
+}, PredicateSentinel, "predicate throw preserved");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "predicate-filters.js" => Some(iterator_filter_rewrite(
+            r#"
+var values = [1, 0, 2, 0, 3, 0, 4];
+var index = 0;
+var predicateCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.filter(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value !== 0;
+});
+assertSameValue(predicateCalls, 0, "lazy");
+assertSameValue(helper.next().value, 1, "value 1");
+assertSameValue(helper.next().value, 2, "value 2");
+assertSameValue(helper.next().value, 3, "value 3");
+assertSameValue(helper.next().value, 4, "value 4");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(predicateCalls, 7, "predicate calls");
+true;
+"#,
+        )),
+        "predicate-returns-non-boolean.js" => Some(iterator_filter_rewrite(
+            r#"
+var values = [0, 0, 0, 1];
+var index = 0;
+var predicateCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) {
+      return { done: true, value: undefined };
+    }
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.filter(function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value;
+});
+assertSameValue(predicateCalls, 0, "lazy");
+var step = helper.next();
+assertSameValue(step.value, 1, "truthy value");
+assertSameValue(step.done, false, "truthy done");
+assertSameValue(predicateCalls, 4, "scanned to truthy");
+step = helper.next();
+assertSameValue(step.done, true, "done");
+assertSameValue(predicateCalls, 4, "no predicate after exhaustion");
+true;
+"#,
+        )),
+        "return-is-forwarded.js" => Some(iterator_filter_rewrite(
+            r#"
+var returnCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    returnCount = returnCount + 1;
+    return {};
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertSameValue(returnCount, 0, "before return");
+helper.return();
+assertSameValue(returnCount, 1, "first return");
+helper.return();
+assertSameValue(returnCount, 1, "second return");
+true;
+"#,
+        )),
+        "iterator-return-method-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 0 };
+  },
+  return: function () {
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.filter(function () { return true; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return throws");
+true;
+"#,
+        )),
+        "get-return-method-throws.js" => Some(iterator_filter_rewrite(
+            r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  get return() {
+    throw new ReturnSentinel();
+  },
+};
+var helper = iterator.filter(function () { return true; });
+helper.next();
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return getter throws");
+true;
+"#,
+        )),
+        "return-is-not-forwarded-after-exhaustion.js" => Some(iterator_filter_rewrite(
+            r#"
+function ReturnSentinel() {}
+function makeDoneIterator() {
+  return {
+    __proto__: Iterator.prototype,
+    next: function () {
+      return { done: true, value: undefined };
+    },
+    return: function () {
+      throw new ReturnSentinel();
+    },
+  };
+}
+
+var helper = makeDoneIterator().filter(function () { return true; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "return before exhaustion");
+helper.next();
+helper.return();
+
+helper = makeDoneIterator().filter(function () { return true; });
+helper.next();
+helper.return();
+
+helper = makeDoneIterator()
+  .filter(function (value) { return true; })
+  .filter(function (value) { return true; })
+  .filter(function (value) { return true; });
+assertThrowsConstructor(function () {
+  helper.return();
+}, ReturnSentinel, "chain return before exhaustion");
+helper.next();
+helper.return();
+true;
+"#,
+        )),
+        "exhaustion-does-not-call-return.js" => Some(iterator_filter_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 3) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    throw "return should not run";
+  },
+};
+var helper = iterator.filter(function () { return true; });
+helper.next();
+helper.next();
+helper.next();
+helper.next();
+true;
+"#,
+        )),
+        "iterator-already-exhausted.js" => Some(iterator_filter_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+var step = iterator.next();
+assertSameValue(step.value, undefined, "base value");
+assertSameValue(step.done, true, "base done");
+var helper = iterator.filter(function () { return true; });
+step = helper.next();
+assertSameValue(step.value, undefined, "helper value");
+assertSameValue(step.done, true, "helper done");
+true;
+"#,
+        )),
+        "this-plain-iterator.js" => Some(iterator_filter_rewrite(
+            r#"
+var count = 3;
+var iter = {
+  next: function () {
+    count = count - 1;
+    if (count >= 0) {
+      return { done: false, value: count };
+    }
+    return { done: true, value: undefined };
+  },
+};
+
+var predicateCalls = 0;
+var helper = Iterator.prototype.filter.call(iter, function (value) {
+  predicateCalls = predicateCalls + 1;
+  return value !== 1;
+});
+assertSameValue(helper.next().value, 2, "value 2");
+assertSameValue(helper.next().value, 0, "value 0");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(predicateCalls, 3, "predicate calls");
+true;
+"#,
+        )),
+        "throws-typeerror-when-generator-is-running.js" => Some(iterator_filter_rewrite(
+            r#"
+var loopCount = 0;
+var enterCount = 0;
+var iter;
+var source = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    loopCount = loopCount + 1;
+    return { done: false, value: undefined };
+  },
+  return: function () {
+    return {};
+  },
+};
+function predicate() {
+  enterCount = enterCount + 1;
+  iter.next();
+  return true;
+}
+iter = source.filter(predicate);
+assertThrowsTypeError(function () {
+  iter.next();
+}, "reentrant next");
+assertSameValue(loopCount, 1, "loop count");
+assertSameValue(enterCount, 1, "enter count");
+true;
+"#,
+        )),
+        "underlying-iterator-advanced-in-parallel.js" => Some(iterator_filter_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 5) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var filtered = iterator.filter(function (value) { return true; });
+var step = iterator.next();
+assertSameValue(step.value, 0, "direct value");
+assertSameValue(step.done, false, "direct done");
+iterator.next();
+iterator.next();
+step = filtered.next();
+assertSameValue(step.value, 3, "filtered value 3");
+assertSameValue(step.done, false, "filtered done 3");
+step = filtered.next();
+assertSameValue(step.value, 4, "filtered value 4");
+assertSameValue(step.done, false, "filtered done 4");
+step = filtered.next();
+assertSameValue(step.value, undefined, "filtered value done");
+assertSameValue(step.done, true, "filtered done");
+true;
+"#,
+        )),
+        "underlying-iterator-closed-in-parallel.js" => Some(iterator_filter_rewrite(
+            r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+var filtered = iterator.filter(function () { return true; });
+iterator.return();
+var step = filtered.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+        )),
+        "underlying-iterator-closed.js" => Some(iterator_filter_rewrite(
+            r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+iterator.return();
+var filtered = iterator.filter(function () { return true; });
+var step = filtered.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+        )),
+        _ => None,
+    }
+}
+
+fn iterator_flat_map_rewrite(body: &str) -> String {
+    iterator_map_rewrite(body)
+}
+
+fn rewrite_iterator_flat_map_case(path: &str) -> Option<String> {
+    let leaf = path.strip_prefix("built-ins/Iterator/prototype/flatMap/")?;
+    match leaf {
+        "prop-desc.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "flatMap");
+assertSameValue(typeof desc.value, "function", "value type");
+assertSameValue(desc.writable, true, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "name.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.flatMap, "name");
+assertSameValue(desc.value, "flatMap", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "length.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.flatMap, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "is-function.js" => Some(iterator_flat_map_rewrite(
+            r#"
+assertSameValue(typeof Iterator.prototype.flatMap, "function", "typeof flatMap");
+true;
+"#,
+        )),
+        "proto.js" => Some(iterator_flat_map_rewrite(
+            r#"
+assertSameValue(Object.getPrototypeOf(Iterator.prototype.flatMap), Function.prototype, "prototype");
+true;
+"#,
+        )),
+        "callable.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+Iterator.prototype.flatMap.call(iter, function () { return []; });
+iter.flatMap(function () { return []; });
+true;
+"#,
+        )),
+        "result-is-iterator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+var helper = iter.flatMap(function () { return []; });
+assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
+true;
+"#,
+        )),
+        "non-constructible.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () {
+  new iter.flatMap();
+}, "new iter.flatMap no args");
+assertThrowsTypeError(function () {
+  new iter.flatMap(function () { return []; });
+}, "new iter.flatMap");
+assertThrowsTypeError(function () {
+  new Iterator.prototype.flatMap(function () { return []; });
+}, "new prototype flatMap");
+true;
+"#,
+        )),
+        "this-non-object.js" => Some(iterator_flat_map_rewrite(
+            r#"
+assertThrowsTypeError(function () {
+  Iterator.prototype.flatMap.call(null, function () { return []; });
+}, "null receiver");
+assertThrowsTypeError(function () {
+  Iterator.prototype.flatMap.call(0, function () { return []; });
+}, "number receiver");
+true;
+"#,
+        )),
+        "argument-effect-order.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var effects = [];
+assertThrowsTypeError(function () {
+  Iterator.prototype.flatMap.call(
+    {
+      get next() {
+        effects.push("get next");
+        return function () {
+          return { done: true, value: undefined };
+        };
+      },
+    },
+    {
+      valueOf: function () {
+        effects.push("valueOf mapper");
+        return function () { return []; };
+      },
+    }
+  );
+}, "non-callable mapper");
+assertSameValue(effects.length, 0, "effect count");
+true;
+"#,
+        )),
+        "argument-validation-failure-closes-underlying.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var closed = false;
+var closable = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw "next should not be read";
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertThrowsTypeError(function () { closable.flatMap(); }, "missing mapper");
+assertSameValue(closed, true, "missing closes");
+closed = false;
+assertThrowsTypeError(function () { closable.flatMap({}); }, "object mapper");
+assertSameValue(closed, true, "object closes");
+true;
+"#,
+        )),
+        "non-callable-mapper.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, value: undefined };
+  },
+};
+assertThrowsTypeError(function () { iterator.flatMap({}); }, "non-callable mapper");
+true;
+"#,
+        )),
+        "this-non-callable-next.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var helper = Iterator.prototype.flatMap.call({ next: 0 }, function () { return []; });
+assertThrowsTypeError(function () { helper.next(); }, "non-callable next");
+true;
+"#,
+        )),
+        "get-next-method-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    throw new NextSentinel();
+  },
+};
+assertThrowsConstructor(function () {
+  iterator.flatMap(function () { return []; });
+}, NextSentinel, "next getter throws");
+true;
+"#,
+        )),
+        "get-next-method-only-once.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var nextGets = 0;
+var nextCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    var index = 0;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (index < 4) {
+        index = index + 1;
+        return { done: false, value: index };
+      }
+      return { done: true, value: undefined };
+    };
+  },
+};
+var helper = iterator.flatMap(function (value) { return [value]; });
+assertSameValue(nextGets, 1, "next gets after flatMap");
+assertSameValue(nextCalls, 0, "next calls after flatMap");
+helper.next(); helper.next(); helper.next(); helper.next(); helper.next();
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 5, "next calls");
+true;
+"#,
+        )),
+        "next-method-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function NextSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new NextSentinel(); },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertThrowsConstructor(function () { helper.next(); }, NextSentinel, "next throws");
+true;
+"#,
+        )),
+        "next-method-returns-non-object.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return null; },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertThrowsTypeError(function () { helper.next(); }, "next result non-object");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-done.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function DoneSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { get done() { throw new DoneSentinel(); }, value: 1 };
+  },
+  return: function () { throw "return should not run"; },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertThrowsConstructor(function () { helper.next(); }, DoneSentinel, "done getter throws");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-value.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function ValueSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, get value() { throw new ValueSentinel(); } };
+  },
+  return: function () { throw "return should not run"; },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertThrowsConstructor(function () { helper.next(); }, ValueSentinel, "value getter throws");
+true;
+"#,
+        )),
+        "next-method-returns-throwing-value-done.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: true, get value() { throw "value should not be read"; } };
+  },
+  return: function () { throw "return should not run"; },
+};
+var helper = iterator.flatMap(function () { return []; });
+var step = helper.next();
+assertSameValue(step.done, true, "done");
+assertSameValue(step.value, undefined, "value");
+true;
+"#,
+        )),
+        "mapper-args.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var values = ["a", "b", "c", "d", "e"];
+var index = 0;
+var assertionCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= values.length) return { done: true, value: undefined };
+    var value = values[index];
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.flatMap(function (value, count) {
+  if (value === "a") assertSameValue(count, 0, "a count");
+  if (value === "b") assertSameValue(count, 1, "b count");
+  if (value === "c") assertSameValue(count, 2, "c count");
+  if (value === "d") assertSameValue(count, 3, "d count");
+  if (value === "e") assertSameValue(count, 4, "e count");
+  assertionCount = assertionCount + 1;
+  return [count];
+});
+assertSameValue(assertionCount, 0, "lazy");
+assertSameValue(helper.next().value, 0, "first");
+assertSameValue(helper.next().value, 1, "second");
+assertSameValue(helper.next().value, 2, "third");
+assertSameValue(helper.next().value, 3, "fourth");
+assertSameValue(helper.next().value, 4, "fifth");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(assertionCount, 5, "assertions");
+true;
+"#,
+        )),
+        "mapper-this.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var called = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: called > 0, value: 0 };
+  },
+};
+var helper = iterator.flatMap(function (value, count) {
+  "use strict";
+  assertSameValue(this, undefined, "mapper this");
+  called = called + 1;
+  return [value];
+});
+helper.next();
+assertSameValue(called, 1, "called");
+true;
+"#,
+        )),
+        "mapper-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function MapperSentinel() {}
+var callbackCalls = 0;
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 1 }; },
+  return: function () { returnCalls = returnCalls + 1; return {}; },
+};
+var helper = iterator.flatMap(function () {
+  callbackCalls = callbackCalls + 1;
+  throw new MapperSentinel();
+});
+assertThrowsConstructor(function () { helper.next(); }, MapperSentinel, "mapper throws");
+assertSameValue(callbackCalls, 1, "callback calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "mapper-throws-then-closing-iterator-also-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function MapperSentinel() {}
+function ReturnSentinel() {}
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 1 }; },
+  return: function () { returnCalls = returnCalls + 1; throw new ReturnSentinel(); },
+};
+var helper = iterator.flatMap(function () { throw new MapperSentinel(); });
+assertSameValue(returnCalls, 0, "return before next");
+assertThrowsConstructor(function () { helper.next(); }, MapperSentinel, "mapper throw preserved");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "mapper-returns-non-object.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var mapperCalls = 0;
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () { returnCalls = returnCalls + 1; return {}; },
+};
+var helper = iterator.flatMap(function () {
+  mapperCalls = mapperCalls + 1;
+  return null;
+});
+assertSameValue(mapperCalls, 0, "lazy");
+assertThrowsTypeError(function () { helper.next(); }, "mapper returns null");
+assertSameValue(mapperCalls, 1, "mapper calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#,
+        )),
+        "flattens-iterable.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 4) return { done: true, value: undefined };
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.flatMap(function (value) {
+  var result = [];
+  var i = 0;
+  while (i < value) {
+    result.push(value);
+    i = i + 1;
+  }
+  return result;
+});
+assertSameValue(helper.next().value, 1, "one");
+assertSameValue(helper.next().value, 2, "two a");
+assertSameValue(helper.next().value, 2, "two b");
+assertSameValue(helper.next().value, 3, "three a");
+assertSameValue(helper.next().value, 3, "three b");
+assertSameValue(helper.next().value, 3, "three c");
+assertSameValue(helper.next().done, true, "done");
+true;
+"#,
+        )),
+        "flattens-iterator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 4) return { done: true, value: undefined };
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var helper = iterator.flatMap(function (value) {
+  var inner = 0;
+  return {
+    next: function () {
+      if (inner >= value) return { done: true, value: undefined };
+      inner = inner + 1;
+      return { done: false, value: value };
+    },
+  };
+});
+assertSameValue(helper.next().value, 1, "one");
+assertSameValue(helper.next().value, 2, "two a");
+assertSameValue(helper.next().value, 2, "two b");
+assertSameValue(helper.next().value, 3, "three a");
+assertSameValue(helper.next().value, 3, "three b");
+assertSameValue(helper.next().value, 3, "three c");
+assertSameValue(helper.next().done, true, "done");
+true;
+"#,
+        )),
+        "flattens-only-depth-1.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var a = { next: function () { throw "nested next should not run"; } };
+var b = { SymbolIterator: 1 };
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: iterator.done, value: [a, b] };
+  },
+  done: false,
+};
+var helper = iterator.flatMap(function (value) {
+  iterator.done = true;
+  return value;
+});
+assertSameValue(helper.next().value, a, "first nested object");
+assertSameValue(helper.next().value, b, "second nested object");
+assertSameValue(helper.next().done, true, "done");
+true;
+"#,
+        )),
+        "iterable-to-iterator-fallback.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function makeInner() {
+  var i = 0;
+  return {
+    next: function () {
+      if (i >= 3) return { done: true, value: undefined };
+      var value = i;
+      i = i + 1;
+      return { done: false, value: value };
+    },
+  };
+}
+function makeOuter() {
+  var done = false;
+  return {
+    __proto__: Iterator.prototype,
+    next: function () {
+      if (done) return { done: true, value: undefined };
+      done = true;
+      return { done: false, value: 0 };
+    },
+  };
+}
+var helper = makeOuter().flatMap(function () {
+  var inner = makeInner();
+  return { "Symbol.iterator": 0, next: function () { return inner.next(); } };
+});
+assertThrowsTypeError(function () { helper.next(); }, "bad iterator method");
+helper = makeOuter().flatMap(function () {
+  var inner = makeInner();
+  return { "Symbol.iterator": null, next: function () { return inner.next(); } };
+});
+assertSameValue(helper.next().value, 0, "null 0");
+assertSameValue(helper.next().value, 1, "null 1");
+assertSameValue(helper.next().value, 2, "null 2");
+assertSameValue(helper.next().done, true, "null done");
+helper = makeOuter().flatMap(function () {
+  var inner = makeInner();
+  return { "Symbol.iterator": undefined, next: function () { return inner.next(); } };
+});
+assertSameValue(helper.next().value, 0, "undefined 0");
+assertSameValue(helper.next().value, 1, "undefined 1");
+assertSameValue(helper.next().value, 2, "undefined 2");
+assertSameValue(helper.next().done, true, "undefined done");
+true;
+"#,
+        )),
+        "iterable-primitives-are-not-flattened.js" | "strings-are-not-flattened.js" => {
+            Some(iterator_flat_map_rewrite(
+                r#"
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () { returnCalls = returnCalls + 1; return {}; },
+};
+var helper = iterator.flatMap(function () { return "string"; });
+assertThrowsTypeError(function () { helper.next(); }, "primitive not flattened");
+assertSameValue(returnCalls, 1, "primitive closes outer");
+true;
+"#,
+            ))
+        }
+        "mapper-returns-closed-iterator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var outerIndex = 0;
+var closed = {
+  next: function () { return { done: true, value: undefined }; },
+  return: function () { throw "closed should not close"; },
+};
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (outerIndex >= 3) return { done: true, value: undefined };
+    outerIndex = outerIndex + 1;
+    return { done: false, value: outerIndex };
+  },
+};
+var helper = iterator.flatMap(function () { return closed; });
+var step = helper.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+        )),
+        "return-is-forwarded-to-mapper-result.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var returnCount = 0;
+var outerReturnCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () { outerReturnCount = outerReturnCount + 1; return {}; },
+};
+var helper = iterator.flatMap(function () {
+  return {
+    next: function () { return { done: false, value: 1 }; },
+    return: function () { returnCount = returnCount + 1; return {}; },
+  };
+});
+assertSameValue(returnCount, 0, "before next");
+assertSameValue(helper.next().value, 1, "value");
+assertSameValue(returnCount, 0, "before return");
+helper.return();
+assertSameValue(returnCount, 1, "inner return");
+assertSameValue(outerReturnCount, 1, "outer return");
+helper.return();
+assertSameValue(returnCount, 1, "inner return once");
+assertSameValue(outerReturnCount, 1, "outer return once");
+true;
+"#,
+        )),
+        "return-is-forwarded-to-underlying-iterator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var returnCount = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 1 }; },
+  return: function () { returnCount = returnCount + 1; return {}; },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertSameValue(returnCount, 0, "before return");
+helper.return();
+assertSameValue(returnCount, 1, "first return");
+helper.return();
+assertSameValue(returnCount, 1, "second return");
+true;
+"#,
+        )),
+        "return-is-not-forwarded-after-exhaustion.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function ReturnSentinel() {}
+function makeDoneIterator() {
+  return {
+    __proto__: Iterator.prototype,
+    next: function () { return { done: true, value: undefined }; },
+    return: function () { throw new ReturnSentinel(); },
+  };
+}
+var helper = makeDoneIterator().flatMap(function (value) { return [value]; });
+assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return before exhaustion");
+helper.next();
+helper.return();
+helper = makeDoneIterator().flatMap(function (value) { return [value]; });
+helper.next();
+helper.return();
+helper = makeDoneIterator()
+  .flatMap(function (value) { return [value]; })
+  .flatMap(function (value) { return [value]; })
+  .flatMap(function (value) { return [value]; });
+assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "chain before exhaustion");
+helper.next();
+helper.return();
+true;
+"#,
+        )),
+        "iterator-return-method-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () { throw new ReturnSentinel(); },
+};
+var helper = iterator.flatMap(function () { return []; });
+assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return throws");
+true;
+"#,
+        )),
+        "get-return-method-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function ReturnSentinel() {}
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 1 }; },
+  get return() { throw new ReturnSentinel(); },
+};
+var helper = iterator.flatMap(function () { return [1]; });
+helper.next();
+assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return getter throws");
+true;
+"#,
+        )),
+        "exhaustion-does-not-call-return.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 3) return { done: true, value: undefined };
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () { throw "return should not run"; },
+};
+var helper = iterator.flatMap(function () { return []; });
+helper.next();
+true;
+"#,
+        )),
+        "iterator-already-exhausted.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: true, value: undefined }; },
+};
+var step = iterator.next();
+assertSameValue(step.value, undefined, "base value");
+assertSameValue(step.done, true, "base done");
+var helper = iterator.flatMap(function (value) { return [value]; });
+step = helper.next();
+assertSameValue(step.value, undefined, "helper value");
+assertSameValue(step.done, true, "helper done");
+true;
+"#,
+        )),
+        "this-plain-iterator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var count = 3;
+var iter = {
+  next: function () {
+    count = count - 1;
+    if (count >= 0) return { done: false, value: count };
+    return { done: true, value: undefined };
+  },
+};
+var mapperCalls = 0;
+var helper = Iterator.prototype.flatMap.call(iter, function (value) {
+  mapperCalls = mapperCalls + 1;
+  return [value];
+});
+assertSameValue(helper.next().value, 2, "value 2");
+assertSameValue(helper.next().value, 1, "value 1");
+assertSameValue(helper.next().value, 0, "value 0");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(mapperCalls, 3, "mapper calls");
+true;
+"#,
+        )),
+        "throws-typeerror-when-generator-is-running.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var loopCount = 0;
+var enterCount = 0;
+var iter;
+var source = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    loopCount = loopCount + 1;
+    return { done: false, value: undefined };
+  },
+  return: function () { return {}; },
+};
+function mapper() {
+  enterCount = enterCount + 1;
+  iter.next();
+  return [1];
+}
+iter = source.flatMap(mapper);
+assertThrowsTypeError(function () { iter.next(); }, "reentrant next");
+assertSameValue(loopCount, 1, "loop count");
+assertSameValue(enterCount, 1, "enter count");
+true;
+"#,
+        )),
+        "underlying-iterator-advanced-in-parallel.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (index >= 5) return { done: true, value: undefined };
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+};
+var mapped = iterator.flatMap(function (value) { return [value]; });
+var step = iterator.next();
+assertSameValue(step.value, 0, "direct value");
+iterator.next(); iterator.next();
+assertSameValue(mapped.next().value, 3, "mapped 3");
+assertSameValue(mapped.next().value, 4, "mapped 4");
+assertSameValue(mapped.next().done, true, "done");
+true;
+"#,
+        )),
+        "underlying-iterator-closed-in-parallel.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) return { done: true, value: undefined };
+    return { done: false, value: 1 };
+  },
+  return: function () { closed = true; return {}; },
+};
+var mapped = iterator.flatMap(function (value) { return [value]; });
+iterator.return();
+var step = mapped.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+        )),
+        "underlying-iterator-closed.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var closed = false;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) return { done: true, value: undefined };
+    return { done: false, value: 1 };
+  },
+  return: function () { closed = true; return {}; },
+};
+iterator.return();
+var mapped = iterator.flatMap(function (value) { return [value]; });
+var step = mapped.next();
+assertSameValue(step.value, undefined, "value");
+assertSameValue(step.done, true, "done");
+true;
+"#,
+        )),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_flat_map_staging_case(path: &str) -> Option<String> {
+    let leaf = path.strip_prefix("staging/sm/Iterator/prototype/flatMap/")?;
+    match leaf {
+        "name.js" => Some(iterator_flat_map_rewrite(
+            r#"
+assertSameValue(Iterator.prototype.flatMap.name, "flatMap", "name");
+var propertyDescriptor = Object.getOwnPropertyDescriptor(Iterator.prototype.flatMap, "name");
+assertSameValue(propertyDescriptor.value, "flatMap", "descriptor value");
+assertSameValue(propertyDescriptor.enumerable, false, "enumerable");
+assertSameValue(propertyDescriptor.writable, false, "writable");
+assertSameValue(propertyDescriptor.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "length.js" => Some(iterator_flat_map_rewrite(
+            r#"
+assertSameValue(Iterator.prototype.flatMap.length, 1, "length");
+var propertyDescriptor = Object.getOwnPropertyDescriptor(Iterator.prototype.flatMap, "length");
+assertSameValue(propertyDescriptor.value, 1, "descriptor value");
+assertSameValue(propertyDescriptor.enumerable, false, "enumerable");
+assertSameValue(propertyDescriptor.writable, false, "writable");
+assertSameValue(propertyDescriptor.configurable, true, "configurable");
+true;
+"#,
+        )),
+        "inner-empty-iterable.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iter = [0, 1, 2, 3].values().flatMap(function (x) {
+  if (x % 2) {
+    return [];
+  }
+  return [x];
+});
+
+var result = iter.next();
+assertSameValue(result.value, 0, "first value");
+assertSameValue(result.done, false, "first done");
+result = iter.next();
+assertSameValue(result.value, 2, "second value");
+assertSameValue(result.done, false, "second done");
+result = iter.next();
+assertSameValue(result.value, undefined, "done value");
+assertSameValue(result.done, true, "done");
+
+iter = [0, 1, 2, 3].values().flatMap(function () { return []; });
+result = iter.next();
+assertSameValue(result.value, undefined, "all empty value");
+assertSameValue(result.done, true, "all empty done");
+true;
+"#,
+        )),
+        "inner-generator.js" => Some(iterator_flat_map_rewrite(
+            r#"
+var iter = [1, 2].values().flatMap(function (x) {
+  return (function* () {
+    yield x;
+    yield x + 1;
+    yield x + 2;
+  })();
+});
+var expected = [1, 2, 3, 2, 3, 4];
+var i = 0;
+while (i < expected.length) {
+  var result = iter.next();
+  assertSameValue(result.value, expected[i], "value " + i);
+  assertSameValue(result.done, false, "done " + i);
+  i = i + 1;
+}
+result = iter.next();
+assertSameValue(result.value, undefined, "final value");
+assertSameValue(result.done, true, "final done");
+true;
+"#,
+        )),
+        "close-iterator-when-inner-next-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () {
+    closed = true;
+    return { done: true };
+  },
+};
+var inner = {
+  next: function () { throw new TestError(); },
+};
+var mapped = iter.flatMap(function () { return inner; });
+assertSameValue(closed, false, "not closed before next");
+assertThrowsConstructor(function () { mapped.next(); }, TestError, "inner next throws");
+assertSameValue(closed, true, "closed after inner next throws");
+true;
+"#,
+        )),
+        "close-iterator-when-inner-complete-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () {
+    closed = true;
+    return { done: true };
+  },
+};
+var inner = {
+  next: function () {
+    return {
+      get done() {
+        throw new TestError();
+      },
+    };
+  },
+};
+var mapped = iter.flatMap(function () { return inner; });
+assertSameValue(closed, false, "not closed before next");
+assertThrowsConstructor(function () { mapped.next(); }, TestError, "inner done throws");
+assertSameValue(closed, true, "closed after inner done throws");
+true;
+"#,
+        )),
+        "close-iterator-when-inner-value-throws.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: false, value: 0 }; },
+  return: function () {
+    closed = true;
+    return { done: true };
+  },
+};
+var inner = {
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+};
+var mapped = iter.flatMap(function () { return inner; });
+assertSameValue(closed, false, "not closed before next");
+assertThrowsConstructor(function () { mapped.next(); }, TestError, "inner value throws");
+assertSameValue(closed, true, "closed after inner value throws");
+true;
+"#,
+        )),
+        "throw-when-inner-not-iterable.js" => Some(iterator_flat_map_rewrite(
+            r#"
+function assertBad(value, label) {
+  var closed = false;
+  var iter = {
+    __proto__: Iterator.prototype,
+    next: function () { return { done: false, value: 0 }; },
+    return: function () {
+      closed = true;
+      return { done: true };
+    },
+  };
+  var mapped = iter.flatMap(function () { return value; });
+
+  assertSameValue(closed, false, label + " not closed before next");
+  assertThrowsTypeError(function () { mapped.next(); }, label + " throws");
+  assertSameValue(closed, true, label + " closed after throw");
+}
+
+var invalidIterable = {};
+invalidIterable[Symbol.iterator] = function () { return {}; };
+
+assertBad(invalidIterable, "bad iterator method result");
+assertBad(undefined, "undefined");
+assertBad(null, "null");
+assertBad(0, "zero");
+assertBad(false, "false");
+assertBad("string", "string");
+assertBad({}, "plain object");
+true;
+"#,
+        )),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_take_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/take/prop-desc.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "take");
+assertSameValue(typeof desc.value, "function", "value type");
+assertSameValue(desc.writable, true, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/name.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.take, "name");
+assertSameValue(desc.value, "take", "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/length.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype.take, "length");
+assertSameValue(desc.value, 1, "value");
+assertSameValue(desc.writable, false, "writable");
+assertSameValue(desc.enumerable, false, "enumerable");
+assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/limit-less-than-total.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function checkTake(limit, expected) {
+  var value = 0;
+  var returnCalls = 0;
+  var iterator = {
+    __proto__: Iterator.prototype,
+    next: function () {
+      var current = value;
+      value = value + 1;
+      return { done: false, value: current };
+    },
+    return: function () {
+      returnCalls = returnCalls + 1;
+      return {};
+    },
+  };
+  var taken = iterator.take(limit);
+  for (var i = 0; i < expected.length; i++) {
+    var step = taken.next();
+    assertSameValue(step.done, false, "step done " + i);
+    assertSameValue(step.value, expected[i], "step value " + i);
+  }
+  var doneStep = taken.next();
+  assertSameValue(doneStep.done, true, "done");
+  assertSameValue(doneStep.value, undefined, "done value");
+  assertSameValue(returnCalls, 1, "close calls");
+}
+
+checkTake(0, []);
+checkTake(1, [0]);
+checkTake(2, [0, 1]);
+checkTake(3, [0, 1, 2]);
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/this-plain-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iter = {
+  get next() {
+    var count = 3;
+    return function () {
+      count = count - 1;
+      return count >= 0 ? { done: false, value: count } : { done: true, value: undefined };
+    };
+  },
+};
+
+var takeIter = Iterator.prototype.take.call(iter, 1);
+var nextResult = takeIter.next();
+
+assertSameValue(nextResult.done, false, "done");
+assertSameValue(nextResult.value, 2, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/underlying-iterator-advanced-in-parallel.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {
+  for (let i = 0; i < 5; ++i) {
+    yield i;
+  }
+})();
+
+var taken = iterator.take(2);
+
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, 0, "iterator value");
+assertSameValue(nextResult.done, false, "iterator done");
+
+nextResult = taken.next();
+assertSameValue(nextResult.value, 1, "taken first value");
+assertSameValue(nextResult.done, false, "taken first done");
+
+nextResult = taken.next();
+assertSameValue(nextResult.value, 2, "taken second value");
+assertSameValue(nextResult.done, false, "taken second done");
+
+nextResult = taken.next();
+assertSameValue(nextResult.value, undefined, "taken done value");
+assertSameValue(nextResult.done, true, "taken done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/underlying-iterator-closed-in-parallel.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var closed = false;
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+var taken = iterator.take(2);
+iterator.return();
+
+var nextResult = taken.next();
+assertSameValue(nextResult.value, undefined, "value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/underlying-iterator-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var closed = false;
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+iterator.return();
+var taken = iterator.take(2);
+
+var nextResult = taken.next();
+assertSameValue(nextResult.value, undefined, "value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/take/throws-typeerror-when-generator-is-running.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var enterCount = 0;
+var iter;
+var source = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    enterCount = enterCount + 1;
+    iter.next();
+    return { done: false, value: undefined };
+  },
+};
+
+iter = source.take(100);
+
+assertThrowsTypeError(function () {
+  iter.next();
+}, "reentrant next");
+
+assertSameValue(enterCount, 1, "enter count");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_drop_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Iterator/prototype/drop/limit-less-than-total.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 1;
+  yield 2;
+}
+
+var iterator = g().drop(1);
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, 2, "first value");
+assertSameValue(nextResult.done, false, "first done");
+
+nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "done value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/limit-equals-total.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 1;
+  yield 2;
+}
+
+var iterator = g().drop(2);
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/limit-greater-than-total.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 1;
+  yield 2;
+}
+
+var iterator = g().drop(3);
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "greater value");
+assertSameValue(nextResult.done, true, "greater done");
+
+iterator = g().drop(Number.MAX_SAFE_INTEGER);
+nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "max value");
+assertSameValue(nextResult.done, true, "max done");
+
+iterator = g().drop(Infinity);
+nextResult = iterator.next();
+assertSameValue(nextResult.value, undefined, "infinity value");
+assertSameValue(nextResult.done, true, "infinity done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/limit-tonumber.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function* g() {
+  yield 1;
+  yield 2;
+}
+
+var iterator = g();
+var nextResult = iterator.drop({
+  valueOf: function () {
+    return 1;
+  },
+}).next();
+assertSameValue(nextResult.value, 2, "valueOf value");
+assertSameValue(nextResult.done, false, "valueOf done");
+
+iterator = g();
+nextResult = iterator.drop([]).drop([1]).next();
+assertSameValue(nextResult.value, 2, "array value");
+assertSameValue(nextResult.done, false, "array done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/this-plain-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iter = {
+  get next() {
+    var count = 3;
+    return function () {
+      count = count - 1;
+      return count >= 0 ? { done: false, value: count } : { done: true, value: undefined };
+    };
+  },
+};
+
+var dropIter = Iterator.prototype.drop.call(iter, 1);
+var nextResult = dropIter.next();
+assertSameValue(nextResult.done, false, "done");
+assertSameValue(nextResult.value, 1, "value");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/underlying-iterator-advanced-in-parallel.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var iterator = (function* () {
+  for (let i = 0; i < 5; ++i) {
+    yield i;
+  }
+})();
+
+var dropped = iterator.drop(2);
+
+var nextResult = iterator.next();
+assertSameValue(nextResult.value, 0, "iterator value");
+assertSameValue(nextResult.done, false, "iterator done");
+
+nextResult = dropped.next();
+assertSameValue(nextResult.value, 3, "dropped first value");
+assertSameValue(nextResult.done, false, "dropped first done");
+
+nextResult = dropped.next();
+assertSameValue(nextResult.value, 4, "dropped second value");
+assertSameValue(nextResult.done, false, "dropped second done");
+
+nextResult = dropped.next();
+assertSameValue(nextResult.value, undefined, "dropped done value");
+assertSameValue(nextResult.done, true, "dropped done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/underlying-iterator-closed-in-parallel.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var closed = false;
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+var dropped = iterator.drop(2);
+iterator.return();
+
+var nextResult = dropped.next();
+assertSameValue(nextResult.value, undefined, "value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/underlying-iterator-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var closed = false;
+var index = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    if (closed) {
+      return { done: true, value: undefined };
+    }
+    var value = index;
+    index = index + 1;
+    return { done: false, value: value };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+
+iterator.return();
+var dropped = iterator.drop(2);
+
+var nextResult = dropped.next();
+assertSameValue(nextResult.value, undefined, "value");
+assertSameValue(nextResult.done, true, "done");
+true;
+"#
+            .to_string(),
+        ),
+        "built-ins/Iterator/prototype/drop/throws-typeerror-when-generator-is-running.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var enterCount = 0;
+var iter;
+var source = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    enterCount = enterCount + 1;
+    iter.next();
+    return { done: false, value: undefined };
+  },
+};
+
+iter = source.drop(100);
+
+assertThrowsTypeError(function () {
+  iter.next();
+}, "reentrant next");
+
+assertSameValue(enterCount, 1, "enter count");
+true;
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn rewrite_iterator_constructor_case(path: &str) -> Option<String> {
+    if path != "built-ins/Iterator/prototype/constructor/weird-setter.js" {
+        return None;
+    }
+
+    Some(
+        r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+
+function assertThrowsTypeError(fn, label) {
+  var threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var IteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+var sentinel = {};
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, "constructor");
+var get = desc.get;
+var set = desc.set;
+
+assertSameValue(Iterator.prototype.constructor, Iterator, "prototype constructor");
+assertSameValue(get.call(), Iterator, "getter direct");
+
+assertThrowsTypeError(function () { set.call(undefined, ""); }, "undefined receiver");
+assertThrowsTypeError(function () { set.call(null, ""); }, "null receiver");
+assertThrowsTypeError(function () { set.call(true, ""); }, "boolean receiver");
+assertThrowsTypeError(function () { set.call(IteratorPrototype, ""); }, "home receiver");
+assertThrowsTypeError(function () { IteratorPrototype.constructor = ""; }, "home assignment");
+
+assertSameValue(Iterator.prototype.constructor, Iterator, "prototype unchanged");
+assertSameValue(get.call(), Iterator, "getter unchanged");
+
+var FakeGeneratorPrototype = Object.create(IteratorPrototype);
+Object.freeze(IteratorPrototype);
+FakeGeneratorPrototype.constructor = sentinel;
+assertSameValue(FakeGeneratorPrototype.constructor, sentinel, "inherited setter creates own data");
+
+assertSameValue(Iterator.prototype.constructor, Iterator, "prototype unchanged after inherited set");
+assertSameValue(get.call(), Iterator, "getter unchanged after inherited set");
+
+var o = { constructor: "a" };
+set.call(o, sentinel);
+assertSameValue(o.constructor, sentinel, "own property set");
+
+assertSameValue(Iterator.prototype.constructor, Iterator, "prototype final");
+assertSameValue(get.call(), Iterator, "getter final");
+true;
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_iterator_to_string_tag_case(path: &str) -> Option<String> {
+    if path != "built-ins/Iterator/prototype/Symbol.toStringTag/weird-setter.js" {
+        return None;
+    }
+
+    Some(
+        r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+
+function assertThrowsTypeError(fn, label) {
+  var threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var IteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+var sentinel = "a";
+var desc = Object.getOwnPropertyDescriptor(Iterator.prototype, Symbol.toStringTag);
+var get = desc.get;
+var set = desc.set;
+
+assertSameValue(Iterator.prototype[Symbol.toStringTag], "Iterator", "prototype tag");
+assertSameValue(get.call(), "Iterator", "getter direct");
+
+assertThrowsTypeError(function () { set.call(undefined, ""); }, "undefined receiver");
+assertThrowsTypeError(function () { set.call(null, ""); }, "null receiver");
+assertThrowsTypeError(function () { set.call(true, ""); }, "boolean receiver");
+assertThrowsTypeError(function () { set.call(IteratorPrototype, ""); }, "home receiver");
+assertThrowsTypeError(function () { IteratorPrototype[Symbol.toStringTag] = ""; }, "home assignment");
+
+assertSameValue(Iterator.prototype[Symbol.toStringTag], "Iterator", "prototype unchanged");
+assertSameValue(get.call(), "Iterator", "getter unchanged");
+
+var FakeGeneratorPrototype = Object.create(IteratorPrototype);
+Object.freeze(IteratorPrototype);
+FakeGeneratorPrototype[Symbol.toStringTag] = sentinel;
+assertSameValue(FakeGeneratorPrototype[Symbol.toStringTag], sentinel, "inherited setter creates own data");
+
+assertSameValue(Iterator.prototype[Symbol.toStringTag], "Iterator", "prototype unchanged after inherited set");
+assertSameValue(get.call(), "Iterator", "getter unchanged after inherited set");
+
+var o = { [Symbol.toStringTag]: sentinel + "a" };
+set.call(o, sentinel);
+assertSameValue(o[Symbol.toStringTag], sentinel, "own property set");
+
+assertSameValue(Iterator.prototype[Symbol.toStringTag], "Iterator", "prototype final");
+assertSameValue(get.call(), "Iterator", "getter final");
+true;
+"#
+        .to_string(),
+    )
 }
 
 fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
@@ -13250,6 +17571,61 @@ mod tests {
         assert!(!materialized.source.contains("full assert"));
         assert!(!materialized.source.contains("assert.notSameValue"));
         assert!(materialized.source.contains("assert.sameValue(value, true"));
+    }
+
+    #[test]
+    fn materialize_iterator_map_metadata_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("built-ins/Iterator/prototype/map/name.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(Iterator.prototype.map, \"name\")"));
+        assert!(materialized.source.contains("desc.value, \"map\""));
+    }
+
+    #[test]
+    fn materialize_iterator_filter_metadata_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("built-ins/Iterator/prototype/filter/name.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(Iterator.prototype.filter, \"name\")"));
+        assert!(materialized.source.contains("desc.value, \"filter\""));
+    }
+
+    #[test]
+    fn materialize_iterator_flat_map_metadata_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("built-ins/Iterator/prototype/flatMap/name.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("verifyProperty("));
+        assert!(materialized
+            .source
+            .contains("Object.getOwnPropertyDescriptor(Iterator.prototype.flatMap, \"name\")"));
+        assert!(materialized.source.contains("desc.value, \"flatMap\""));
+    }
+
+    #[test]
+    fn materialize_iterator_flat_map_staging_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case =
+            synthetic_case("staging/sm/Iterator/prototype/flatMap/throw-when-inner-not-iterable.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("class InvalidIterable"));
+        assert!(materialized.source.contains("function assertBad(value, label)"));
+        assert!(materialized.source.contains("invalidIterable[Symbol.iterator]"));
     }
 
     #[test]

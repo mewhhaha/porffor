@@ -22,7 +22,8 @@ use porffor_ir::{
     FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
     INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
     JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_NEW_TARGET_NAME,
-    LEXICAL_THIS_NAME, NUMBER_NAME, OBJECT_NAME, PORFFOR_GENERATOR_THROW_SLOT, PRINT_NAME,
+    LEXICAL_THIS_NAME, NUMBER_NAME, OBJECT_NAME, PORFFOR_GENERATOR_THROW_SLOT,
+    PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT, PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME,
     PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
     SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYNTAX_ERROR_NAME,
     TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT, TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT,
@@ -581,6 +582,31 @@ fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Opti
         | StandardBuiltinId::ArrayIteratorIdentity
         | StandardBuiltinId::IteratorFrom
         | StandardBuiltinId::IteratorPrototypeToArray
+        | StandardBuiltinId::IteratorPrototypeForEach
+        | StandardBuiltinId::IteratorPrototypeEvery
+        | StandardBuiltinId::IteratorPrototypeSome
+        | StandardBuiltinId::IteratorPrototypeFind
+        | StandardBuiltinId::IteratorPrototypeReduce
+        | StandardBuiltinId::IteratorPrototypeMap
+        | StandardBuiltinId::IteratorMapNext
+        | StandardBuiltinId::IteratorMapReturn
+        | StandardBuiltinId::IteratorPrototypeFilter
+        | StandardBuiltinId::IteratorFilterNext
+        | StandardBuiltinId::IteratorFilterReturn
+        | StandardBuiltinId::IteratorPrototypeFlatMap
+        | StandardBuiltinId::IteratorFlatMapNext
+        | StandardBuiltinId::IteratorFlatMapReturn
+        | StandardBuiltinId::IteratorPrototypeTake
+        | StandardBuiltinId::IteratorTakeNext
+        | StandardBuiltinId::IteratorTakeReturn
+        | StandardBuiltinId::IteratorPrototypeDrop
+        | StandardBuiltinId::IteratorDropNext
+        | StandardBuiltinId::IteratorDropReturn
+        | StandardBuiltinId::IteratorPrototypeConstructorGetter
+        | StandardBuiltinId::IteratorPrototypeConstructorSetter
+        | StandardBuiltinId::IteratorPrototypeSymbolDispose
+        | StandardBuiltinId::IteratorPrototypeToStringTagGetter
+        | StandardBuiltinId::IteratorPrototypeToStringTagSetter
         | StandardBuiltinId::IteratorFromWrapperReturn
         | StandardBuiltinId::ArrayBufferIsView
         | StandardBuiltinId::BigIntAsIntN
@@ -1564,19 +1590,149 @@ impl StringPool {
             "$ArrayIterator.index",
             "$ArrayIterator.done",
             "$ArrayIterator.kind",
+            PORFFOR_STATIC_GENERATOR_VALUES_METHOD,
+            PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
+            "$RegExpStringIterator.regexp",
+            "$RegExpStringIterator.string",
+            "$RegExpStringIterator.global",
+            "$RegExpStringIterator.unicode",
+            "$RegExpStringIterator.done",
             "Array Iterator",
             "Array.prototype iterator method called on null or undefined",
             "Array Iterator next called on incompatible receiver",
             "Array Iterator next called on out-of-bounds TypedArray",
+            "RegExp String Iterator next called on incompatible receiver",
+            "RegExp String Iterator exec returned non-object",
             "Iterator",
             "toArray",
+            "forEach",
+            "every",
+            "some",
+            "find",
+            "reduce",
+            "map",
+            "filter",
+            "take",
+            "drop",
             "Iterator constructor cannot be called",
             "Iterator.from called on null or undefined",
+            "Iterator.from iterator method must return object",
+            "Iterator.from iterator method must be callable",
             "Iterator.from next method must be callable",
+            "Iterator.prototype.forEach called on null or undefined",
+            "Iterator.prototype.forEach callback must be callable",
+            "Iterator.prototype.forEach next method must be callable",
+            "Iterator.prototype.forEach next result must be object",
+            "Iterator.prototype.every called on null or undefined",
+            "Iterator.prototype.every callback must be callable",
+            "Iterator.prototype.every next method must be callable",
+            "Iterator.prototype.every next result must be object",
+            "Iterator.prototype.some called on null or undefined",
+            "Iterator.prototype.some callback must be callable",
+            "Iterator.prototype.some next method must be callable",
+            "Iterator.prototype.some next result must be object",
+            "Iterator.prototype.find called on null or undefined",
+            "Iterator.prototype.find callback must be callable",
+            "Iterator.prototype.find next method must be callable",
+            "Iterator.prototype.find next result must be object",
+            "Iterator.prototype.reduce called on null or undefined",
+            "Iterator.prototype.reduce reducer must be callable",
+            "Iterator.prototype.reduce next method must be callable",
+            "Iterator.prototype.reduce next result must be object",
+            "Iterator.prototype.reduce of empty iterator with no initial value",
+            "Iterator.prototype.map called on null or undefined",
+            "Iterator.prototype.map mapper must be callable",
+            "Iterator.prototype.map next method must be callable",
+            "Iterator map helper next called on incompatible receiver",
+            "Iterator map helper is already running",
+            "Iterator map helper next result must be object",
+            "Iterator map helper return called on incompatible receiver",
+            "Iterator map helper return method must be callable",
+            "Iterator map helper return result must be object",
+            "$PorfforIteratorMapHelper",
+            "$IteratorMapIterator",
+            "$IteratorMapNext",
+            "$IteratorMapMapper",
+            "$IteratorMapIndex",
+            "$IteratorMapDone",
+            "$IteratorMapExecuting",
+            "Iterator.prototype.filter called on null or undefined",
+            "Iterator.prototype.filter predicate must be callable",
+            "Iterator.prototype.filter next method must be callable",
+            "Iterator filter helper next called on incompatible receiver",
+            "Iterator filter helper is already running",
+            "Iterator filter helper next result must be object",
+            "Iterator filter helper return called on incompatible receiver",
+            "Iterator filter helper return method must be callable",
+            "Iterator filter helper return result must be object",
+            "$PorfforIteratorFilterHelper",
+            "$IteratorFilterIterator",
+            "$IteratorFilterNext",
+            "$IteratorFilterPredicate",
+            "$IteratorFilterIndex",
+            "$IteratorFilterDone",
+            "$IteratorFilterExecuting",
+            "flatMap",
+            "Iterator.prototype.flatMap called on null or undefined",
+            "Iterator.prototype.flatMap mapper must be callable",
+            "Iterator.prototype.flatMap next method must be callable",
+            "Iterator.prototype.flatMap mapper result must be object",
+            "Iterator.prototype.flatMap inner iterator method must be callable",
+            "Iterator.prototype.flatMap inner iterator method must return object",
+            "Iterator.prototype.flatMap inner iterator next method must be callable",
+            "Iterator flatMap helper next called on incompatible receiver",
+            "Iterator flatMap helper is already running",
+            "Iterator flatMap helper next result must be object",
+            "Iterator flatMap helper return called on incompatible receiver",
+            "Iterator flatMap helper return method must be callable",
+            "Iterator flatMap helper return result must be object",
+            "$PorfforIteratorFlatMapHelper",
+            "$IteratorFlatMapIterator",
+            "$IteratorFlatMapNext",
+            "$IteratorFlatMapMapper",
+            "$IteratorFlatMapIndex",
+            "$IteratorFlatMapDone",
+            "$IteratorFlatMapExecuting",
+            "$IteratorFlatMapInnerIterator",
+            "$IteratorFlatMapInnerNext",
+            "$IteratorFlatMapInnerActive",
+            "Iterator.prototype.take called on null or undefined",
+            "Iterator.prototype.take next method must be callable",
+            "Iterator.prototype.take limit must be a non-negative number",
+            "$PorfforIteratorTakeHelper",
+            "$IteratorTakeIterator",
+            "$IteratorTakeNext",
+            "$IteratorTakeRemaining",
+            "$IteratorTakeDone",
+            "$IteratorTakeExecuting",
+            "Iterator take helper next called on incompatible receiver",
+            "Iterator take helper is already running",
+            "Iterator take helper next result must be object",
+            "Iterator take helper return called on incompatible receiver",
+            "Iterator take helper return method must be callable",
+            "Iterator take helper return result must be object",
+            "Iterator.prototype.drop called on null or undefined",
+            "Iterator.prototype.drop next method must be callable",
+            "Iterator.prototype.drop limit must be a non-negative number",
+            "$PorfforIteratorDropHelper",
+            "$IteratorDropIterator",
+            "$IteratorDropNext",
+            "$IteratorDropRemaining",
+            "$IteratorDropDone",
+            "$IteratorDropExecuting",
+            "Iterator drop helper next called on incompatible receiver",
+            "Iterator drop helper is already running",
+            "Iterator drop helper next result must be object",
+            "Iterator drop helper return called on incompatible receiver",
+            "Iterator drop helper return method must be callable",
+            "Iterator drop helper return result must be object",
             "Iterator.prototype.toArray called on null or undefined",
             "Iterator.prototype.toArray called on incompatible receiver",
             "Iterator.prototype.toArray next method must be callable",
             "Iterator.prototype.toArray next result must be object",
+            "Iterator.prototype[Symbol.dispose] return method must be callable",
+            "Iterator.prototype.constructor setter called on incompatible receiver",
+            "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
             "Iterator.from wrapper return called on incompatible receiver",
             "Iterator.from wrapper return method must be callable",
             "Iterator.from wrapper return result must be object",
@@ -1728,6 +1884,7 @@ impl StringPool {
             "resizable",
             "growable",
             "grow",
+            "Symbol.dispose",
             "Symbol.species",
             "Symbol.isConcatSpreadable",
             "Symbol.match",
@@ -1760,6 +1917,7 @@ impl StringPool {
             "RegExp.prototype[Symbol.matchAll] receiver is not RegExp",
             "RegExp.prototype[Symbol.matchAll] source is not string",
             "RegExp.prototype[Symbol.matchAll] flags is not string",
+            "RegExp.prototype[Symbol.matchAll] species is not a constructor",
             "RegExp.prototype[Symbol.matchAll] is unsupported in wasm-aot",
             "RegExp.prototype[Symbol.search] receiver is not RegExp",
             "RegExp.prototype[Symbol.search] source is not string",
@@ -6417,12 +6575,110 @@ impl<'a> FunctionBuilder<'a> {
                 let key_local = self.reserve_temp_local();
                 let payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
+                let setter_payload_local = self.reserve_temp_local();
+                let setter_tag_local = self.reserve_temp_local();
                 let to_array_meta = self
                     .functions
                     .get(&StandardBuiltinId::IteratorPrototypeToArray.function_id())
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.toArray`",
+                        )
+                    })?;
+                let for_each_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeForEach.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.forEach`",
+                        )
+                    })?;
+                let every_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeEvery.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.every`",
+                        )
+                    })?;
+                let some_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeSome.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.some`",
+                        )
+                    })?;
+                let find_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFind.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.find`",
+                        )
+                    })?;
+                let reduce_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeReduce.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.reduce`",
+                        )
+                    })?;
+                let map_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeMap.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.map`",
+                        )
+                    })?;
+                let filter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFilter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.filter`",
+                        )
+                    })?;
+                let flat_map_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.flatMap`",
+                        )
+                    })?;
+                let take_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeTake.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.take`",
+                        )
+                    })?;
+                let drop_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeDrop.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.drop`",
+                        )
+                    })?;
+                let constructor_getter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeConstructorGetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `get %IteratorPrototype%.constructor`",
+                        )
+                    })?;
+                let constructor_setter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeConstructorSetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `set %IteratorPrototype%.constructor`",
                         )
                     })?;
                 let from_meta = self
@@ -6439,6 +6695,38 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.return`",
+                        )
+                    })?;
+                let iterator_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayIteratorIdentity.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorPrototype%[Symbol.iterator]`",
+                        )
+                    })?;
+                let dispose_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeSymbolDispose.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorPrototype%[Symbol.dispose]`",
+                        )
+                    })?;
+                let to_string_tag_getter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeToStringTagGetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `get %IteratorPrototype%[Symbol.toStringTag]`",
+                        )
+                    })?;
+                let to_string_tag_setter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeToStringTagSetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `set %IteratorPrototype%[Symbol.toStringTag]`",
                         )
                     })?;
 
@@ -6468,6 +6756,114 @@ impl<'a> FunctionBuilder<'a> {
                     to_array_meta,
                     function,
                 )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "forEach",
+                    for_each_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "every",
+                    every_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "some",
+                    some_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "find",
+                    find_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "reduce",
+                    reduce_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "map",
+                    map_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "filter",
+                    filter_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "flatMap",
+                    flat_map_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "take",
+                    take_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "drop",
+                    drop_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(constructor_getter_meta, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_function_value_payload(constructor_setter_meta, function)?;
+                function.instruction(&Instruction::LocalSet(setter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(setter_tag_local));
+                self.emit_object_define_accessor(
+                    prototype_object_local,
+                    key_local,
+                    Some((payload_local, tag_local)),
+                    Some((setter_payload_local, setter_tag_local)),
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "Symbol.iterator",
+                    iterator_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "Symbol.dispose",
+                    dispose_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(to_string_tag_getter_meta, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_function_value_payload(to_string_tag_setter_meta, function)?;
+                function.instruction(&Instruction::LocalSet(setter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(setter_tag_local));
+                self.emit_object_define_accessor(
+                    prototype_object_local,
+                    key_local,
+                    Some((payload_local, tag_local)),
+                    Some((setter_payload_local, setter_tag_local)),
+                    function,
+                )?;
                 function.instruction(&Instruction::GlobalGet(
                     ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX,
                 ));
@@ -6478,6 +6874,8 @@ impl<'a> FunctionBuilder<'a> {
                     wrapper_return_meta,
                     function,
                 )?;
+                self.release_temp_local(setter_tag_local);
+                self.release_temp_local(setter_payload_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(payload_local);
                 self.release_temp_local(key_local);
@@ -7844,6 +8242,31 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ArrayIteratorIdentity
             | StandardBuiltinId::IteratorFrom
             | StandardBuiltinId::IteratorPrototypeToArray
+            | StandardBuiltinId::IteratorPrototypeForEach
+            | StandardBuiltinId::IteratorPrototypeEvery
+            | StandardBuiltinId::IteratorPrototypeSome
+            | StandardBuiltinId::IteratorPrototypeFind
+            | StandardBuiltinId::IteratorPrototypeReduce
+            | StandardBuiltinId::IteratorPrototypeMap
+            | StandardBuiltinId::IteratorMapNext
+            | StandardBuiltinId::IteratorMapReturn
+            | StandardBuiltinId::IteratorPrototypeFilter
+            | StandardBuiltinId::IteratorFilterNext
+            | StandardBuiltinId::IteratorFilterReturn
+            | StandardBuiltinId::IteratorPrototypeFlatMap
+            | StandardBuiltinId::IteratorFlatMapNext
+            | StandardBuiltinId::IteratorFlatMapReturn
+            | StandardBuiltinId::IteratorPrototypeTake
+            | StandardBuiltinId::IteratorTakeNext
+            | StandardBuiltinId::IteratorTakeReturn
+            | StandardBuiltinId::IteratorPrototypeDrop
+            | StandardBuiltinId::IteratorDropNext
+            | StandardBuiltinId::IteratorDropReturn
+            | StandardBuiltinId::IteratorPrototypeConstructorGetter
+            | StandardBuiltinId::IteratorPrototypeConstructorSetter
+            | StandardBuiltinId::IteratorPrototypeSymbolDispose
+            | StandardBuiltinId::IteratorPrototypeToStringTagGetter
+            | StandardBuiltinId::IteratorPrototypeToStringTagSetter
             | StandardBuiltinId::IteratorFromWrapperReturn
             | StandardBuiltinId::ArrayBufferIsView
             | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
@@ -11600,6 +12023,54 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        self.emit_exhaust_static_generator_iterator_if_marked(
+            iterator_payload_local,
+            iterator_tag_local,
+            key_local,
+            function,
+        )?;
+        Ok(())
+    }
+
+    fn emit_exhaust_static_generator_iterator_if_marked(
+        &mut self,
+        iterator_payload_local: u32,
+        iterator_tag_local: u32,
+        key_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let marker_present_local = self.reserve_temp_local();
+        let marker_payload_local = self.reserve_temp_local();
+        let marker_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            iterator_payload_local,
+            iterator_tag_local,
+            key_local,
+            marker_present_local,
+            marker_payload_local,
+            marker_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(marker_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_define_bool_data(
+            iterator_payload_local,
+            "$ArrayIterator.done",
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(marker_tag_local);
+        self.release_temp_local(marker_payload_local);
+        self.release_temp_local(marker_present_local);
         Ok(())
     }
 
@@ -11636,7 +12107,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_handle_call_without_throw_propagation(
             close.return_payload_local,
             close.return_tag_local,
             Some((close.iterator_payload_local, Some(close.iterator_tag_local))),
@@ -11647,6 +12118,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        self.emit_exhaust_static_generator_iterator_if_marked(
+            close.iterator_payload_local,
+            close.iterator_tag_local,
+            close.key_local,
+            function,
+        )?;
         self.restore_saved_completion(
             close.saved_payload_local,
             close.saved_tag_local,
@@ -11654,6 +12131,37 @@ impl<'a> FunctionBuilder<'a> {
             close.saved_aux_local,
             function,
         );
+        Ok(())
+    }
+
+    fn emit_iterator_flat_map_close_outer_after_throw(
+        &mut self,
+        helper_payload_local: u32,
+        close: IteratorCloseOnThrowLocals,
+        clear_inner_active: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_iterator_close_preserving_current_throw(close, function)?;
+        self.emit_object_define_bool_data(
+            helper_payload_local,
+            "$IteratorFlatMapDone",
+            true,
+            function,
+        )?;
+        if clear_inner_active {
+            self.emit_object_define_bool_data(
+                helper_payload_local,
+                "$IteratorFlatMapInnerActive",
+                false,
+                function,
+            )?;
+        }
+        self.emit_object_define_bool_data(
+            helper_payload_local,
+            "$IteratorFlatMapExecuting",
+            false,
+            function,
+        )?;
         Ok(())
     }
 
@@ -17936,6 +18444,20 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(index_local);
                 }
             },
+            ValueKind::Symbol => match key {
+                PropertyKeyIr::StaticString(name) if name == "description" => {
+                    function.instruction(&Instruction::LocalGet(target_local));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                }
+                _ => {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                }
+            },
             ValueKind::String => match key {
                 PropertyKeyIr::ArrayLength => {
                     let offset_local = self.reserve_temp_local();
@@ -18072,6 +18594,22 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
+                }
+                PropertyKeyIr::StaticString(name) if name == "description" => {
+                    function.instruction(&Instruction::LocalGet(target_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::LocalGet(target_local));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::End);
                 }
                 _ => {
                     function.instruction(&Instruction::I64Const(0));
@@ -20739,6 +21277,7 @@ impl<'a> FunctionBuilder<'a> {
         for symbol_name in [
             "Symbol()",
             "Symbol.iterator",
+            "Symbol.dispose",
             "Symbol.species",
             "Symbol.isConcatSpreadable",
             "Symbol.match",
@@ -22728,6 +23267,57 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_object_read_ordinary_inner(
+            object_local,
+            object_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            Some(8),
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_object_read_ordinary_without_accessor_throw_propagation(
+        &mut self,
+        object_local: u32,
+        object_tag_local: u32,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        key_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_object_read_ordinary_inner(
+            object_local,
+            object_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            None,
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_object_read_ordinary_inner(
+        &mut self,
+        object_local: u32,
+        object_tag_local: u32,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        key_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        accessor_throw_extra_depth: Option<u32>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let current_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
         let buffer_local = self.reserve_temp_local();
@@ -23059,16 +23649,28 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_with_throw_extra_depth(
-            getter_payload_local,
-            getter_tag_local,
-            Some((receiver_payload_local, Some(receiver_tag_local))),
-            &[],
-            payload_local,
-            tag_local,
-            8,
-            function,
-        )?;
+        if let Some(extra_depth) = accessor_throw_extra_depth {
+            self.emit_function_handle_call_with_throw_extra_depth(
+                getter_payload_local,
+                getter_tag_local,
+                Some((receiver_payload_local, Some(receiver_tag_local))),
+                &[],
+                payload_local,
+                tag_local,
+                extra_depth,
+                function,
+            )?;
+        } else {
+            self.emit_function_handle_call_without_throw_propagation(
+                getter_payload_local,
+                getter_tag_local,
+                Some((receiver_payload_local, Some(receiver_tag_local))),
+                &[],
+                payload_local,
+                tag_local,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(4));
@@ -32491,10 +33093,13 @@ impl<'a> FunctionBuilder<'a> {
         let entry_local = self.reserve_temp_local();
         let descriptor_kind_local = self.reserve_temp_local();
         let stored_key_local = self.reserve_temp_local();
+        let found_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(found_local));
         if let Some(found_output_local) = found_output_local {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(found_output_local));
@@ -32533,6 +33138,8 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_string_payload_equality_i32(stored_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found_local));
         if let Some(found_output_local) = found_output_local {
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::LocalSet(found_output_local));
@@ -32570,6 +33177,33 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.iterator"),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        if let Some(found_output_local) = found_output_local {
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(found_output_local));
+        }
+        if let Some(values_meta) = self
+            .functions
+            .get(&StandardBuiltinId::ArrayPrototypeValues.function_id())
+            .cloned()
+        {
+            self.emit_function_value_payload(&values_meta, function)
+                .expect("Array.prototype.values builtin should be emitted");
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+        }
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(found_local);
         self.release_temp_local(stored_key_local);
         self.release_temp_local(descriptor_kind_local);
         self.release_temp_local(entry_local);
@@ -45638,6 +46272,21 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StandardBuiltinId::IteratorConstructor => {
+                let prototype_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(
+                    self.new_target_payload_local().unwrap(),
+                ));
+                function.instruction(&Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
                     "Iterator constructor cannot be called",
@@ -45645,6 +46294,19 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
+                function.instruction(&Instruction::Else);
+                self.emit_error_new_target_prototype_to_local(
+                    ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+                    None,
+                    prototype_local,
+                    function,
+                )?;
+                self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+                self.release_temp_local(prototype_local);
             }
             StandardBuiltinId::FunctionConstructor => {
                 let realm_array_buffer_prototype_local = self.reserve_temp_local();
@@ -55006,6 +55668,7 @@ impl<'a> FunctionBuilder<'a> {
                 let should_wrap_local = self.reserve_temp_local();
                 let base_payload_local = self.reserve_temp_local();
                 let base_tag_local = self.reserve_temp_local();
+                let lookup_tag_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::LocalGet(self.argc_param_local()));
                 function.instruction(&Instruction::I64Eqz);
@@ -55052,6 +55715,10 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(self.result_local));
+                function.instruction(&Instruction::LocalSet(base_payload_local));
+                function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                function.instruction(&Instruction::LocalSet(base_tag_local));
                 function.instruction(&Instruction::LocalGet(self.result_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
@@ -55063,10 +55730,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(prototype_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(base_tag_local));
+                function.instruction(&Instruction::LocalSet(lookup_tag_local));
                 self.emit_object_read(
                     prototype_local,
-                    base_tag_local,
+                    lookup_tag_local,
                     self.result_local,
                     self.result_tag_local,
                     key_local,
@@ -55090,7 +55757,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
-                    "Array.from iterator method must be callable",
+                    "Iterator.from iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
                     function,
@@ -55131,7 +55798,39 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
-                    "Array.from iterator method must be callable",
+                    "Iterator.from iterator method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((base_payload_local, Some(base_tag_local))),
+                    &[],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.from iterator method must return object",
                     self.result_local,
                     self.result_tag_local,
                     function,
@@ -55142,17 +55841,6 @@ impl<'a> FunctionBuilder<'a> {
 
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(should_wrap_local));
-                function.instruction(&Instruction::LocalGet(next_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::LocalGet(next_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(should_wrap_local));
-                function.instruction(&Instruction::End);
 
                 function.instruction(&Instruction::I64Const(self.strings.payload("next")));
                 function.instruction(&Instruction::LocalSet(key_local));
@@ -55256,6 +55944,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
+                self.release_temp_local(lookup_tag_local);
                 self.release_temp_local(base_tag_local);
                 self.release_temp_local(base_payload_local);
                 self.release_temp_local(should_wrap_local);
@@ -55276,6 +55965,18 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
                 self.compile_nullish_tagged_i32(this_tag_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.toArray called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
@@ -55371,6 +56072,25 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::LocalSet(iterator_payload_local));
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::LocalSet(iterator_tag_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(next_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
@@ -55418,7 +56138,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Const(self.strings.payload("done")));
                 function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_object_read(
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
                     next_result_payload_local,
                     next_result_tag_local,
                     next_result_payload_local,
@@ -55433,7 +56153,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::BrIf(1));
                 function.instruction(&Instruction::I64Const(self.strings.payload("value")));
                 function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_object_read(
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
                     next_result_payload_local,
                     next_result_tag_local,
                     next_result_payload_local,
@@ -55463,12 +56183,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(this_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(this_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
                 self.release_temp_local(value_tag_local);
                 self.release_temp_local(value_payload_local);
@@ -55486,6 +56200,6442 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(wrapper_payload_local);
                 self.release_temp_local(present_local);
                 self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorPrototypeSymbolDispose => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype[Symbol.dispose] receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype[Symbol.dispose] receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype[Symbol.dispose] return method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorPrototypeToStringTagGetter => {
+                function.instruction(&Instruction::I64Const(self.strings.payload("Iterator")));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            StandardBuiltinId::IteratorPrototypeToStringTagSetter => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype[Symbol.toStringTag] setter receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype[Symbol.toStringTag] setter receiver tag",
+                    )
+                })?;
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+                self.emit_object_define_local_data(
+                    this_payload_local,
+                    "Symbol.toStringTag",
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeForEach => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.forEach receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.forEach receiver tag",
+                    )
+                })?;
+                let callback_payload_local = self.reserve_temp_local();
+                let callback_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let callback_result_payload_local = self.reserve_temp_local();
+                let callback_result_tag_local = self.reserve_temp_local();
+                let return_present_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.forEach called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    callback_payload_local,
+                    callback_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(callback_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.forEach callback must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.save_current_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_present_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(return_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                self.restore_saved_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.forEach next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.forEach next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::BrIf(1));
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    callback_payload_local,
+                    callback_tag_local,
+                    None,
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    callback_result_payload_local,
+                    callback_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(return_present_local);
+                self.release_temp_local(callback_result_tag_local);
+                self.release_temp_local(callback_result_payload_local);
+                self.release_temp_local(index_number_tag_local);
+                self.release_temp_local(index_number_payload_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(done_tag_local);
+                self.release_temp_local(done_payload_local);
+                self.release_temp_local(next_result_tag_local);
+                self.release_temp_local(next_result_payload_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(callback_tag_local);
+                self.release_temp_local(callback_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeEvery => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.every receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.every receiver tag",
+                    )
+                })?;
+                let callback_payload_local = self.reserve_temp_local();
+                let callback_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let callback_result_payload_local = self.reserve_temp_local();
+                let callback_result_tag_local = self.reserve_temp_local();
+                let return_present_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.every called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    callback_payload_local,
+                    callback_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(callback_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.every callback must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.save_current_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_present_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(return_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                self.restore_saved_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.every next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.every next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::BrIf(1));
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    callback_payload_local,
+                    callback_tag_local,
+                    None,
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    callback_result_payload_local,
+                    callback_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.compile_truthy_tagged_i32(
+                    callback_result_tag_local,
+                    callback_result_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_iterator_close(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(return_present_local);
+                self.release_temp_local(callback_result_tag_local);
+                self.release_temp_local(callback_result_payload_local);
+                self.release_temp_local(index_number_tag_local);
+                self.release_temp_local(index_number_payload_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(done_tag_local);
+                self.release_temp_local(done_payload_local);
+                self.release_temp_local(next_result_tag_local);
+                self.release_temp_local(next_result_payload_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(callback_tag_local);
+                self.release_temp_local(callback_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeSome => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.some receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.some receiver tag",
+                    )
+                })?;
+                let callback_payload_local = self.reserve_temp_local();
+                let callback_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let callback_result_payload_local = self.reserve_temp_local();
+                let callback_result_tag_local = self.reserve_temp_local();
+                let return_present_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.some called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    callback_payload_local,
+                    callback_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(callback_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.some callback must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.save_current_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_present_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(return_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                self.restore_saved_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.some next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.some next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::BrIf(1));
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    callback_payload_local,
+                    callback_tag_local,
+                    None,
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    callback_result_payload_local,
+                    callback_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.compile_truthy_tagged_i32(
+                    callback_result_tag_local,
+                    callback_result_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_iterator_close(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(return_present_local);
+                self.release_temp_local(callback_result_tag_local);
+                self.release_temp_local(callback_result_payload_local);
+                self.release_temp_local(index_number_tag_local);
+                self.release_temp_local(index_number_payload_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(done_tag_local);
+                self.release_temp_local(done_payload_local);
+                self.release_temp_local(next_result_tag_local);
+                self.release_temp_local(next_result_payload_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(callback_tag_local);
+                self.release_temp_local(callback_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeFind => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.find receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.find receiver tag",
+                    )
+                })?;
+                let callback_payload_local = self.reserve_temp_local();
+                let callback_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let callback_result_payload_local = self.reserve_temp_local();
+                let callback_result_tag_local = self.reserve_temp_local();
+                let return_present_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.find called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    callback_payload_local,
+                    callback_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(callback_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.find callback must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.save_current_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_present_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(return_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                self.restore_saved_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.find next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.find next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::BrIf(1));
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    callback_payload_local,
+                    callback_tag_local,
+                    None,
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    callback_result_payload_local,
+                    callback_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.compile_truthy_tagged_i32(
+                    callback_result_tag_local,
+                    callback_result_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_iterator_close(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(return_present_local);
+                self.release_temp_local(callback_result_tag_local);
+                self.release_temp_local(callback_result_payload_local);
+                self.release_temp_local(index_number_tag_local);
+                self.release_temp_local(index_number_payload_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(done_tag_local);
+                self.release_temp_local(done_payload_local);
+                self.release_temp_local(next_result_tag_local);
+                self.release_temp_local(next_result_payload_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(callback_tag_local);
+                self.release_temp_local(callback_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeReduce => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.reduce receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.reduce receiver tag",
+                    )
+                })?;
+                let reducer_payload_local = self.reserve_temp_local();
+                let reducer_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let accumulator_payload_local = self.reserve_temp_local();
+                let accumulator_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let callback_result_payload_local = self.reserve_temp_local();
+                let callback_result_tag_local = self.reserve_temp_local();
+                let return_present_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    reducer_payload_local,
+                    reducer_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(reducer_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce reducer must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.save_current_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("return")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    return_present_local,
+                    return_payload_local,
+                    return_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(return_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(return_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    return_payload_local,
+                    return_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                self.restore_saved_completion(
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    function,
+                );
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    accumulator_payload_local,
+                    accumulator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Else);
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce of empty iterator with no initial value",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    accumulator_payload_local,
+                    accumulator_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((this_payload_local, Some(this_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.reduce next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::BrIf(1));
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    reducer_payload_local,
+                    reducer_tag_local,
+                    None,
+                    &[
+                        (accumulator_payload_local, accumulator_tag_local),
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    callback_result_payload_local,
+                    callback_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(callback_result_payload_local));
+                function.instruction(&Instruction::LocalSet(accumulator_payload_local));
+                function.instruction(&Instruction::LocalGet(callback_result_tag_local));
+                function.instruction(&Instruction::LocalSet(accumulator_tag_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(accumulator_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(accumulator_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(return_tag_local);
+                self.release_temp_local(return_payload_local);
+                self.release_temp_local(return_present_local);
+                self.release_temp_local(callback_result_tag_local);
+                self.release_temp_local(callback_result_payload_local);
+                self.release_temp_local(index_number_tag_local);
+                self.release_temp_local(index_number_payload_local);
+                self.release_temp_local(index_local);
+                self.release_temp_local(accumulator_tag_local);
+                self.release_temp_local(accumulator_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(done_tag_local);
+                self.release_temp_local(done_payload_local);
+                self.release_temp_local(next_result_tag_local);
+                self.release_temp_local(next_result_payload_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(reducer_tag_local);
+                self.release_temp_local(reducer_payload_local);
+            }
+            StandardBuiltinId::IteratorPrototypeMap => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.map receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.map receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let mapper_payload_local = self.reserve_temp_local();
+                let mapper_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let helper_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let map_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorMapNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator map helper next`",
+                        )
+                    })?;
+                let map_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorMapReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator map helper return`",
+                        )
+                    })?;
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.map called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(mapper_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.map mapper must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(helper_local));
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$PorfforIteratorMapHelper",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorMapIterator",
+                    this_payload_local,
+                    this_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorMapNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorMapMapper",
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(next_payload_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    helper_local,
+                    "$IteratorMapIndex",
+                    next_payload_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorMapDone",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "next",
+                    &map_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "return",
+                    &map_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(helper_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(helper_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(mapper_tag_local);
+                self.release_temp_local(mapper_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorMapNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator map helper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator map helper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let mapper_payload_local = self.reserve_temp_local();
+                let mapper_tag_local = self.reserve_temp_local();
+                let mapper_this_payload_local = self.reserve_temp_local();
+                let mapper_this_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let mapped_payload_local = self.reserve_temp_local();
+                let mapped_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorMapHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapExecuting"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(marker_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper is already running",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.map next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapMapper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(mapper_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.map mapper must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    "$IteratorMapIndex",
+                    index_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    true,
+                    function,
+                )?;
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(mapper_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(mapper_this_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    Some((mapper_this_payload_local, Some(mapper_this_tag_local))),
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    mapped_payload_local,
+                    mapped_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(mapped_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(mapped_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapExecuting",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    this_payload_local,
+                    "$IteratorMapIndex",
+                    index_local,
+                    function,
+                )?;
+                self.emit_iterator_result_object_from_locals(
+                    mapped_payload_local,
+                    mapped_tag_local,
+                    false,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    saved_aux_local,
+                    saved_completion_local,
+                    saved_tag_local,
+                    saved_payload_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    mapped_tag_local,
+                    mapped_payload_local,
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    index_number_tag_local,
+                    index_number_payload_local,
+                    index_local,
+                    mapper_this_tag_local,
+                    mapper_this_payload_local,
+                    mapper_tag_local,
+                    mapper_payload_local,
+                    next_tag_local,
+                    next_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorMapReturn => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator map helper return receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator map helper return receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let done_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorMapHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator map helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorMapDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorMapIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorPrototypeFilter => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.filter receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.filter receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let predicate_payload_local = self.reserve_temp_local();
+                let predicate_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let helper_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let filter_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFilterNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator filter helper next`",
+                        )
+                    })?;
+                let filter_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFilterReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator filter helper return`",
+                        )
+                    })?;
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.filter called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    predicate_payload_local,
+                    predicate_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(predicate_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.filter predicate must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(helper_local));
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$PorfforIteratorFilterHelper",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFilterIterator",
+                    this_payload_local,
+                    this_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFilterNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFilterPredicate",
+                    predicate_payload_local,
+                    predicate_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(next_payload_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    helper_local,
+                    "$IteratorFilterIndex",
+                    next_payload_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorFilterDone",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "next",
+                    &filter_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "return",
+                    &filter_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(helper_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(helper_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(predicate_tag_local);
+                self.release_temp_local(predicate_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorFilterNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator filter helper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator filter helper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let predicate_payload_local = self.reserve_temp_local();
+                let predicate_tag_local = self.reserve_temp_local();
+                let predicate_this_payload_local = self.reserve_temp_local();
+                let predicate_this_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let predicate_result_payload_local = self.reserve_temp_local();
+                let predicate_result_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorFilterHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterExecuting"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(marker_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper is already running",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.filter next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterPredicate"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    predicate_payload_local,
+                    predicate_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(predicate_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.filter predicate must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    "$IteratorFilterIndex",
+                    index_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    true,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(predicate_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(predicate_this_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    predicate_payload_local,
+                    predicate_tag_local,
+                    Some((predicate_this_payload_local, Some(predicate_this_tag_local))),
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    predicate_result_payload_local,
+                    predicate_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(predicate_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(predicate_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    this_payload_local,
+                    "$IteratorFilterIndex",
+                    index_local,
+                    function,
+                )?;
+                self.compile_truthy_tagged_i32(
+                    predicate_result_tag_local,
+                    predicate_result_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                for local in [
+                    saved_aux_local,
+                    saved_completion_local,
+                    saved_tag_local,
+                    saved_payload_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    predicate_result_tag_local,
+                    predicate_result_payload_local,
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    index_number_tag_local,
+                    index_number_payload_local,
+                    index_local,
+                    predicate_this_tag_local,
+                    predicate_this_payload_local,
+                    predicate_tag_local,
+                    predicate_payload_local,
+                    next_tag_local,
+                    next_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorFilterReturn => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator filter helper return receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator filter helper return receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let done_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorFilterHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator filter helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFilterDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFilterIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorPrototypeFlatMap => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.flatMap receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.flatMap receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let mapper_payload_local = self.reserve_temp_local();
+                let mapper_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let helper_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let flat_map_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFlatMapNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator flatMap helper next`",
+                        )
+                    })?;
+                let flat_map_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFlatMapReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator flatMap helper return`",
+                        )
+                    })?;
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(mapper_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap mapper must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(helper_local));
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$PorfforIteratorFlatMapHelper",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFlatMapIterator",
+                    this_payload_local,
+                    this_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFlatMapNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFlatMapMapper",
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(next_payload_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    helper_local,
+                    "$IteratorFlatMapIndex",
+                    next_payload_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorFlatMapDone",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorFlatMapInnerActive",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(next_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(next_tag_local));
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFlatMapInnerIterator",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorFlatMapInnerNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "next",
+                    &flat_map_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "return",
+                    &flat_map_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(helper_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(helper_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(mapper_tag_local);
+                self.release_temp_local(mapper_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorFlatMapNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator flatMap helper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator flatMap helper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let mapper_payload_local = self.reserve_temp_local();
+                let mapper_tag_local = self.reserve_temp_local();
+                let mapper_this_payload_local = self.reserve_temp_local();
+                let mapper_this_tag_local = self.reserve_temp_local();
+                let index_local = self.reserve_temp_local();
+                let index_number_payload_local = self.reserve_temp_local();
+                let index_number_tag_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let mapped_payload_local = self.reserve_temp_local();
+                let mapped_tag_local = self.reserve_temp_local();
+                let inner_active_payload_local = self.reserve_temp_local();
+                let inner_active_tag_local = self.reserve_temp_local();
+                let inner_iterator_payload_local = self.reserve_temp_local();
+                let inner_iterator_tag_local = self.reserve_temp_local();
+                let inner_next_payload_local = self.reserve_temp_local();
+                let inner_next_tag_local = self.reserve_temp_local();
+                let iterator_method_payload_local = self.reserve_temp_local();
+                let iterator_method_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let close_outer_on_throw = IteratorCloseOnThrowLocals {
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    result_payload_local: close_result_payload_local,
+                    result_tag_local: close_result_tag_local,
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                };
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorFlatMapHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapExecuting"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(marker_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper is already running",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapMapper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    function,
+                );
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    "$IteratorFlatMapIndex",
+                    index_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    true,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapInnerActive"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    inner_active_payload_local,
+                    inner_active_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(inner_active_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapInnerIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapInnerNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    inner_next_payload_local,
+                    inner_next_tag_local,
+                    function,
+                );
+                self.emit_function_handle_call_without_throw_propagation(
+                    inner_next_payload_local,
+                    inner_next_tag_local,
+                    Some((inner_iterator_payload_local, Some(inner_iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    true,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    true,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(done_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    true,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapInnerActive",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    true,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(index_number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(mapper_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(mapper_this_tag_local));
+                self.emit_function_handle_call_without_throw_propagation(
+                    mapper_payload_local,
+                    mapper_tag_local,
+                    Some((mapper_this_payload_local, Some(mapper_this_tag_local))),
+                    &[
+                        (value_payload_local, value_tag_local),
+                        (index_number_payload_local, index_number_tag_local),
+                    ],
+                    mapped_payload_local,
+                    mapped_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(mapped_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(mapped_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    this_payload_local,
+                    "$IteratorFlatMapIndex",
+                    index_local,
+                    function,
+                )?;
+                self.emit_is_heap_object_like_tag_i32(mapped_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap mapper result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.iterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    mapped_payload_local,
+                    mapped_tag_local,
+                    mapped_payload_local,
+                    mapped_tag_local,
+                    key_local,
+                    iterator_method_payload_local,
+                    iterator_method_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(iterator_method_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(iterator_method_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(iterator_method_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(iterator_method_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(iterator_method_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap inner iterator method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_function_handle_call_without_throw_propagation(
+                    iterator_method_payload_local,
+                    iterator_method_tag_local,
+                    Some((mapped_payload_local, Some(mapped_tag_local))),
+                    &[],
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(inner_iterator_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(inner_iterator_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(inner_iterator_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap inner iterator method must return object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(mapped_payload_local));
+                function.instruction(&Instruction::LocalSet(inner_iterator_payload_local));
+                function.instruction(&Instruction::LocalGet(mapped_tag_local));
+                function.instruction(&Instruction::LocalSet(inner_iterator_tag_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    key_local,
+                    inner_next_payload_local,
+                    inner_next_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(inner_next_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(inner_next_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_iterator_flat_map_close_outer_after_throw(
+                    this_payload_local,
+                    close_outer_on_throw,
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(inner_next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.flatMap inner iterator next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local,
+                        iterator_tag_local,
+                        key_local,
+                        return_payload_local,
+                        return_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_define_local_data(
+                    this_payload_local,
+                    "$IteratorFlatMapInnerIterator",
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    this_payload_local,
+                    "$IteratorFlatMapInnerNext",
+                    inner_next_payload_local,
+                    inner_next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapInnerActive",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                for local in [
+                    saved_aux_local,
+                    saved_completion_local,
+                    saved_tag_local,
+                    saved_payload_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    iterator_method_tag_local,
+                    iterator_method_payload_local,
+                    inner_next_tag_local,
+                    inner_next_payload_local,
+                    inner_iterator_tag_local,
+                    inner_iterator_payload_local,
+                    inner_active_tag_local,
+                    inner_active_payload_local,
+                    mapped_tag_local,
+                    mapped_payload_local,
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    index_number_tag_local,
+                    index_number_payload_local,
+                    index_local,
+                    mapper_this_tag_local,
+                    mapper_this_payload_local,
+                    mapper_tag_local,
+                    mapper_payload_local,
+                    next_tag_local,
+                    next_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorFlatMapReturn => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator flatMap helper return receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator flatMap helper return receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let inner_active_payload_local = self.reserve_temp_local();
+                let inner_active_tag_local = self.reserve_temp_local();
+                let inner_iterator_payload_local = self.reserve_temp_local();
+                let inner_iterator_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let done_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorFlatMapHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator flatMap helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(done_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapInnerActive"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    inner_active_payload_local,
+                    inner_active_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(inner_active_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapInnerIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    inner_iterator_payload_local,
+                    inner_iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorFlatMapInnerActive",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFlatMapIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    inner_iterator_tag_local,
+                    inner_iterator_payload_local,
+                    inner_active_tag_local,
+                    inner_active_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorPrototypeTake => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.take receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.take receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let limit_payload_local = self.reserve_temp_local();
+                let limit_tag_local = self.reserve_temp_local();
+                let integer_limit_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let helper_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let take_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorTakeNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator take helper next`",
+                        )
+                    })?;
+                let take_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorTakeReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator take helper return`",
+                        )
+                    })?;
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.take called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.take limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(0, limit_payload_local, limit_tag_local, function);
+                function.instruction(&Instruction::LocalGet(limit_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.take limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_value_to_number_payload_without_throw_return(
+                    limit_tag_local,
+                    limit_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(limit_payload_local));
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.take limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncSatF64S);
+                function.instruction(&Instruction::LocalSet(integer_limit_local));
+                function.instruction(&Instruction::LocalGet(integer_limit_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.take limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(helper_local));
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$PorfforIteratorTakeHelper",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorTakeIterator",
+                    this_payload_local,
+                    this_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorTakeNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_number_data_from_i64_local(
+                    helper_local,
+                    "$IteratorTakeRemaining",
+                    integer_limit_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorTakeDone",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorTakeExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "next",
+                    &take_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "return",
+                    &take_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(helper_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(tag_local);
+                self.release_temp_local(helper_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(integer_limit_local);
+                self.release_temp_local(limit_tag_local);
+                self.release_temp_local(limit_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorTakeNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator take helper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator take helper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let remaining_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorTakeHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeExecuting"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(marker_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper is already running",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    "$IteratorTakeRemaining",
+                    remaining_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(remaining_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorTakeDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.take next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorTakeExecuting",
+                    true,
+                    function,
+                )?;
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorTakeExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorTakeDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(remaining_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(remaining_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    this_payload_local,
+                    "$IteratorTakeRemaining",
+                    remaining_local,
+                    function,
+                )?;
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    return_tag_local,
+                    return_payload_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    remaining_local,
+                    next_tag_local,
+                    next_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorTakeReturn => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator take helper return receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator take helper return receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let done_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorTakeHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator take helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorTakeDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorTakeIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorPrototypeDrop => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.drop receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.drop receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let limit_payload_local = self.reserve_temp_local();
+                let limit_tag_local = self.reserve_temp_local();
+                let integer_limit_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let helper_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let saved_payload_local = self.reserve_temp_local();
+                let saved_tag_local = self.reserve_temp_local();
+                let saved_completion_local = self.reserve_temp_local();
+                let saved_aux_local = self.reserve_temp_local();
+                let drop_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorDropNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator drop helper next`",
+                        )
+                    })?;
+                let drop_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorDropReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator drop helper return`",
+                        )
+                    })?;
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.drop called on null or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.drop limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(0, limit_payload_local, limit_tag_local, function);
+                function.instruction(&Instruction::LocalGet(limit_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.drop limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_value_to_number_payload_without_throw_return(
+                    limit_tag_local,
+                    limit_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(limit_payload_local));
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.drop limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncSatF64S);
+                function.instruction(&Instruction::LocalSet(integer_limit_local));
+                function.instruction(&Instruction::LocalGet(integer_limit_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "Iterator.prototype.drop limit must be a non-negative number",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_iterator_close_preserving_current_throw(
+                    IteratorCloseOnThrowLocals {
+                        iterator_payload_local: this_payload_local,
+                        iterator_tag_local: this_tag_local,
+                        key_local,
+                        return_payload_local: next_payload_local,
+                        return_tag_local: next_tag_local,
+                        result_payload_local: close_result_payload_local,
+                        result_tag_local: close_result_tag_local,
+                        saved_payload_local,
+                        saved_tag_local,
+                        saved_completion_local,
+                        saved_aux_local,
+                    },
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    this_payload_local,
+                    this_tag_local,
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(helper_local));
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$PorfforIteratorDropHelper",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorDropIterator",
+                    this_payload_local,
+                    this_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_local_data(
+                    helper_local,
+                    "$IteratorDropNext",
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                )?;
+                self.emit_object_define_number_data_from_i64_local(
+                    helper_local,
+                    "$IteratorDropRemaining",
+                    integer_limit_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorDropDone",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    helper_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "next",
+                    &drop_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    helper_local,
+                    "return",
+                    &drop_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(helper_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(saved_aux_local);
+                self.release_temp_local(saved_completion_local);
+                self.release_temp_local(saved_tag_local);
+                self.release_temp_local(saved_payload_local);
+                self.release_temp_local(close_result_tag_local);
+                self.release_temp_local(close_result_payload_local);
+                self.release_temp_local(helper_local);
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
+                self.release_temp_local(integer_limit_local);
+                self.release_temp_local(limit_tag_local);
+                self.release_temp_local(limit_payload_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorDropNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator drop helper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator drop helper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+                let remaining_local = self.reserve_temp_local();
+                let next_result_payload_local = self.reserve_temp_local();
+                let next_result_tag_local = self.reserve_temp_local();
+                let done_payload_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorDropHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropExecuting"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(marker_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper is already running",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.drop next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_read_number_slot_to_i64_local(
+                    this_payload_local,
+                    "$IteratorDropRemaining",
+                    remaining_local,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    true,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(remaining_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropDone",
+                    true,
+                    function,
+                )?;
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(remaining_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(remaining_local));
+                self.emit_object_define_number_data_from_i64_local(
+                    this_payload_local,
+                    "$IteratorDropRemaining",
+                    remaining_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                self.emit_function_handle_call_without_throw_propagation(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(next_result_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(next_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropExecuting",
+                    false,
+                    function,
+                )?;
+                self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read(
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    next_result_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_payload_local,
+                    next_result_tag_local,
+                    next_result_payload_local,
+                    remaining_local,
+                    next_tag_local,
+                    next_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorDropReturn => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator drop helper return receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator drop helper return receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let marker_payload_local = self.reserve_temp_local();
+                let marker_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let return_payload_local = self.reserve_temp_local();
+                let return_tag_local = self.reserve_temp_local();
+                let close_result_payload_local = self.reserve_temp_local();
+                let close_result_tag_local = self.reserve_temp_local();
+                let done_local = self.reserve_temp_local();
+                let done_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorDropHelper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    marker_payload_local,
+                    marker_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropDone"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    done_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator drop helper return called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(done_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_define_bool_data(
+                    this_payload_local,
+                    "$IteratorDropDone",
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorDropIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                self.emit_iterator_close(
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local,
+                    return_tag_local,
+                    close_result_payload_local,
+                    close_result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_iterator_result_object_from_locals(
+                    value_payload_local,
+                    value_tag_local,
+                    true,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+
+                for local in [
+                    value_tag_local,
+                    value_payload_local,
+                    done_tag_local,
+                    done_local,
+                    close_result_tag_local,
+                    close_result_payload_local,
+                    return_tag_local,
+                    return_payload_local,
+                    iterator_tag_local,
+                    iterator_payload_local,
+                    marker_tag_local,
+                    marker_payload_local,
+                    present_local,
+                    key_local,
+                ] {
+                    self.release_temp_local(local);
+                }
+            }
+            StandardBuiltinId::IteratorPrototypeConstructorGetter => {
+                function.instruction(&Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            StandardBuiltinId::IteratorPrototypeConstructorSetter => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.constructor setter receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing Iterator.prototype.constructor setter receiver tag",
+                    )
+                })?;
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.constructor setter called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Iterator.prototype.constructor setter called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+                self.emit_object_define_local_data(
+                    this_payload_local,
+                    "constructor",
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
             }
             StandardBuiltinId::IteratorFromWrapperReturn => {
                 let this_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -55696,6 +62846,33 @@ impl<'a> FunctionBuilder<'a> {
                 let typed_array_out_of_bounds_local = self.reserve_temp_local();
                 let entry_array_local = self.reserve_temp_local();
                 let entry_index_local = self.reserve_temp_local();
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$RegExpStringIterator.done"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    slot_present_local,
+                    done_payload_local,
+                    done_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(slot_present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_regexp_string_iterator_next_from_locals(
+                    this_payload_local,
+                    this_tag_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
 
                 function.instruction(&Instruction::I64Const(
                     self.strings.payload("$ArrayIterator.done"),
@@ -82267,6 +89444,633 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_iterator_result_object_from_locals(
+        &mut self,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        done: bool,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        self.emit_object_define_local_data(
+            object_local,
+            "value",
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.emit_object_define_bool_data(object_local, "done", done, function)?;
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    fn emit_regexp_string_iterator_create_from_locals(
+        &mut self,
+        regexp_payload_local: u32,
+        regexp_tag_local: u32,
+        string_payload_local: u32,
+        global_local: u32,
+        unicode_local: u32,
+        last_index_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        let string_tag_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        self.emit_object_define_local_data(
+            object_local,
+            "$RegExpStringIterator.regexp",
+            regexp_payload_local,
+            regexp_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(string_tag_local));
+        self.emit_object_define_local_data(
+            object_local,
+            "$RegExpStringIterator.string",
+            string_payload_local,
+            string_tag_local,
+            function,
+        )?;
+        self.emit_object_define_bool_data_from_local(
+            object_local,
+            "$RegExpStringIterator.global",
+            global_local,
+            function,
+        )?;
+        self.emit_object_define_bool_data_from_local(
+            object_local,
+            "$RegExpStringIterator.unicode",
+            unicode_local,
+            function,
+        )?;
+        self.emit_object_define_bool_data(
+            object_local,
+            "$RegExpStringIterator.done",
+            false,
+            function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(index_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_write(
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            index_payload_local,
+            index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(key_local);
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(string_tag_local);
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    fn emit_regexp_string_iterator_next_from_locals(
+        &mut self,
+        this_payload_local: u32,
+        this_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let slot_present_local = self.reserve_temp_local();
+        let done_payload_local = self.reserve_temp_local();
+        let done_tag_local = self.reserve_temp_local();
+        let regexp_payload_local = self.reserve_temp_local();
+        let regexp_tag_local = self.reserve_temp_local();
+        let string_payload_local = self.reserve_temp_local();
+        let string_tag_local = self.reserve_temp_local();
+        let global_payload_local = self.reserve_temp_local();
+        let global_tag_local = self.reserve_temp_local();
+        let unicode_payload_local = self.reserve_temp_local();
+        let unicode_tag_local = self.reserve_temp_local();
+        let exec_payload_local = self.reserve_temp_local();
+        let exec_tag_local = self.reserve_temp_local();
+        let regexp_prototype_payload_local = self.reserve_temp_local();
+        let regexp_prototype_tag_local = self.reserve_temp_local();
+        let match_payload_local = self.reserve_temp_local();
+        let match_tag_local = self.reserve_temp_local();
+        let element_payload_local = self.reserve_temp_local();
+        let element_tag_local = self.reserve_temp_local();
+        let match_string_payload_local = self.reserve_temp_local();
+        let empty_string_payload_local = self.reserve_temp_local();
+        let last_index_payload_local = self.reserve_temp_local();
+        let last_index_tag_local = self.reserve_temp_local();
+        let last_index_local = self.reserve_temp_local();
+        let next_index_local = self.reserve_temp_local();
+        let input_offset_local = self.reserve_temp_local();
+        let input_len_local = self.reserve_temp_local();
+        let one_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let match_array_payload_local = self.reserve_temp_local();
+        let match_array_tag_local = self.reserve_temp_local();
+        let string_arg_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("$RegExpStringIterator.done"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            this_payload_local,
+            this_tag_local,
+            key_local,
+            slot_present_local,
+            done_payload_local,
+            done_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(match_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(match_tag_local));
+        self.emit_iterator_result_object_from_locals(
+            match_payload_local,
+            match_tag_local,
+            true,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("$RegExpStringIterator.regexp"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            this_payload_local,
+            this_tag_local,
+            key_local,
+            slot_present_local,
+            regexp_payload_local,
+            regexp_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("$RegExpStringIterator.string"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            this_payload_local,
+            this_tag_local,
+            key_local,
+            slot_present_local,
+            string_payload_local,
+            string_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("$RegExpStringIterator.global"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            this_payload_local,
+            this_tag_local,
+            key_local,
+            slot_present_local,
+            global_payload_local,
+            global_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("$RegExpStringIterator.unicode"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            this_payload_local,
+            this_tag_local,
+            key_local,
+            slot_present_local,
+            unicode_payload_local,
+            unicode_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("exec")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            regexp_payload_local,
+            regexp_tag_local,
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            exec_payload_local,
+            exec_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::LocalGet(exec_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(regexp_prototype_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(regexp_prototype_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("exec")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            regexp_prototype_payload_local,
+            regexp_prototype_tag_local,
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            exec_payload_local,
+            exec_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(exec_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(string_arg_tag_local));
+        self.emit_function_handle_call(
+            exec_payload_local,
+            exec_tag_local,
+            Some((regexp_payload_local, Some(regexp_tag_local))),
+            &[(string_payload_local, string_arg_tag_local)],
+            match_payload_local,
+            match_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(match_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(match_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(match_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(match_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp String Iterator exec returned non-object",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(match_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::LocalSet(match_tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(last_index_local));
+        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            regexp_payload_local,
+            regexp_tag_local,
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            last_index_payload_local,
+            last_index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_length_i64_from_value_locals(
+            last_index_tag_local,
+            last_index_payload_local,
+            last_index_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.emit_unpack_string_payload(
+            string_payload_local,
+            input_offset_local,
+            input_len_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::LocalGet(input_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(one_local));
+        self.emit_string_slice_payload_from_locals(
+            string_payload_local,
+            last_index_local,
+            one_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(element_payload_local));
+        function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_string_match_array_from_locals(
+            string_payload_local,
+            element_payload_local,
+            index_payload_local,
+            match_array_payload_local,
+            match_array_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(match_array_payload_local));
+        function.instruction(&Instruction::LocalSet(match_payload_local));
+        function.instruction(&Instruction::LocalGet(match_array_tag_local));
+        function.instruction(&Instruction::LocalSet(match_tag_local));
+        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(next_index_local));
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(last_index_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(last_index_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_write(
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            last_index_payload_local,
+            last_index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(match_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_define_bool_data(
+            this_payload_local,
+            "$RegExpStringIterator.done",
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(element_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(element_tag_local));
+        self.emit_iterator_result_object_from_locals(
+            element_payload_local,
+            element_tag_local,
+            true,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("0")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            match_payload_local,
+            match_tag_local,
+            match_payload_local,
+            match_tag_local,
+            key_local,
+            element_payload_local,
+            element_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_value_to_string_payload(element_payload_local, element_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(match_string_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(empty_string_payload_local));
+        self.emit_string_payload_equality_i32(
+            match_string_payload_local,
+            empty_string_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            regexp_payload_local,
+            regexp_tag_local,
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            last_index_payload_local,
+            last_index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_length_i64_from_value_locals(
+            last_index_tag_local,
+            last_index_payload_local,
+            last_index_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(next_index_local));
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(last_index_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(last_index_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_write(
+            regexp_payload_local,
+            regexp_tag_local,
+            key_local,
+            last_index_payload_local,
+            last_index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        self.emit_object_define_bool_data(
+            this_payload_local,
+            "$RegExpStringIterator.done",
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.emit_iterator_result_object_from_locals(
+            match_payload_local,
+            match_tag_local,
+            false,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(string_arg_tag_local);
+        self.release_temp_local(match_array_tag_local);
+        self.release_temp_local(match_array_payload_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(one_local);
+        self.release_temp_local(input_len_local);
+        self.release_temp_local(input_offset_local);
+        self.release_temp_local(next_index_local);
+        self.release_temp_local(last_index_local);
+        self.release_temp_local(last_index_tag_local);
+        self.release_temp_local(last_index_payload_local);
+        self.release_temp_local(empty_string_payload_local);
+        self.release_temp_local(match_string_payload_local);
+        self.release_temp_local(element_tag_local);
+        self.release_temp_local(element_payload_local);
+        self.release_temp_local(match_tag_local);
+        self.release_temp_local(match_payload_local);
+        self.release_temp_local(regexp_prototype_tag_local);
+        self.release_temp_local(regexp_prototype_payload_local);
+        self.release_temp_local(exec_tag_local);
+        self.release_temp_local(exec_payload_local);
+        self.release_temp_local(unicode_tag_local);
+        self.release_temp_local(unicode_payload_local);
+        self.release_temp_local(global_tag_local);
+        self.release_temp_local(global_payload_local);
+        self.release_temp_local(string_tag_local);
+        self.release_temp_local(string_payload_local);
+        self.release_temp_local(regexp_tag_local);
+        self.release_temp_local(regexp_payload_local);
+        self.release_temp_local(done_tag_local);
+        self.release_temp_local(done_payload_local);
+        self.release_temp_local(slot_present_local);
+        self.release_temp_local(key_local);
+        Ok(())
+    }
+
     fn emit_method_call(
         &mut self,
         receiver: &TypedExpr,
@@ -82568,7 +90372,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "keys" | "entries" | "values"))
+        if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "keys" | "entries" | "values") || name == PORFFOR_STATIC_GENERATOR_VALUES_METHOD)
         {
             let kind = match key {
                 PropertyKeyIr::StaticString(name) if name == "keys" => ARRAY_ITERATOR_KIND_KEYS,
@@ -82593,6 +90397,15 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
+            if matches!(key, PropertyKeyIr::StaticString(name) if name == PORFFOR_STATIC_GENERATOR_VALUES_METHOD)
+            {
+                self.emit_object_define_bool_data(
+                    payload_local,
+                    PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
+                    true,
+                    function,
+                )?;
+            }
             self.release_temp_local(receiver_tag_local);
             self.release_temp_local(receiver_payload_local);
             return Ok(());
@@ -82616,13 +90429,17 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
-            return self.emit_array_flat_map_method_call(
-                receiver,
-                args,
-                payload_local,
-                tag_local,
-                function,
-            );
+            let receiver_is_array = receiver.kind == ValueKind::Array
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            if receiver_is_array {
+                return self.emit_array_flat_map_method_call(
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "at") {
             return self.emit_array_at_method_call(
@@ -82661,6 +90478,60 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "find") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "find"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeFind.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFind.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.find`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_find_method_call(
                 receiver,
                 args,
@@ -82677,6 +90548,174 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             );
+        }
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == "reduce") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "reduce"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeReduce.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeReduce.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.reduce`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
+        }
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == "take") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "take"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeTake.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeTake.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.take`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
+        }
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == "drop") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "drop"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeDrop.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeDrop.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.drop`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findLast") {
             return self.emit_array_find_last_method_call(
@@ -82697,6 +90736,60 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "map") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "map"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeMap.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeMap.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.map`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_map_method_call(
                 receiver,
                 args,
@@ -82706,6 +90799,60 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "every") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "every"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeEvery.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeEvery.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.every`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_every_method_call(
                 receiver,
                 args,
@@ -82715,6 +90862,60 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "some") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "some"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeSome.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeSome.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.some`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_some_method_call(
                 receiver,
                 args,
@@ -82724,6 +90925,60 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "filter") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "filter"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeFilter.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFilter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.filter`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_filter_method_call(
                 receiver,
                 args,
@@ -82732,7 +90987,124 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
+            let receiver_is_array = receiver.kind == ValueKind::Array
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "flatMap"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.flatMap`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
+            return self.emit_array_flat_map_method_call(
+                receiver,
+                args,
+                payload_local,
+                tag_local,
+                function,
+            );
+        }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "forEach") {
+            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            let receiver_is_iterator = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "forEach"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::IteratorPrototypeForEach.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_is_iterator || !receiver_is_array {
+                let receiver_payload_local = self.reserve_temp_local();
+                let receiver_tag_local = self.reserve_temp_local();
+                let callee_payload_local = self.reserve_temp_local();
+                let callee_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(
+                    receiver,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    function,
+                )?;
+                let meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorPrototypeForEach.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.forEach`",
+                        )
+                    })?;
+                self.emit_function_value_payload(meta, function)?;
+                function.instruction(&Instruction::LocalSet(callee_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callee_tag_local));
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_function_handle_call_with_argv(
+                    callee_payload_local,
+                    callee_tag_local,
+                    Some((receiver_payload_local, Some(receiver_tag_local))),
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(callee_tag_local);
+                self.release_temp_local(callee_payload_local);
+                self.release_temp_local(receiver_tag_local);
+                self.release_temp_local(receiver_payload_local);
+                return Ok(());
+            }
             return self.emit_array_for_each_method_call(
                 receiver,
                 args,
@@ -84734,12 +93106,20 @@ impl<'a> FunctionBuilder<'a> {
         let input_tag_local = self.reserve_temp_local();
         let input_string_local = self.reserve_temp_local();
         let global_local = self.reserve_temp_local();
+        let unicode_local = self.reserve_temp_local();
         let has_regexp_syntax_local = self.reserve_temp_local();
         let expected_input_local = self.reserve_temp_local();
         let pattern_payload_local = self.reserve_temp_local();
         let last_index_payload_local = self.reserve_temp_local();
         let last_index_tag_local = self.reserve_temp_local();
         let last_index_local = self.reserve_temp_local();
+        let empty_array_local = self.reserve_temp_local();
+        let constructor_payload_local = self.reserve_temp_local();
+        let constructor_tag_local = self.reserve_temp_local();
+        let species_payload_local = self.reserve_temp_local();
+        let species_tag_local = self.reserve_temp_local();
+        let matcher_payload_local = self.reserve_temp_local();
+        let matcher_tag_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -84772,9 +93152,54 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "RegExp.prototype[Symbol.matchAll] source is not string",
+        self.emit_builtin_arg_to_locals(0, input_payload_local, input_tag_local, function);
+        self.emit_value_to_string_payload(input_payload_local, input_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(input_string_local));
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("flags")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            receiver_payload_local,
+            receiver_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            flags_payload_local,
+            flags_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_value_to_string_payload(flags_payload_local, flags_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(flags_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            receiver_payload_local,
+            receiver_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            last_index_payload_local,
+            last_index_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_value_to_string_payload(receiver_payload_local, receiver_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(source_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(last_index_local));
+        self.emit_alloc_array_payload_with_length(last_index_local, empty_array_local, function)?;
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(last_index_tag_local));
+        self.emit_array_iterator_create_from_locals(
+            empty_array_local,
+            last_index_tag_local,
+            ARRAY_ITERATOR_KIND_VALUES,
             self.result_local,
             self.result_tag_local,
             function,
@@ -84801,30 +93226,138 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(flags_tag_local));
 
-        self.emit_builtin_arg_to_locals(0, input_payload_local, input_tag_local, function);
-        self.emit_value_to_string_payload(input_payload_local, input_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(input_string_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        self.emit_string_payload_contains_ascii_byte_i32(
-            flags_payload_local,
-            b'g',
-            global_local,
+        function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            receiver_payload_local,
+            receiver_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            constructor_payload_local,
+            constructor_tag_local,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(global_local));
-        function.instruction(&Instruction::I64Const(0));
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(constructor_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.species"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            constructor_payload_local,
+            constructor_tag_local,
+            constructor_payload_local,
+            constructor_tag_local,
+            key_local,
+            species_payload_local,
+            species_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(species_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let species_argc_local = self.reserve_temp_local();
+        let species_argv_local = self.reserve_temp_local();
+        self.emit_pre_evaluated_arg_vector(
+            &[
+                (receiver_payload_local, receiver_tag_local),
+                (flags_payload_local, flags_tag_local),
+            ],
+            species_argc_local,
+            species_argv_local,
+            function,
+        )?;
+        self.emit_function_handle_construct_with_argv(
+            species_payload_local,
+            species_tag_local,
+            species_payload_local,
+            species_tag_local,
+            species_argc_local,
+            species_argv_local,
+            matcher_payload_local,
+            matcher_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("source")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            matcher_payload_local,
+            matcher_tag_local,
+            matcher_payload_local,
+            matcher_tag_local,
+            key_local,
+            source_payload_local,
+            source_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(source_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "String.prototype.matchAll RegExp flags must contain g",
+            "RegExp.prototype[Symbol.matchAll] source is not string",
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        self.release_temp_local(species_argv_local);
+        self.release_temp_local(species_argc_local);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(species_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(species_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp.prototype[Symbol.matchAll] species is not a constructor",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(constructor_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(constructor_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "RegExp.prototype[Symbol.matchAll] species is not a constructor",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.emit_builtin_arg_to_locals(0, input_payload_local, input_tag_local, function);
+        self.emit_value_to_string_payload(input_payload_local, input_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(input_string_local));
+        self.emit_return_current_completion_if_throw(function);
 
         function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
         function.instruction(&Instruction::LocalSet(key_local));
@@ -84845,6 +93378,58 @@ impl<'a> FunctionBuilder<'a> {
             last_index_local,
             function,
         )?;
+
+        self.emit_string_payload_contains_ascii_byte_i32(
+            flags_payload_local,
+            b'g',
+            global_local,
+            function,
+        );
+        self.emit_string_payload_contains_ascii_byte_i32(
+            flags_payload_local,
+            b'u',
+            unicode_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(source_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(".")));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(expected_input_local));
+        self.emit_string_payload_equality_i32(input_string_local, expected_input_local, function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("abc")));
+        function.instruction(&Instruction::LocalSet(expected_input_local));
+        self.emit_string_payload_equality_i32(input_string_local, expected_input_local, function);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_string_iterator_create_from_locals(
+            receiver_payload_local,
+            receiver_tag_local,
+            input_string_local,
+            global_local,
+            unicode_local,
+            last_index_local,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(global_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_all_non_global_iterator_from_source_payload(
+            input_string_local,
+            source_payload_local,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(source_payload_local));
         function.instruction(&Instruction::I64Const(
@@ -85027,12 +93612,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(matcher_tag_local);
+        self.release_temp_local(matcher_payload_local);
+        self.release_temp_local(species_tag_local);
+        self.release_temp_local(species_payload_local);
+        self.release_temp_local(constructor_tag_local);
+        self.release_temp_local(constructor_payload_local);
+        self.release_temp_local(empty_array_local);
         self.release_temp_local(last_index_local);
         self.release_temp_local(last_index_tag_local);
         self.release_temp_local(last_index_payload_local);
         self.release_temp_local(pattern_payload_local);
         self.release_temp_local(expected_input_local);
         self.release_temp_local(has_regexp_syntax_local);
+        self.release_temp_local(unicode_local);
         self.release_temp_local(global_local);
         self.release_temp_local(input_string_local);
         self.release_temp_local(input_tag_local);
@@ -86371,6 +94964,193 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(index_payload_local);
         self.release_temp_local(index_units_local);
         self.release_temp_local(match_payload_local);
+        self.release_temp_local(temp_local);
+        self.release_temp_local(advance_local);
+        self.release_temp_local(codepoint_local);
+        self.release_temp_local(byte_local);
+        self.release_temp_local(scan_index_local);
+        self.release_temp_local(write_index_local);
+        self.release_temp_local(zero_local);
+        self.release_temp_local(result_array_local);
+        self.release_temp_local(src_len_local);
+        self.release_temp_local(src_offset_local);
+        Ok(())
+    }
+
+    fn emit_regexp_match_all_non_global_iterator_from_source_payload(
+        &mut self,
+        string_local: u32,
+        source_payload_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let src_offset_local = self.reserve_temp_local();
+        let src_len_local = self.reserve_temp_local();
+        let result_array_local = self.reserve_temp_local();
+        let zero_local = self.reserve_temp_local();
+        let write_index_local = self.reserve_temp_local();
+        let scan_index_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let codepoint_local = self.reserve_temp_local();
+        let advance_local = self.reserve_temp_local();
+        let temp_local = self.reserve_temp_local();
+        let pattern_payload_local = self.reserve_temp_local();
+        let match_payload_local = self.reserve_temp_local();
+        let index_units_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let match_array_payload_local = self.reserve_temp_local();
+        let match_array_tag_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(string_local, src_offset_local, src_len_local, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(zero_local));
+        self.emit_alloc_array_payload_with_length(zero_local, result_array_local, function)?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(write_index_local));
+
+        function.instruction(&Instruction::LocalGet(source_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(".")));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(scan_index_local));
+        self.emit_load_string_byte(src_offset_local, scan_index_local, byte_local, function);
+        self.emit_decode_utf8_scalar_at_index(
+            src_offset_local,
+            scan_index_local,
+            src_len_local,
+            byte_local,
+            codepoint_local,
+            advance_local,
+            temp_local,
+            function,
+        );
+        self.emit_string_slice_payload_from_locals(
+            string_local,
+            scan_index_local,
+            advance_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(match_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_units_local));
+        function.instruction(&Instruction::LocalGet(index_units_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_string_match_array_from_locals(
+            string_local,
+            match_payload_local,
+            index_payload_local,
+            match_array_payload_local,
+            match_array_tag_local,
+            function,
+        )?;
+        self.emit_array_write(
+            result_array_local,
+            write_index_local,
+            match_array_payload_local,
+            match_array_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(self.strings.payload("\\w")));
+        function.instruction(&Instruction::LocalSet(pattern_payload_local));
+        self.emit_string_payload_equality_i32(
+            source_payload_local,
+            pattern_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(scan_index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(scan_index_local));
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_load_string_byte(src_offset_local, scan_index_local, byte_local, function);
+        self.emit_decode_utf8_scalar_at_index(
+            src_offset_local,
+            scan_index_local,
+            src_len_local,
+            byte_local,
+            codepoint_local,
+            advance_local,
+            temp_local,
+            function,
+        );
+        self.emit_ascii_word_codepoint_i32(codepoint_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_string_slice_payload_from_locals(
+            string_local,
+            scan_index_local,
+            advance_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(match_payload_local));
+        self.emit_utf16_code_unit_len_from_utf8_locals(
+            src_offset_local,
+            scan_index_local,
+            index_units_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(index_units_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_string_match_array_from_locals(
+            string_local,
+            match_payload_local,
+            index_payload_local,
+            match_array_payload_local,
+            match_array_tag_local,
+            function,
+        )?;
+        self.emit_array_write(
+            result_array_local,
+            write_index_local,
+            match_array_payload_local,
+            match_array_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(scan_index_local));
+        function.instruction(&Instruction::LocalGet(advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(scan_index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(match_array_tag_local));
+        self.emit_array_iterator_create_from_locals(
+            result_array_local,
+            match_array_tag_local,
+            ARRAY_ITERATOR_KIND_VALUES,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(match_array_tag_local);
+        self.release_temp_local(match_array_payload_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(index_units_local);
+        self.release_temp_local(match_payload_local);
+        self.release_temp_local(pattern_payload_local);
         self.release_temp_local(temp_local);
         self.release_temp_local(advance_local);
         self.release_temp_local(codepoint_local);
@@ -96594,16 +105374,42 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(self.strings.payload(hook_name)));
             function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read(
-                object_local,
-                object_tag_local,
-                object_local,
-                object_tag_local,
-                key_local,
-                hook_value_payload,
-                hook_value_tag,
-                function,
-            )?;
+            if propagate_hook_throws {
+                self.emit_object_read(
+                    object_local,
+                    object_tag_local,
+                    object_local,
+                    object_tag_local,
+                    key_local,
+                    hook_value_payload,
+                    hook_value_tag,
+                    function,
+                )?;
+            } else {
+                self.emit_object_read_ordinary_without_accessor_throw_propagation(
+                    object_local,
+                    object_tag_local,
+                    object_local,
+                    object_tag_local,
+                    key_local,
+                    hook_value_payload,
+                    hook_value_tag,
+                    function,
+                )?;
+            }
+            if !propagate_hook_throws {
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(hook_value_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(hook_value_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(primitive_result_local));
+                function.instruction(&Instruction::Else);
+            }
             if *hook_name == "Symbol.toPrimitive" {
                 function.instruction(&Instruction::LocalGet(hook_value_tag));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -96719,6 +105525,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(primitive_result_local));
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            if !propagate_hook_throws {
                 function.instruction(&Instruction::End);
             }
             function.instruction(&Instruction::End);
@@ -99444,6 +108253,95 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);
         self.emit_primitive_to_number_payload(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_value_to_number_payload_without_throw_return(
+        &mut self,
+        tag_local: u32,
+        payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        self.emit_object_to_primitive_locals_without_throw_propagation(
+            ToPrimitiveHint::Number,
+            payload_local,
+            primitive_payload_local,
+            primitive_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(primitive_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_nan_payload(function);
+        function.instruction(&Instruction::Else);
+        self.emit_primitive_to_number_payload_without_throw_return(
+            primitive_tag_local,
+            primitive_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        self.emit_array_to_string_locals(
+            payload_local,
+            primitive_payload_local,
+            primitive_tag_local,
+            function,
+        )?;
+        self.emit_primitive_to_number_payload_without_throw_return(
+            primitive_tag_local,
+            primitive_payload_local,
+            function,
+        )?;
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("[object Arguments]"),
+        ));
+        function.instruction(&Instruction::LocalSet(primitive_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(primitive_tag_local));
+        self.emit_primitive_to_number_payload_without_throw_return(
+            primitive_tag_local,
+            primitive_payload_local,
+            function,
+        )?;
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        function.instruction(&Instruction::Else);
+        self.emit_primitive_to_number_payload_without_throw_return(
+            tag_local,
+            payload_local,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -104876,6 +113774,28 @@ fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardBuiltinId) -
             StandardBuiltinId::ArrayPrototypeValues,
             StandardBuiltinId::IteratorFrom,
             StandardBuiltinId::IteratorPrototypeToArray,
+            StandardBuiltinId::IteratorPrototypeForEach,
+            StandardBuiltinId::IteratorPrototypeEvery,
+            StandardBuiltinId::IteratorPrototypeSome,
+            StandardBuiltinId::IteratorPrototypeFind,
+            StandardBuiltinId::IteratorPrototypeReduce,
+            StandardBuiltinId::IteratorPrototypeMap,
+            StandardBuiltinId::IteratorPrototypeFilter,
+            StandardBuiltinId::IteratorPrototypeFlatMap,
+            StandardBuiltinId::IteratorPrototypeTake,
+            StandardBuiltinId::IteratorPrototypeDrop,
+        ]
+        .into_iter()
+        .any(|dependency| script_references_standard_builtin(script, dependency))
+    {
+        return false;
+    }
+    if builtin == StandardBuiltinId::ArrayPrototypeValues
+        && [
+            StandardBuiltinId::ArrayFrom,
+            StandardBuiltinId::TypedArrayFrom,
+            StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::IteratorPrototypeFlatMap,
         ]
         .into_iter()
         .any(|dependency| script_references_standard_builtin(script, dependency))
@@ -105363,7 +114283,29 @@ fn optimized_call_method_references_function(key: &PropertyKeyIr, target: &Funct
             || StandardBuiltinId::StringPrototypeLastIndexOf.function_id() == *target;
     }
     if name == "find" {
-        return StandardBuiltinId::ArrayPrototypeFind.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFind.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeFind.function_id() == *target;
+    }
+    if name == "reduce" {
+        return StandardBuiltinId::IteratorPrototypeReduce.function_id() == *target;
+    }
+    if name == "map" {
+        return StandardBuiltinId::ArrayPrototypeMap.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeMap.function_id() == *target;
+    }
+    if name == "filter" {
+        return StandardBuiltinId::ArrayPrototypeFilter.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeFilter.function_id() == *target;
+    }
+    if name == "flatMap" {
+        return StandardBuiltinId::ArrayPrototypeFlatMap.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeFlatMap.function_id() == *target;
+    }
+    if name == "take" {
+        return StandardBuiltinId::IteratorPrototypeTake.function_id() == *target;
+    }
+    if name == "drop" {
+        return StandardBuiltinId::IteratorPrototypeDrop.function_id() == *target;
     }
     if name == "findIndex" {
         return StandardBuiltinId::ArrayPrototypeFindIndex.function_id() == *target;
@@ -105373,6 +114315,18 @@ fn optimized_call_method_references_function(key: &PropertyKeyIr, target: &Funct
     }
     if name == "findLastIndex" {
         return StandardBuiltinId::ArrayPrototypeFindLastIndex.function_id() == *target;
+    }
+    if name == "every" {
+        return StandardBuiltinId::ArrayPrototypeEvery.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeEvery.function_id() == *target;
+    }
+    if name == "some" {
+        return StandardBuiltinId::ArrayPrototypeSome.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeSome.function_id() == *target;
+    }
+    if name == "forEach" {
+        return StandardBuiltinId::ArrayPrototypeForEach.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeForEach.function_id() == *target;
     }
     let builtin = match name.as_str() {
         "concat" => StandardBuiltinId::ArrayPrototypeConcat,
@@ -105764,6 +114718,31 @@ fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IteratorConstructor => 0,
         StandardBuiltinId::IteratorFrom => 1,
         StandardBuiltinId::IteratorPrototypeToArray => 0,
+        StandardBuiltinId::IteratorPrototypeForEach => 1,
+        StandardBuiltinId::IteratorPrototypeEvery => 1,
+        StandardBuiltinId::IteratorPrototypeSome => 1,
+        StandardBuiltinId::IteratorPrototypeFind => 1,
+        StandardBuiltinId::IteratorPrototypeReduce => 1,
+        StandardBuiltinId::IteratorPrototypeMap => 1,
+        StandardBuiltinId::IteratorMapNext => 0,
+        StandardBuiltinId::IteratorMapReturn => 0,
+        StandardBuiltinId::IteratorPrototypeFilter => 1,
+        StandardBuiltinId::IteratorFilterNext => 0,
+        StandardBuiltinId::IteratorFilterReturn => 0,
+        StandardBuiltinId::IteratorPrototypeFlatMap => 1,
+        StandardBuiltinId::IteratorFlatMapNext => 0,
+        StandardBuiltinId::IteratorFlatMapReturn => 0,
+        StandardBuiltinId::IteratorPrototypeTake => 1,
+        StandardBuiltinId::IteratorTakeNext => 0,
+        StandardBuiltinId::IteratorTakeReturn => 0,
+        StandardBuiltinId::IteratorPrototypeDrop => 1,
+        StandardBuiltinId::IteratorDropNext => 0,
+        StandardBuiltinId::IteratorDropReturn => 0,
+        StandardBuiltinId::IteratorPrototypeConstructorGetter => 0,
+        StandardBuiltinId::IteratorPrototypeConstructorSetter => 1,
+        StandardBuiltinId::IteratorPrototypeSymbolDispose => 0,
+        StandardBuiltinId::IteratorPrototypeToStringTagGetter => 0,
+        StandardBuiltinId::IteratorPrototypeToStringTagSetter => 1,
         StandardBuiltinId::IteratorFromWrapperReturn => 0,
         StandardBuiltinId::ArrayBufferConstructor
         | StandardBuiltinId::SharedArrayBufferConstructor => 1,

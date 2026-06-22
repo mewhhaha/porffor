@@ -199,6 +199,40 @@ pub const BUILTIN_ITERATOR_FUNCTION_ID: &str = "$builtin.Iterator";
 pub const BUILTIN_ITERATOR_FROM_FUNCTION_ID: &str = "$builtin.Iterator.from";
 pub const BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID: &str =
     "$builtin.Iterator.prototype.toArray";
+pub const BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.forEach";
+pub const BUILTIN_ITERATOR_PROTOTYPE_EVERY_FUNCTION_ID: &str = "$builtin.Iterator.prototype.every";
+pub const BUILTIN_ITERATOR_PROTOTYPE_SOME_FUNCTION_ID: &str = "$builtin.Iterator.prototype.some";
+pub const BUILTIN_ITERATOR_PROTOTYPE_FIND_FUNCTION_ID: &str = "$builtin.Iterator.prototype.find";
+pub const BUILTIN_ITERATOR_PROTOTYPE_REDUCE_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.reduce";
+pub const BUILTIN_ITERATOR_PROTOTYPE_MAP_FUNCTION_ID: &str = "$builtin.Iterator.prototype.map";
+pub const BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.map.next";
+pub const BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.map.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_FILTER_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.filter";
+pub const BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.filter.next";
+pub const BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.filter.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_FLAT_MAP_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.flatMap";
+pub const BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.flatMap.next";
+pub const BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.flatMap.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_TAKE_FUNCTION_ID: &str = "$builtin.Iterator.prototype.take";
+pub const BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.take.next";
+pub const BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.take.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_DROP_FUNCTION_ID: &str = "$builtin.Iterator.prototype.drop";
+pub const BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.drop.next";
+pub const BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.drop.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.constructor.get";
+pub const BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_SETTER_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.constructor.set";
+pub const BUILTIN_ITERATOR_PROTOTYPE_SYMBOL_DISPOSE_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype[Symbol.dispose]";
+pub const BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype[Symbol.toStringTag].get";
+pub const BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype[Symbol.toStringTag].set";
 pub const BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID: &str =
     "$builtin.Iterator.from.wrapper.return";
 pub const BUILTIN_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.ArrayBuffer";
@@ -485,6 +519,8 @@ pub const PORFFOR_ITERATOR_FROM_WRAPPER_SLOT: &str = "$PorfforIteratorFromWrappe
 pub const PORFFOR_YIELD_STAR_GENERATOR_SLOT: &str = "$PorfforYieldStarGenerator";
 pub const PORFFOR_YIELD_STAR_RETURN_NON_OBJECT_SLOT: &str = "$PorfforYieldStarReturnNonObject";
 pub const PORFFOR_YIELD_STAR_THROW_NON_OBJECT_SLOT: &str = "$PorfforYieldStarThrowNonObject";
+pub const PORFFOR_STATIC_GENERATOR_VALUES_METHOD: &str = "$PorfforStaticGenerator.values";
+pub const PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT: &str = "$PorfforStaticGeneratorIterator";
 pub const DATE_VALUE_SLOT: &str = "$DateValue";
 
 pub type FunctionId = String;
@@ -638,6 +674,31 @@ pub enum StandardBuiltinId {
     IteratorConstructor,
     IteratorFrom,
     IteratorPrototypeToArray,
+    IteratorPrototypeForEach,
+    IteratorPrototypeEvery,
+    IteratorPrototypeSome,
+    IteratorPrototypeFind,
+    IteratorPrototypeReduce,
+    IteratorPrototypeMap,
+    IteratorMapNext,
+    IteratorMapReturn,
+    IteratorPrototypeFilter,
+    IteratorFilterNext,
+    IteratorFilterReturn,
+    IteratorPrototypeFlatMap,
+    IteratorFlatMapNext,
+    IteratorFlatMapReturn,
+    IteratorPrototypeTake,
+    IteratorTakeNext,
+    IteratorTakeReturn,
+    IteratorPrototypeDrop,
+    IteratorDropNext,
+    IteratorDropReturn,
+    IteratorPrototypeConstructorGetter,
+    IteratorPrototypeConstructorSetter,
+    IteratorPrototypeSymbolDispose,
+    IteratorPrototypeToStringTagGetter,
+    IteratorPrototypeToStringTagSetter,
     IteratorFromWrapperReturn,
     ArrayBufferConstructor,
     SharedArrayBufferConstructor,
@@ -1018,6 +1079,31 @@ impl StandardBuiltinId {
             | Self::ArrayIteratorIdentity
             | Self::IteratorFrom
             | Self::IteratorPrototypeToArray
+            | Self::IteratorPrototypeForEach
+            | Self::IteratorPrototypeEvery
+            | Self::IteratorPrototypeSome
+            | Self::IteratorPrototypeFind
+            | Self::IteratorPrototypeReduce
+            | Self::IteratorPrototypeMap
+            | Self::IteratorMapNext
+            | Self::IteratorMapReturn
+            | Self::IteratorPrototypeFilter
+            | Self::IteratorFilterNext
+            | Self::IteratorFilterReturn
+            | Self::IteratorPrototypeFlatMap
+            | Self::IteratorFlatMapNext
+            | Self::IteratorFlatMapReturn
+            | Self::IteratorPrototypeTake
+            | Self::IteratorTakeNext
+            | Self::IteratorTakeReturn
+            | Self::IteratorPrototypeDrop
+            | Self::IteratorDropNext
+            | Self::IteratorDropReturn
+            | Self::IteratorPrototypeConstructorGetter
+            | Self::IteratorPrototypeConstructorSetter
+            | Self::IteratorPrototypeSymbolDispose
+            | Self::IteratorPrototypeToStringTagGetter
+            | Self::IteratorPrototypeToStringTagSetter
             | Self::IteratorFromWrapperReturn
             | Self::ArrayBufferIsView
             | Self::NumberIsInteger
@@ -1248,6 +1334,35 @@ impl StandardBuiltinId {
             Self::IteratorConstructor => "Iterator",
             Self::IteratorFrom => "Iterator.from",
             Self::IteratorPrototypeToArray => "Iterator.prototype.toArray",
+            Self::IteratorPrototypeForEach => "Iterator.prototype.forEach",
+            Self::IteratorPrototypeEvery => "Iterator.prototype.every",
+            Self::IteratorPrototypeSome => "Iterator.prototype.some",
+            Self::IteratorPrototypeFind => "Iterator.prototype.find",
+            Self::IteratorPrototypeReduce => "Iterator.prototype.reduce",
+            Self::IteratorPrototypeMap => "Iterator.prototype.map",
+            Self::IteratorMapNext => "Iterator map helper next",
+            Self::IteratorMapReturn => "Iterator map helper return",
+            Self::IteratorPrototypeFilter => "Iterator.prototype.filter",
+            Self::IteratorFilterNext => "Iterator filter helper next",
+            Self::IteratorFilterReturn => "Iterator filter helper return",
+            Self::IteratorPrototypeFlatMap => "Iterator.prototype.flatMap",
+            Self::IteratorFlatMapNext => "Iterator flatMap helper next",
+            Self::IteratorFlatMapReturn => "Iterator flatMap helper return",
+            Self::IteratorPrototypeTake => "Iterator.prototype.take",
+            Self::IteratorTakeNext => "Iterator take helper next",
+            Self::IteratorTakeReturn => "Iterator take helper return",
+            Self::IteratorPrototypeDrop => "Iterator.prototype.drop",
+            Self::IteratorDropNext => "Iterator drop helper next",
+            Self::IteratorDropReturn => "Iterator drop helper return",
+            Self::IteratorPrototypeConstructorGetter => "get Iterator.prototype.constructor",
+            Self::IteratorPrototypeConstructorSetter => "set Iterator.prototype.constructor",
+            Self::IteratorPrototypeSymbolDispose => "Iterator.prototype[Symbol.dispose]",
+            Self::IteratorPrototypeToStringTagGetter => {
+                "get Iterator.prototype[Symbol.toStringTag]"
+            }
+            Self::IteratorPrototypeToStringTagSetter => {
+                "set Iterator.prototype[Symbol.toStringTag]"
+            }
             Self::IteratorFromWrapperReturn => "%WrapForValidIteratorPrototype%.return",
             Self::ArrayBufferConstructor => ARRAY_BUFFER_NAME,
             Self::SharedArrayBufferConstructor => SHARED_ARRAY_BUFFER_NAME,
@@ -1604,6 +1719,51 @@ impl StandardBuiltinId {
             Self::IteratorFrom => BUILTIN_ITERATOR_FROM_FUNCTION_ID.to_string(),
             Self::IteratorPrototypeToArray => {
                 BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeForEach => {
+                BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeEvery => {
+                BUILTIN_ITERATOR_PROTOTYPE_EVERY_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeSome => BUILTIN_ITERATOR_PROTOTYPE_SOME_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeFind => BUILTIN_ITERATOR_PROTOTYPE_FIND_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeReduce => {
+                BUILTIN_ITERATOR_PROTOTYPE_REDUCE_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeMap => BUILTIN_ITERATOR_PROTOTYPE_MAP_FUNCTION_ID.to_string(),
+            Self::IteratorMapNext => BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorMapReturn => BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeFilter => {
+                BUILTIN_ITERATOR_PROTOTYPE_FILTER_FUNCTION_ID.to_string()
+            }
+            Self::IteratorFilterNext => BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorFilterReturn => BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeFlatMap => {
+                BUILTIN_ITERATOR_PROTOTYPE_FLAT_MAP_FUNCTION_ID.to_string()
+            }
+            Self::IteratorFlatMapNext => BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorFlatMapReturn => BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeTake => BUILTIN_ITERATOR_PROTOTYPE_TAKE_FUNCTION_ID.to_string(),
+            Self::IteratorTakeNext => BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorTakeReturn => BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeDrop => BUILTIN_ITERATOR_PROTOTYPE_DROP_FUNCTION_ID.to_string(),
+            Self::IteratorDropNext => BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorDropReturn => BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorPrototypeConstructorGetter => {
+                BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeConstructorSetter => {
+                BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_SETTER_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeSymbolDispose => {
+                BUILTIN_ITERATOR_PROTOTYPE_SYMBOL_DISPOSE_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeToStringTagGetter => {
+                BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IteratorPrototypeToStringTagSetter => {
+                BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID.to_string()
             }
             Self::IteratorFromWrapperReturn => {
                 BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID.to_string()
@@ -2136,6 +2296,41 @@ impl StandardBuiltinId {
             BUILTIN_ITERATOR_FUNCTION_ID => Some(Self::IteratorConstructor),
             BUILTIN_ITERATOR_FROM_FUNCTION_ID => Some(Self::IteratorFrom),
             BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID => Some(Self::IteratorPrototypeToArray),
+            BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::IteratorPrototypeForEach),
+            BUILTIN_ITERATOR_PROTOTYPE_EVERY_FUNCTION_ID => Some(Self::IteratorPrototypeEvery),
+            BUILTIN_ITERATOR_PROTOTYPE_SOME_FUNCTION_ID => Some(Self::IteratorPrototypeSome),
+            BUILTIN_ITERATOR_PROTOTYPE_FIND_FUNCTION_ID => Some(Self::IteratorPrototypeFind),
+            BUILTIN_ITERATOR_PROTOTYPE_REDUCE_FUNCTION_ID => Some(Self::IteratorPrototypeReduce),
+            BUILTIN_ITERATOR_PROTOTYPE_MAP_FUNCTION_ID => Some(Self::IteratorPrototypeMap),
+            BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID => Some(Self::IteratorMapNext),
+            BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID => Some(Self::IteratorMapReturn),
+            BUILTIN_ITERATOR_PROTOTYPE_FILTER_FUNCTION_ID => Some(Self::IteratorPrototypeFilter),
+            BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID => Some(Self::IteratorFilterNext),
+            BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID => Some(Self::IteratorFilterReturn),
+            BUILTIN_ITERATOR_PROTOTYPE_FLAT_MAP_FUNCTION_ID => Some(Self::IteratorPrototypeFlatMap),
+            BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID => Some(Self::IteratorFlatMapNext),
+            BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID => Some(Self::IteratorFlatMapReturn),
+            BUILTIN_ITERATOR_PROTOTYPE_TAKE_FUNCTION_ID => Some(Self::IteratorPrototypeTake),
+            BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID => Some(Self::IteratorTakeNext),
+            BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID => Some(Self::IteratorTakeReturn),
+            BUILTIN_ITERATOR_PROTOTYPE_DROP_FUNCTION_ID => Some(Self::IteratorPrototypeDrop),
+            BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID => Some(Self::IteratorDropNext),
+            BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID => Some(Self::IteratorDropReturn),
+            BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID => {
+                Some(Self::IteratorPrototypeConstructorGetter)
+            }
+            BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_SETTER_FUNCTION_ID => {
+                Some(Self::IteratorPrototypeConstructorSetter)
+            }
+            BUILTIN_ITERATOR_PROTOTYPE_SYMBOL_DISPOSE_FUNCTION_ID => {
+                Some(Self::IteratorPrototypeSymbolDispose)
+            }
+            BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID => {
+                Some(Self::IteratorPrototypeToStringTagGetter)
+            }
+            BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID => {
+                Some(Self::IteratorPrototypeToStringTagSetter)
+            }
             BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID => {
                 Some(Self::IteratorFromWrapperReturn)
             }
@@ -2634,6 +2829,31 @@ impl StandardBuiltinId {
             Self::IteratorConstructor,
             Self::IteratorFrom,
             Self::IteratorPrototypeToArray,
+            Self::IteratorPrototypeForEach,
+            Self::IteratorPrototypeEvery,
+            Self::IteratorPrototypeSome,
+            Self::IteratorPrototypeFind,
+            Self::IteratorPrototypeReduce,
+            Self::IteratorPrototypeMap,
+            Self::IteratorMapNext,
+            Self::IteratorMapReturn,
+            Self::IteratorPrototypeFilter,
+            Self::IteratorFilterNext,
+            Self::IteratorFilterReturn,
+            Self::IteratorPrototypeFlatMap,
+            Self::IteratorFlatMapNext,
+            Self::IteratorFlatMapReturn,
+            Self::IteratorPrototypeTake,
+            Self::IteratorTakeNext,
+            Self::IteratorTakeReturn,
+            Self::IteratorPrototypeDrop,
+            Self::IteratorDropNext,
+            Self::IteratorDropReturn,
+            Self::IteratorPrototypeConstructorGetter,
+            Self::IteratorPrototypeConstructorSetter,
+            Self::IteratorPrototypeSymbolDispose,
+            Self::IteratorPrototypeToStringTagGetter,
+            Self::IteratorPrototypeToStringTagSetter,
             Self::IteratorFromWrapperReturn,
             Self::ArrayBufferConstructor,
             Self::SharedArrayBufferConstructor,
@@ -3130,6 +3350,31 @@ impl StandardBuiltinId {
             Self::IteratorConstructor => Some("Iterator"),
             Self::IteratorFrom => Some("from"),
             Self::IteratorPrototypeToArray => Some("toArray"),
+            Self::IteratorPrototypeForEach => Some("forEach"),
+            Self::IteratorPrototypeEvery => Some("every"),
+            Self::IteratorPrototypeSome => Some("some"),
+            Self::IteratorPrototypeFind => Some("find"),
+            Self::IteratorPrototypeReduce => Some("reduce"),
+            Self::IteratorPrototypeMap => Some("map"),
+            Self::IteratorMapNext => Some("next"),
+            Self::IteratorMapReturn => Some("return"),
+            Self::IteratorPrototypeFilter => Some("filter"),
+            Self::IteratorFilterNext => Some("next"),
+            Self::IteratorFilterReturn => Some("return"),
+            Self::IteratorPrototypeFlatMap => Some("flatMap"),
+            Self::IteratorFlatMapNext => Some("next"),
+            Self::IteratorFlatMapReturn => Some("return"),
+            Self::IteratorPrototypeTake => Some("take"),
+            Self::IteratorTakeNext => Some("next"),
+            Self::IteratorTakeReturn => Some("return"),
+            Self::IteratorPrototypeDrop => Some("drop"),
+            Self::IteratorDropNext => Some("next"),
+            Self::IteratorDropReturn => Some("return"),
+            Self::IteratorPrototypeConstructorGetter => Some("get constructor"),
+            Self::IteratorPrototypeConstructorSetter => Some("set constructor"),
+            Self::IteratorPrototypeSymbolDispose => Some("[Symbol.dispose]"),
+            Self::IteratorPrototypeToStringTagGetter => Some("get [Symbol.toStringTag]"),
+            Self::IteratorPrototypeToStringTagSetter => Some("set [Symbol.toStringTag]"),
             Self::IteratorFromWrapperReturn => Some("return"),
             Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
@@ -10211,9 +10456,107 @@ impl<'a> ScriptLowerer<'a> {
     fn iterator_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         properties.insert(
+            "constructor".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::IteratorPrototypeConstructorGetter
+                        .function_id(),
+                }),
+                setter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::IteratorPrototypeConstructorSetter
+                        .function_id(),
+                }),
+            },
+        );
+        properties.insert(
+            "Symbol.iterator".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::ArrayIteratorIdentity,
+            )),
+        );
+        properties.insert(
+            "Symbol.dispose".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeSymbolDispose,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::IteratorPrototypeToStringTagGetter
+                        .function_id(),
+                }),
+                setter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::IteratorPrototypeToStringTagSetter
+                        .function_id(),
+                }),
+            },
+        );
+        properties.insert(
             "toArray".to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::IteratorPrototypeToArray,
+            )),
+        );
+        properties.insert(
+            "forEach".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeForEach,
+            )),
+        );
+        properties.insert(
+            "every".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeEvery,
+            )),
+        );
+        properties.insert(
+            "some".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeSome,
+            )),
+        );
+        properties.insert(
+            "find".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeFind,
+            )),
+        );
+        properties.insert(
+            "reduce".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeReduce,
+            )),
+        );
+        properties.insert(
+            "map".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeMap,
+            )),
+        );
+        properties.insert(
+            "filter".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeFilter,
+            )),
+        );
+        properties.insert(
+            "flatMap".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeFlatMap,
+            )),
+        );
+        properties.insert(
+            "take".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeTake,
+            )),
+        );
+        properties.insert(
+            "drop".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeDrop,
             )),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -10234,6 +10577,116 @@ impl<'a> ScriptLowerer<'a> {
         );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Self::iterator_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_take_helper_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorTakeNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorTakeReturn,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_drop_helper_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorDropNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorDropReturn,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_map_helper_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorMapNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorMapReturn,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_filter_helper_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorFilterNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorFilterReturn,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_flat_map_helper_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorFlatMapNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorFlatMapReturn,
+            )),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
             properties,
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
@@ -10902,6 +11355,198 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorPrototypeToArray,
                 )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeForEach => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeForEach,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeEvery => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeEvery,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeSome => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeSome,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeFind => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeFind,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeReduce => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeReduce,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeMap => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeMap,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorMapNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorMapNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorMapReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorMapReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeFilter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeFilter,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorFilterNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorFilterNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorFilterReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorFilterReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeFlatMap => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeFlatMap,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorFlatMapNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorFlatMapNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorFlatMapReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorFlatMapReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeTake => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeTake,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorTakeNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorTakeNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorTakeReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorTakeReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeDrop => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeDrop,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorDropNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorDropNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorDropReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorDropReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeConstructorGetter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorConstructor,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeConstructorSetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeSymbolDispose => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeToStringTagGetter => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeToStringTagSetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IteratorFromWrapperReturn => (
@@ -19330,6 +19975,92 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         false
                     };
+                    if let PropertyAccessField::Const(field) = access.field() {
+                        let field_name = self.interner.resolve_expect(field.sym()).to_string();
+                        let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
+                            || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+                        if field_name == "forEach"
+                            || (matches!(
+                                field_name.as_str(),
+                                "every"
+                                    | "some"
+                                    | "find"
+                                    | "reduce"
+                                    | "map"
+                                    | "filter"
+                                    | "flatMap"
+                                    | "take"
+                                    | "drop"
+                            ) && !receiver_is_array)
+                        {
+                            let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                                return TypedExpr::undefined();
+                            };
+                            if field_name != "take" && field_name != "drop" {
+                                if let Some(callback) = args.first() {
+                                    if let Some(callback_id) =
+                                        self.resolve_single_function_target(callback)
+                                    {
+                                        let dynamic_value = ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        };
+                                        if field_name == "reduce" {
+                                            self.merge_function_param_infos(
+                                                &callback_id,
+                                                &[
+                                                    dynamic_value.clone(),
+                                                    dynamic_value,
+                                                    ValueInfo::new(ValueKind::Number),
+                                                ],
+                                            );
+                                        } else {
+                                            self.merge_function_param_infos(
+                                                &callback_id,
+                                                &[dynamic_value, ValueInfo::new(ValueKind::Number)],
+                                            );
+                                        }
+                                        self.merge_function_this_info(
+                                            &callback_id,
+                                            ValueInfo::undefined(),
+                                        );
+                                    }
+                                }
+                            }
+                            let result_info = match field_name.as_str() {
+                                "every" | "some" => ValueInfo::new(ValueKind::Boolean),
+                                "find" | "reduce" => ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                                "map" | "filter" | "flatMap" | "take" | "drop" => ValueInfo {
+                                    kind: ValueKind::Object,
+                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                                    heap_shape: Some(match field_name.as_str() {
+                                        "map" => Self::iterator_map_helper_shape(),
+                                        "filter" => Self::iterator_filter_helper_shape(),
+                                        "flatMap" => Self::iterator_flat_map_helper_shape(),
+                                        "take" => Self::iterator_take_helper_shape(),
+                                        _ => Self::iterator_drop_helper_shape(),
+                                    }),
+                                    function_targets: BTreeSet::new(),
+                                },
+                                _ => ValueInfo::undefined(),
+                            };
+                            return TypedExpr::from_info(
+                                result_info,
+                                ExprIr::CallMethod {
+                                    receiver: Box::new(receiver),
+                                    key: PropertyKeyIr::StaticString(field_name),
+                                    args,
+                                },
+                            );
+                        }
+                    }
                     if let Some(result) =
                         self.lower_static_iterator_from_wrapper_method_call(&receiver, access, args)
                     {
@@ -23726,6 +24457,116 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::IteratorPrototypeToArray => Some(Self::standard_builtin_value_info(
                 StandardBuiltinId::IteratorPrototypeToArray,
             )),
+            StandardBuiltinId::IteratorPrototypeForEach => Some(ValueInfo::undefined()),
+            StandardBuiltinId::IteratorPrototypeEvery => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::IteratorPrototypeSome => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::IteratorPrototypeFind => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeReduce => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeMap => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_map_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeFilter => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_filter_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeFlatMap => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_flat_map_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeTake => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_take_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorPrototypeDrop => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_drop_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::IteratorTakeNext | StandardBuiltinId::IteratorTakeReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorDropNext | StandardBuiltinId::IteratorDropReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorMapNext | StandardBuiltinId::IteratorMapReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorFilterNext | StandardBuiltinId::IteratorFilterReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorFlatMapNext | StandardBuiltinId::IteratorFlatMapReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorPrototypeConstructorGetter => {
+                Some(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IteratorPrototypeConstructorGetter,
+                ))
+            }
+            StandardBuiltinId::IteratorPrototypeConstructorSetter => {
+                Some(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IteratorPrototypeConstructorSetter,
+                ))
+            }
+            StandardBuiltinId::IteratorPrototypeSymbolDispose => {
+                Some(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IteratorPrototypeSymbolDispose,
+                ))
+            }
+            StandardBuiltinId::IteratorPrototypeToStringTagGetter => {
+                Some(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IteratorPrototypeToStringTagGetter,
+                ))
+            }
+            StandardBuiltinId::IteratorPrototypeToStringTagSetter => {
+                Some(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IteratorPrototypeToStringTagSetter,
+                ))
+            }
             StandardBuiltinId::IteratorFromWrapperReturn => Some(
                 Self::standard_builtin_value_info(StandardBuiltinId::IteratorFromWrapperReturn),
             ),
@@ -25162,7 +26003,8 @@ impl<'a> ScriptLowerer<'a> {
                             let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
                             if matches!(
                                 symbol_name.as_str(),
-                                "species"
+                                "dispose"
+                                    | "species"
                                     | "isConcatSpreadable"
                                     | "iterator"
                                     | "match"
@@ -25233,6 +26075,24 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         } else {
                             self.unsupported_expr("dynamic property access on bigint target")
+                        }
+                    }
+                    ValueKind::Symbol => {
+                        if let PropertyAccessField::Const(field) = access.field() {
+                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
+                            if field_name == "description" {
+                                TypedExpr::from_info(
+                                    ValueInfo::new(ValueKind::String),
+                                    ExprIr::PropertyRead {
+                                        target: Box::new(target),
+                                        key: PropertyKeyIr::StaticString(field_name),
+                                    },
+                                )
+                            } else {
+                                self.unsupported_expr("property access on symbol target")
+                            }
+                        } else {
+                            self.unsupported_expr("dynamic property access on symbol target")
                         }
                     }
                     ValueKind::String => self.lower_string_index_key(target, access.field()),
@@ -26127,6 +26987,20 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::ArrayLength,
+                    },
+                );
+            }
+            if name == "description" {
+                return TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
                     },
                 );
             }
@@ -28657,7 +29531,8 @@ impl<'a> ScriptLowerer<'a> {
                 let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
                 if matches!(
                     symbol_name.as_str(),
-                    "species"
+                    "dispose"
+                        | "species"
                         | "isConcatSpreadable"
                         | "iterator"
                         | "match"
@@ -30794,7 +31669,9 @@ impl<'a> ScriptLowerer<'a> {
             },
             ExprIr::CallMethod {
                 receiver: Box::new(Self::array_literal_from_lowered(elements)),
-                key: PropertyKeyIr::StaticString("values".to_string()),
+                key: PropertyKeyIr::StaticString(
+                    PORFFOR_STATIC_GENERATOR_VALUES_METHOD.to_string(),
+                ),
                 args: Vec::new(),
             },
         )
@@ -32418,6 +33295,17 @@ mod tests {
         };
         assert_eq!(expr.kind, ValueKind::Undefined);
         assert!(matches!(expr.expr, ExprIr::Conditional { .. }));
+    }
+
+    #[test]
+    fn lowers_symbol_description_property() {
+        let program = lower_script("Symbol.iterator.description.startsWith(\"Symbol.\");");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        assert_eq!(expr.kind, ValueKind::Boolean);
     }
 
     #[test]

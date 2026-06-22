@@ -1473,14 +1473,194 @@ Recent focused progress through `2026-06-21`:
   `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js --execution-backend wasm --timeout-ms 90000 --threads 1`,
   with focused `/\w/g` iteration over object `toString` input covered by the
   `wasm_regexp_symbol_match_all_word_object.js` CLI fixture. The full exact
-  `built-ins/RegExp/prototype/Symbol.matchAll` directory now reports `20/26`
+  `built-ins/RegExp/prototype/Symbol.matchAll` directory now reports `26/26`
   as of `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 90000 --threads 4`;
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 120000 --threads 4`;
   `flags` values are coerced with `ToString(Get(R, "flags"))`, so
   `this-tostring-flags.js` also reports `1/1`, covered by
-  `wasm_regexp_symbol_match_all_flags_to_string.js`. Remaining failures are
-  concentrated in species-constructor, `IsRegExp` observability, and
-  lastIndex accessor ordering.
+  `wasm_regexp_symbol_match_all_flags_to_string.js`. Cached `lastIndex` is now
+  read with `ToLength` at call time before returning the iterator, so
+  `this-lastindex-cached.js` and `this-tolength-lastindex-throws.js` report
+  `1/1`, covered by
+  `wasm_regexp_symbol_match_all_last_index.js`. Generic non-RegExp receivers
+  now preserve the observed `string`/`flags`/`@@match` lookup order and rethrow
+  receiver `ToString` failures during the focused `RegExpCreate` fallback, so
+  `isregexp-called-once.js` and `regexpcreate-this-throws.js` report `1/1`,
+  covered by `wasm_regexp_symbol_match_all_generic_order.js`. Custom
+  `@@species` constructors now receive the original RegExp and coerced flags,
+  reject primitive `constructor` values, avoid reading replacement matcher
+  `global`/`unicode` accessors, and preserve the direct non-global single-match
+  path, covered by `wasm_regexp_symbol_match_all_species.js`. The downstream
+  `%RegExpStringIteratorPrototype%.next` leaf now reports `15/15` as of
+  `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/RegExpStringIteratorPrototype/next --execution-backend wasm --timeout-ms 120000 --threads 4`;
+  the lazy iterator observes later `RegExp.prototype.exec` replacement and
+  getter failures for focused dot-pattern cases, covered by
+  `wasm_regexp_string_iterator_custom_exec.js`.
+  `Iterator.from` now calls iterable `@@iterator` methods instead of treating
+  iterable inputs as iterator-like records, keeps the indirect
+  `Array.prototype.values` body emitted for `Array.from`/`Iterator.from`
+  consumers, preserves computed array `Symbol.iterator` reads, and keeps
+  wrapper `return()` invalid-`this`, base-return lookup, receiver, and result
+  identity behavior observable. The full exact real Test262
+  `built-ins/Iterator/from` leaf now reports `19/19` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/Iterator/from --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  with focused coverage in
+  `wasm_iterator_from_iterable_array_string.js`,
+  `wasm_iterator_from_wrapper_return_invalid_this.js`, and
+  `wasm_iterator_from_wrapper_return_temporal_format.js`. The `Iterator`
+  constructor is now subclassable through `newTarget` while direct
+  `Iterator()`/`new Iterator()` calls still throw, and
+  `Iterator.prototype.toArray` now accepts plain iterator objects, rejects
+  primitive receivers and non-callable `next`, reads `next` once, propagates
+  abrupt `next`/`done`/`value` paths, and handles already-exhausted generator
+  iterators. The full exact real Test262 `built-ins/Iterator/prototype/toArray`
+  leaf now reports `18/18` as of `2026-06-21` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  with focused coverage in
+  `wasm_iterator_to_array_direct_iterator.js` and
+  `wasm_iterator_to_array_exhausted_generator.js`.
+  `%IteratorPrototype%[Symbol.iterator]` is now installed with the expected
+  identity behavior and built-in function metadata; the exact real Test262
+  `built-ins/Iterator/prototype/Symbol.iterator` leaf reports `5/5` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_symbol_iterator.js`.
+  `%IteratorPrototype%[Symbol.dispose]` now recognizes `Symbol.dispose`, calls
+  a present `return` method, ignores its value, and returns `undefined`; the
+  exact real Test262 `built-ins/Iterator/prototype/Symbol.dispose` leaf reports
+  `6/6` as of `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.dispose --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_symbol_dispose.js`.
+  `%IteratorPrototype%[Symbol.toStringTag]` is now the spec accessor pair with
+  getter result `"Iterator"` and a setter that rejects the home prototype while
+  creating/updating own tags on other objects; the exact real Test262
+  `built-ins/Iterator/prototype/Symbol.toStringTag` leaf reports `2/2` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.toStringTag --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_symbol_to_string_tag.js`.
+  `%IteratorPrototype%.constructor` is now the spec accessor pair with a
+  getter that returns `%Iterator%` and a setter that rejects the home prototype
+  while creating/updating own `constructor` data properties on other objects;
+  the exact real Test262 `built-ins/Iterator/prototype/constructor` leaf reports
+  `2/2` as of `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/constructor --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_constructor.js`.
+  The base `%IteratorPrototype%` initial-value file also reports `1/1` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/initial-value.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `Iterator.prototype.forEach` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for direct iterator iteration, callback value/index
+  calls, argument validation before `next`, iterator close on invalid callback
+  and callback throw, throwing `next`/`done`/`value` paths, plain iterator
+  receivers, exhausted generators, and metadata. The full exact real Test262
+  `built-ins/Iterator/prototype/forEach` leaf reports `27/27` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  covered by `wasm_iterator_prototype_for_each.js`.
+  `Iterator.prototype.some` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for Boolean terminal iteration, callback value/index
+  calls, argument validation before `next`, iterator close on invalid callback,
+  predicate throw, and truthy predicate results, plain iterator receivers,
+  generator close/exhaustion, array iterators without `return`, throwing
+  `next`/`done`/`value`/`return` paths, ToBoolean predicate results, and
+  metadata. The full exact real Test262
+  `built-ins/Iterator/prototype/some` leaf reports `33/33` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  covered by `wasm_iterator_prototype_some.js`.
+  `Iterator.prototype.every` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for Boolean terminal iteration, callback value/index
+  calls, argument validation before `next`, iterator close on invalid callback,
+  predicate throw, and falsey predicate results, plain iterator receivers,
+  generator close/exhaustion, array iterators without `return`, throwing
+  `next`/`done`/`value`/`return` paths, ToBoolean predicate results, and
+  metadata. The full exact real Test262
+  `built-ins/Iterator/prototype/every` leaf reports `33/33` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  covered by `wasm_iterator_prototype_every.js`.
+  `Iterator.prototype.find` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for terminal iteration returning the matched value or
+  `undefined`, callback value/index calls, argument validation before `next`,
+  iterator close on invalid callback, predicate throw, and truthy predicate
+  results, plain iterator receivers, generator close/exhaustion, array
+  iterators without `return`, throwing `next`/`done`/`value`/`return` paths,
+  ToBoolean predicate results, and metadata. The full exact real Test262
+  `built-ins/Iterator/prototype/find` leaf reports `32/32` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  covered by `wasm_iterator_prototype_find.js`.
+  `Iterator.prototype.reduce` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for terminal reduction with and without an initial
+  value, callback memo/value/index calls, argument validation before `next`,
+  iterator close on invalid reducer and reducer throw, empty-iterator
+  TypeError behavior without an initial value, plain iterator receivers,
+  generator exhaustion, throwing `next`/`done`/`value`/`return` paths, arbitrary
+  reducer result values, and metadata. The full exact real Test262
+  `built-ins/Iterator/prototype/reduce` leaf reports `30/30` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  covered by `wasm_iterator_prototype_reduce.js`.
+  `Iterator.prototype.map` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for lazy mapped helper iteration, helper `next` and
+  `return`, mapper value/index calls with `undefined` this, argument validation
+  before `next`, iterator close on invalid mapper and mapper throw, deferred
+  non-callable `next` errors, plain iterator receivers, parallel advancement,
+  closed underlying iterators, ordinary exhaustion without `return`, helper
+  reentrancy rejection, throwing `next`/`done`/`value`/`return` paths, chained
+  map helpers, and metadata. The exact real Test262
+  `built-ins/Iterator/prototype/map` leaf reports `36/36` as of `2026-06-22`
+  under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_map.js`.
+  `Iterator.prototype.filter` is now registered as a Rust standard builtin
+  and has Wasm-AOT support for lazy filtered helper iteration, helper `next`
+  and `return`, predicate value/index calls with `undefined` this, ToBoolean
+  predicate results, argument validation before `next`, iterator close on
+  invalid predicate and predicate throw, deferred non-callable `next` errors,
+  plain iterator receivers, parallel advancement, closed underlying iterators,
+  ordinary exhaustion without `return`, helper reentrancy rejection, throwing
+  `next`/`done`/`value`/`return` paths, chained filter helpers, and metadata.
+  The exact real Test262 `built-ins/Iterator/prototype/filter` leaf reports
+  `37/37` as of `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_filter.js`.
+  `Iterator.prototype.flatMap` is now registered as a Rust standard builtin
+  and has Wasm-AOT support for lazy flattened helper iteration, helper `next`
+  and `return`, mapper value/index calls with `undefined` this, one-level
+  array and iterator flattening, iterator-result fallback when the mapped
+  value has no callable iterator method, primitive mapper-result TypeErrors,
+  argument validation before `next`, iterator close on invalid mapper, mapper
+  throw, and mapped primitive results, deferred non-callable `next` errors,
+  plain iterator receivers, parallel advancement, closed underlying
+  iterators, ordinary exhaustion without `return`, helper reentrancy
+  rejection, throwing `next`/`done`/`value`/`return` paths, chained helpers,
+  and metadata. The exact real Test262
+  `built-ins/Iterator/prototype/flatMap` leaf reports `44/44` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_flat_map.js`.
+  `Iterator.prototype.take` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for lazy bounded helper iteration, helper `next` and
+  `return`, limit-zero close, invalid numeric limit close, deferred
+  non-callable `next` errors, plain iterator receivers, parallel advancement,
+  closed underlying iterators, accessor-abrupt argument conversion close,
+  helper reentrancy rejection, and metadata. The exact real Test262
+  `built-ins/Iterator/prototype/take` leaf reports `33/33` as of
+  `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_take.js`.
+  `Iterator.prototype.drop` is now registered as a Rust standard builtin and
+  has Wasm-AOT support for lazy skip helper iteration, helper `next` and
+  `return`, limit-zero passthrough, invalid numeric limit close, deferred
+  non-callable `next` errors, plain iterator receivers, parallel advancement,
+  closed underlying iterators, accessor-abrupt argument conversion close,
+  ordinary exhaustion without `return`, helper reentrancy rejection, and
+  metadata. The exact real Test262 `built-ins/Iterator/prototype/drop` leaf
+  reports `34/34` as of `2026-06-22` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  covered by `wasm_iterator_prototype_drop.js`.
   `String.prototype.toUpperCase` and `String.prototype.padStart` are now
   registered as Rust standard builtins with focused Wasm-AOT support for the
   ASCII/helper paths used by current Test262 harness progress; these are covered
