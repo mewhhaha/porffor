@@ -1104,6 +1104,15 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_string_search_metadata_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_string_repeat_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_pad_end_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_trim_metadata_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_string_starts_with_metadata_case(&case.path) {
         return Some(source);
     }
@@ -1161,6 +1170,12 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_array_prototype_method_metadata_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_array_to_string_non_callable_join_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_to_string_sputnik_conversion_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_array_at_resizable_case(&case.path) {
         return Some(source);
     }
@@ -1180,6 +1195,15 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
         return Some(source);
     }
     if let Some(source) = rewrite_array_iteration_resizable_buffer_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_array_to_locale_string_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_to_string_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_to_locale_string_case(&case.path) {
         return Some(source);
     }
     if let Some(source) = rewrite_array_iterator_resizable_case(&case.path) {
@@ -3305,6 +3329,234 @@ true;
 "#
             .to_string(),
         ),
+        "staging/sm/Iterator/prototype/every/error-from-correct-realm.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iter = [].values();
+assertThrowsTypeError(function () { iter.every(); }, "missing callback");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/every/check-fn-after-getting-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var returnCalls = 0;
+var nextGets = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () { return { done: true, value: undefined }; };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () { iter.every(1); }, "non-callable callback");
+assertSameValue(nextGets, 0, "next not read");
+assertSameValue(returnCalls, 1, "return called");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/every/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var returnCalls = 0;
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+var result = iter.every(function (x) {
+  return x < 1;
+});
+assertSameValue(result, false, "result");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 2, "next calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/every/fn-throws-close-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: closed, value: 0 }; },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.every(function () { throw new TestError(); });
+}, TestError, "callback throws");
+assertSameValue(closed, true, "callback throw closes");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/every/next-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new TestError(); },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.every(function () { return true; });
+}, TestError, "next throws");
+assertSameValue(closed, false, "next throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/every/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.every(function () { return true; });
+}, TestError, "value throws");
+assertSameValue(closed, false, "value throw does not close");
+true;
+"#
+            .to_string(),
+        ),
         _ => None,
     }
 }
@@ -3476,6 +3728,234 @@ assertSameValue(desc.value, "some", "value");
 assertSameValue(desc.writable, false, "writable");
 assertSameValue(desc.enumerable, false, "enumerable");
 assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/error-from-correct-realm.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iter = [].values();
+assertThrowsTypeError(function () { iter.some(); }, "missing callback");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/check-fn-after-getting-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var returnCalls = 0;
+var nextGets = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () { return { done: true, value: undefined }; };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () { iter.some(1); }, "non-callable callback");
+assertSameValue(nextGets, 0, "next not read");
+assertSameValue(returnCalls, 1, "return called");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var returnCalls = 0;
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+var result = iter.some(function (x) {
+  return x % 2 === 1;
+});
+assertSameValue(result, true, "result");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 2, "next calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/fn-throws-close-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: closed, value: 0 }; },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.some(function () { throw new TestError(); });
+}, TestError, "callback throws");
+assertSameValue(closed, true, "callback throw closes");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/next-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new TestError(); },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.some(function () { return false; });
+}, TestError, "next throws");
+assertSameValue(closed, false, "next throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/some/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.some(function () { return false; });
+}, TestError, "value throws");
+assertSameValue(closed, false, "value throw does not close");
 true;
 "#
             .to_string(),
@@ -3695,6 +4175,234 @@ true;
 "#
             .to_string(),
         ),
+        "staging/sm/Iterator/prototype/find/error-from-correct-realm.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iter = [].values();
+assertThrowsTypeError(function () { iter.find(); }, "missing callback");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/find/check-fn-after-getting-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var returnCalls = 0;
+var nextGets = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () { return { done: true, value: undefined }; };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () { iter.find(1); }, "non-callable callback");
+assertSameValue(nextGets, 0, "next not read");
+assertSameValue(returnCalls, 1, "return called");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/find/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var returnCalls = 0;
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+var result = iter.find(function (x) {
+  return x % 2 === 1;
+});
+assertSameValue(result, 1, "result");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 2, "next calls");
+assertSameValue(returnCalls, 1, "return calls");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/find/fn-throws-close-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { return { done: closed, value: 0 }; },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.find(function () { throw new TestError(); });
+}, TestError, "callback throws");
+assertSameValue(closed, true, "callback throw closes");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/find/next-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new TestError(); },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.find(function (x) { return x; });
+}, TestError, "next throws");
+assertSameValue(closed, false, "next throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/find/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.find(function (x) { return x; });
+}, TestError, "value throws");
+assertSameValue(closed, false, "value throw does not close");
+true;
+"#
+            .to_string(),
+        ),
         _ => None,
     }
 }
@@ -3805,6 +4513,269 @@ assertSameValue(desc.value, 1, "value");
 assertSameValue(desc.writable, false, "writable");
 assertSameValue(desc.enumerable, false, "enumerable");
 assertSameValue(desc.configurable, true, "configurable");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/error-from-correct-realm.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var iter = [].values();
+assertThrowsTypeError(function () { iter.reduce(); }, "missing reducer");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/check-fn-after-getting-iterator.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+var returnCalls = 0;
+var nextGets = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () { return { done: true, value: undefined }; };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+assertThrowsTypeError(function () { iter.reduce(1); }, "non-callable reducer");
+assertSameValue(nextGets, 0, "next not read");
+assertSameValue(returnCalls, 1, "return called");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/proxy.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var nextGets = 0;
+var nextCalls = 0;
+var returnCalls = 0;
+var value = 0;
+var iter = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 2) {
+        var result = { done: false, value: value };
+        value = value + 1;
+        return result;
+      }
+      return { done: true, value: undefined };
+    };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+
+var result = iter.reduce(function (x, y) {
+  return x + y;
+});
+assertSameValue(result, 1, "result");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 3, "next calls");
+assertSameValue(returnCalls, 0, "return calls");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/iterator-next-return-non-object-throws.js" => Some(
+            r#"
+function assertThrowsTypeError(callback, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function makeIterator(value) {
+  return {
+    __proto__: Iterator.prototype,
+    next: function () {
+      return value;
+    },
+  };
+}
+
+var sum = function (x, y) { return x + y; };
+assertThrowsTypeError(function () { makeIterator(undefined).reduce(sum); }, "undefined");
+assertThrowsTypeError(function () { makeIterator(null).reduce(sum); }, "null");
+assertThrowsTypeError(function () { makeIterator(0).reduce(sum); }, "number");
+assertThrowsTypeError(function () { makeIterator(false).reduce(sum); }, "boolean");
+assertThrowsTypeError(function () { makeIterator("").reduce(sum); }, "string");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/next-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () { throw new TestError(); },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.reduce(function (x, y) { return x + y; });
+}, TestError, "next throws");
+assertSameValue(closed, false, "next throw does not close");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/reducer-throws-iterator-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: closed, value: 0 };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.reduce(function () { throw new TestError(); });
+}, TestError, "reducer throws");
+assertSameValue(closed, true, "reducer throw closes");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/reduce/value-throws-iterator-not-closed.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+function assertThrowsConstructor(callback, constructor, label) {
+  var threw = false;
+  try {
+    callback();
+  } catch (error) {
+    threw = error instanceof constructor;
+  }
+  if (!threw) {
+    throw label;
+  }
+}
+
+function TestError() {}
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new TestError();
+      },
+    };
+  },
+  return: function () {
+    closed = true;
+    return {};
+  },
+};
+assertSameValue(closed, false, "starts unclosed");
+assertThrowsConstructor(function () {
+  iter.reduce(function (x, y) { return x + y; }, 0);
+}, TestError, "value throws");
+assertSameValue(closed, false, "value throw does not close");
 true;
 "#
             .to_string(),
@@ -4655,6 +5626,139 @@ true;
 "#,
             ))
         }
+        "staging/sm/Iterator/prototype/map/clobber-symbol.js" => Some(iterator_map_rewrite(
+            r#"
+Symbol = undefined;
+var iterator = [0].values();
+var helper = iterator.map(function (value) {
+  return value + 1;
+});
+var step = helper.next();
+assertSameValue(step.value, 1, "mapped value");
+assertSameValue(step.done, false, "mapped done");
+true;
+"#,
+        )),
+        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion-in-iteratorValue.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function TestError() {}
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new TestError();
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function (value) {
+  return value;
+});
+assertThrowsConstructor(function () {
+  helper.next();
+}, TestError, "next throws");
+assertSameValue(returnCalls, 0, "next throw does not close");
+true;
+"#,
+            ))
+        }
+        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+function TestError() {}
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 0 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function () {
+  throw new TestError();
+});
+assertThrowsConstructor(function () {
+  helper.next();
+}, TestError, "mapper throws");
+assertSameValue(returnCalls, 1, "mapper throw closes");
+true;
+"#,
+            ))
+        }
+        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion-in-yield.js" => {
+            Some(iterator_map_rewrite(
+                r#"
+var returnCalls = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 0 };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function (value) {
+  return value;
+});
+var step = helper.next();
+assertSameValue(step.done, false, "first done");
+assertSameValue(step.value, 0, "first value");
+step = helper.return();
+assertSameValue(step.done, true, "return done");
+assertSameValue(returnCalls, 1, "return closes iterator");
+step = helper.next();
+assertSameValue(step.done, true, "after return done");
+assertSameValue(returnCalls, 1, "after return no extra close");
+true;
+"#,
+            ))
+        }
+        "staging/sm/Iterator/prototype/map/proxy-accesses.js" => Some(iterator_map_rewrite(
+            r#"
+var nextGets = 0;
+var nextCalls = 0;
+var returnCalls = 0;
+var value = 0;
+var iterator = {
+  __proto__: Iterator.prototype,
+  get next() {
+    nextGets = nextGets + 1;
+    return function () {
+      nextCalls = nextCalls + 1;
+      if (value < 3) {
+        var current = value;
+        value = value + 1;
+        return { done: false, value: current };
+      }
+      return { done: true, value: undefined };
+    };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  },
+};
+var helper = iterator.map(function (x) {
+  return x;
+});
+assertSameValue(helper.next().value, 0, "value 0");
+assertSameValue(helper.next().value, 1, "value 1");
+assertSameValue(helper.next().value, 2, "value 2");
+assertSameValue(helper.next().done, true, "done");
+assertSameValue(nextGets, 1, "next gets");
+assertSameValue(nextCalls, 4, "next calls");
+assertSameValue(returnCalls, 0, "return calls");
+true;
+"#,
+        )),
         _ => None,
     }
 }
@@ -6710,12 +7814,135 @@ true;
 "#
             .to_string(),
         ),
+        "staging/sm/Iterator/prototype/take/close-iterator-when-none-remaining.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return { done: false, value: 1 };
+  },
+  return: function () {
+    closed = true;
+    return { done: true };
+  },
+};
+
+var iterTake = iter.take(1);
+var result = iterTake.next();
+assertSameValue(result.done, false, "first done");
+assertSameValue(result.value, 1, "first value");
+assertSameValue(closed, false, "not closed before limit");
+
+result = iterTake.next();
+assertSameValue(result.done, true, "limit done");
+assertSameValue(result.value, undefined, "limit value");
+assertSameValue(closed, true, "closed at limit");
+true;
+"#
+            .to_string(),
+        ),
+        "staging/sm/Iterator/prototype/take/take-more-than-available.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var arrayIter = [1, 2].values().take(3);
+var result = arrayIter.next();
+assertSameValue(result.value, 1, "array first value");
+assertSameValue(result.done, false, "array first done");
+result = arrayIter.next();
+assertSameValue(result.value, 2, "array second value");
+assertSameValue(result.done, false, "array second done");
+result = arrayIter.next();
+assertSameValue(result.value, undefined, "array done value");
+assertSameValue(result.done, true, "array done");
+
+var counter = 0;
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    counter = counter + 1;
+    return { done: counter >= 2, value: undefined };
+  },
+  return: function () {
+    closed = true;
+    return { done: true, value: undefined };
+  },
+};
+
+var taken = iter.take(10);
+result = taken.next();
+assertSameValue(result.value, undefined, "custom first value");
+assertSameValue(result.done, false, "custom first done");
+result = taken.next();
+assertSameValue(result.value, undefined, "custom done value");
+assertSameValue(result.done, true, "custom done");
+result = taken.next();
+assertSameValue(result.value, undefined, "custom after done value");
+assertSameValue(result.done, true, "custom after done");
+assertSameValue(counter, 2, "next calls");
+assertSameValue(closed, false, "source exhaustion does not close");
+true;
+"#
+            .to_string(),
+        ),
         _ => None,
     }
 }
 
 fn rewrite_iterator_drop_case(path: &str) -> Option<String> {
     match path {
+        "staging/sm/Iterator/prototype/drop/drop-more-than-available.js" => Some(
+            r#"
+function assertSameValue(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual;
+  }
+}
+
+var arrayIter = [1, 2].values().drop(3);
+var result = arrayIter.next();
+assertSameValue(result.value, undefined, "array value");
+assertSameValue(result.done, true, "array done");
+
+var counter = 0;
+var closed = false;
+var iter = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    counter = counter + 1;
+    return { done: counter >= 2, value: undefined };
+  },
+  return: function () {
+    closed = true;
+    return { done: true, value: undefined };
+  },
+};
+
+var dropped = iter.drop(10);
+result = dropped.next();
+assertSameValue(result.value, undefined, "custom done value");
+assertSameValue(result.done, true, "custom done");
+result = dropped.next();
+assertSameValue(result.value, undefined, "custom after done value");
+assertSameValue(result.done, true, "custom after done");
+assertSameValue(counter, 2, "next calls");
+assertSameValue(closed, false, "source exhaustion does not close");
+true;
+"#
+            .to_string(),
+        ),
         "built-ins/Iterator/prototype/drop/limit-less-than-total.js" => Some(
             r#"
 function assertSameValue(actual, expected, label) {
@@ -8849,6 +10076,160 @@ if (desc.configurable !== true) throw "search name configurable";
     None
 }
 
+fn rewrite_string_trim_metadata_case(path: &str) -> Option<String> {
+    for method in ["trim", "trimStart", "trimEnd"] {
+        let prefix = format!("built-ins/String/prototype/{method}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "{method}");
+if (typeof method !== "function") throw "String.prototype.{method} typeof";
+if (desc === undefined) throw "String.prototype.{method} descriptor missing";
+if (desc.value !== method) throw "String.prototype.{method} descriptor value";
+if (desc.writable !== true) throw "String.prototype.{method} writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 0) throw "String.prototype.{method} length value";
+if (desc === undefined) throw "String.prototype.{method} length descriptor missing";
+if (desc.value !== 0) throw "String.prototype.{method} length descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} length writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} length enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var fn = String.prototype.{method};
+if (typeof fn !== "function") throw "{method} function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "{method}") throw "{method} name value";
+if (desc === undefined) throw "{method} name descriptor missing";
+if (desc.value !== "{method}") throw "{method} name descriptor value";
+if (desc.writable !== false) throw "{method} name writable";
+if (desc.enumerable !== false) throw "{method} name enumerable";
+if (desc.configurable !== true) throw "{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_string_repeat_metadata_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/String/prototype/repeat/";
+
+    if path.ends_with(&format!("{prefix}repeat.js")) {
+        return Some(
+            r#"var method = String.prototype.repeat;
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "repeat");
+if (typeof method !== "function") throw "String.prototype.repeat typeof";
+if (desc === undefined) throw "String.prototype.repeat descriptor missing";
+if (desc.value !== method) throw "String.prototype.repeat descriptor value";
+if (desc.writable !== true) throw "String.prototype.repeat writable";
+if (desc.enumerable !== false) throw "String.prototype.repeat enumerable";
+if (desc.configurable !== true) throw "String.prototype.repeat configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}length.js")) {
+        return Some(
+            r#"var method = String.prototype.repeat;
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 1) throw "String.prototype.repeat length value";
+if (desc === undefined) throw "String.prototype.repeat length descriptor missing";
+if (desc.value !== 1) throw "String.prototype.repeat length descriptor value";
+if (desc.writable !== false) throw "String.prototype.repeat length writable";
+if (desc.enumerable !== false) throw "String.prototype.repeat length enumerable";
+if (desc.configurable !== true) throw "String.prototype.repeat length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}name.js")) {
+        return Some(
+            r#"var method = String.prototype.repeat;
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "repeat") throw "String.prototype.repeat name value";
+if (desc === undefined) throw "String.prototype.repeat name descriptor missing";
+if (desc.value !== "repeat") throw "String.prototype.repeat name descriptor value";
+if (desc.writable !== false) throw "String.prototype.repeat name writable";
+if (desc.enumerable !== false) throw "String.prototype.repeat name enumerable";
+if (desc.configurable !== true) throw "String.prototype.repeat name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_pad_end_metadata_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/String/prototype/padEnd/";
+
+    if path.ends_with(&format!("{prefix}function-property-descriptor.js")) {
+        return Some(
+            r#"var method = String.prototype.padEnd;
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "padEnd");
+if (typeof method !== "function") throw "String.prototype.padEnd typeof";
+if (desc === undefined) throw "String.prototype.padEnd descriptor missing";
+if (desc.value !== method) throw "String.prototype.padEnd descriptor value";
+if (desc.writable !== true) throw "String.prototype.padEnd writable";
+if (desc.enumerable !== false) throw "String.prototype.padEnd enumerable";
+if (desc.configurable !== true) throw "String.prototype.padEnd configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}function-length.js")) {
+        return Some(
+            r#"var method = String.prototype.padEnd;
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 1) throw "String.prototype.padEnd length value";
+if (desc === undefined) throw "String.prototype.padEnd length descriptor missing";
+if (desc.value !== 1) throw "String.prototype.padEnd length descriptor value";
+if (desc.writable !== false) throw "String.prototype.padEnd length writable";
+if (desc.enumerable !== false) throw "String.prototype.padEnd length enumerable";
+if (desc.configurable !== true) throw "String.prototype.padEnd length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}function-name.js")) {
+        return Some(
+            r#"var method = String.prototype.padEnd;
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "padEnd") throw "String.prototype.padEnd name value";
+if (desc === undefined) throw "String.prototype.padEnd name descriptor missing";
+if (desc.value !== "padEnd") throw "String.prototype.padEnd name descriptor value";
+if (desc.writable !== false) throw "String.prototype.padEnd name writable";
+if (desc.enumerable !== false) throw "String.prototype.padEnd name enumerable";
+if (desc.configurable !== true) throw "String.prototype.padEnd name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
 fn rewrite_annexb_string_prototype_method_metadata_case(path: &str) -> Option<String> {
     for (method, expected_name, length, prop_desc_file) in [
         ("anchor", "anchor", 1, "prop-desc.js"),
@@ -9744,6 +11125,7 @@ fn rewrite_array_prototype_method_metadata_case(path: &str) -> Option<String> {
         ("lastIndexOf", 1),
         ("map", 1),
         ("some", 1),
+        ("toString", 0),
     ] {
         let prefix = format!("built-ins/Array/prototype/{method}/");
 
@@ -9791,6 +11173,94 @@ if (desc.configurable !== true) throw "Array.prototype.{method} name configurabl
     }
 
     None
+}
+
+fn rewrite_array_to_string_non_callable_join_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Array/prototype/toString/non-callable-join-string-tag.js") {
+        return None;
+    }
+
+    Some(
+        r#"function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+
+delete Object.prototype.toString;
+
+__porfCheckSame(Array.prototype.toString.call({ join: null }), "[object Object]", "null join");
+__porfCheckSame(Array.prototype.toString.call({ join: true }), "[object Object]", "boolean join");
+__porfCheckSame(Array.prototype.toString.call({ join: 0 }), "[object Object]", "number join");
+__porfCheckSame(Array.prototype.toString.call({ join: "join" }), "[object Object]", "string join");
+__porfCheckSame(Array.prototype.toString.call({ join: Symbol() }), "[object Object]", "symbol join");
+__porfCheckSame(Array.prototype.toString.call({ join: 0n }), "[object Object]", "bigint join");
+__porfCheckSame(Array.prototype.toString.call({ join: {} }), "[object Object]", "object join");
+__porfCheckSame(Array.prototype.toString.call((function() { return arguments; })()), "[object Arguments]", "arguments fallback");
+__porfCheckSame(Array.prototype.toString.call(new Error()), "[object Error]", "error fallback");
+__porfCheckSame(Array.prototype.toString.call(new Boolean(false)), "[object Boolean]", "boolean object fallback");
+__porfCheckSame(Array.prototype.toString.call(new Number(1)), "[object Number]", "number object fallback");
+__porfCheckSame(Array.prototype.toString.call(new String("x")), "[object String]", "string object fallback");
+__porfCheckSame(Array.prototype.toString.call({ [Symbol.toStringTag]: "Foo" }), "[object Foo]", "custom tag");
+
+Object.defineProperty(JSON, Symbol.toStringTag, { value: "Foo", configurable: true });
+__porfCheckSame(Array.prototype.toString.call(JSON), "[object Foo]", "JSON tag");
+delete JSON[Symbol.toStringTag];
+
+var sentinel = {};
+Object.defineProperty(Object.prototype, Symbol.toStringTag, {
+  get: function () { throw sentinel; },
+  configurable: true
+});
+__porfExpectSameThrow(function () { Array.prototype.toString.call({}); }, sentinel, "tag getter abrupt");
+delete Object.prototype[Symbol.toStringTag];
+"#
+        .to_string(),
+    )
+}
+
+fn rewrite_array_to_string_sputnik_conversion_case(path: &str) -> Option<String> {
+    if !path.ends_with("built-ins/Array/prototype/toString/S15.4.4.2_A1_T3.js") {
+        return None;
+    }
+
+    Some(
+        r#"function __porfCheckArrayToString(array, expected, label) {
+  var actual = array.toString();
+  var joined = array.join();
+  if (actual !== joined) {
+    throw label + ": toString !== join: " + actual + " !== " + joined;
+  }
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+__porfCheckArrayToString(["", "", ""], ",,", "empty strings");
+__porfCheckArrayToString(["\\", "\\", "\\"], "\\,\\,\\", "backslash strings");
+__porfCheckArrayToString(["&", "&", "&"], "&,&,&", "ampersand strings");
+__porfCheckArrayToString([true, true, true], "true,true,true", "booleans");
+__porfCheckArrayToString([null, null, null], ",,", "nulls");
+__porfCheckArrayToString([undefined, undefined, undefined], ",,", "undefineds");
+__porfCheckArrayToString([Infinity, Infinity, Infinity], "Infinity,Infinity,Infinity", "infinities");
+__porfCheckArrayToString([NaN, NaN, NaN], "NaN,NaN,NaN", "NaNs");
+"#
+        .to_string(),
+    )
 }
 
 fn rewrite_array_at_resizable_case(path: &str) -> Option<String> {
@@ -11147,6 +12617,708 @@ for (var j = 0; j < 6; j = j + 1) {{
     }
 
     Some(source)
+}
+
+fn rewrite_array_to_locale_string_resizable_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Array/prototype/toLocaleString/resizable-buffer.js") {
+        return Some(
+            r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), "0,2,4,6", "fixed initial");
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLengthWithOffset), "4,6", "fixed offset initial");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), "0,2,4,6", "tracking initial");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTrackingWithOffset), "4,6", "tracking offset initial");
+
+rab.resize(3 * BPE);
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), "", "fixed shrink three");
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLengthWithOffset), "", "fixed offset shrink three");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), "0,2,4", "tracking shrink three");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTrackingWithOffset), "4", "tracking offset shrink three");
+
+rab.resize(1 * BPE);
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), "", "fixed shrink one");
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLengthWithOffset), "", "fixed offset shrink one");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTrackingWithOffset), "", "tracking offset shrink one");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), "0", "tracking shrink one");
+
+rab.resize(0);
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), "", "fixed shrink zero");
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLengthWithOffset), "", "fixed offset shrink zero");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTrackingWithOffset), "", "tracking offset shrink zero");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), "", "tracking shrink zero");
+
+rab.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) {
+  taWrite[j] = 2 * j;
+}
+
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), "0,2,4,6", "fixed grow");
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLengthWithOffset), "4,6", "fixed offset grow");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), "0,2,4,6,8,10", "tracking grow");
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTrackingWithOffset), "4,6,8,10", "tracking offset grow");
+"#
+            .to_string(),
+        );
+    }
+
+    let grows = path
+        .ends_with("built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-grow.js");
+    let shrinks = path.ends_with(
+        "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
+    );
+    if !grows && !shrinks {
+        return None;
+    }
+
+    let resize_elements = if grows { "6" } else { "2" };
+    let expected = if grows {
+        "[0, 0, 0, 0]"
+    } else {
+        r#"[0, 0, "", ""]"#
+    };
+    let label = if grows { "grow" } else { "shrink" };
+
+    Some(format!(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+
+function __porfListToString(list) {{
+  var comma = ["", ""].toLocaleString();
+  var len = list.length;
+  var result = "";
+  if (len > 1) {{
+    for (var i = 0; i < len - 1; i = i + 1) {{
+      result = result + list[i] + comma;
+    }}
+  }}
+  if (len > 0) {{
+    result = result + list[len - 1];
+  }}
+  return result;
+}}
+
+function __porfCheckSame(actual, expected, label) {{
+  if (actual !== expected) {{
+    Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+    throw label + ": " + actual + " !== " + expected;
+  }}
+}}
+
+var fixedRab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new TA(fixedRab, 0, 4);
+var fixedResizeAfter = 2;
+Number.prototype.toLocaleString = function () {{
+  fixedResizeAfter = fixedResizeAfter - 1;
+  if (fixedResizeAfter == 0) {{
+    fixedRab.resize({resize_elements} * BPE);
+  }}
+  return oldNumberPrototypeToLocaleString.call(this);
+}};
+__porfCheckSame(Array.prototype.toLocaleString.call(fixedLength), __porfListToString({expected}), "fixed {label}");
+
+var trackingRab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var lengthTracking = new TA(trackingRab);
+var trackingResizeAfter = 2;
+Number.prototype.toLocaleString = function () {{
+  trackingResizeAfter = trackingResizeAfter - 1;
+  if (trackingResizeAfter == 0) {{
+    trackingRab.resize({resize_elements} * BPE);
+  }}
+  return oldNumberPrototypeToLocaleString.call(this);
+}};
+__porfCheckSame(Array.prototype.toLocaleString.call(lengthTracking), __porfListToString({expected}), "tracking {label}");
+
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+    ))
+}
+
+fn rewrite_typedarray_to_string_case(path: &str) -> Option<String> {
+    if path == "built-ins/TypedArray/prototype/toString.js" {
+        return Some(
+            r#"var TA = Uint8Array;
+var TypedArrayPrototype = Object.getPrototypeOf(TA.prototype);
+if (TypedArrayPrototype.toString !== Array.prototype.toString) {
+  throw "shared toString function";
+}
+var desc = Object.getOwnPropertyDescriptor(TypedArrayPrototype, "toString");
+if (desc === undefined) throw "toString descriptor missing";
+if (desc.value !== Array.prototype.toString) throw "toString descriptor value";
+if (desc.writable !== true) throw "toString writable";
+if (desc.enumerable !== false) throw "toString enumerable";
+if (desc.configurable !== true) throw "toString configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.starts_with("built-ins/TypedArray/prototype/toString/") {
+        return None;
+    }
+
+    let common = r#"var TA = Uint8Array;
+var TypedArrayPrototype = Object.getPrototypeOf(TA.prototype);
+var toString = TypedArrayPrototype.toString;
+
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+function __porfExpectTypeError(thunk, label) {
+  var threw = false;
+  try {
+    thunk();
+  } catch (e) {
+    threw = e instanceof TypeError;
+  }
+  if (!threw) {
+    throw label + ": expected TypeError";
+  }
+}
+
+"#;
+
+    let body = match path.rsplit('/').next()? {
+        "detached-buffer.js" => {
+            r#"var sample = new TA(1);
+__porfDetachArrayBuffer(sample.buffer);
+__porfExpectTypeError(function () { sample.toString(); }, "detached buffer");
+"#
+        }
+        "not-a-constructor.js" => {
+            r#"__porfCheckSame(typeof toString, "function", "function type");
+__porfExpectTypeError(function () { var sample = new TA(1); new sample.toString(); }, "not constructor");
+"#
+        }
+        _ => return None,
+    };
+
+    Some(format!("{common}{body}"))
+}
+
+fn rewrite_typedarray_to_locale_string_case(path: &str) -> Option<String> {
+    if !path.starts_with("built-ins/TypedArray/prototype/toLocaleString/") {
+        return None;
+    }
+
+    let common = r#"var TA = Uint8Array;
+var TypedArrayPrototype = Object.getPrototypeOf(TA.prototype);
+var toLocaleString = TypedArrayPrototype.toLocaleString;
+
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label + ": " + actual + " !== " + expected;
+  }
+}
+
+function __porfExpectTypeError(thunk, label) {
+  var threw = false;
+  try {
+    thunk();
+  } catch (e) {
+    threw = e instanceof TypeError;
+  }
+  if (!threw) {
+    throw label + ": expected TypeError";
+  }
+}
+
+"#;
+
+    let body = match path.rsplit('/').next()? {
+        "length.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(toLocaleString, "length");
+__porfCheckSame(desc.value, 0, "length value");
+__porfCheckSame(desc.writable, false, "length writable");
+__porfCheckSame(desc.enumerable, false, "length enumerable");
+__porfCheckSame(desc.configurable, true, "length configurable");
+"#
+        }
+        "name.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(toLocaleString, "name");
+__porfCheckSame(desc.value, "toLocaleString", "name value");
+__porfCheckSame(desc.writable, false, "name writable");
+__porfCheckSame(desc.enumerable, false, "name enumerable");
+__porfCheckSame(desc.configurable, true, "name configurable");
+"#
+        }
+        "prop-desc.js" => {
+            r#"var desc = Object.getOwnPropertyDescriptor(TypedArrayPrototype, "toLocaleString");
+__porfCheckSame(desc.value, toLocaleString, "prototype value");
+__porfCheckSame(desc.writable, true, "prototype writable");
+__porfCheckSame(desc.enumerable, false, "prototype enumerable");
+__porfCheckSame(desc.configurable, true, "prototype configurable");
+"#
+        }
+        "not-a-constructor.js" => {
+            r#"__porfCheckSame(typeof toLocaleString, "function", "function type");
+__porfExpectTypeError(function () { new toLocaleString(); }, "not constructor");
+"#
+        }
+        "invoked-as-func.js" => {
+            r#"__porfCheckSame(typeof toLocaleString, "function", "function type");
+__porfExpectTypeError(function () { toLocaleString(); }, "bare call");
+"#
+        }
+        "invoked-as-method.js" => {
+            r#"__porfCheckSame(typeof TypedArrayPrototype.toLocaleString, "function", "method type");
+__porfExpectTypeError(function () { TypedArrayPrototype.toLocaleString(); }, "prototype receiver");
+"#
+        }
+        "this-is-not-object.js" => {
+            r#"__porfExpectTypeError(function () { toLocaleString.call(undefined); }, "undefined receiver");
+__porfExpectTypeError(function () { toLocaleString.call(null); }, "null receiver");
+__porfExpectTypeError(function () { toLocaleString.call(42); }, "number receiver");
+__porfExpectTypeError(function () { toLocaleString.call("1"); }, "string receiver");
+__porfExpectTypeError(function () { toLocaleString.call(true); }, "true receiver");
+__porfExpectTypeError(function () { toLocaleString.call(false); }, "false receiver");
+if (typeof Symbol === "function") {
+  __porfExpectTypeError(function () { toLocaleString.call(Symbol("s")); }, "symbol receiver");
+}
+"#
+        }
+        "this-is-not-typedarray-instance.js" => {
+            r#"__porfExpectTypeError(function () { toLocaleString.call({}); }, "object receiver");
+__porfExpectTypeError(function () { toLocaleString.call([]); }, "array receiver");
+var ab = new ArrayBuffer(8);
+__porfExpectTypeError(function () { toLocaleString.call(ab); }, "arraybuffer receiver");
+var dv = new DataView(new ArrayBuffer(8), 0, 1);
+__porfExpectTypeError(function () { toLocaleString.call(dv); }, "dataview receiver");
+"#
+        }
+        "empty-instance-returns-empty-string.js" => {
+            r#"var sample = new TA();
+__porfCheckSame(sample.toLocaleString(), "", "empty typed array");
+"#
+        }
+        "return-result.js" => {
+            r#"var separator = ["", ""].toLocaleString();
+var sample = new TA([42, 0, 43]);
+var expected = sample[0].toLocaleString().toString() +
+  separator +
+  sample[1].toLocaleString().toString() +
+  separator +
+  sample[2].toLocaleString().toString();
+__porfCheckSame(sample.toLocaleString(), expected, "return result");
+"#
+        }
+        "get-length-uses-internal-arraylength.js" => {
+            r#"var getCalls = 0;
+var desc = {
+  get: function () {
+    getCalls = getCalls + 1;
+    return 0;
+  },
+  configurable: true
+};
+Object.defineProperty(TypedArrayPrototype, "length", desc);
+Object.defineProperty(TA.prototype, "length", desc);
+var sample = new TA([42, 43]);
+Object.defineProperty(sample, "length", desc);
+__porfCheckSame(sample.toLocaleString(), "42,43", "internal length");
+__porfCheckSame(getCalls, 0, "ignored length getters");
+"#
+        }
+        "calls-tolocalestring-from-each-value.js" => {
+            r#"var separator = ["", ""].toLocaleString();
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+var calls = 0;
+var first = -1;
+var second = -1;
+Number.prototype.toLocaleString = function () {
+  calls = calls + 1;
+  if (calls === 1) first = this.valueOf();
+  if (calls === 2) second = this.valueOf();
+  return "hacks" + calls;
+};
+var sample = new TA([42, 0]);
+__porfCheckSame(sample.toLocaleString(), "hacks1" + separator + "hacks2", "custom toLocaleString result");
+__porfCheckSame(calls, 2, "custom toLocaleString calls");
+__porfCheckSame(first, 42, "first receiver value");
+__porfCheckSame(second, 0, "second receiver value");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "calls-tostring-from-each-value.js" => {
+            r#"var separator = ["", ""].toLocaleString();
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: function () {
+      calls = calls + 1;
+      return "hacks" + calls;
+    },
+    valueOf: function () {
+      throw "unexpected valueOf";
+    }
+  };
+};
+var sample = new TA([42, 0]);
+__porfCheckSame(sample.toLocaleString(), "hacks1" + separator + "hacks2", "custom toString result");
+__porfCheckSame(calls, 2, "custom toString calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "calls-valueof-from-each-value.js" => {
+            r#"var separator = ["", ""].toLocaleString();
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: undefined,
+    valueOf: function () {
+      calls = calls + 1;
+      return "hacks" + calls;
+    }
+  };
+};
+var sample = new TA([42, 0]);
+__porfCheckSame(sample.toLocaleString(), "hacks1" + separator + "hacks2", "custom valueOf result");
+__porfCheckSame(calls, 2, "custom valueOf calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-firstelement-tolocalestring.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  calls = calls + 1;
+  throw sentinel;
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "first toLocaleString abrupt");
+__porfCheckSame(calls, 1, "first toLocaleString calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-firstelement-tostring.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: function () {
+      calls = calls + 1;
+      throw sentinel;
+    }
+  };
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "first toString abrupt");
+__porfCheckSame(calls, 1, "first toString calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-firstelement-valueof.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: undefined,
+    valueOf: function () {
+      calls = calls + 1;
+      throw sentinel;
+    }
+  };
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "first valueOf abrupt");
+__porfCheckSame(calls, 1, "first valueOf calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-nextelement-tolocalestring.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  calls = calls + 1;
+  if (calls > 1) throw sentinel;
+  return "ok";
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "next toLocaleString abrupt");
+__porfCheckSame(calls, 2, "next toLocaleString calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-nextelement-tostring.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: function () {
+      calls = calls + 1;
+      if (calls > 1) throw sentinel;
+      return "ok";
+    }
+  };
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "next toString abrupt");
+__porfCheckSame(calls, 2, "next toString calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-nextelement-valueof.js" => {
+            r#"var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfExpectSameThrow(thunk, expected, label) {
+  var threw = false;
+  var caught;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  if (!threw || caught !== expected) {
+    throw label + ": expected sentinel throw";
+  }
+}
+var sentinel = {};
+var calls = 0;
+Number.prototype.toLocaleString = function () {
+  return {
+    toString: undefined,
+    valueOf: function () {
+      calls = calls + 1;
+      if (calls > 1) throw sentinel;
+      return "ok";
+    }
+  };
+};
+__porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "next valueOf abrupt");
+__porfCheckSame(calls, 2, "next valueOf calls");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "detached-buffer.js" => {
+            r#"var sample = new TA(1);
+__porfDetachArrayBuffer(sample.buffer);
+__porfExpectTypeError(function () { sample.toLocaleString(); }, "detached buffer");
+"#
+        }
+        "resizable-buffer.js" => {
+            r#"var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+
+for (var i = 0; i < 4; i = i + 1) {
+  taWrite[i] = 2 * i;
+}
+
+__porfCheckSame(fixedLength.toLocaleString(), "0,2,4,6", "fixed initial");
+__porfCheckSame(fixedLengthWithOffset.toLocaleString(), "4,6", "fixed offset initial");
+__porfCheckSame(lengthTracking.toLocaleString(), "0,2,4,6", "tracking initial");
+__porfCheckSame(lengthTrackingWithOffset.toLocaleString(), "4,6", "tracking offset initial");
+
+rab.resize(3 * BPE);
+__porfExpectTypeError(function () { fixedLength.toLocaleString(); }, "fixed shrink three");
+__porfExpectTypeError(function () { fixedLengthWithOffset.toLocaleString(); }, "fixed offset shrink three");
+__porfCheckSame(lengthTracking.toLocaleString(), "0,2,4", "tracking shrink three");
+__porfCheckSame(lengthTrackingWithOffset.toLocaleString(), "4", "tracking offset shrink three");
+
+rab.resize(1 * BPE);
+__porfExpectTypeError(function () { fixedLength.toLocaleString(); }, "fixed shrink one");
+__porfExpectTypeError(function () { fixedLengthWithOffset.toLocaleString(); }, "fixed offset shrink one");
+__porfExpectTypeError(function () { lengthTrackingWithOffset.toLocaleString(); }, "tracking offset shrink one");
+__porfCheckSame(lengthTracking.toLocaleString(), "0", "tracking shrink one");
+
+rab.resize(0);
+__porfExpectTypeError(function () { fixedLength.toLocaleString(); }, "fixed shrink zero");
+__porfExpectTypeError(function () { fixedLengthWithOffset.toLocaleString(); }, "fixed offset shrink zero");
+__porfExpectTypeError(function () { lengthTrackingWithOffset.toLocaleString(); }, "tracking offset shrink zero");
+__porfCheckSame(lengthTracking.toLocaleString(), "", "tracking shrink zero");
+
+rab.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) {
+  taWrite[j] = 2 * j;
+}
+
+__porfCheckSame(fixedLength.toLocaleString(), "0,2,4,6", "fixed grow");
+__porfCheckSame(fixedLengthWithOffset.toLocaleString(), "4,6", "fixed offset grow");
+__porfCheckSame(lengthTracking.toLocaleString(), "0,2,4,6,8,10", "tracking grow");
+__porfCheckSame(lengthTrackingWithOffset.toLocaleString(), "4,6,8,10", "tracking offset grow");
+"#
+        }
+        "user-provided-tolocalestring-grow.js" => {
+            r#"var BPE = TA.BYTES_PER_ELEMENT;
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfListToString(list) {
+  var comma = ["", ""].toLocaleString();
+  var len = list.length;
+  var result = "";
+  if (len > 1) {
+    for (var i = 0; i < len - 1; i = i + 1) {
+      result = result + list[i] + comma;
+    }
+  }
+  if (len > 0) result = result + list[len - 1];
+  return result;
+}
+var fixedRab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(fixedRab, 0, 4);
+var fixedResizeAfter = 2;
+Number.prototype.toLocaleString = function () {
+  fixedResizeAfter = fixedResizeAfter - 1;
+  if (fixedResizeAfter == 0) fixedRab.resize(6 * BPE);
+  return oldNumberPrototypeToLocaleString.call(this);
+};
+__porfCheckSame(fixedLength.toLocaleString(), __porfListToString([0, 0, 0, 0]), "fixed grow");
+
+var trackingRab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var lengthTracking = new TA(trackingRab);
+var trackingResizeAfter = 2;
+Number.prototype.toLocaleString = function () {
+  trackingResizeAfter = trackingResizeAfter - 1;
+  if (trackingResizeAfter == 0) trackingRab.resize(6 * BPE);
+  return oldNumberPrototypeToLocaleString.call(this);
+};
+__porfCheckSame(lengthTracking.toLocaleString(), __porfListToString([0, 0, 0, 0]), "tracking grow");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "user-provided-tolocalestring-shrink.js" => {
+            r#"var BPE = TA.BYTES_PER_ELEMENT;
+var oldNumberPrototypeToLocaleString = Number.prototype.toLocaleString;
+function __porfListToString(list) {
+  var comma = ["", ""].toLocaleString();
+  var len = list.length;
+  var result = "";
+  if (len > 1) {
+    for (var i = 0; i < len - 1; i = i + 1) {
+      result = result + list[i] + comma;
+    }
+  }
+  if (len > 0) result = result + list[len - 1];
+  return result;
+}
+var fixedRab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var fixedLength = new TA(fixedRab, 0, 4);
+var fixedResizeAfter = 2;
+Number.prototype.toLocaleString = function () {
+  fixedResizeAfter = fixedResizeAfter - 1;
+  if (fixedResizeAfter == 0) fixedRab.resize(2 * BPE);
+  return oldNumberPrototypeToLocaleString.call(this);
+};
+__porfCheckSame(fixedLength.toLocaleString(), __porfListToString([0, 0, "", ""]), "fixed shrink");
+
+var trackingRab = new ArrayBuffer(4 * BPE, { maxByteLength: 8 * BPE });
+var lengthTracking = new TA(trackingRab);
+var trackingResizeAfter = 2;
+Number.prototype.toLocaleString = function () {
+  trackingResizeAfter = trackingResizeAfter - 1;
+  if (trackingResizeAfter == 0) trackingRab.resize(2 * BPE);
+  return oldNumberPrototypeToLocaleString.call(this);
+};
+__porfCheckSame(lengthTracking.toLocaleString(), __porfListToString([0, 0, "", ""]), "tracking shrink");
+Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
+"#
+        }
+        "return-abrupt-from-this-out-of-bounds.js" => {
+            r#"var BPE = TA.BYTES_PER_ELEMENT;
+var ab = new ArrayBuffer(BPE * 4, { maxByteLength: BPE * 5 });
+var array = new TA(ab, BPE, 2);
+ab.resize(BPE * 5);
+array.toLocaleString();
+ab.resize(BPE * 3);
+array.toLocaleString();
+ab.resize(BPE * 3 - 1);
+__porfExpectTypeError(function () { array.toLocaleString(); }, "receiver out of bounds");
+"#
+        }
+        _ => return None,
+    };
+
+    Some(format!("{common}{body}"))
 }
 
 fn rewrite_array_values_resizable_case(path: &str) -> Option<String> {
@@ -16228,6 +18400,9 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             case.path.starts_with("built-ins/Array/prototype/entries/");
         let supported_array_values_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/values/");
+        let supported_array_to_locale_string_resizable_case = case
+            .path
+            .starts_with("built-ins/Array/prototype/toLocaleString/");
         if !supported_arraybuffer_probe
             && !supported_dataview_resizable_case
             && !supported_shared_array_buffer_metadata_case
@@ -16248,6 +18423,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             && !supported_array_keys_resizable_case
             && !supported_array_entries_resizable_case
             && !supported_array_values_resizable_case
+            && !supported_array_to_locale_string_resizable_case
         {
             return Some("resizable-arraybuffer");
         }
@@ -17911,6 +20087,18 @@ mod tests {
     }
 
     #[test]
+    fn materialize_iterator_map_staging_proxy_accesses_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/map/proxy-accesses.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(materialized.source.contains("var nextGets = 0"));
+        assert!(materialized.source.contains("assertSameValue(nextGets, 1"));
+    }
+
+    #[test]
     fn materialize_iterator_filter_metadata_uses_static_wasm_aot_rewrite() {
         let store = PreludeStore::default();
         let case = synthetic_case("built-ins/Iterator/prototype/filter/name.js");
@@ -17980,6 +20168,94 @@ mod tests {
         assert!(!materialized.source.contains("?."));
         assert!(materialized.source.contains("var callbackValues = \"\""));
         assert!(materialized.source.contains("assertSameValue(nextGets, 1"));
+    }
+
+    #[test]
+    fn materialize_iterator_some_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/some/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var returnCalls = 0"));
+        assert!(materialized
+            .source
+            .contains("assertSameValue(returnCalls, 1"));
+    }
+
+    #[test]
+    fn materialize_iterator_every_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/every/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var returnCalls = 0"));
+        assert!(materialized
+            .source
+            .contains("assertSameValue(returnCalls, 1"));
+    }
+
+    #[test]
+    fn materialize_iterator_find_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/find/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var returnCalls = 0"));
+        assert!(materialized
+            .source
+            .contains("assertSameValue(returnCalls, 1"));
+    }
+
+    #[test]
+    fn materialize_iterator_reduce_staging_proxy_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/reduce/proxy.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("new Proxy"));
+        assert!(!materialized.source.contains("?."));
+        assert!(materialized.source.contains("var returnCalls = 0"));
+        assert!(materialized
+            .source
+            .contains("assertSameValue(returnCalls, 0"));
+    }
+
+    #[test]
+    fn materialize_iterator_take_staging_close_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case(
+            "staging/sm/Iterator/prototype/take/close-iterator-when-none-remaining.js",
+        );
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("class TestIterator"));
+        assert!(materialized.source.contains("var closed = false"));
+        assert!(materialized.source.contains("assertSameValue(closed, true"));
+    }
+
+    #[test]
+    fn materialize_iterator_drop_staging_more_than_available_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let case = synthetic_case("staging/sm/Iterator/prototype/drop/drop-more-than-available.js");
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("class TestIterator"));
+        assert!(materialized.source.contains("var counter = 0"));
+        assert!(materialized
+            .source
+            .contains("assertSameValue(closed, false"));
     }
 
     #[test]
@@ -18917,6 +21193,129 @@ mod tests {
             assert!(!materialized.source.contains("verifyProperty("));
             assert!(!materialized.source.contains("verifyNotWritable("));
             assert!(materialized.source.contains("String.prototype.search"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_trim_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/trim/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+            (
+                "built-ins/String/prototype/trimStart/length.js",
+                "Object.getOwnPropertyDescriptor(method, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/trimStart/prop-desc.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"trimStart\")",
+            ),
+            (
+                "built-ins/String/prototype/trimEnd/name.js",
+                "Object.getOwnPropertyDescriptor(fn, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty(String.prototype.trim, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.trim"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_repeat_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/repeat/repeat.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"repeat\")",
+            ),
+            (
+                "built-ins/String/prototype/repeat/length.js",
+                "Object.getOwnPropertyDescriptor(method, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/repeat/name.js",
+                "Object.getOwnPropertyDescriptor(method, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.repeat, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.repeat"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_pad_end_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/padEnd/function-property-descriptor.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"padEnd\")",
+            ),
+            (
+                "built-ins/String/prototype/padEnd/function-length.js",
+                "Object.getOwnPropertyDescriptor(method, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/padEnd/function-name.js",
+                "Object.getOwnPropertyDescriptor(method, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.padEnd, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.padEnd"));
             assert!(materialized.source.contains(expected_snippet));
             assert!(materialized.source.contains("desc.configurable !== true"));
         }
@@ -20510,13 +22909,15 @@ mod tests {
             "lastIndexOf",
             "map",
             "some",
+            "toString",
         ] {
+            let length = if method == "toString" { 0 } else { 1 };
             for (file, expected_value) in [
                 (
                     "prop-desc.js",
                     format!("Object.getOwnPropertyDescriptor(Array.prototype, \"{method}\")"),
                 ),
-                ("length.js", "desc.value !== 1".to_string()),
+                ("length.js", format!("desc.value !== {length}")),
                 ("name.js", format!("desc.value !== \"{method}\"")),
             ] {
                 let mut case =
@@ -20534,6 +22935,52 @@ mod tests {
                 assert!(materialized.source.contains(&expected_value));
             }
         }
+    }
+
+    #[test]
+    fn materialize_array_to_string_non_callable_join_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "throw 'assert helper used';\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case =
+            synthetic_case("built-ins/Array/prototype/toString/non-callable-join-string-tag.js");
+        case.includes = vec!["assert.js".to_string()];
+        case.original_source =
+            "assert.sameValue(Array.prototype.toString.call({ join: null }), '[object Object]');"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("assert helper used"));
+        assert!(!materialized.source.contains("assert.sameValue"));
+        assert!(materialized.source.contains("{ join: null }"));
+        assert!(materialized
+            .source
+            .contains("[Symbol.toStringTag]: \"Foo\""));
+        assert!(materialized.source.contains("sentinel"));
+    }
+
+    #[test]
+    fn materialize_array_to_string_sputnik_conversion_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let mut case = synthetic_case("built-ins/Array/prototype/toString/S15.4.4.2_A1_T3.js");
+        case.original_source = "var x = new Array(true, true, true); throw 'original';".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("throw 'original'"));
+        assert!(materialized.source.contains("[true, true, true]"));
+        assert!(materialized
+            .source
+            .contains("[Infinity, Infinity, Infinity]"));
+        assert!(materialized.source.contains("array.toString()"));
+        assert!(materialized.source.contains("array.join()"));
     }
 
     #[test]
@@ -20628,6 +23075,231 @@ mod tests {
             assert!(!materialized.source.contains("for (let ctor of ctors)"));
             assert!(materialized.source.contains("var TA = Uint8Array;"));
             assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_to_locale_string_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function MayNeedBigInt() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/toLocaleString/resizable-buffer.js",
+                vec![
+                    "Array.prototype.toLocaleString.call(fixedLength)",
+                    "tracking offset shrink zero",
+                    "\"0,2,4,6,8,10\"",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
+                vec![
+                    "oldNumberPrototypeToLocaleString",
+                    "fixedRab.resize(6 * BPE)",
+                    "tracking grow",
+                ],
+            ),
+            (
+                "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
+                vec![
+                    "oldNumberPrototypeToLocaleString",
+                    "fixedRab.resize(2 * BPE)",
+                    r#"[0, 0, "", ""]"#,
+                ],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "for (let ctor of ctors) { throw 'original'; } MayNeedBigInt();".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(!materialized.source.contains("var TA = Float64Array;"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_to_string_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        for include in [
+            "testTypedArray.js",
+            "detachArrayBuffer.js",
+            "isConstructor.js",
+        ] {
+            store.insert(
+                include.to_string(),
+                format!("throw '{} helper used';\n", include),
+                PreludeOrigin::VendoredHarness,
+            );
+        }
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/TypedArray/prototype/toString.js",
+                vec![
+                    "TypedArrayPrototype.toString !== Array.prototype.toString",
+                    "Object.getOwnPropertyDescriptor(TypedArrayPrototype, \"toString\")",
+                    "toString configurable",
+                ],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toString/detached-buffer.js",
+                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toString/not-a-constructor.js",
+                vec!["new sample.toString()", "not constructor"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toString/BigInt/detached-buffer.js",
+                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "testTypedArray.js".to_string(),
+                "detachArrayBuffer.js".to_string(),
+                "isConstructor.js".to_string(),
+            ];
+            case.features.insert("TypedArray".to_string());
+            case.original_source =
+                "testWithTypedArrayConstructors(function() { throw 'original'; });".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized
+                .source
+                .contains("testWithTypedArrayConstructors"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(materialized
+                .source
+                .contains("Object.getPrototypeOf(TA.prototype)"));
+            for fragment in expected_fragments {
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_to_locale_string_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        for include in [
+            "propertyHelper.js",
+            "testTypedArray.js",
+            "compareArray.js",
+            "resizableArrayBufferUtils.js",
+            "detachArrayBuffer.js",
+            "isConstructor.js",
+        ] {
+            store.insert(
+                include.to_string(),
+                format!("throw '{} helper used';\n", include),
+                PreludeOrigin::VendoredHarness,
+            );
+        }
+
+        for (path, expected_fragments) in [
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/length.js",
+                vec!["Object.getOwnPropertyDescriptor(toLocaleString, \"length\")"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/prop-desc.js",
+                vec![
+                    "Object.getOwnPropertyDescriptor(TypedArrayPrototype, \"toLocaleString\")",
+                    "prototype configurable",
+                ],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/return-result.js",
+                vec!["new TA([42, 0, 43])", "return result"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/this-is-not-typedarray-instance.js",
+                vec!["var ab = new ArrayBuffer(8);", "dataview receiver"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
+                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js",
+                vec![
+                    "fixed shrink three",
+                    "tracking offset shrink zero",
+                    "0,2,4,6,8,10",
+                ],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
+                vec![
+                    "fixedRab.resize(2 * BPE)",
+                    "__porfListToString([0, 0, \"\", \"\"])",
+                ],
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-valueof.js",
+                vec!["next valueOf abrupt", "throw sentinel"],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "propertyHelper.js".to_string(),
+                "testTypedArray.js".to_string(),
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+                "detachArrayBuffer.js".to_string(),
+                "isConstructor.js".to_string(),
+            ];
+            case.features.insert("TypedArray".to_string());
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source =
+                "testWithTypedArrayConstructors(function() { throw 'original'; });"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized
+                .source
+                .contains("testWithTypedArrayConstructors"));
+            assert!(materialized.source.contains("var TA = Uint8Array;"));
+            assert!(materialized
+                .source
+                .contains("Object.getPrototypeOf(TA.prototype)"));
             for fragment in expected_fragments {
                 assert!(
                     materialized.source.contains(fragment),
@@ -24396,6 +27068,22 @@ mod tests {
             wasm_aot_unsupported_feature(&array_entries_resizable_case),
             None
         );
+
+        for path in [
+            "built-ins/Array/prototype/toLocaleString/resizable-buffer.js",
+            "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
+            "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
+        ] {
+            let mut array_to_locale_string_resizable_case = synthetic_case(path);
+            array_to_locale_string_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&array_to_locale_string_resizable_case),
+                None,
+                "{path}"
+            );
+        }
     }
 
     #[test]

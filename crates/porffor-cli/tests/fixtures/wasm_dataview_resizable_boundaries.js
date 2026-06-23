@@ -116,7 +116,7 @@ try {
 }
 
 let proto = { marker: 1 };
-let customNewTarget = function () {};
+let customNewTarget = function () {}.bind(null);
 let prototypeGetters = 0;
 Object.defineProperty(customNewTarget, "prototype", {
   get: function () {

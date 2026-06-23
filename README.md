@@ -87,14 +87,17 @@ Current commands:
 - `build wasm <file>` compiles JavaScript directly to a Wasm artifact and prints the artifact summary.
 - `build c <file>` and `build native <file>` exist as CLI surfaces but currently fail with scaffold errors.
 - `inspect <file>` prints the parser/lowering pipeline summary and invariants.
+- `types [entrypoint] [output] [options]` and `typegen` generate Wrangler-style Worker TypeScript declarations from config plus a selected entrypoint.
 - `test262 ...` drives the fake fixture suite, pinned real suite, status snapshots, triage, and README status publication.
 - `repl` is reserved for the Rust REPL and is not implemented yet.
 
 The npm `porf` entry in `package.json` still points at the inherited JavaScript
-runtime. Do not use it as the source of truth for the Rust rewrite. It now also
-has a package-CLI convenience command for Worker-style TypeScript setup:
+runtime. Do not use it as the source of truth for the Rust rewrite. The Rust
+package CLI and the inherited Node package CLI both expose a convenience command
+for Worker-style TypeScript setup:
 
 ```sh
+cargo run -p porffor-cli -- types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
 node runtime/index.js types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
 ```
 
@@ -107,8 +110,8 @@ node runtime/index.js types src/index.ts worker-configuration.d.ts --config wran
 overrides the config `main`, matching the common Wrangler flow of generating
 types from a config plus a selected worker source. JSON, JSONC, and TOML configs
 are supported, and `porf typegen` is accepted as an alias. The package CLI
-type-generation path is covered by
-`pnpm test:types`.
+type-generation paths are covered by `cargo test -p porffor-cli types_ --quiet`
+for the Rust CLI and `pnpm test:types` for the inherited Node CLI.
 
 ## Conformance
 
@@ -149,8 +152,46 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-06-21`:
+Recent focused progress through `2026-06-23`:
 
+- `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
+  builtin with generic array-like receiver support, `LengthOfArrayLike`
+  conversion ordering, comma separator assembly, primitive element string
+  method lookup through boxed primitives while preserving the original receiver
+  for strict calls, custom object element `toLocaleString` invocation, and
+  outer call spread arguments that must be ignored by the array builtin while
+  still being evaluated. `Object.prototype.toLocaleString` is now installed for
+  that dispatch path and calls the receiver's `toString` method. The exact real Test262
+  `staging/sm/Array/toLocaleString-01.js` file reports `1/1` as of
+  `2026-06-23` under
+  `./target/debug/porf test262 run staging/sm/Array/toLocaleString-01.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  Typed-array receivers backed by resizable ArrayBuffers now use the typed-array
+  length and integer-indexed element paths, including fixed-length
+  out-of-bounds views and length-tracking views after resize. The broader
+  `built-ins/Array/prototype/toLocaleString` leaf reports `12/12`
+  as of `2026-06-23` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/toLocaleString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `%TypedArray%.prototype.toLocaleString` is also installed as a distinct
+  non-generic Wasm-AOT builtin for concrete typed-array method calls, including
+  initial detached/out-of-bounds validation and focused materializations for
+  metadata, receiver validation, element conversion, abrupt propagation, and
+  resizable-buffer cases. The exact real Test262
+  `built-ins/TypedArray/prototype/toLocaleString` leaf reports `39/39` as of
+  `2026-06-23` under
+  `./target/debug/porf test262 run built-ins/TypedArray/prototype/toLocaleString --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `%TypedArray%.prototype.toString` now uses the same Wasm-AOT function object
+  as `Array.prototype.toString`, so the shared identity and descriptor checks
+  are exposed on `%TypedArray%.prototype` while Array receivers still use comma
+  join semantics, including inherited array indexes and the intrinsic
+  `Object.prototype.toString` fallback when `join` is not callable, and
+  TypedArray receivers perform `ValidateTypedArray` before joining indexed
+  elements. The exact real Test262 `built-ins/Array/prototype/toString` leaf
+  reports `11/11` as of `2026-06-23` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  The exact real Test262
+  `built-ins/TypedArray/prototype/toString` leaf reports `4/4` as of
+  `2026-06-23` under
+  `./target/debug/porf test262 run built-ins/TypedArray/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array.prototype.forEach` covers array-like and primitive receivers,
   inherited array indexes including Array instances used as prototypes where
   `HasProperty` and `Get` must agree, ToLength and callback-order edge cases,
@@ -717,6 +758,16 @@ Recent focused progress through `2026-06-21`:
   `custom-proto-if-object-is-used-sab.js`,
   `custom-proto-if-not-object-fallbacks-to-default-prototype-sab.js`, and
   `byteOffset-validated-against-initial-buffer-length.js`. The
+  `Object.defineProperty` path now permits accessor `prototype` descriptors on
+  bound functions, so DataView `Reflect.construct` newTarget ordering tests can
+  use the spec-shaped bound-function `prototype` accessor instead of failing
+  before construction; the exact `built-ins/DataView/custom-proto` filter now
+  reports `11/11` as of `2026-06-23` under
+  `./target/debug/porf test262 run built-ins/DataView/custom-proto --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and `built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js`
+  reports `1/1` under
+  `./target/debug/porf test262 run built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  The
   `proto-from-ctor-realm` constructor cases remain explicit Wasm-AOT
   unsupported dynamic-source-generation cases because they use source-taking
   cross-realm `Function`. This is focused constructor progress, not a
@@ -903,7 +954,7 @@ Recent focused progress through `2026-06-21`:
 - Proxy `defineProperty` trap coverage is green for the current Wasm-AOT
   descriptor compatibility path: the real Test262
   `built-ins/Proxy/defineProperty` leaf reports `24/24` passing as of
-  `2026-06-18` under `--execution-backend wasm` with the `120000` ms timeout
+  `2026-06-23` under `--execution-backend wasm` with the `120000` ms timeout
   and four threads with
   `./target/debug/porf test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `get` trap exact files are green for the current Wasm-AOT get
@@ -1128,9 +1179,9 @@ Recent focused progress through `2026-06-21`:
   `targetdesc-undefined-not-configurable-descriptor-realm.js`, and
   `targetdesc-undefined-target-is-not-extensible-realm.js` are also green. The
   full real Test262 `built-ins/Proxy/defineProperty` leaf now reports `24/24`
-  passing as of `2026-06-05` under `--execution-backend wasm` with the `60000`
+  passing as of `2026-06-23` under `--execution-backend wasm` with the `120000`
   ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/porf test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
   The helper-heavy undefined/null-trap and
   direct-target-definition exact files use focused Wasm-AOT materializations
   that preserve real `Reflect.defineProperty`/`Object.defineProperty` and
@@ -1520,7 +1571,7 @@ Recent focused progress through `2026-06-21`:
   `2026-06-21` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/toArray` leaf reports `10/10`
-  as of `2026-06-22` under
+  as of `2026-06-23` under
   `./target/debug/porf test262 run staging/sm/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
   with focused coverage in
   `wasm_iterator_to_array_direct_iterator.js` and
@@ -1571,46 +1622,66 @@ Recent focused progress through `2026-06-21`:
   `Iterator.prototype.some` is now registered as a Rust standard builtin and
   has Wasm-AOT support for Boolean terminal iteration, callback value/index
   calls, argument validation before `next`, iterator close on invalid callback,
-  predicate throw, and truthy predicate results, plain iterator receivers,
-  generator close/exhaustion, array iterators without `return`, throwing
-  `next`/`done`/`value`/`return` paths, ToBoolean predicate results, and
-  metadata. The full exact real Test262
+  predicate throw, and truthy predicate results, no iterator close for abrupt
+  `next` or result `value` access, plain iterator receivers, generator
+  close/exhaustion, array iterators without `return`, throwing
+  `next`/`done`/`value`/`return` paths while preserving thrown getter values,
+  ToBoolean predicate results, and metadata. The full exact real Test262
   `built-ins/Iterator/prototype/some` leaf reports `33/33` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  and the staging `staging/sm/Iterator/prototype/some` leaf reports `14/14`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_some.js`.
   `Iterator.prototype.every` is now registered as a Rust standard builtin and
   has Wasm-AOT support for Boolean terminal iteration, callback value/index
   calls, argument validation before `next`, iterator close on invalid callback,
-  predicate throw, and falsey predicate results, plain iterator receivers,
-  generator close/exhaustion, array iterators without `return`, throwing
-  `next`/`done`/`value`/`return` paths, ToBoolean predicate results, and
-  metadata. The full exact real Test262
+  predicate throw, and falsey predicate results, no iterator close for abrupt
+  `next` or result `value` access, plain iterator receivers, generator
+  close/exhaustion, array iterators without `return`, throwing
+  `next`/`done`/`value`/`return` paths while preserving thrown getter values,
+  ToBoolean predicate results, and metadata. The full exact real Test262
   `built-ins/Iterator/prototype/every` leaf reports `33/33` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  and the staging `staging/sm/Iterator/prototype/every` leaf reports `14/14`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_every.js`.
   `Iterator.prototype.find` is now registered as a Rust standard builtin and
   has Wasm-AOT support for terminal iteration returning the matched value or
   `undefined`, callback value/index calls, argument validation before `next`,
   iterator close on invalid callback, predicate throw, and truthy predicate
-  results, plain iterator receivers, generator close/exhaustion, array
-  iterators without `return`, throwing `next`/`done`/`value`/`return` paths,
-  ToBoolean predicate results, and metadata. The full exact real Test262
-  `built-ins/Iterator/prototype/find` leaf reports `32/32` as of
+  results, no iterator close for abrupt `next` or result `done`/`value`
+  access, plain iterator receivers, generator close/exhaustion, array iterators
+  without `return`, throwing `next`/`done`/`value`/`return` paths while
+  preserving thrown getter values, ToBoolean predicate results, and metadata.
+  The staging `staging/sm/Iterator/prototype/find` leaf reports `14/14` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  The exact real Test262 `built-ins/Iterator/prototype/find` leaf reports
+  `31/32` under
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 8`
+  because `prop-desc.js` times out in the parallel leaf run; rerunning
+  `./target/debug/porf test262 run built-ins/Iterator/prototype/find/prop-desc.js --execution-backend wasm --timeout-ms 90000 --threads 1`
+  reports `1/1`,
   covered by `wasm_iterator_prototype_find.js`.
   `Iterator.prototype.reduce` is now registered as a Rust standard builtin and
   has Wasm-AOT support for terminal reduction with and without an initial
   value, callback memo/value/index calls, argument validation before `next`,
   iterator close on invalid reducer and reducer throw, empty-iterator
   TypeError behavior without an initial value, plain iterator receivers,
-  generator exhaustion, throwing `next`/`done`/`value`/`return` paths, arbitrary
-  reducer result values, and metadata. The full exact real Test262
+  generator exhaustion, no iterator close for abrupt `next` or result
+  `done`/`value` access, throwing `next`/`done`/`value`/`return` paths while
+  preserving thrown getter values, arbitrary reducer result values, and
+  metadata. The full exact real Test262
   `built-ins/Iterator/prototype/reduce` leaf reports `30/30` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  and the staging `staging/sm/Iterator/prototype/reduce` leaf reports `18/18`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_reduce.js`.
   `Iterator.prototype.map` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy mapped helper iteration, helper `next` and
@@ -1618,11 +1689,16 @@ Recent focused progress through `2026-06-21`:
   before `next`, iterator close on invalid mapper and mapper throw, deferred
   non-callable `next` errors, plain iterator receivers, parallel advancement,
   closed underlying iterators, ordinary exhaustion without `return`, helper
-  reentrancy rejection, throwing `next`/`done`/`value`/`return` paths, chained
-  map helpers, and metadata. The exact real Test262
+  reentrancy rejection, no iterator close for abrupt `next` or result
+  `done`/`value` access, throwing `next`/`done`/`value`/`return` paths while
+  preserving thrown getter values, chained map helpers, and metadata. The
+  exact real Test262
   `built-ins/Iterator/prototype/map` leaf reports `36/36` as of `2026-06-22`
   under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/map` leaf reports `20/20` as
+  of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_map.js`.
   `Iterator.prototype.filter` is now registered as a Rust standard builtin
   and has Wasm-AOT support for lazy filtered helper iteration, helper `next`
@@ -1635,6 +1711,9 @@ Recent focused progress through `2026-06-21`:
   The exact real Test262 `built-ins/Iterator/prototype/filter` leaf reports
   `37/37` as of `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/filter` leaf reports `3/3`
+  as of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_filter.js`.
   `Iterator.prototype.flatMap` is now registered as a Rust standard builtin
   and has Wasm-AOT support for lazy flattened helper iteration, helper `next`
@@ -1660,20 +1739,29 @@ Recent focused progress through `2026-06-21`:
   `return`, limit-zero close, invalid numeric limit close, deferred
   non-callable `next` errors, plain iterator receivers, parallel advancement,
   closed underlying iterators, accessor-abrupt argument conversion close,
-  helper reentrancy rejection, and metadata. The exact real Test262
+  helper reentrancy rejection, close when the remaining take count reaches
+  zero, ordinary source exhaustion without `return`, and metadata. The exact
+  real Test262
   `built-ins/Iterator/prototype/take` leaf reports `33/33` as of
   `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/take` leaf reports `6/6` as
+  of `2026-06-22` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_take.js`.
   `Iterator.prototype.drop` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy skip helper iteration, helper `next` and
   `return`, limit-zero passthrough, invalid numeric limit close, deferred
   non-callable `next` errors, plain iterator receivers, parallel advancement,
   closed underlying iterators, accessor-abrupt argument conversion close,
-  ordinary exhaustion without `return`, helper reentrancy rejection, and
+  ordinary exhaustion without `return`, including source exhaustion before the
+  drop count is reached, helper reentrancy rejection, and
   metadata. The exact real Test262 `built-ins/Iterator/prototype/drop` leaf
   reports `34/34` as of `2026-06-22` under
   `./target/debug/porf test262 run built-ins/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  and the staging `staging/sm/Iterator/prototype/drop` leaf reports `3/3` as
+  of `2026-06-23` under
+  `./target/debug/porf test262 run staging/sm/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_drop.js`.
   `String.prototype.toUpperCase` and `String.prototype.padStart` are now
   registered as Rust standard builtins with focused Wasm-AOT support for the
@@ -1817,6 +1905,48 @@ Recent focused progress through `2026-06-21`:
   passing as of `2026-06-19` under `--execution-backend wasm` with the `60000`
   ms timeout and four threads (`0` unsupported, `0` runtime failures):
   `./target/debug/porf test262 run built-ins/String/prototype/indexOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `String.prototype.startsWith` and `String.prototype.endsWith` are now
+  covered by a local Wasm-AOT regression fixture for found/not-found searches,
+  explicit position/endPosition handling, empty search strings, and direct
+  `length` descriptor checks. The exact real Test262 leaves
+  `built-ins/String/prototype/startsWith` and
+  `built-ins/String/prototype/endsWith` report `21/21` and `27/27` passing as
+  of `2026-06-23` under `--execution-backend wasm --timeout-ms 90000 --threads
+  8`:
+  `./target/debug/porf test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 90000 --threads 8`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 90000 --threads 8`.
+  `String.prototype.repeat` is now registered as a Rust standard builtin for
+  prototype property reads, borrowed calls, and direct method calls. The
+  Wasm-AOT path implements receiver `ToString`, count `ToNumber` plus
+  truncate-toward-zero behavior, `RangeError` for negative or infinite counts,
+  Symbol abrupt completions, empty-string fast paths, and repeated UTF-8 byte
+  assembly. Its `length`, `name`, and prototype descriptor files use focused
+  static Wasm-AOT materializations. The full
+  `built-ins/String/prototype/repeat` Test262 leaf now reports `16/16` passing
+  as of `2026-06-23` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/repeat --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.trim` is now registered as a Rust standard builtin for
+  prototype property reads, borrowed calls, and direct method calls. The
+  Wasm-AOT trim path now removes the ECMAScript WhiteSpace/LineTerminator set
+  from both edges using UTF-8 byte scanning while preserving U+180E as a normal
+  non-whitespace code point. The `trim`, `trimStart`, and `trimEnd` metadata
+  files use focused static Wasm-AOT materializations for descriptor checks. The
+  full `built-ins/String/prototype/trimStart` and
+  `built-ins/String/prototype/trimEnd` Test262 leaves now report `23/23` each
+  as of `2026-06-23` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 8`:
+  `./target/debug/porf test262 run built-ins/String/prototype/trimStart --execution-backend wasm --timeout-ms 90000 --threads 8`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/trimEnd --execution-backend wasm --timeout-ms 90000 --threads 8`.
+  Exact real Test262 files
+  `built-ins/String/prototype/trim/name.js`,
+  `built-ins/String/prototype/trim/u180e.js`,
+  `built-ins/String/prototype/trim/15.5.4.20-4-1.js`, and
+  `built-ins/String/prototype/trim/15.5.4.20-4-60.js` each report `1/1`
+  passing as of `2026-06-23` under `--execution-backend wasm` with the
+  `60000` ms timeout and one thread.
   `String.prototype.lastIndexOf` is now registered as a Rust standard builtin
   and handles primitive string dot access, receiver/search-string `ToString`,
   omitted position defaulting to the string length, explicit `undefined`

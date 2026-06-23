@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 fn fixture_path(name: &str) -> String {
@@ -28,6 +30,25 @@ fn unique_snapshot_dir(name: &str) -> String {
         ))
         .display()
         .to_string()
+}
+
+fn unique_project_dir(name: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "porffor-cli-{}-{}-{}",
+        name,
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("temp project should be created");
+    root
+}
+
+fn write_project_file(root: &Path, relative_path: &str, source: &str) {
+    let path = root.join(relative_path);
+    fs::create_dir_all(path.parent().expect("test path should have a parent"))
+        .expect("test file parent should be created");
+    fs::write(path, source).expect("test file should write");
 }
 
 fn tiny_wasm_suite_root(name: &str) -> String {
@@ -72,8 +93,197 @@ fn help_lists_clean_break_commands() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("build wasm"));
+    assert!(stdout.contains("types [entrypoint]"));
     assert!(stdout.contains("test262 run"));
     assert!(stdout.contains("inspect"));
+}
+
+#[test]
+fn types_generates_from_discovered_jsonc_config_and_entrypoint() {
+    let project = unique_project_dir("types-jsonc");
+    write_project_file(
+        &project,
+        "src/index.ts",
+        r#"
+export default {
+  fetch(request, env, ctx) {
+    return new Response(env.MESSAGE);
+  },
+  scheduled() {}
+};
+"#,
+    );
+    write_project_file(
+        &project,
+        "wrangler.jsonc",
+        r#"{
+  // JSONC comments and trailing commas match common Wrangler config files.
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-19",
+  "kv_namespaces": [{ "binding": "CACHE", "id": "x" }],
+  "r2_buckets": [{ "binding": "ASSETS", "bucket_name": "assets" }],
+  "vars": { "MESSAGE": "hello", "COUNT": 3 },
+  "env": {
+    "prod": {
+      "vars": { "MESSAGE": "prod" },
+      "queues": { "producers": [{ "binding": "JOBS", "queue": "jobs" }] }
+    },
+  },
+}
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("types")
+        .arg("--cwd")
+        .arg(&project)
+        .arg("--print")
+        .output()
+        .expect("types command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("// Config: wrangler.jsonc"));
+    assert!(stdout.contains("// Entrypoint: src/index.ts"));
+    assert!(stdout.contains("// Detected handlers: fetch, scheduled"));
+    assert!(stdout.contains("CACHE: KVNamespace;"));
+    assert!(stdout.contains("ASSETS: R2Bucket;"));
+    assert!(stdout.contains("COUNT: 3;"));
+    assert!(stdout.contains("MESSAGE: \"hello\" | \"prod\";"));
+    assert!(stdout.contains("JOBS?: Queue;"));
+    assert!(stdout.contains("compatibilityDate: \"2026-06-19\";"));
+}
+
+#[test]
+fn types_uses_explicit_entrypoint_and_check_for_written_output() {
+    let project = unique_project_dir("types-explicit");
+    write_project_file(
+        &project,
+        "src/worker.ts",
+        r#"
+export default {
+  fetch() {
+    return new Response("ok");
+  }
+};
+"#,
+    );
+    write_project_file(
+        &project,
+        "src/config-main.ts",
+        r#"
+export default {
+  scheduled() {}
+};
+"#,
+    );
+    write_project_file(
+        &project,
+        "wrangler.json",
+        r#"{"main":"src/config-main.ts","vars":{"FLAG":true},"services":[{"binding":"API","service":"api"}]}"#,
+    );
+
+    let output_path = "types/worker-env.d.ts";
+    let write = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("typegen")
+        .arg("src/worker.ts")
+        .arg(output_path)
+        .arg("--cwd")
+        .arg(&project)
+        .arg("--config")
+        .arg("wrangler.json")
+        .output()
+        .expect("typegen command should write");
+
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+
+    let check = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("types")
+        .arg("src/worker.ts")
+        .arg(output_path)
+        .arg("--cwd")
+        .arg(&project)
+        .arg("--config")
+        .arg("wrangler.json")
+        .arg("--check")
+        .output()
+        .expect("types --check should run");
+
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let written = fs::read_to_string(project.join(output_path)).expect("types output should exist");
+    assert!(written.contains("FLAG: true;"));
+    assert!(written.contains("API: Fetcher;"));
+    assert!(written.contains("entrypoint: \"src/worker.ts\";"));
+    assert!(written.contains("syntax: \"module\";"));
+    assert!(written.contains("// Detected handlers: fetch"));
+    assert!(!written.contains("// Detected handlers: scheduled"));
+}
+
+#[test]
+fn types_reads_toml_env_and_can_omit_runtime_declarations() {
+    let project = unique_project_dir("types-toml");
+    write_project_file(
+        &project,
+        "src/worker.ts",
+        r#"
+addEventListener("fetch", event => event.respondWith(new Response("ok")));
+"#,
+    );
+    write_project_file(
+        &project,
+        "wrangler.toml",
+        r#"
+main = "src/worker.ts"
+compatibility_date = "2026-06-19"
+
+[vars]
+MODE = "dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "main"
+
+[env.preview.vars]
+MODE = "preview"
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("typegen")
+        .arg("--cwd")
+        .arg(&project)
+        .arg("--env")
+        .arg("preview")
+        .arg("--env-interface")
+        .arg("WorkerEnv")
+        .arg("--include-runtime=false")
+        .arg("--print")
+        .output()
+        .expect("typegen toml command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("interface WorkerEnv"));
+    assert!(stdout.contains("MODE: \"preview\";"));
+    assert!(stdout.contains("DB: D1Database;"));
+    assert!(stdout.contains("syntax: \"service-worker\";"));
+    assert!(!stdout.contains("ExecutionContext"));
 }
 
 #[test]
@@ -3763,6 +3973,38 @@ fn run_wasm_backend_succeeds_for_array_sparse_index_no_trap_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_to_locale_string_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_supported_typedarray_to_string_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_typedarray_to_string_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_object_descriptor_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -5183,12 +5425,60 @@ fn run_wasm_backend_succeeds_for_string_to_upper_case_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_string_starts_ends_with_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_starts_ends_with_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_string_pad_start_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_string_pad_start_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_pad_end_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_pad_end_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_string_repeat_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_repeat_core.js"))
         .output()
         .expect("run command should run");
 

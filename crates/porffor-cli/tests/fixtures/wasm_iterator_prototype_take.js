@@ -55,6 +55,32 @@ assertSameValue(step.done, true, "limit done");
 assertSameValue(step.value, undefined, "limit value");
 assertSameValue(returnCalls, 1, "limit close");
 
+var shortIndex = 0;
+var shortReturnCalls = 0;
+var shortIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    shortIndex = shortIndex + 1;
+    if (shortIndex >= 2) {
+      return { done: true, value: undefined };
+    }
+    return { done: false, value: "only" };
+  },
+  return: function () {
+    shortReturnCalls = shortReturnCalls + 1;
+    return {};
+  },
+};
+var shortHelper = shortIterator.take(5);
+step = shortHelper.next();
+assertSameValue(step.done, false, "short first done");
+assertSameValue(step.value, "only", "short first value");
+step = shortHelper.next();
+assertSameValue(step.done, true, "short exhausted done");
+assertSameValue(step.value, undefined, "short exhausted value");
+assertSameValue(shortIndex, 2, "short next calls");
+assertSameValue(shortReturnCalls, 0, "short exhaustion does not close");
+
 var zeroIndex = 0;
 var zeroReturnCalls = 0;
 var zeroIterator = {

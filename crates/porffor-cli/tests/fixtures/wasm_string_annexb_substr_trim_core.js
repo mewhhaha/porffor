@@ -16,6 +16,7 @@ function checkMethod(property, expectedName, expectedLength, fn) {
 }
 
 checkMethod("substr", "substr", 2, String.prototype.substr);
+checkMethod("trim", "trim", 0, String.prototype.trim);
 checkMethod("trimStart", "trimStart", 0, String.prototype.trimStart);
 checkMethod("trimLeft", "trimStart", 0, String.prototype.trimLeft);
 checkMethod("trimEnd", "trimEnd", 0, String.prototype.trimEnd);
@@ -42,6 +43,11 @@ check(" \t\nabc\r ".trimStart() === "abc\r ");
 check(" \t\nabc\r ".trimLeft() === "abc\r ");
 check(" \t\nabc\r ".trimEnd() === " \t\nabc");
 check(" \t\nabc\r ".trimRight() === " \t\nabc");
+check(" \t\nabc\r ".trim() === "abc");
+check("\u00a0\u2000abc\u2029\ufeff".trim() === "abc");
+check("_\u180e".trim() === "_\u180e");
+check("\u180e".trim() === "\u180e");
+check("\u180e_".trim() === "\u180e_");
 
 try {
   String.prototype.substr.call(null, 0, 1);
@@ -52,6 +58,13 @@ try {
 
 try {
   String.prototype.trimLeft.call(undefined);
+  check(false);
+} catch (e) {
+  check(e instanceof TypeError);
+}
+
+try {
+  String.prototype.trim.call(undefined);
   check(false);
 } catch (e) {
   check(e instanceof TypeError);

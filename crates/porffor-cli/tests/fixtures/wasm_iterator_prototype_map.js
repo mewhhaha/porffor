@@ -119,6 +119,88 @@ assertThrowsTypeError(function () {
   badNextHelper.next();
 }, "bad next throws from helper");
 
+function NextSentinel() {}
+var nextClosed = false;
+var nextThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new NextSentinel();
+  },
+  return: function () {
+    nextClosed = true;
+    return {};
+  },
+};
+var nextThrowHelper = nextThrowIterator.map(function (value) {
+  return value;
+});
+var nextThrowMatched = false;
+try {
+  nextThrowHelper.next();
+} catch (error) {
+  nextThrowMatched = error instanceof NextSentinel;
+}
+assertSameValue(nextThrowMatched, true, "next throw constructor");
+assertSameValue(nextClosed, false, "next throw does not close");
+
+function DoneSentinel() {}
+var doneClosed = false;
+var doneThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      get done() {
+        throw new DoneSentinel();
+      },
+      value: 1,
+    };
+  },
+  return: function () {
+    doneClosed = true;
+    return {};
+  },
+};
+var doneThrowHelper = doneThrowIterator.map(function (value) {
+  return value;
+});
+var doneThrowMatched = false;
+try {
+  doneThrowHelper.next();
+} catch (error) {
+  doneThrowMatched = error instanceof DoneSentinel;
+}
+assertSameValue(doneThrowMatched, true, "done throw constructor");
+assertSameValue(doneClosed, false, "done throw does not close");
+
+function ValueSentinel() {}
+var valueClosed = false;
+var valueThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new ValueSentinel();
+      },
+    };
+  },
+  return: function () {
+    valueClosed = true;
+    return {};
+  },
+};
+var valueThrowHelper = valueThrowIterator.map(function (value) {
+  return value;
+});
+var valueThrowMatched = false;
+try {
+  valueThrowHelper.next();
+} catch (error) {
+  valueThrowMatched = error instanceof ValueSentinel;
+}
+assertSameValue(valueThrowMatched, true, "value throw constructor");
+assertSameValue(valueClosed, false, "value throw does not close");
+
 function MapSentinel() {}
 function ReturnSentinel() {}
 var throwingReturnCalls = 0;

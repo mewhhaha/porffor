@@ -147,6 +147,8 @@ pub const BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID: &str =
     "$builtin.Object.prototype.isPrototypeOf";
 pub const BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.Object.prototype.toString";
+pub const BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.toLocaleString";
 pub const BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str = "$builtin.Object.prototype.valueOf";
 pub const BUILTIN_PROXY_FUNCTION_ID: &str = "$builtin.Proxy";
 pub const BUILTIN_PROXY_REVOCABLE_FUNCTION_ID: &str = "$builtin.Proxy.revocable";
@@ -170,6 +172,8 @@ pub const BUILTIN_ARRAY_OF_FUNCTION_ID: &str = "$builtin.Array.of";
 pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
 pub const BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Array[Symbol.species].get";
 pub const BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.Array.prototype.concat";
+pub const BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.toLocaleString";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID: &str = "$builtin.Array.prototype.flat";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.flatMap";
 pub const BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.Array.prototype.at";
@@ -285,6 +289,10 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.length.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.buffer.get";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.toString";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.toLocaleString";
 pub const BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.TypedArray.from";
 pub const BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID: &str = "$builtin.TypedArray.of";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
@@ -475,6 +483,9 @@ pub const BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID: &str = "$builtin.String.pr
 pub const BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID: &str = "$builtin.String.prototype.split";
 pub const BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.padStart";
+pub const BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID: &str =
+    "$builtin.String.prototype.padEnd";
+pub const BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID: &str = "$builtin.String.prototype.repeat";
 pub const BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.endsWith";
 pub const BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
@@ -483,6 +494,7 @@ pub const BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.startsWith";
 pub const BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID: &str =
     "$builtin.String.prototype.toUpperCase";
+pub const BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID: &str = "$builtin.String.prototype.trim";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.trimStart";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID: &str = "$builtin.String.prototype.trimEnd";
@@ -628,6 +640,7 @@ pub enum StandardBuiltinId {
     ObjectPrototypePropertyIsEnumerable,
     ObjectPrototypeIsPrototypeOf,
     ObjectPrototypeToString,
+    ObjectPrototypeToLocaleString,
     ObjectPrototypeValueOf,
     ProxyConstructor,
     ProxyRevocable,
@@ -649,6 +662,7 @@ pub enum StandardBuiltinId {
     ArrayIsArray,
     ArraySpeciesGetter,
     ArrayPrototypeConcat,
+    ArrayPrototypeToLocaleString,
     ArrayPrototypeFlat,
     ArrayPrototypeFlatMap,
     ArrayPrototypeAt,
@@ -727,6 +741,8 @@ pub enum StandardBuiltinId {
     TypedArrayPrototypeByteLengthGetter,
     TypedArrayPrototypeByteOffsetGetter,
     TypedArrayPrototypeLengthGetter,
+    TypedArrayPrototypeToString,
+    TypedArrayPrototypeToLocaleString,
     TypedArrayFrom,
     TypedArrayOf,
     DataViewPrototypeGetUint8,
@@ -901,10 +917,13 @@ pub enum StandardBuiltinId {
     StringPrototypeSlice,
     StringPrototypeSplit,
     StringPrototypePadStart,
+    StringPrototypePadEnd,
+    StringPrototypeRepeat,
     StringPrototypeEndsWith,
     StringPrototypeIncludes,
     StringPrototypeStartsWith,
     StringPrototypeToUpperCase,
+    StringPrototypeTrim,
     StringPrototypeTrimStart,
     StringPrototypeTrimEnd,
     BooleanConstructor,
@@ -993,10 +1012,13 @@ impl StandardBuiltinId {
             | Self::StringPrototypeSlice
             | Self::StringPrototypeSplit
             | Self::StringPrototypePadStart
+            | Self::StringPrototypePadEnd
+            | Self::StringPrototypeRepeat
             | Self::StringPrototypeEndsWith
             | Self::StringPrototypeIncludes
             | Self::StringPrototypeStartsWith
             | Self::StringPrototypeToUpperCase
+            | Self::StringPrototypeTrim
             | Self::StringPrototypeTrimStart
             | Self::StringPrototypeTrimEnd
             | Self::BooleanPrototypeToString
@@ -1036,6 +1058,7 @@ impl StandardBuiltinId {
             | Self::ObjectPrototypePropertyIsEnumerable
             | Self::ObjectPrototypeIsPrototypeOf
             | Self::ObjectPrototypeToString
+            | Self::ObjectPrototypeToLocaleString
             | Self::ObjectPrototypeValueOf
             | Self::ProxyRevocable
             | Self::ProxyRevoke
@@ -1055,6 +1078,7 @@ impl StandardBuiltinId {
             | Self::ArrayIsArray
             | Self::ArraySpeciesGetter
             | Self::ArrayPrototypeConcat
+            | Self::ArrayPrototypeToLocaleString
             | Self::ArrayPrototypeFlat
             | Self::ArrayPrototypeFlatMap
             | Self::ArrayPrototypeAt
@@ -1143,6 +1167,8 @@ impl StandardBuiltinId {
             | Self::TypedArrayPrototypeByteLengthGetter
             | Self::TypedArrayPrototypeByteOffsetGetter
             | Self::TypedArrayPrototypeLengthGetter
+            | Self::TypedArrayPrototypeToString
+            | Self::TypedArrayPrototypeToLocaleString
             | Self::TypedArrayFrom
             | Self::TypedArrayOf
             | Self::DataViewPrototypeGetUint8
@@ -1288,6 +1314,7 @@ impl StandardBuiltinId {
             Self::ObjectPrototypePropertyIsEnumerable => "Object.prototype.propertyIsEnumerable",
             Self::ObjectPrototypeIsPrototypeOf => "Object.prototype.isPrototypeOf",
             Self::ObjectPrototypeToString => "Object.prototype.toString",
+            Self::ObjectPrototypeToLocaleString => "Object.prototype.toLocaleString",
             Self::ObjectPrototypeValueOf => "Object.prototype.valueOf",
             Self::ProxyConstructor => PROXY_NAME,
             Self::ProxyRevocable => "Proxy.revocable",
@@ -1309,6 +1336,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => "Array.isArray",
             Self::ArraySpeciesGetter => "get Array [Symbol.species]",
             Self::ArrayPrototypeConcat => "Array.prototype.concat",
+            Self::ArrayPrototypeToLocaleString => "Array.prototype.toLocaleString",
             Self::ArrayPrototypeFlat => "Array.prototype.flat",
             Self::ArrayPrototypeFlatMap => "Array.prototype.flatMap",
             Self::ArrayPrototypeAt => "Array.prototype.at",
@@ -1403,6 +1431,8 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter => "get TypedArray.prototype.byteLength",
             Self::TypedArrayPrototypeByteOffsetGetter => "get TypedArray.prototype.byteOffset",
             Self::TypedArrayPrototypeLengthGetter => "get TypedArray.prototype.length",
+            Self::TypedArrayPrototypeToString => "TypedArray.prototype.toString",
+            Self::TypedArrayPrototypeToLocaleString => "TypedArray.prototype.toLocaleString",
             Self::TypedArrayFrom => "TypedArray.from",
             Self::TypedArrayOf => "TypedArray.of",
             Self::DataViewPrototypeGetUint8 => "DataView.prototype.getUint8",
@@ -1577,10 +1607,13 @@ impl StandardBuiltinId {
             Self::StringPrototypeSlice => "String.prototype.slice",
             Self::StringPrototypeSplit => "String.prototype.split",
             Self::StringPrototypePadStart => "String.prototype.padStart",
+            Self::StringPrototypePadEnd => "String.prototype.padEnd",
+            Self::StringPrototypeRepeat => "String.prototype.repeat",
             Self::StringPrototypeEndsWith => "String.prototype.endsWith",
             Self::StringPrototypeIncludes => "String.prototype.includes",
             Self::StringPrototypeStartsWith => "String.prototype.startsWith",
             Self::StringPrototypeToUpperCase => "String.prototype.toUpperCase",
+            Self::StringPrototypeTrim => "String.prototype.trim",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
             Self::StringPrototypeTrimEnd => "String.prototype.trimEnd",
             Self::BooleanConstructor => BOOLEAN_NAME,
@@ -1656,6 +1689,9 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeToString => {
                 BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
             }
+            Self::ObjectPrototypeToLocaleString => {
+                BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
             Self::ObjectPrototypeValueOf => {
                 BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
@@ -1683,6 +1719,9 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID.to_string(),
             Self::ArraySpeciesGetter => BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeConcat => BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeToLocaleString => {
+                BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
             Self::ArrayPrototypeFlat => BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFlatMap => BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeAt => BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID.to_string(),
@@ -1842,6 +1881,12 @@ impl StandardBuiltinId {
             }
             Self::TypedArrayPrototypeLengthGetter => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeToString => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeToLocaleString => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
             }
             Self::TypedArrayFrom => BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID.to_string(),
             Self::TypedArrayOf => BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID.to_string(),
@@ -2161,6 +2206,8 @@ impl StandardBuiltinId {
             Self::StringPrototypePadStart => {
                 BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID.to_string()
             }
+            Self::StringPrototypePadEnd => BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID.to_string(),
+            Self::StringPrototypeRepeat => BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID.to_string(),
             Self::StringPrototypeEndsWith => {
                 BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID.to_string()
             }
@@ -2173,6 +2220,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeToUpperCase => {
                 BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID.to_string()
             }
+            Self::StringPrototypeTrim => BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID.to_string(),
             Self::StringPrototypeTrimStart => {
                 BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID.to_string()
             }
@@ -2246,6 +2294,9 @@ impl StandardBuiltinId {
                 Some(Self::ObjectPrototypeIsPrototypeOf)
             }
             BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::ObjectPrototypeToString),
+            BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::ObjectPrototypeToLocaleString)
+            }
             BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID => Some(Self::ObjectPrototypeValueOf),
             BUILTIN_PROXY_FUNCTION_ID => Some(Self::ProxyConstructor),
             BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID => Some(Self::ReflectConstruct),
@@ -2267,6 +2318,9 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID => Some(Self::ArrayIsArray),
             BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID => Some(Self::ArraySpeciesGetter),
             BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::ArrayPrototypeConcat),
+            BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::ArrayPrototypeToLocaleString)
+            }
             BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID => Some(Self::ArrayPrototypeFlat),
             BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeFlatMap),
             BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID => Some(Self::ArrayPrototypeAt),
@@ -2404,6 +2458,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeLengthGetter)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeToString)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeToLocaleString)
             }
             BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID => Some(Self::TypedArrayFrom),
             BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID => Some(Self::TypedArrayOf),
@@ -2675,6 +2735,8 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID => Some(Self::StringPrototypeSlice),
             BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID => Some(Self::StringPrototypeSplit),
             BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID => Some(Self::StringPrototypePadStart),
+            BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID => Some(Self::StringPrototypePadEnd),
+            BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID => Some(Self::StringPrototypeRepeat),
             BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID => Some(Self::StringPrototypeEndsWith),
             BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::StringPrototypeIncludes),
             BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID => {
@@ -2683,6 +2745,7 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID => {
                 Some(Self::StringPrototypeToUpperCase)
             }
+            BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID => Some(Self::StringPrototypeTrim),
             BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID => Some(Self::StringPrototypeTrimStart),
             BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID => Some(Self::StringPrototypeTrimEnd),
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
@@ -2783,6 +2846,7 @@ impl StandardBuiltinId {
             Self::ObjectPrototypePropertyIsEnumerable,
             Self::ObjectPrototypeIsPrototypeOf,
             Self::ObjectPrototypeToString,
+            Self::ObjectPrototypeToLocaleString,
             Self::ObjectPrototypeValueOf,
             Self::ProxyConstructor,
             Self::ProxyRevocable,
@@ -2804,6 +2868,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray,
             Self::ArraySpeciesGetter,
             Self::ArrayPrototypeConcat,
+            Self::ArrayPrototypeToLocaleString,
             Self::ArrayPrototypeFlat,
             Self::ArrayPrototypeFlatMap,
             Self::ArrayPrototypeAt,
@@ -2882,6 +2947,8 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter,
             Self::TypedArrayPrototypeByteOffsetGetter,
             Self::TypedArrayPrototypeLengthGetter,
+            Self::TypedArrayPrototypeToString,
+            Self::TypedArrayPrototypeToLocaleString,
             Self::TypedArrayFrom,
             Self::TypedArrayOf,
             Self::DataViewPrototypeGetUint8,
@@ -3056,10 +3123,13 @@ impl StandardBuiltinId {
             Self::StringPrototypeSlice,
             Self::StringPrototypeSplit,
             Self::StringPrototypePadStart,
+            Self::StringPrototypePadEnd,
+            Self::StringPrototypeRepeat,
             Self::StringPrototypeEndsWith,
             Self::StringPrototypeIncludes,
             Self::StringPrototypeStartsWith,
             Self::StringPrototypeToUpperCase,
+            Self::StringPrototypeTrim,
             Self::StringPrototypeTrimStart,
             Self::StringPrototypeTrimEnd,
             Self::BooleanConstructor,
@@ -3264,10 +3334,13 @@ impl StandardBuiltinId {
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
             Self::StringPrototypePadStart => Some("padStart"),
+            Self::StringPrototypePadEnd => Some("padEnd"),
+            Self::StringPrototypeRepeat => Some("repeat"),
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
             Self::StringPrototypeToUpperCase => Some("toUpperCase"),
+            Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             _ => self.string_html_method_name(),
@@ -3304,6 +3377,7 @@ impl StandardBuiltinId {
             Self::ObjectPrototypePropertyIsEnumerable => Some("propertyIsEnumerable"),
             Self::ObjectPrototypeIsPrototypeOf => Some("isPrototypeOf"),
             Self::ObjectPrototypeToString => Some("toString"),
+            Self::ObjectPrototypeToLocaleString => Some("toLocaleString"),
             Self::ObjectPrototypeValueOf => Some("valueOf"),
             Self::ProxyConstructor => Some(PROXY_NAME),
             Self::ProxyRevocable => Some("revocable"),
@@ -3325,6 +3399,7 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => Some("isArray"),
             Self::ArraySpeciesGetter => Some("get [Symbol.species]"),
             Self::ArrayPrototypeConcat => Some("concat"),
+            Self::ArrayPrototypeToLocaleString => Some("toLocaleString"),
             Self::ArrayPrototypeFlat => Some("flat"),
             Self::ArrayPrototypeFlatMap => Some("flatMap"),
             Self::ArrayPrototypeAt => Some("at"),
@@ -3407,6 +3482,8 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteLengthGetter => Some("get byteLength"),
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::TypedArrayPrototypeLengthGetter => Some("get length"),
+            Self::TypedArrayPrototypeToString => Some("toString"),
+            Self::TypedArrayPrototypeToLocaleString => Some("toLocaleString"),
             Self::TypedArrayFrom => Some("from"),
             Self::TypedArrayOf => Some("of"),
             Self::DataViewPrototypeGetUint8 => Some("getUint8"),
@@ -3577,10 +3654,13 @@ impl StandardBuiltinId {
             Self::StringPrototypeSlice => Some("slice"),
             Self::StringPrototypeSplit => Some("split"),
             Self::StringPrototypePadStart => Some("padStart"),
+            Self::StringPrototypePadEnd => Some("padEnd"),
+            Self::StringPrototypeRepeat => Some("repeat"),
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
             Self::StringPrototypeToUpperCase => Some("toUpperCase"),
+            Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -6433,6 +6513,19 @@ impl<'a> AnalysisBuilder<'a> {
                         let source_name = interner.resolve_expect(identifier.sym()).to_string();
                         bindings.insert(tdz_binding_storage_name(&source_name));
                     }
+                    IterableLoopInitializer::Let(Binding::Pattern(pattern))
+                    | IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
+                        let mut names = Vec::new();
+                        collect_binding_names(
+                            interner,
+                            &Binding::Pattern(pattern.clone()),
+                            &mut names,
+                        );
+                        for source_name in names {
+                            bindings.insert(tdz_binding_storage_name(&source_name));
+                            bindings.insert(source_name);
+                        }
+                    }
                     _ => {}
                 }
                 match for_of.initializer() {
@@ -6440,6 +6533,17 @@ impl<'a> AnalysisBuilder<'a> {
                     | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
                         let source_name = interner.resolve_expect(identifier.sym()).to_string();
                         bindings.insert(for_of_loop_binding_storage_name(for_of, &source_name));
+                    }
+                    IterableLoopInitializer::Var(variable) => {
+                        if let Binding::Pattern(pattern) = variable.binding() {
+                            let mut names = Vec::new();
+                            collect_binding_names(
+                                interner,
+                                &Binding::Pattern(pattern.clone()),
+                                &mut names,
+                            );
+                            bindings.extend(names);
+                        }
                     }
                     _ => {}
                 }
@@ -7149,13 +7253,29 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Statement::ForOfLoop(for_of) => {
                 let mut head_aliases = capture_aliases.clone();
-                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
-                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
-                    for_of.initializer()
-                {
-                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
-                    head_aliases
-                        .insert(source_name.clone(), tdz_binding_storage_name(&source_name));
+                match for_of.initializer() {
+                    IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                    | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        head_aliases
+                            .insert(source_name.clone(), tdz_binding_storage_name(&source_name));
+                    }
+                    IterableLoopInitializer::Let(Binding::Pattern(pattern))
+                    | IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
+                        let mut names = Vec::new();
+                        collect_binding_names(
+                            interner,
+                            &Binding::Pattern(pattern.clone()),
+                            &mut names,
+                        );
+                        for source_name in names {
+                            head_aliases.insert(
+                                source_name.clone(),
+                                tdz_binding_storage_name(&source_name),
+                            );
+                        }
+                    }
+                    _ => {}
                 }
                 self.scan_expression(
                     owner_id,
@@ -7167,15 +7287,41 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
                 let mut body_aliases = capture_aliases.clone();
-                if let IterableLoopInitializer::Let(Binding::Identifier(identifier))
-                | IterableLoopInitializer::Const(Binding::Identifier(identifier)) =
-                    for_of.initializer()
-                {
-                    let source_name = interner.resolve_expect(identifier.sym()).to_string();
-                    body_aliases.insert(
-                        source_name.clone(),
-                        for_of_loop_binding_storage_name(for_of, &source_name),
-                    );
+                match for_of.initializer() {
+                    IterableLoopInitializer::Let(Binding::Identifier(identifier))
+                    | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => {
+                        let source_name = interner.resolve_expect(identifier.sym()).to_string();
+                        body_aliases.insert(
+                            source_name.clone(),
+                            for_of_loop_binding_storage_name(for_of, &source_name),
+                        );
+                    }
+                    IterableLoopInitializer::Let(Binding::Pattern(pattern))
+                    | IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
+                        let mut names = Vec::new();
+                        collect_binding_names(
+                            interner,
+                            &Binding::Pattern(pattern.clone()),
+                            &mut names,
+                        );
+                        for source_name in names {
+                            body_aliases.insert(source_name.clone(), source_name);
+                        }
+                    }
+                    IterableLoopInitializer::Var(variable) => {
+                        if let Binding::Pattern(pattern) = variable.binding() {
+                            let mut names = Vec::new();
+                            collect_binding_names(
+                                interner,
+                                &Binding::Pattern(pattern.clone()),
+                                &mut names,
+                            );
+                            for source_name in names {
+                                body_aliases.insert(source_name.clone(), source_name);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
                 self.scan_statement(
                     owner_id,
@@ -9563,6 +9709,7 @@ impl<'a> ScriptLowerer<'a> {
         let mut properties = BTreeMap::new();
         for builtin in [
             StandardBuiltinId::ArrayPrototypeConcat,
+            StandardBuiltinId::ArrayPrototypeToLocaleString,
             StandardBuiltinId::ArrayPrototypeFlat,
             StandardBuiltinId::ArrayPrototypeFlatMap,
             StandardBuiltinId::ArrayPrototypeAt,
@@ -9782,7 +9929,10 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeLastIndexOf,
                 StandardBuiltinId::StringPrototypeSplit,
                 StandardBuiltinId::StringPrototypePadStart,
+                StandardBuiltinId::StringPrototypePadEnd,
+                StandardBuiltinId::StringPrototypeRepeat,
                 StandardBuiltinId::StringPrototypeToUpperCase,
+                StandardBuiltinId::StringPrototypeTrim,
                 StandardBuiltinId::StringPrototypeTrimStart,
                 StandardBuiltinId::StringPrototypeTrimEnd,
             ] {
@@ -11036,6 +11186,12 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ObjectPrototypeToLocaleString => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ObjectPrototypeValueOf => (
                 ValueKind::Object,
                 Self::object_like_kind_set(),
@@ -11229,6 +11385,14 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Array,
                 KindSet::from_kind(ValueKind::Array),
                 Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ArrayPrototypeFlat => (
@@ -11909,7 +12073,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSup
             | StandardBuiltinId::StringPrototypeSlice
             | StandardBuiltinId::StringPrototypePadStart
+            | StandardBuiltinId::StringPrototypePadEnd
+            | StandardBuiltinId::StringPrototypeRepeat
             | StandardBuiltinId::StringPrototypeToUpperCase
+            | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
             | StandardBuiltinId::Escape
@@ -15356,22 +15523,28 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: element_info.function_targets.clone(),
             },
         );
-        let (mut body, body_kind) = self.lower_loop_body(for_of.body());
-        if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
+        let mut pattern_prefix = if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref()
+        {
             let init = TypedExpr::from_info(
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            let Some(mut prefix) =
+            let Some(prefix) =
                 self.lower_pattern_lexical_binding_from_value(*pattern_mode, pattern, init)
             else {
                 self.pop_scope();
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
-            prefix.push(body);
+            prefix
+        } else {
+            Vec::new()
+        };
+        let (mut body, body_kind) = self.lower_loop_body(for_of.body());
+        if !pattern_prefix.is_empty() {
+            pattern_prefix.push(body);
             body = StatementIr::Block(BlockIr {
                 result_kind: body_kind,
-                statements: prefix,
+                statements: pattern_prefix,
             });
         }
         self.pop_scope();
@@ -20274,6 +20447,8 @@ impl<'a> ScriptLowerer<'a> {
                                     "slice" => Some(StandardBuiltinId::StringPrototypeSlice),
                                     "split" => Some(StandardBuiltinId::StringPrototypeSplit),
                                     "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
+                                    "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
+                                    "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
                                     "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
                                     "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                                     "startsWith" => {
@@ -20284,6 +20459,7 @@ impl<'a> ScriptLowerer<'a> {
                                     }
                                     "toString" => Some(StandardBuiltinId::StringPrototypeToString),
                                     "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
+                                    "trim" => Some(StandardBuiltinId::StringPrototypeTrim),
                                     "trimStart" | "trimLeft" => {
                                         Some(StandardBuiltinId::StringPrototypeTrimStart)
                                     }
@@ -20531,6 +20707,9 @@ impl<'a> ScriptLowerer<'a> {
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
+                                    "toLocaleString" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
+                                    }
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
@@ -20645,6 +20824,11 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeConcat)
+                                    }
+                                    "toLocaleString"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
                                     }
                                     "flat"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
@@ -20957,6 +21141,9 @@ impl<'a> ScriptLowerer<'a> {
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
+                                    "toLocaleString" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
+                                    }
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
@@ -21066,6 +21253,7 @@ impl<'a> ScriptLowerer<'a> {
                         | StandardBuiltinId::ArrayPrototypeEntries
                         | StandardBuiltinId::ArrayPrototypeValues
                         | StandardBuiltinId::ArrayPrototypeConcat
+                        | StandardBuiltinId::ArrayPrototypeToLocaleString
                         | StandardBuiltinId::ArrayPrototypeFlat
                         | StandardBuiltinId::ArrayPrototypeFlatMap
                         | StandardBuiltinId::ArrayPrototypeAt
@@ -21164,6 +21352,9 @@ impl<'a> ScriptLowerer<'a> {
                             }
                             StandardBuiltinId::ArrayPrototypeConcat => {
                                 ("concat", self.array_concat_result_info(&receiver, &args))
+                            }
+                            StandardBuiltinId::ArrayPrototypeToLocaleString => {
+                                ("toLocaleString", ValueInfo::new(ValueKind::String))
                             }
                             StandardBuiltinId::ArrayPrototypeFlat => {
                                 ("flat", self.array_concat_result_info(&receiver, &[]))
@@ -21437,6 +21628,8 @@ impl<'a> ScriptLowerer<'a> {
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
                             StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
                             StandardBuiltinId::StringPrototypePadStart => "padStart",
+                            StandardBuiltinId::StringPrototypePadEnd => "padEnd",
+                            StandardBuiltinId::StringPrototypeRepeat => "repeat",
                             StandardBuiltinId::StringPrototypeToUpperCase => "toUpperCase",
                             _ => "",
                         };
@@ -21479,10 +21672,12 @@ impl<'a> ScriptLowerer<'a> {
                         StandardBuiltinId::from_function_id(&function_id),
                         Some(
                             StandardBuiltinId::StringPrototypeTrimStart
+                                | StandardBuiltinId::StringPrototypeTrim
                                 | StandardBuiltinId::StringPrototypeTrimEnd
                         )
                     ) {
                         let key = match StandardBuiltinId::from_function_id(&function_id) {
+                            Some(StandardBuiltinId::StringPrototypeTrim) => "trim",
                             Some(StandardBuiltinId::StringPrototypeTrimStart) => "trimStart",
                             Some(StandardBuiltinId::StringPrototypeTrimEnd) => "trimEnd",
                             _ => unreachable!(),
@@ -24170,6 +24365,12 @@ impl<'a> ScriptLowerer<'a> {
             }),
             StandardBuiltinId::ErrorIsError => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::ObjectPrototypeToString => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::ObjectPrototypeToLocaleString => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ProxyConstructor => {
                 if let (Some(target), Some(handler)) = (args.first(), args.get(1)) {
                     self.observe_proxy_handler_traps(target, handler);
@@ -24344,6 +24545,14 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
                 heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeToLocaleString => Some(ValueInfo {
+                kind: ValueKind::String,
+                possible_kinds: KindSet::from_kind(ValueKind::String),
+                heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
             StandardBuiltinId::ArrayPrototypeFlat => Some(ValueInfo {
@@ -24813,7 +25022,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSup
             | StandardBuiltinId::StringPrototypeSlice
             | StandardBuiltinId::StringPrototypePadStart
+            | StandardBuiltinId::StringPrototypePadEnd
+            | StandardBuiltinId::StringPrototypeRepeat
             | StandardBuiltinId::StringPrototypeToUpperCase
+            | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
             | StandardBuiltinId::RegExpEscape
@@ -26572,6 +26784,13 @@ impl<'a> ScriptLowerer<'a> {
                 return self
                     .function_value_expr(StandardBuiltinId::ObjectPrototypeToString.function_id());
             }
+            if name == "toLocaleString"
+                && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+            {
+                return self.function_value_expr(
+                    StandardBuiltinId::ObjectPrototypeToLocaleString.function_id(),
+                );
+            }
             if name == "valueOf" && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
             {
                 return self
@@ -26674,6 +26893,17 @@ impl<'a> ScriptLowerer<'a> {
             if name == "concat" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeConcat),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "toLocaleString" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(
+                        StandardBuiltinId::ArrayPrototypeToLocaleString,
+                    ),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),
@@ -27016,6 +27246,8 @@ impl<'a> ScriptLowerer<'a> {
                 "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                 "startsWith" => Some(StandardBuiltinId::StringPrototypeStartsWith),
                 "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
+                "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
+                "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
                 "toUpperCase" => Some(StandardBuiltinId::StringPrototypeToUpperCase),
                 _ => None,
             };

@@ -163,4 +163,26 @@ assertThrowsTypeError(function () {
 }, "reentrant helper next");
 assertSameValue(reentrantEnterCount, 1, "reentrant enter count");
 
+var shortCounter = 0;
+var shortClosed = false;
+var shortSource = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    shortCounter = shortCounter + 1;
+    return { done: shortCounter >= 2, value: undefined };
+  },
+  return: function () {
+    shortClosed = true;
+    return { done: true, value: undefined };
+  },
+};
+var shortDrop = shortSource.drop(10);
+step = shortDrop.next();
+assertSameValue(step.done, true, "short source exhausted done");
+assertSameValue(step.value, undefined, "short source exhausted value");
+step = shortDrop.next();
+assertSameValue(step.done, true, "short source after exhausted done");
+assertSameValue(shortCounter, 2, "short source next calls");
+assertSameValue(shortClosed, false, "short source exhaustion no return");
+
 true;

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -12,6 +12,7 @@ use porffor_test262::{
     RunConfig, SuiteConfig, VerifiedAggregateSummary,
 };
 use serde::Serialize;
+use serde_json::{Map, Value};
 
 #[derive(Debug)]
 struct StdoutHostHooks;
@@ -119,6 +120,9 @@ Commands:
   build wasm <file>                     compile JavaScript directly to Wasm
   build c <file>                        emit C from shared IR
   build native <file>                   emit native artifact from shared IR
+  types [entrypoint] [output] [options] generate Worker-style TypeScript types
+  typegen [entrypoint] [output] [options]
+                                        alias for types
   test262 sync [--suite-root PATH]
   test262 list [filter] [--suite-root PATH]
   test262 run [filter] [options]
@@ -142,6 +146,18 @@ test262 options:
   --snapshot-name NAME
   --max-matrix-nodes N
   --readme-path PATH
+
+types options:
+  --config PATH, -c PATH
+  --entrypoint PATH
+  --env NAME
+  --env-interface NAME
+  --include-runtime=false
+  --include-env=false
+  --strict-vars=false
+  --check
+  --print
+  --cwd PATH
 "
 }
 
@@ -256,6 +272,7 @@ fn real_main() -> Result<(), String> {
                 _ => Err(format!("unknown build target: {format}")),
             }
         }
+        "types" | "typegen" => handle_types_command(args.collect()),
         "test262" => handle_test262_command(args.collect()),
         "inspect" => {
             let path = args
@@ -751,6 +768,1352 @@ fn rewrite_current_status_block(
     };
     fs::write(readme_path, updated)
         .map_err(|err| format!("failed to write {}: {err}", readme_path.display()))
+}
+
+const DEFAULT_TYPE_OUTPUT: &str = "worker-configuration.d.ts";
+const DEFAULT_CONFIG_NAMES: &[&str] = &[
+    "wrangler.jsonc",
+    "wrangler.json",
+    "wrangler.toml",
+    "porffor.jsonc",
+    "porffor.json",
+    "porffor.toml",
+];
+const TYPEGEN_BINDING_SPECS: &[(&[&str], &str)] = &[
+    (&["kv_namespaces"], "KVNamespace"),
+    (&["r2_buckets"], "R2Bucket"),
+    (&["d1_databases"], "D1Database"),
+    (&["durable_objects", "bindings"], "DurableObjectNamespace"),
+    (&["services"], "Fetcher"),
+    (&["queues", "producers"], "Queue"),
+    (&["analytics_engine_datasets"], "AnalyticsEngineDataset"),
+    (&["vectorize"], "VectorizeIndex"),
+    (&["ai_search"], "AiSearch"),
+    (&["ai_search_namespaces"], "AiSearchNamespace"),
+    (&["mtls_certificates"], "Fetcher"),
+    (&["browser"], "BrowserRendering"),
+    (&["images"], "ImagesBinding"),
+    (&["hyperdrive"], "Hyperdrive"),
+    (&["workflows"], "Workflow"),
+    (&["pipelines"], "Pipeline"),
+    (&["dispatch_namespaces"], "DispatchNamespace"),
+    (&["send_email"], "SendEmail"),
+];
+const TYPEGEN_SINGLETON_BINDING_SPECS: &[(&[&str], &str)] = &[
+    (&["ai"], "Ai"),
+    (&["version_metadata"], "WorkerVersionMetadata"),
+    (&["assets"], "Fetcher"),
+];
+const TYPEGEN_KNOWN_HANDLERS: &[&str] = &[
+    "fetch",
+    "scheduled",
+    "queue",
+    "email",
+    "tail",
+    "trace",
+    "alarm",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypegenOptions {
+    config_paths: Vec<String>,
+    cwd: PathBuf,
+    env: Option<String>,
+    env_interface: String,
+    include_runtime: bool,
+    include_env: bool,
+    strict_vars: bool,
+    check: bool,
+    print: bool,
+    entrypoint: Option<String>,
+    entrypoint_explicit: bool,
+    output: String,
+    help: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypegenEntrypointInfo {
+    path: String,
+    syntax: String,
+    handlers: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypegenBinding {
+    name: String,
+    types: BTreeSet<String>,
+    optional: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypegenInputs {
+    configs: Vec<Value>,
+    config_paths: Vec<PathBuf>,
+    entrypoint_info: Option<TypegenEntrypointInfo>,
+    bindings: Vec<TypegenBinding>,
+}
+
+fn typegen_usage() -> &'static str {
+    "Usage: porf types [entrypoint] [worker-configuration.d.ts] [options]
+
+Generate Wrangler-style TypeScript runtime and Env declarations from a worker config.
+
+Options:
+  --config, -c <path>          Path to wrangler/porffor config; can be repeated
+  --entrypoint <path>          Worker entrypoint when not set by config main
+  --env, -e <name>             Generate only one named environment
+  --env-interface <name>       Global env interface name (default: Env)
+  --include-runtime=<bool>     Include minimal runtime declarations (default: true)
+  --include-env=<bool>         Include env declarations (default: true)
+  --strict-vars=<bool>         Preserve literal var types (default: true)
+  --check                      Exit non-zero if the output file is stale
+  --print                      Print generated declarations instead of writing
+  --cwd <path>                 Resolve config and output paths from this directory
+"
+}
+
+fn handle_types_command(args: Vec<String>) -> Result<(), String> {
+    let options = parse_typegen_args(&args)?;
+    if options.help {
+        print!("{}", typegen_usage());
+        return Ok(());
+    }
+
+    let inputs = load_typegen_inputs(&options)?;
+    let output = render_typegen_declarations(&inputs, &options);
+    let output_path = resolve_from(&options.cwd, &options.output);
+
+    if options.print {
+        print!("{output}");
+        return Ok(());
+    }
+
+    if options.check {
+        let current = fs::read_to_string(&output_path).unwrap_or_default();
+        if current != output {
+            return Err(format!("{} is out of date; run porf types", options.output));
+        }
+        println!("Types are up to date at {}", options.output);
+        return Ok(());
+    }
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    fs::write(&output_path, output)
+        .map_err(|err| format!("failed to write {}: {err}", output_path.display()))?;
+    println!("Types written to {}", options.output);
+    Ok(())
+}
+
+fn parse_typegen_args(args: &[String]) -> Result<TypegenOptions, String> {
+    let mut options = TypegenOptions {
+        config_paths: Vec::new(),
+        cwd: std::env::current_dir().map_err(|err| format!("failed to read cwd: {err}"))?,
+        env: None,
+        env_interface: "Env".to_string(),
+        include_runtime: true,
+        include_env: true,
+        strict_vars: true,
+        check: false,
+        print: false,
+        entrypoint: None,
+        entrypoint_explicit: false,
+        output: String::new(),
+        help: false,
+    };
+    let mut positionals = Vec::new();
+
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if !is_typegen_flag(arg) {
+            positionals.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        let (flag_name, inline_value) = split_flag_value(arg);
+        match flag_name {
+            "--help" | "-h" => options.help = true,
+            "--config" | "-c" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                options.config_paths.push(value);
+                index = next;
+            }
+            "--cwd" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                options.cwd = PathBuf::from(value);
+                index = next;
+            }
+            "--env" | "-e" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                options.env = Some(value);
+                index = next;
+            }
+            "--env-interface" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                if !is_ts_identifier(&value) {
+                    return Err(format!("Invalid TypeScript interface name: {value}"));
+                }
+                options.env_interface = value;
+                index = next;
+            }
+            "--entrypoint" | "--entry" | "--main" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                options.entrypoint = Some(value);
+                options.entrypoint_explicit = true;
+                index = next;
+            }
+            "--out" | "--output" | "-o" => {
+                let (value, next) = read_typegen_option_value(args, index, arg, flag_name)?;
+                options.output = value;
+                index = next;
+            }
+            "--include-runtime" => {
+                options.include_runtime = parse_typegen_bool(inline_value, true)?;
+            }
+            "--no-include-runtime" => options.include_runtime = false,
+            "--include-env" => {
+                options.include_env = parse_typegen_bool(inline_value, true)?;
+            }
+            "--no-include-env" => options.include_env = false,
+            "--strict-vars" => {
+                options.strict_vars = parse_typegen_bool(inline_value, true)?;
+            }
+            "--no-strict-vars" => options.strict_vars = false,
+            "--check" => {
+                options.check = parse_typegen_bool(inline_value, true)?;
+            }
+            "--print" => {
+                options.print = parse_typegen_bool(inline_value, true)?;
+            }
+            _ => return Err(format!("Unknown types option: {flag_name}")),
+        }
+        index += 1;
+    }
+
+    for positional in positionals {
+        if positional.ends_with(".d.ts") {
+            if !options.output.is_empty() {
+                return Err(format!(
+                    "Multiple output paths were provided: {}, {}",
+                    options.output, positional
+                ));
+            }
+            options.output = positional;
+            continue;
+        }
+
+        if options.entrypoint.is_none() {
+            options.entrypoint = Some(positional);
+            options.entrypoint_explicit = true;
+            continue;
+        }
+
+        if options.output.is_empty() {
+            options.output = positional;
+            continue;
+        }
+
+        return Err(format!("Unexpected positional argument: {positional}"));
+    }
+
+    if options.output.is_empty() {
+        options.output = DEFAULT_TYPE_OUTPUT.to_string();
+    }
+    if !options.output.ends_with(".d.ts") {
+        return Err(format!(
+            "Type output path must end in .d.ts: {}",
+            options.output
+        ));
+    }
+
+    Ok(options)
+}
+
+fn is_typegen_flag(value: &str) -> bool {
+    value.starts_with('-')
+}
+
+fn split_flag_value(arg: &str) -> (&str, Option<&str>) {
+    arg.split_once('=')
+        .map(|(flag, value)| (flag, Some(value)))
+        .unwrap_or((arg, None))
+}
+
+fn read_typegen_option_value(
+    args: &[String],
+    index: usize,
+    raw_arg: &str,
+    flag_name: &str,
+) -> Result<(String, usize), String> {
+    if let Some((_, value)) = raw_arg.split_once('=') {
+        return Ok((value.to_string(), index));
+    }
+    let next_index = index + 1;
+    let value = args
+        .get(next_index)
+        .ok_or_else(|| format!("{flag_name} expects a value"))?;
+    if is_typegen_flag(value) {
+        return Err(format!("{flag_name} expects a value"));
+    }
+    Ok((value.clone(), next_index))
+}
+
+fn parse_typegen_bool(value: Option<&str>, fallback: bool) -> Result<bool, String> {
+    let Some(value) = value else {
+        return Ok(fallback);
+    };
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(format!("Expected a boolean value, got {value}")),
+    }
+}
+
+fn resolve_from(base: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        base.join(path)
+    }
+}
+
+fn discover_typegen_config(cwd: &Path) -> Vec<PathBuf> {
+    DEFAULT_CONFIG_NAMES
+        .iter()
+        .map(|name| cwd.join(name))
+        .find(|candidate| candidate.exists())
+        .into_iter()
+        .collect()
+}
+
+fn load_typegen_inputs(options: &TypegenOptions) -> Result<TypegenInputs, String> {
+    let config_paths = if options.config_paths.is_empty() {
+        discover_typegen_config(&options.cwd)
+    } else {
+        options
+            .config_paths
+            .iter()
+            .map(|config_path| resolve_from(&options.cwd, config_path))
+            .collect()
+    };
+    let configs = config_paths
+        .iter()
+        .map(|config_path| read_typegen_config(config_path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let config_dir = config_paths
+        .first()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| options.cwd.clone());
+    let config_main = configs
+        .iter()
+        .find_map(|config| config.get("main").and_then(Value::as_str))
+        .map(ToOwned::to_owned);
+    let entrypoint = options.entrypoint.clone().or(config_main);
+    let entrypoint_base = if options.entrypoint.is_some() {
+        &options.cwd
+    } else {
+        &config_dir
+    };
+    let entrypoint_info = read_typegen_entrypoint(
+        entrypoint.as_deref(),
+        entrypoint_base,
+        options.entrypoint_explicit,
+    )?;
+    let bindings = collect_typegen_bindings(&configs, options);
+
+    Ok(TypegenInputs {
+        configs,
+        config_paths,
+        entrypoint_info,
+        bindings,
+    })
+}
+
+fn read_typegen_config(path: &Path) -> Result<Value, String> {
+    let source = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        parse_typegen_toml(&source, path)
+    } else {
+        parse_typegen_json_like(&source, path)
+    }
+}
+
+fn parse_typegen_json_like(source: &str, path: &Path) -> Result<Value, String> {
+    serde_json::from_str(&strip_trailing_json_commas(&strip_json_comments(source)))
+        .map_err(|err| format!("Failed to parse {}: {err}", path.display()))
+}
+
+fn strip_json_comments(source: &str) -> String {
+    let chars = source.chars().collect::<Vec<_>>();
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        let next = chars.get(index + 1).copied();
+
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+            out.push(ch);
+            index += 1;
+            continue;
+        }
+
+        if ch == '/' && next == Some('/') {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+            out.push('\n');
+            continue;
+        }
+
+        if ch == '/' && next == Some('*') {
+            index += 2;
+            while index + 1 < chars.len() && !(chars[index] == '*' && chars[index + 1] == '/') {
+                index += 1;
+            }
+            index = (index + 2).min(chars.len());
+            continue;
+        }
+
+        out.push(ch);
+        index += 1;
+    }
+    out
+}
+
+fn strip_trailing_json_commas(source: &str) -> String {
+    let chars = source.chars().collect::<Vec<_>>();
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+            out.push(ch);
+            index += 1;
+            continue;
+        }
+
+        if ch == ',' {
+            let mut next_index = index + 1;
+            while chars
+                .get(next_index)
+                .copied()
+                .is_some_and(char::is_whitespace)
+            {
+                next_index += 1;
+            }
+            if matches!(chars.get(next_index), Some('}' | ']')) {
+                index += 1;
+                continue;
+            }
+        }
+
+        out.push(ch);
+        index += 1;
+    }
+    out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TomlTarget {
+    ObjectPath(Vec<String>),
+    ArrayLast(Vec<String>),
+}
+
+fn parse_typegen_toml(source: &str, path: &Path) -> Result<Value, String> {
+    let mut root = Value::Object(Map::new());
+    let mut current = TomlTarget::ObjectPath(Vec::new());
+
+    for raw_line in source.lines() {
+        let line = strip_toml_comment(raw_line).trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with("[[") && line.ends_with("]]") {
+            let parts = split_toml_path(line[2..line.len() - 2].trim());
+            push_toml_array_table(&mut root, &parts)
+                .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
+            current = TomlTarget::ArrayLast(parts);
+            continue;
+        }
+
+        if line.starts_with('[') && line.ends_with(']') {
+            let parts = split_toml_path(line[1..line.len() - 1].trim());
+            ensure_value_object_path(&mut root, &parts)
+                .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
+            current = TomlTarget::ObjectPath(parts);
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(format!(
+                "Failed to parse {}: Invalid TOML line: {line}",
+                path.display()
+            ));
+        };
+        let key_parts = split_toml_path(key.trim());
+        let value = parse_toml_value(value.trim())
+            .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
+        set_toml_current_value(&mut root, &current, &key_parts, value)
+            .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
+    }
+
+    Ok(root)
+}
+
+fn strip_toml_comment(line: &str) -> String {
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+    for ch in line.chars() {
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+            out.push(ch);
+            continue;
+        }
+        if ch == '#' {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn split_toml(value: &str, delimiter: char) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut quote = '\0';
+    let mut escaped = false;
+
+    for ch in value.chars() {
+        if in_string {
+            current.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            in_string = true;
+            quote = ch;
+            current.push(ch);
+            continue;
+        }
+
+        if ch == '[' || ch == '{' {
+            depth += 1;
+        }
+        if ch == ']' || ch == '}' {
+            depth -= 1;
+        }
+
+        if ch == delimiter && depth == 0 {
+            parts.push(current.trim().to_string());
+            current.clear();
+        } else {
+            current.push(ch);
+        }
+    }
+
+    if !current.trim().is_empty() || value.ends_with(delimiter) {
+        parts.push(current.trim().to_string());
+    }
+    parts
+}
+
+fn split_toml_path(value: &str) -> Vec<String> {
+    split_toml(value, '.')
+        .into_iter()
+        .map(|part| part.trim().trim_matches('"').trim_matches('\'').to_string())
+        .collect()
+}
+
+fn parse_toml_value(raw: &str) -> Result<Value, String> {
+    let value = raw.trim();
+    if (value.starts_with('"') && value.ends_with('"'))
+        || (value.starts_with('\'') && value.ends_with('\''))
+    {
+        if value.starts_with('"') {
+            return serde_json::from_str(value)
+                .map_err(|err| format!("Invalid TOML string {value}: {err}"));
+        }
+        return Ok(Value::String(value[1..value.len() - 1].to_string()));
+    }
+    if value == "true" {
+        return Ok(Value::Bool(true));
+    }
+    if value == "false" {
+        return Ok(Value::Bool(false));
+    }
+    if let Ok(number) = value.parse::<i64>() {
+        return Ok(Value::Number(number.into()));
+    }
+    if let Ok(number) = value.parse::<f64>() {
+        if let Some(number) = serde_json::Number::from_f64(number) {
+            return Ok(Value::Number(number));
+        }
+    }
+    if value.starts_with('[') && value.ends_with(']') {
+        let inner = value[1..value.len() - 1].trim();
+        if inner.is_empty() {
+            return Ok(Value::Array(Vec::new()));
+        }
+        return split_toml(inner, ',')
+            .into_iter()
+            .map(|part| parse_toml_value(&part))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array);
+    }
+    if value.starts_with('{') && value.ends_with('}') {
+        let mut out = Value::Object(Map::new());
+        let inner = value[1..value.len() - 1].trim();
+        if inner.is_empty() {
+            return Ok(out);
+        }
+        for part in split_toml(inner, ',') {
+            let Some((key, item_value)) = part.split_once('=') else {
+                return Err(format!("Invalid inline TOML table entry: {part}"));
+            };
+            let key_parts = split_toml_path(key.trim());
+            let item_value = parse_toml_value(item_value.trim())?;
+            set_nested_value(&mut out, &key_parts, item_value)?;
+        }
+        return Ok(out);
+    }
+    Ok(Value::String(value.to_string()))
+}
+
+fn ensure_value_object_path<'a>(
+    root: &'a mut Value,
+    parts: &[String],
+) -> Result<&'a mut Map<String, Value>, String> {
+    if !root.is_object() {
+        *root = Value::Object(Map::new());
+    }
+
+    let mut current = root;
+    for part in parts {
+        if !current.is_object() {
+            *current = Value::Object(Map::new());
+        }
+        let object = current.as_object_mut().expect("value should be object");
+        current = object
+            .entry(part.clone())
+            .or_insert_with(|| Value::Object(Map::new()));
+    }
+
+    if !current.is_object() {
+        *current = Value::Object(Map::new());
+    }
+    current
+        .as_object_mut()
+        .ok_or_else(|| "expected TOML object".to_string())
+}
+
+fn set_nested_value(root: &mut Value, parts: &[String], value: Value) -> Result<(), String> {
+    let Some((last, parent_parts)) = parts.split_last() else {
+        return Err("empty TOML key".to_string());
+    };
+    let parent = ensure_value_object_path(root, parent_parts)?;
+    parent.insert(last.clone(), value);
+    Ok(())
+}
+
+fn push_toml_array_table(root: &mut Value, parts: &[String]) -> Result<(), String> {
+    let Some((last, parent_parts)) = parts.split_last() else {
+        return Err("empty TOML array table".to_string());
+    };
+    let parent = ensure_value_object_path(root, parent_parts)?;
+    let entry = parent
+        .entry(last.clone())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if !entry.is_array() {
+        *entry = Value::Array(Vec::new());
+    }
+    entry
+        .as_array_mut()
+        .ok_or_else(|| "expected TOML array".to_string())?
+        .push(Value::Object(Map::new()));
+    Ok(())
+}
+
+fn get_nested_array_mut<'a>(root: &'a mut Value, parts: &[String]) -> Option<&'a mut Vec<Value>> {
+    let mut current = root;
+    for part in parts {
+        current = current.as_object_mut()?.get_mut(part)?;
+    }
+    current.as_array_mut()
+}
+
+fn set_toml_current_value(
+    root: &mut Value,
+    current: &TomlTarget,
+    key_parts: &[String],
+    value: Value,
+) -> Result<(), String> {
+    match current {
+        TomlTarget::ObjectPath(path) => {
+            let mut parts = path.clone();
+            parts.extend_from_slice(key_parts);
+            set_nested_value(root, &parts, value)
+        }
+        TomlTarget::ArrayLast(path) => {
+            let array = get_nested_array_mut(root, path)
+                .ok_or_else(|| "current TOML array table is missing".to_string())?;
+            let last = array
+                .last_mut()
+                .ok_or_else(|| "current TOML array table is empty".to_string())?;
+            set_nested_value(last, key_parts, value)
+        }
+    }
+}
+
+fn get_nested_value<'a>(value: &'a Value, parts: &[&str]) -> Option<&'a Value> {
+    let mut current = value;
+    for part in parts {
+        current = current.get(*part)?;
+    }
+    Some(current)
+}
+
+fn clone_without_env(config: &Value) -> Value {
+    let Some(object) = config.as_object() else {
+        return Value::Object(Map::new());
+    };
+    Value::Object(
+        object
+            .iter()
+            .filter(|(key, _)| key.as_str() != "env")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
+fn merge_config_value(base: &Value, override_value: Option<&Value>) -> Value {
+    let Some(override_value) = override_value else {
+        return base.clone();
+    };
+    match (base.as_object(), override_value.as_object()) {
+        (Some(base_object), Some(override_object)) => {
+            let mut out = base_object.clone();
+            for (key, value) in override_object {
+                let merged = out
+                    .get(key)
+                    .map(|base_value| merge_config_value(base_value, Some(value)))
+                    .unwrap_or_else(|| value.clone());
+                out.insert(key.clone(), merged);
+            }
+            Value::Object(out)
+        }
+        _ => override_value.clone(),
+    }
+}
+
+fn arrayish_values(value: Option<&Value>) -> Vec<&Value> {
+    match value {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(Value::Null) | None => Vec::new(),
+        Some(value) => vec![value],
+    }
+}
+
+fn add_typegen_binding(
+    bindings: &mut BTreeMap<String, TypegenBinding>,
+    name: Option<&str>,
+    type_name: &str,
+    optional: bool,
+) {
+    let Some(name) = name.filter(|name| !name.is_empty()) else {
+        return;
+    };
+    let entry = bindings
+        .entry(name.to_string())
+        .or_insert_with(|| TypegenBinding {
+            name: name.to_string(),
+            types: BTreeSet::new(),
+            optional: true,
+        });
+    entry.types.insert(type_name.to_string());
+    entry.optional &= optional;
+}
+
+fn extract_typegen_bindings_from_config(
+    config: &Value,
+    bindings: &mut BTreeMap<String, TypegenBinding>,
+    optional: bool,
+    strict_vars: bool,
+) {
+    if let Some(vars) = config.get("vars").and_then(Value::as_object) {
+        for (name, value) in vars {
+            add_typegen_binding(
+                bindings,
+                Some(name),
+                &if strict_vars {
+                    typegen_literal_type(value)
+                } else {
+                    typegen_loose_var_type(value)
+                },
+                optional,
+            );
+        }
+    }
+
+    for name in arrayish_values(get_nested_value(config, &["secrets", "required"])) {
+        add_typegen_binding(bindings, name.as_str(), "string", optional);
+    }
+
+    for (parts, type_name) in TYPEGEN_BINDING_SPECS {
+        for item in arrayish_values(get_nested_value(config, parts)) {
+            let binding = item
+                .get("binding")
+                .and_then(Value::as_str)
+                .or_else(|| item.get("name").and_then(Value::as_str));
+            add_typegen_binding(bindings, binding, type_name, optional);
+        }
+    }
+
+    for (parts, type_name) in TYPEGEN_SINGLETON_BINDING_SPECS {
+        let binding = get_nested_value(config, parts).and_then(|item| {
+            item.get("binding")
+                .and_then(Value::as_str)
+                .or_else(|| item.get("name").and_then(Value::as_str))
+        });
+        add_typegen_binding(bindings, binding, type_name, optional);
+    }
+
+    for item in arrayish_values(get_nested_value(config, &["unsafe", "bindings"])) {
+        let binding = item
+            .get("name")
+            .and_then(Value::as_str)
+            .or_else(|| item.get("binding").and_then(Value::as_str));
+        add_typegen_binding(bindings, binding, "unknown", optional);
+    }
+}
+
+fn collect_typegen_bindings(configs: &[Value], options: &TypegenOptions) -> Vec<TypegenBinding> {
+    let mut bindings = BTreeMap::new();
+    for config in configs {
+        let base = clone_without_env(config);
+        if let Some(env_name) = &options.env {
+            let env_config = config.get("env").and_then(|env| env.get(env_name));
+            let merged = merge_config_value(&base, env_config);
+            extract_typegen_bindings_from_config(
+                &merged,
+                &mut bindings,
+                false,
+                options.strict_vars,
+            );
+            continue;
+        }
+
+        extract_typegen_bindings_from_config(&base, &mut bindings, false, options.strict_vars);
+        if let Some(envs) = config.get("env").and_then(Value::as_object) {
+            for env_config in envs.values() {
+                extract_typegen_bindings_from_config(
+                    env_config,
+                    &mut bindings,
+                    true,
+                    options.strict_vars,
+                );
+            }
+        }
+    }
+    bindings.into_values().collect()
+}
+
+fn read_typegen_entrypoint(
+    entrypoint: Option<&str>,
+    base_dir: &Path,
+    explicit: bool,
+) -> Result<Option<TypegenEntrypointInfo>, String> {
+    let Some(entrypoint) = entrypoint else {
+        return Ok(None);
+    };
+    let resolved = resolve_from(base_dir, entrypoint);
+    if !resolved.exists() {
+        if explicit {
+            return Err(format!("Entrypoint does not exist: {entrypoint}"));
+        }
+        return Ok(Some(TypegenEntrypointInfo {
+            path: entrypoint.to_string(),
+            syntax: "unknown".to_string(),
+            handlers: Vec::new(),
+        }));
+    }
+
+    let source = fs::read_to_string(&resolved)
+        .map_err(|err| format!("failed to read entrypoint {}: {err}", resolved.display()))?;
+    let service_worker = TYPEGEN_KNOWN_HANDLERS
+        .iter()
+        .take(5)
+        .any(|handler| source_has_add_event_listener(&source, handler));
+    let has_default_export = source.contains("export default");
+    let handlers = TYPEGEN_KNOWN_HANDLERS
+        .iter()
+        .copied()
+        .filter(|handler| source_has_handler(&source, handler))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let syntax = if service_worker {
+        "service-worker"
+    } else if has_default_export {
+        "module"
+    } else {
+        "unknown"
+    };
+
+    Ok(Some(TypegenEntrypointInfo {
+        path: entrypoint.to_string(),
+        syntax: syntax.to_string(),
+        handlers,
+    }))
+}
+
+fn source_has_add_event_listener(source: &str, event: &str) -> bool {
+    [
+        format!("addEventListener(\"{event}\""),
+        format!("addEventListener('{event}'"),
+        format!("addEventListener (\"{event}\""),
+        format!("addEventListener ('{event}'"),
+    ]
+    .iter()
+    .any(|needle| source.contains(needle))
+}
+
+fn source_has_handler(source: &str, handler: &str) -> bool {
+    for (index, _) in source.match_indices(handler) {
+        let before = source[..index].chars().next_back();
+        if before.is_some_and(is_identifier_continue) {
+            continue;
+        }
+        let after_index = index + handler.len();
+        let mut chars = source[after_index..].chars();
+        let first = chars.next();
+        if first.is_some_and(is_identifier_continue) {
+            continue;
+        }
+        let next = first
+            .into_iter()
+            .chain(chars)
+            .find(|ch| !ch.is_whitespace());
+        if matches!(next, Some('(' | ':')) {
+            return true;
+        }
+    }
+    false
+}
+
+fn render_typegen_declarations(inputs: &TypegenInputs, options: &TypegenOptions) -> String {
+    let mut lines = Vec::new();
+    let config_list = if inputs.config_paths.is_empty() {
+        "none".to_string()
+    } else {
+        inputs
+            .config_paths
+            .iter()
+            .map(|path| relative_for_comment(&options.cwd, path))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let entrypoint_label = inputs
+        .entrypoint_info
+        .as_ref()
+        .map(|entrypoint| entrypoint.path.as_str())
+        .unwrap_or("none");
+
+    lines.push(
+        "// Generated by Porffor. Regenerate with `porf types` after config changes.".to_string(),
+    );
+    lines.push(format!("// Config: {config_list}"));
+    lines.push(format!("// Entrypoint: {entrypoint_label}"));
+    if let Some(env) = &options.env {
+        lines.push(format!("// Environment: {env}"));
+    }
+    if let Some(entrypoint) = &inputs.entrypoint_info {
+        lines.push(format!("// Entrypoint syntax: {}", entrypoint.syntax));
+        if !entrypoint.handlers.is_empty() {
+            lines.push(format!(
+                "// Detected handlers: {}",
+                entrypoint.handlers.join(", ")
+            ));
+        }
+    }
+    lines.push(String::new());
+
+    if options.include_runtime {
+        lines.push(typegen_runtime_declarations().trim_end().to_string());
+        lines.push(String::new());
+    }
+
+    if options.include_env {
+        lines.push("declare namespace Porffor {".to_string());
+        lines.push(format!("  interface {} {{", options.env_interface));
+        if inputs.bindings.is_empty() {
+            lines.push("    // No bindings were found in the provided config.".to_string());
+        } else {
+            for binding in &inputs.bindings {
+                lines.push(format!(
+                    "    {}{}: {};",
+                    typegen_prop_name(&binding.name),
+                    if binding.optional { "?" } else { "" },
+                    format_typegen_binding_type(binding)
+                ));
+            }
+        }
+        lines.push("  }".to_string());
+
+        let compatibility_date = inputs
+            .configs
+            .iter()
+            .find_map(|config| config.get("compatibility_date"));
+        let compatibility_flags = inputs
+            .configs
+            .iter()
+            .flat_map(|config| arrayish_values(config.get("compatibility_flags")))
+            .collect::<Vec<_>>();
+        if compatibility_date.is_some()
+            || !compatibility_flags.is_empty()
+            || inputs.entrypoint_info.is_some()
+        {
+            lines.push(String::new());
+            lines.push("  interface WorkerConfiguration {".to_string());
+            if let Some(compatibility_date) = compatibility_date {
+                lines.push(format!(
+                    "    compatibilityDate: {};",
+                    typegen_literal_type(compatibility_date)
+                ));
+            }
+            if !compatibility_flags.is_empty() {
+                let flag_types = compatibility_flags
+                    .iter()
+                    .map(|flag| typegen_literal_type(flag))
+                    .collect::<Vec<_>>();
+                lines.push(format!(
+                    "    compatibilityFlags: readonly ({})[];",
+                    flag_types.join(" | ")
+                ));
+            }
+            if let Some(entrypoint) = &inputs.entrypoint_info {
+                lines.push(format!(
+                    "    entrypoint: {};",
+                    typegen_ts_string(&entrypoint.path)
+                ));
+                lines.push(format!(
+                    "    syntax: {};",
+                    typegen_ts_string(&entrypoint.syntax)
+                ));
+            }
+            lines.push("  }".to_string());
+        }
+
+        lines.push("}".to_string());
+        lines.push(String::new());
+        lines.push(format!(
+            "interface {} extends Porffor.{} {{}}",
+            options.env_interface, options.env_interface
+        ));
+        lines.push(String::new());
+    }
+
+    format!("{}\n", lines.join("\n").trim_end())
+}
+
+fn typegen_runtime_declarations() -> &'static str {
+    r#"declare interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+}
+
+declare interface ScheduledController {
+  readonly scheduledTime: number;
+  readonly cron: string;
+  noRetry(): void;
+}
+
+declare interface Message<Body = unknown> {
+  readonly id: string;
+  readonly timestamp: Date;
+  readonly body: Body;
+  ack(): void;
+  retry(options?: QueueRetryOptions): void;
+}
+
+declare interface MessageBatch<Body = unknown> {
+  readonly queue: string;
+  readonly messages: readonly Message<Body>[];
+  ackAll(): void;
+  retryAll(options?: QueueRetryOptions): void;
+}
+
+declare interface QueueRetryOptions {
+  delaySeconds?: number;
+}
+
+declare interface ExportedHandler<Env = unknown> {
+  fetch?(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response>;
+  scheduled?(controller: ScheduledController, env: Env, ctx: ExecutionContext): void | Promise<void>;
+  queue?(batch: MessageBatch, env: Env, ctx: ExecutionContext): void | Promise<void>;
+  email?(message: unknown, env: Env, ctx: ExecutionContext): void | Promise<void>;
+  tail?(events: readonly unknown[], env: Env, ctx: ExecutionContext): void | Promise<void>;
+  trace?(traces: readonly unknown[], env: Env, ctx: ExecutionContext): void | Promise<void>;
+  alarm?(controller: unknown, env: Env, ctx: ExecutionContext): void | Promise<void>;
+}
+
+declare interface Fetcher {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
+declare interface KVNamespace {
+  get(key: string, options?: unknown): Promise<unknown>;
+  put(key: string, value: unknown, options?: unknown): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options?: unknown): Promise<unknown>;
+}
+
+declare interface R2Bucket {
+  get(key: string, options?: unknown): Promise<unknown>;
+  put(key: string, value: unknown, options?: unknown): Promise<unknown>;
+  delete(keys: string | readonly string[]): Promise<void>;
+  list(options?: unknown): Promise<unknown>;
+}
+
+declare interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  first<T = unknown>(columnName?: string): Promise<T | null>;
+  run<T = unknown>(): Promise<T>;
+  all<T = unknown>(): Promise<T>;
+  raw<T = unknown>(): Promise<T[]>;
+}
+
+declare interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+  batch<T = unknown>(statements: readonly D1PreparedStatement[]): Promise<T[]>;
+  exec(query: string): Promise<unknown>;
+  dump(): Promise<ArrayBuffer>;
+}
+
+declare interface DurableObjectId {
+  readonly name?: string;
+  toString(): string;
+}
+
+declare interface DurableObjectStub {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
+declare interface DurableObjectNamespace {
+  newUniqueId(options?: unknown): DurableObjectId;
+  idFromName(name: string): DurableObjectId;
+  idFromString(id: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+
+declare interface Queue<Body = unknown> {
+  send(message: Body, options?: unknown): Promise<void>;
+  sendBatch(messages: readonly { body: Body; options?: unknown }[]): Promise<void>;
+}
+
+declare interface AnalyticsEngineDataset {
+  writeDataPoint(event: unknown): void;
+}
+
+declare interface VectorizeIndex {
+  query(vector: readonly number[], options?: unknown): Promise<unknown>;
+  insert(vectors: readonly unknown[]): Promise<unknown>;
+  upsert(vectors: readonly unknown[]): Promise<unknown>;
+  deleteByIds(ids: readonly string[]): Promise<unknown>;
+}
+
+declare interface Ai {
+  run(model: string, inputs: unknown, options?: unknown): Promise<unknown>;
+}
+
+declare interface AiSearch {
+  search(query: unknown, options?: unknown): Promise<unknown>;
+}
+
+declare interface AiSearchNamespace {
+  search(query: unknown, options?: unknown): Promise<unknown>;
+}
+
+declare interface BrowserRendering {
+  launch(options?: unknown): Promise<unknown>;
+}
+
+declare interface ImagesBinding {
+  input(value: unknown): unknown;
+}
+
+declare interface Hyperdrive {
+  readonly connectionString: string;
+}
+
+declare interface Workflow {
+  create(options?: unknown): Promise<unknown>;
+  get(id: string): Promise<unknown>;
+}
+
+declare interface Pipeline {
+  send(records: readonly unknown[]): Promise<void>;
+}
+
+declare interface DispatchNamespace {
+  get(name: string, args?: unknown): Fetcher;
+}
+
+declare interface SendEmail {
+  send(message: unknown): Promise<void>;
+}
+"#
+}
+
+fn relative_for_comment(cwd: &Path, path: &Path) -> String {
+    path.strip_prefix(cwd)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn typegen_prop_name(name: &str) -> String {
+    if is_ts_identifier(name) {
+        name.to_string()
+    } else {
+        typegen_ts_string(name)
+    }
+}
+
+fn typegen_literal_type(value: &Value) -> String {
+    match value {
+        Value::String(value) => typegen_ts_string(value),
+        Value::Number(value) => value.to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Null => "null".to_string(),
+        Value::Array(values) => {
+            let types = values
+                .iter()
+                .map(typegen_literal_type)
+                .collect::<BTreeSet<_>>();
+            if types.is_empty() {
+                "readonly unknown[]".to_string()
+            } else {
+                format!(
+                    "readonly ({})[]",
+                    types.into_iter().collect::<Vec<_>>().join(" | ")
+                )
+            }
+        }
+        Value::Object(_) => "unknown".to_string(),
+    }
+}
+
+fn typegen_loose_var_type(value: &Value) -> String {
+    match value {
+        Value::String(_) => "string",
+        Value::Number(_) => "number",
+        Value::Bool(_) => "boolean",
+        Value::Null => "null",
+        Value::Array(_) => "readonly unknown[]",
+        Value::Object(_) => "Record<string, unknown>",
+    }
+    .to_string()
+}
+
+fn format_typegen_binding_type(binding: &TypegenBinding) -> String {
+    if binding.types.len() == 1 {
+        binding.types.iter().next().cloned().unwrap_or_default()
+    } else {
+        binding
+            .types
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+}
+
+fn typegen_ts_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| format!("\"{}\"", value.replace('"', "\\\"")))
+}
+
+fn is_ts_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    is_identifier_start(first) && chars.all(is_identifier_continue)
+}
+
+fn is_identifier_start(ch: char) -> bool {
+    ch == '_' || ch == '$' || ch.is_ascii_alphabetic()
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    is_identifier_start(ch) || ch.is_ascii_digit()
 }
 
 fn handle_test262_command(args: Vec<String>) -> Result<(), String> {

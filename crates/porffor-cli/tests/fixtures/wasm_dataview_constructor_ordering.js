@@ -1,5 +1,6 @@
 let buffer = new ArrayBuffer(8);
 let touched = false;
+let order = "";
 function touchValueOf() {
   touched = true;
   return 0;
@@ -12,7 +13,6 @@ try {
 if (touched) throw "coerced before newTarget";
 
 let detached = new ArrayBuffer(8);
-let order = "";
 function detachedOffsetValueOf() {
   order = "offset";
   return 0;
@@ -29,7 +29,7 @@ try {
 if (order !== "offset") throw "detached order";
 
 let duringPrototype = new ArrayBuffer(8);
-let customNewTarget = function () {};
+let customNewTarget = function () {}.bind(null);
 function detachAndReturnPrototype() {
   __porfDetachArrayBuffer(duringPrototype);
   return {};
@@ -55,7 +55,7 @@ try {
   Reflect.construct(DataView, [zeroLength, 10], throwingNewTarget);
   throw "expected range error";
 } catch (error) {
-  order = order;
+  if (!(error instanceof RangeError)) throw "expected range error constructor";
 }
 if (touchedPrototype) throw "prototype touched before offset validation";
 

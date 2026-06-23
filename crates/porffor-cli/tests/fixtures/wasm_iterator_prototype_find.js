@@ -122,6 +122,97 @@ if (returnCalls !== 1) {
   throw "callback close";
 }
 
+function NextSentinelError() {}
+let nextClosed = false;
+let nextThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    throw new NextSentinelError();
+  },
+  return: function () {
+    nextClosed = true;
+    return {};
+  },
+};
+let nextThrowMatched = false;
+try {
+  nextThrowIterator.find(function () {
+    return false;
+  });
+} catch (error) {
+  nextThrowMatched = error instanceof NextSentinelError;
+}
+if (!nextThrowMatched) {
+  throw "next throw constructor";
+}
+if (nextClosed) {
+  throw "next throw close";
+}
+
+function DoneSentinelError() {}
+let doneClosed = false;
+let doneThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      get done() {
+        throw new DoneSentinelError();
+      },
+      value: 1,
+    };
+  },
+  return: function () {
+    doneClosed = true;
+    return {};
+  },
+};
+let doneThrowMatched = false;
+try {
+  doneThrowIterator.find(function () {
+    return true;
+  });
+} catch (error) {
+  doneThrowMatched = error instanceof DoneSentinelError;
+}
+if (!doneThrowMatched) {
+  throw "done throw constructor";
+}
+if (doneClosed) {
+  throw "done throw close";
+}
+
+function ValueSentinelError() {}
+let valueClosed = false;
+let valueThrowIterator = {
+  __proto__: Iterator.prototype,
+  next: function () {
+    return {
+      done: false,
+      get value() {
+        throw new ValueSentinelError();
+      },
+    };
+  },
+  return: function () {
+    valueClosed = true;
+    return {};
+  },
+};
+let valueThrowMatched = false;
+try {
+  valueThrowIterator.find(function () {
+    return true;
+  });
+} catch (error) {
+  valueThrowMatched = error instanceof ValueSentinelError;
+}
+if (!valueThrowMatched) {
+  throw "value throw constructor";
+}
+if (valueClosed) {
+  throw "value throw close";
+}
+
 let arrayIterator = [1, 2, 3, 4, 5][Symbol.iterator]();
 if (arrayIterator.return !== undefined) {
   throw "array iterator return";
