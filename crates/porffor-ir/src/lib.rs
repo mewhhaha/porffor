@@ -451,6 +451,7 @@ pub const BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID: &str =
     "$builtin.String.prototype.charCodeAt";
 pub const BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID: &str =
     "$builtin.String.prototype.codePointAt";
+pub const BUILTIN_STRING_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.String.prototype.at";
 pub const BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID: &str = "$builtin.String.prototype.anchor";
 pub const BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID: &str = "$builtin.String.prototype.big";
 pub const BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID: &str = "$builtin.String.prototype.blink";
@@ -483,8 +484,7 @@ pub const BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID: &str = "$builtin.String.pr
 pub const BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID: &str = "$builtin.String.prototype.split";
 pub const BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.padStart";
-pub const BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID: &str =
-    "$builtin.String.prototype.padEnd";
+pub const BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID: &str = "$builtin.String.prototype.padEnd";
 pub const BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID: &str = "$builtin.String.prototype.repeat";
 pub const BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.endsWith";
@@ -498,6 +498,10 @@ pub const BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID: &str = "$builtin.String.pro
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.trimStart";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID: &str = "$builtin.String.prototype.trimEnd";
+pub const BUILTIN_STRING_PROTOTYPE_IS_WELL_FORMED_FUNCTION_ID: &str =
+    "$builtin.String.prototype.isWellFormed";
+pub const BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID: &str =
+    "$builtin.String.prototype.toWellFormed";
 pub const BUILTIN_BOOLEAN_FUNCTION_ID: &str = "$builtin.Boolean";
 pub const BUILTIN_ERROR_FUNCTION_ID: &str = "$builtin.Error";
 pub const BUILTIN_ERROR_IS_ERROR_FUNCTION_ID: &str = "$builtin.Error.isError";
@@ -892,6 +896,7 @@ pub enum StandardBuiltinId {
     StringPrototypeCharAt,
     StringPrototypeCharCodeAt,
     StringPrototypeCodePointAt,
+    StringPrototypeAt,
     StringPrototypeAnchor,
     StringPrototypeBig,
     StringPrototypeBlink,
@@ -926,6 +931,8 @@ pub enum StandardBuiltinId {
     StringPrototypeTrim,
     StringPrototypeTrimStart,
     StringPrototypeTrimEnd,
+    StringPrototypeIsWellFormed,
+    StringPrototypeToWellFormed,
     BooleanConstructor,
     BooleanPrototypeToString,
     BooleanPrototypeValueOf,
@@ -987,6 +994,7 @@ impl StandardBuiltinId {
             | Self::StringPrototypeCharAt
             | Self::StringPrototypeCharCodeAt
             | Self::StringPrototypeCodePointAt
+            | Self::StringPrototypeAt
             | Self::StringPrototypeAnchor
             | Self::StringPrototypeBig
             | Self::StringPrototypeBlink
@@ -1021,6 +1029,8 @@ impl StandardBuiltinId {
             | Self::StringPrototypeTrim
             | Self::StringPrototypeTrimStart
             | Self::StringPrototypeTrimEnd
+            | Self::StringPrototypeIsWellFormed
+            | Self::StringPrototypeToWellFormed
             | Self::BooleanPrototypeToString
             | Self::BooleanPrototypeValueOf => None,
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
@@ -1582,6 +1592,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeCharAt => "String.prototype.charAt",
             Self::StringPrototypeCharCodeAt => "String.prototype.charCodeAt",
             Self::StringPrototypeCodePointAt => "String.prototype.codePointAt",
+            Self::StringPrototypeAt => "String.prototype.at",
             Self::StringPrototypeAnchor => "String.prototype.anchor",
             Self::StringPrototypeBig => "String.prototype.big",
             Self::StringPrototypeBlink => "String.prototype.blink",
@@ -1616,6 +1627,8 @@ impl StandardBuiltinId {
             Self::StringPrototypeTrim => "String.prototype.trim",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
             Self::StringPrototypeTrimEnd => "String.prototype.trimEnd",
+            Self::StringPrototypeIsWellFormed => "String.prototype.isWellFormed",
+            Self::StringPrototypeToWellFormed => "String.prototype.toWellFormed",
             Self::BooleanConstructor => BOOLEAN_NAME,
             Self::BooleanPrototypeToString => "Boolean.prototype.toString",
             Self::BooleanPrototypeValueOf => "Boolean.prototype.valueOf",
@@ -2161,6 +2174,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeCodePointAt => {
                 BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID.to_string()
             }
+            Self::StringPrototypeAt => BUILTIN_STRING_PROTOTYPE_AT_FUNCTION_ID.to_string(),
             Self::StringPrototypeAnchor => BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID.to_string(),
             Self::StringPrototypeBig => BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID.to_string(),
             Self::StringPrototypeBlink => BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID.to_string(),
@@ -2226,6 +2240,12 @@ impl StandardBuiltinId {
             }
             Self::StringPrototypeTrimEnd => {
                 BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeIsWellFormed => {
+                BUILTIN_STRING_PROTOTYPE_IS_WELL_FORMED_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeToWellFormed => {
+                BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID.to_string()
             }
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
             Self::BooleanPrototypeToString => "$builtin.Boolean.prototype.toString".to_string(),
@@ -2706,6 +2726,7 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID => {
                 Some(Self::StringPrototypeCodePointAt)
             }
+            BUILTIN_STRING_PROTOTYPE_AT_FUNCTION_ID => Some(Self::StringPrototypeAt),
             BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID => Some(Self::StringPrototypeAnchor),
             BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID => Some(Self::StringPrototypeBig),
             BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID => Some(Self::StringPrototypeBlink),
@@ -2748,6 +2769,12 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID => Some(Self::StringPrototypeTrim),
             BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID => Some(Self::StringPrototypeTrimStart),
             BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID => Some(Self::StringPrototypeTrimEnd),
+            BUILTIN_STRING_PROTOTYPE_IS_WELL_FORMED_FUNCTION_ID => {
+                Some(Self::StringPrototypeIsWellFormed)
+            }
+            BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID => {
+                Some(Self::StringPrototypeToWellFormed)
+            }
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
             "$builtin.Boolean.prototype.toString" => Some(Self::BooleanPrototypeToString),
             "$builtin.Boolean.prototype.valueOf" => Some(Self::BooleanPrototypeValueOf),
@@ -3098,6 +3125,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeCharAt,
             Self::StringPrototypeCharCodeAt,
             Self::StringPrototypeCodePointAt,
+            Self::StringPrototypeAt,
             Self::StringPrototypeAnchor,
             Self::StringPrototypeBig,
             Self::StringPrototypeBlink,
@@ -3132,6 +3160,8 @@ impl StandardBuiltinId {
             Self::StringPrototypeTrim,
             Self::StringPrototypeTrimStart,
             Self::StringPrototypeTrimEnd,
+            Self::StringPrototypeIsWellFormed,
+            Self::StringPrototypeToWellFormed,
             Self::BooleanConstructor,
             Self::BooleanPrototypeToString,
             Self::BooleanPrototypeValueOf,
@@ -3322,6 +3352,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeCharAt => Some("charAt"),
             Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
             Self::StringPrototypeCodePointAt => Some("codePointAt"),
+            Self::StringPrototypeAt => Some("at"),
             Self::StringPrototypeSubstr => Some("substr"),
             Self::StringPrototypeSubstring => Some("substring"),
             Self::StringPrototypeMatch => Some("match"),
@@ -3343,6 +3374,8 @@ impl StandardBuiltinId {
             Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
+            Self::StringPrototypeIsWellFormed => Some("isWellFormed"),
+            Self::StringPrototypeToWellFormed => Some("toWellFormed"),
             _ => self.string_html_method_name(),
         }
     }
@@ -3629,6 +3662,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeCharAt => Some("charAt"),
             Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
             Self::StringPrototypeCodePointAt => Some("codePointAt"),
+            Self::StringPrototypeAt => Some("at"),
             Self::StringPrototypeAnchor => Some("anchor"),
             Self::StringPrototypeBig => Some("big"),
             Self::StringPrototypeBlink => Some("blink"),
@@ -3663,6 +3697,8 @@ impl StandardBuiltinId {
             Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
             Self::StringPrototypeTrimEnd => Some("trimEnd"),
+            Self::StringPrototypeIsWellFormed => Some("isWellFormed"),
+            Self::StringPrototypeToWellFormed => Some("toWellFormed"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
             Self::BooleanPrototypeToString => Some("toString"),
             Self::BooleanPrototypeValueOf => Some("valueOf"),
@@ -9910,6 +9946,7 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeCharAt,
                 StandardBuiltinId::StringPrototypeCharCodeAt,
                 StandardBuiltinId::StringPrototypeCodePointAt,
+                StandardBuiltinId::StringPrototypeAt,
                 StandardBuiltinId::StringPrototypeAnchor,
                 StandardBuiltinId::StringPrototypeBig,
                 StandardBuiltinId::StringPrototypeBlink,
@@ -9927,6 +9964,7 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeSup,
                 StandardBuiltinId::StringPrototypeIndexOf,
                 StandardBuiltinId::StringPrototypeLastIndexOf,
+                StandardBuiltinId::StringPrototypeSlice,
                 StandardBuiltinId::StringPrototypeSplit,
                 StandardBuiltinId::StringPrototypePadStart,
                 StandardBuiltinId::StringPrototypePadEnd,
@@ -9935,6 +9973,8 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeTrim,
                 StandardBuiltinId::StringPrototypeTrimStart,
                 StandardBuiltinId::StringPrototypeTrimEnd,
+                StandardBuiltinId::StringPrototypeIsWellFormed,
+                StandardBuiltinId::StringPrototypeToWellFormed,
             ] {
                 properties.insert(
                     builtin.string_prototype_method_name().unwrap().to_string(),
@@ -12079,6 +12119,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
+            | StandardBuiltinId::StringPrototypeToWellFormed
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape => (
                 ValueKind::String,
@@ -12095,6 +12136,19 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::RegExpPrototypeSymbolSearch => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringPrototypeAt => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringPrototypeIsWellFormed => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -14401,6 +14455,18 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         Some(self.interner.resolve_expect(*sym).to_string())
+    }
+
+    fn static_string_receiver_value(&self, receiver: &Expression) -> Option<String> {
+        let receiver = Self::unwrap_parenthesized_expr(receiver);
+        if let Some(value) = self.static_string_expression(receiver) {
+            return Some(value);
+        }
+        let Expression::Identifier(identifier) = receiver else {
+            return None;
+        };
+        let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        self.static_string_bindings.get(&name).cloned()
     }
 
     fn static_to_string_returns_regexp_object_expr(&self, expr: &Expression) -> bool {
@@ -19735,6 +19801,11 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 if field_name == "toString" {
+                    if args.is_empty() {
+                        if let Some(value) = self.static_string_receiver_value(access.target()) {
+                            return Self::static_string_typed_expr(value);
+                        }
+                    }
                     if let Some(value) = self.static_boolean_receiver_value(access.target()) {
                         if self.boolean_prototype_to_string_deleted
                             && (self.is_boolean_prototype_property_expr(callee, "toString")
@@ -19846,6 +19917,11 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 if field_name == "valueOf" {
+                    if args.is_empty() {
+                        if let Some(value) = self.static_string_receiver_value(access.target()) {
+                            return Self::static_string_typed_expr(value);
+                        }
+                    }
                     if let Some(value) = self.static_boolean_receiver_value(access.target()) {
                         for arg in args {
                             self.lower_expression(arg);
@@ -20414,6 +20490,7 @@ impl<'a> ScriptLowerer<'a> {
                                     "codePointAt" => {
                                         Some(StandardBuiltinId::StringPrototypeCodePointAt)
                                     }
+                                    "at" => Some(StandardBuiltinId::StringPrototypeAt),
                                     "anchor" => Some(StandardBuiltinId::StringPrototypeAnchor),
                                     "big" => Some(StandardBuiltinId::StringPrototypeBig),
                                     "blink" => Some(StandardBuiltinId::StringPrototypeBlink),
@@ -20465,6 +20542,12 @@ impl<'a> ScriptLowerer<'a> {
                                     }
                                     "trimEnd" | "trimRight" => {
                                         Some(StandardBuiltinId::StringPrototypeTrimEnd)
+                                    }
+                                    "isWellFormed" => {
+                                        Some(StandardBuiltinId::StringPrototypeIsWellFormed)
+                                    }
+                                    "toWellFormed" => {
+                                        Some(StandardBuiltinId::StringPrototypeToWellFormed)
                                     }
                                     _ => None,
                                 };
@@ -21475,15 +21558,19 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    if StandardBuiltinId::from_function_id(&function_id)
-                        == Some(StandardBuiltinId::StringPrototypeSubstring)
+                    if let Some(method_name) =
+                        match StandardBuiltinId::from_function_id(&function_id) {
+                            Some(StandardBuiltinId::StringPrototypeSubstring) => Some("substring"),
+                            Some(StandardBuiltinId::StringPrototypeSlice) => Some("slice"),
+                            _ => None,
+                        }
                     {
                         let args = args.iter().map(|arg| self.lower_expression(arg)).collect();
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::String),
                             ExprIr::CallMethod {
                                 receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString("substring".to_string()),
+                                key: PropertyKeyIr::StaticString(method_name.to_string()),
                                 args,
                             },
                         );
@@ -21627,10 +21714,13 @@ impl<'a> ScriptLowerer<'a> {
                             StandardBuiltinId::StringPrototypeCharAt => "charAt",
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
                             StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
+                            StandardBuiltinId::StringPrototypeAt => "at",
                             StandardBuiltinId::StringPrototypePadStart => "padStart",
                             StandardBuiltinId::StringPrototypePadEnd => "padEnd",
                             StandardBuiltinId::StringPrototypeRepeat => "repeat",
                             StandardBuiltinId::StringPrototypeToUpperCase => "toUpperCase",
+                            StandardBuiltinId::StringPrototypeIsWellFormed => "isWellFormed",
+                            StandardBuiltinId::StringPrototypeToWellFormed => "toWellFormed",
                             _ => "",
                         };
                         if !method_name.is_empty() {
@@ -25028,9 +25118,20 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
             | StandardBuiltinId::StringPrototypeTrimEnd
+            | StandardBuiltinId::StringPrototypeToWellFormed
             | StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::StringPrototypeAt => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::StringPrototypeIsWellFormed => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::StringPrototypeMatch
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
@@ -27240,6 +27341,7 @@ impl<'a> ScriptLowerer<'a> {
                 "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
                 "charCodeAt" => Some(StandardBuiltinId::StringPrototypeCharCodeAt),
                 "codePointAt" => Some(StandardBuiltinId::StringPrototypeCodePointAt),
+                "at" => Some(StandardBuiltinId::StringPrototypeAt),
                 "indexOf" => Some(StandardBuiltinId::StringPrototypeIndexOf),
                 "lastIndexOf" => Some(StandardBuiltinId::StringPrototypeLastIndexOf),
                 "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
@@ -27249,6 +27351,8 @@ impl<'a> ScriptLowerer<'a> {
                 "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
                 "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
                 "toUpperCase" => Some(StandardBuiltinId::StringPrototypeToUpperCase),
+                "isWellFormed" => Some(StandardBuiltinId::StringPrototypeIsWellFormed),
+                "toWellFormed" => Some(StandardBuiltinId::StringPrototypeToWellFormed),
                 _ => None,
             };
             if let Some(builtin) = builtin {
@@ -30136,10 +30240,29 @@ impl<'a> ScriptLowerer<'a> {
 
     fn static_number_to_string_receiver_value(&self, receiver: &Expression) -> Option<f64> {
         let receiver = Self::unwrap_parenthesized_expr(receiver);
-        if let Some(value) = self.static_to_number_expr(receiver) {
+        if let Some(value) = Self::literal_number_value(receiver) {
             return Some(value);
         }
         match receiver {
+            Expression::Identifier(identifier) => {
+                match self
+                    .interner
+                    .resolve_expect(identifier.sym())
+                    .to_string()
+                    .as_str()
+                {
+                    "Infinity" => Some(f64::INFINITY),
+                    "NaN" => Some(f64::NAN),
+                    _ => None,
+                }
+            }
+            Expression::Unary(unary) => match unary.op() {
+                UnaryOp::Plus => self.static_to_number_expr(unary.target()),
+                UnaryOp::Minus => self
+                    .static_to_number_expr(unary.target())
+                    .map(|value| -value),
+                _ => None,
+            },
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
                 let Expression::Identifier(target) =
                     Self::unwrap_parenthesized_expr(access.target())
@@ -30152,8 +30275,29 @@ impl<'a> ScriptLowerer<'a> {
                 let PropertyAccessField::Const(field) = access.field() else {
                     return None;
                 };
-                (self.interner.resolve_expect(field.sym()).to_string() == "prototype")
-                    .then_some(0.0)
+                match self
+                    .interner
+                    .resolve_expect(field.sym())
+                    .to_string()
+                    .as_str()
+                {
+                    "prototype" => Some(0.0),
+                    "NaN" => Some(f64::NAN),
+                    "POSITIVE_INFINITY" => Some(f64::INFINITY),
+                    "NEGATIVE_INFINITY" => Some(f64::NEG_INFINITY),
+                    _ => None,
+                }
+            }
+            Expression::Call(call) => {
+                let Expression::Identifier(callee) =
+                    Self::unwrap_parenthesized_expr(call.function())
+                else {
+                    return None;
+                };
+                if self.interner.resolve_expect(callee.sym()).to_string() != NUMBER_NAME {
+                    return None;
+                }
+                self.static_to_number_arg(call.args().first())
             }
             Expression::New(new_expr) => {
                 let Expression::Identifier(constructor) =

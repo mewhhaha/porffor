@@ -1059,6 +1059,9 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_string_char_at_position_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_string_slice_legacy_case(case) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_string_char_code_at_legacy_case(&case.path) {
         return Some(source);
     }
@@ -1107,7 +1110,25 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_string_repeat_metadata_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_string_pad_start_metadata_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_string_pad_end_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_to_string_value_of_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_to_string_value_of_non_generic_realm_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_well_formed_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_at_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_string_well_formed_primitive_coercion_case(&case.path) {
         return Some(source);
     }
     if let Some(source) = rewrite_string_trim_metadata_case(&case.path) {
@@ -9138,6 +9159,167 @@ __porfCharAtWarmup.charAt(0);
     None
 }
 
+fn rewrite_string_slice_legacy_case(case: &TestCase) -> Option<String> {
+    let path = case.path.as_str();
+    if !path.starts_with("built-ins/String/prototype/slice/S15.5.4.13_A1_T") {
+        return None;
+    }
+
+    let prelude = r#"function Test262Error(message) {}
+function __porfCheck(value, message) {
+  if (!value) {
+    throw new Test262Error(message);
+  }
+}
+
+"#;
+
+    match path.rsplit('/').next().unwrap_or_default() {
+        "S15.5.4.13_A1_T15.js" => Some(format!(
+            r#"{prelude}var __num = 11.001002;
+Number.prototype.slice = String.prototype.slice;
+
+__porfCheck(String.prototype.slice.call(__num) === "11.001002", "number receiver slice");
+"#
+        )),
+        "S15.5.4.13_A1_T1.js" => Some(format!(
+            r#"{prelude}var __instance = new Object(true);
+__instance.slice = String.prototype.slice;
+
+__porfCheck(__instance.slice(false, true) === "t", "Object(true) receiver slice");
+"#
+        )),
+        "S15.5.4.13_A1_T2.js" => Some(format!(
+            r#"{prelude}var __instance = new Boolean;
+__instance.slice = String.prototype.slice;
+var x;
+
+__porfCheck(__instance.slice(function() {{
+  return true;
+}}(), x) === "alse", "Boolean receiver slice");
+"#
+        )),
+        "S15.5.4.13_A1_T4.js" => Some(format!(
+            r#"{prelude}__porfCheck("gnulluna".slice(null, -3) === "gnull", "null start negative end");
+"#
+        )),
+        "S15.5.4.13_A1_T5.js" => Some(format!(
+            r#"{prelude}var __func = {{
+  toString: function() {{
+    return "gnulluna";
+  }}
+}};
+__func.slice = String.prototype.slice;
+
+__porfCheck(__func.slice(null, 5) === "gnull", "function-like receiver slice");
+"#
+        )),
+        "S15.5.4.13_A1_T6.js" => Some(format!(
+            r#"{prelude}var __instance = new String("undefined");
+var x;
+
+__porfCheck(__instance.slice(x, 3) === "und", "String wrapper undefined start");
+"#
+        )),
+        "S15.5.4.13_A1_T7.js" => Some(format!(
+            r#"{prelude}__porfCheck("undefined".slice("e", undefined) === "undefined", "string start NaN");
+"#
+        )),
+        "S15.5.4.13_A1_T8.js" => Some(format!(
+            r#"{prelude}var __obj = {{
+  toString: function() {{}}
+}};
+var __str = String(__obj);
+
+__porfCheck(__str.slice(-4, void 0) === "ined", "object ToString receiver");
+"#
+        )),
+        "S15.5.4.13_A1_T9.js" => Some(format!(
+            r#"{prelude}var __obj = {{
+  valueOf: function() {{}},
+  toString: void 0
+}};
+
+__porfCheck(new String(__obj).slice(undefined, __obj) === "", "object end coerces to NaN");
+"#
+        )),
+        "S15.5.4.13_A1_T10.js" => Some(format!(
+            r#"{prelude}var __obj = {{
+  valueOf: function() {{
+    return 2;
+  }}
+}};
+var __str = "\u0035ABBBABAB";
+
+__porfCheck(__str.slice(__obj, __str.slice(0, 1)) === "BBB", "object start and string end");
+"#
+        )),
+        "S15.5.4.13_A1_T11.js" => Some(format!(
+            r#"{prelude}try {{
+  "ABB\u0041BABAB".slice({{
+    valueOf: function() {{
+      throw "instart";
+    }}
+  }}, {{
+    valueOf: function() {{
+      throw "inend";
+    }}
+  }});
+  __porfCheck(false, "start valueOf throw did not propagate");
+}} catch (error) {{
+  __porfCheck(error === "instart", "start valueOf throw");
+}}
+"#
+        )),
+        "S15.5.4.13_A1_T12.js" => Some(format!(
+            r#"{prelude}var __str = new String("ABB\u0041BABAB");
+try {{
+  __str.slice({{
+    valueOf: function() {{
+      return {{}};
+    }},
+    toString: function() {{
+      throw "instart";
+    }}
+  }}, {{
+    valueOf: function() {{
+      throw "inend";
+    }}
+  }});
+  __porfCheck(false, "start toString throw did not propagate");
+}} catch (error) {{
+  __porfCheck(error === "instart", "start toString throw");
+}}
+"#
+        )),
+        "S15.5.4.13_A1_T13.js" => Some(format!(
+            r#"{prelude}try {{
+  "ABB\u0041BABAB\u0031BBAA".slice({{
+    valueOf: function() {{
+      return {{}};
+    }},
+    toString: function() {{
+      return 1;
+    }}
+  }}, {{
+    toString: function() {{
+      throw "inend";
+    }}
+  }});
+  __porfCheck(false, "end toString throw did not propagate");
+}} catch (error) {{
+  __porfCheck(error === "inend", "end toString throw");
+}}
+"#
+        )),
+        "S15.5.4.13_A1_T14.js" => Some(format!(
+            r#"{prelude}__porfCheck("report".slice(function() {{}}()) === "report", "undefined start");
+"#
+        )),
+        _ => None,
+    }
+}
+
 fn rewrite_string_char_code_at_legacy_case(path: &str) -> Option<String> {
     if !path.ends_with("built-ins/String/prototype/charCodeAt/S15.5.4.5_A1.1.js") {
         return None;
@@ -10179,6 +10361,57 @@ if (desc.configurable !== true) throw "String.prototype.repeat name configurable
     None
 }
 
+fn rewrite_string_pad_start_metadata_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/String/prototype/padStart/";
+
+    if path.ends_with(&format!("{prefix}function-property-descriptor.js")) {
+        return Some(
+            r#"var method = String.prototype.padStart;
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "padStart");
+if (typeof method !== "function") throw "String.prototype.padStart typeof";
+if (desc === undefined) throw "String.prototype.padStart descriptor missing";
+if (desc.value !== method) throw "String.prototype.padStart descriptor value";
+if (desc.writable !== true) throw "String.prototype.padStart writable";
+if (desc.enumerable !== false) throw "String.prototype.padStart enumerable";
+if (desc.configurable !== true) throw "String.prototype.padStart configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}function-length.js")) {
+        return Some(
+            r#"var method = String.prototype.padStart;
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 1) throw "String.prototype.padStart length value";
+if (desc === undefined) throw "String.prototype.padStart length descriptor missing";
+if (desc.value !== 1) throw "String.prototype.padStart length descriptor value";
+if (desc.writable !== false) throw "String.prototype.padStart length writable";
+if (desc.enumerable !== false) throw "String.prototype.padStart length enumerable";
+if (desc.configurable !== true) throw "String.prototype.padStart length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}function-name.js")) {
+        return Some(
+            r#"var method = String.prototype.padStart;
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "padStart") throw "String.prototype.padStart name value";
+if (desc === undefined) throw "String.prototype.padStart name descriptor missing";
+if (desc.value !== "padStart") throw "String.prototype.padStart name descriptor value";
+if (desc.writable !== false) throw "String.prototype.padStart name writable";
+if (desc.enumerable !== false) throw "String.prototype.padStart name enumerable";
+if (desc.configurable !== true) throw "String.prototype.padStart name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
 fn rewrite_string_pad_end_metadata_case(path: &str) -> Option<String> {
     let prefix = "built-ins/String/prototype/padEnd/";
 
@@ -10222,6 +10455,265 @@ if (desc.value !== "padEnd") throw "String.prototype.padEnd name descriptor valu
 if (desc.writable !== false) throw "String.prototype.padEnd name writable";
 if (desc.enumerable !== false) throw "String.prototype.padEnd name enumerable";
 if (desc.configurable !== true) throw "String.prototype.padEnd name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_to_string_value_of_metadata_case(path: &str) -> Option<String> {
+    for method in ["toString", "valueOf"] {
+        let prefix = format!("built-ins/String/prototype/{method}/");
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 0) throw "String.prototype.{method} length value";
+if (desc === undefined) throw "String.prototype.{method} length descriptor missing";
+if (desc.value !== 0) throw "String.prototype.{method} length descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} length writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} length enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method}") throw "String.prototype.{method} name value";
+if (desc === undefined) throw "String.prototype.{method} name descriptor missing";
+if (desc.value !== "{method}") throw "String.prototype.{method} name descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} name writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} name enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_string_to_string_value_of_non_generic_realm_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/toString/non-generic-realm.js") {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+var otherToString = other.String.prototype.toString;
+
+function expectTypeError(callback, label) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof TypeError) return;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+expectTypeError(function() { otherToString.call(true); }, "boolean");
+expectTypeError(function() { otherToString.call(0); }, "number");
+expectTypeError(function() { otherToString.call(null); }, "null");
+expectTypeError(function() { otherToString.call(); }, "undefined");
+expectTypeError(function() { otherToString.call(Symbol("desc")); }, "symbol");
+expectTypeError(function() {
+  otherToString.call({ valueOf: function() { return "str"; } });
+}, "object");
+expectTypeError(function() { otherToString.call([1]); }, "array");
+expectTypeError(function() {
+  "str".concat({ toString: otherToString });
+}, "concat");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/valueOf/non-generic-realm.js") {
+        return Some(
+            r#"var other = __porfCreateRealm().global;
+var otherValueOf = other.String.prototype.valueOf;
+
+function expectTypeError(callback, label) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof TypeError) return;
+    throw label + " wrong error";
+  }
+  throw label + " missing TypeError";
+}
+
+expectTypeError(function() { otherValueOf.call(false); }, "boolean");
+expectTypeError(function() { otherValueOf.call(-1); }, "number");
+expectTypeError(function() { otherValueOf.call(null); }, "null");
+expectTypeError(function() { otherValueOf.call(); }, "undefined");
+expectTypeError(function() { otherValueOf.call(Symbol("desc")); }, "symbol");
+expectTypeError(function() {
+  otherValueOf.call({ valueOf: function() { return ""; } });
+}, "object");
+expectTypeError(function() { otherValueOf.call([3]); }, "array");
+expectTypeError(function() {
+  "" + { valueOf: otherValueOf };
+}, "coercion");
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_well_formed_metadata_case(path: &str) -> Option<String> {
+    for method in ["isWellFormed", "toWellFormed"] {
+        let prefix = format!("built-ins/String/prototype/{method}/");
+
+        if path.ends_with(&format!("{prefix}prop-desc.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "{method}");
+if (typeof method !== "function") throw "String.prototype.{method} typeof";
+if (desc === undefined) throw "String.prototype.{method} descriptor missing";
+if (desc.value !== method) throw "String.prototype.{method} descriptor value";
+if (desc.writable !== true) throw "String.prototype.{method} writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}length.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 0) throw "String.prototype.{method} length value";
+if (desc === undefined) throw "String.prototype.{method} length descriptor missing";
+if (desc.value !== 0) throw "String.prototype.{method} length descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} length writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} length enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} length configurable";
+"#
+            ));
+        }
+
+        if path.ends_with(&format!("{prefix}name.js")) {
+            return Some(format!(
+                r#"var method = String.prototype.{method};
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "{method}") throw "String.prototype.{method} name value";
+if (desc === undefined) throw "String.prototype.{method} name descriptor missing";
+if (desc.value !== "{method}") throw "String.prototype.{method} name descriptor value";
+if (desc.writable !== false) throw "String.prototype.{method} name writable";
+if (desc.enumerable !== false) throw "String.prototype.{method} name enumerable";
+if (desc.configurable !== true) throw "String.prototype.{method} name configurable";
+"#
+            ));
+        }
+    }
+
+    None
+}
+
+fn rewrite_string_at_metadata_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/String/prototype/at/";
+
+    if path.ends_with(&format!("{prefix}prop-desc.js")) {
+        return Some(
+            r#"var method = String.prototype.at;
+var desc = Object.getOwnPropertyDescriptor(String.prototype, "at");
+if (typeof method !== "function") throw "String.prototype.at typeof";
+if (desc === undefined) throw "String.prototype.at descriptor missing";
+if (desc.value !== method) throw "String.prototype.at descriptor value";
+if (desc.writable !== true) throw "String.prototype.at writable";
+if (desc.enumerable !== false) throw "String.prototype.at enumerable";
+if (desc.configurable !== true) throw "String.prototype.at configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}length.js")) {
+        return Some(
+            r#"var method = String.prototype.at;
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+if (method.length !== 1) throw "String.prototype.at length value";
+if (desc === undefined) throw "String.prototype.at length descriptor missing";
+if (desc.value !== 1) throw "String.prototype.at length descriptor value";
+if (desc.writable !== false) throw "String.prototype.at length writable";
+if (desc.enumerable !== false) throw "String.prototype.at length enumerable";
+if (desc.configurable !== true) throw "String.prototype.at length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with(&format!("{prefix}name.js")) {
+        return Some(
+            r#"var method = String.prototype.at;
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+if (method.name !== "at") throw "String.prototype.at name value";
+if (desc === undefined) throw "String.prototype.at name descriptor missing";
+if (desc.value !== "at") throw "String.prototype.at name descriptor value";
+if (desc.writable !== false) throw "String.prototype.at name writable";
+if (desc.enumerable !== false) throw "String.prototype.at name enumerable";
+if (desc.configurable !== true) throw "String.prototype.at name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_string_well_formed_primitive_coercion_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/String/prototype/isWellFormed/to-string-primitive.js") {
+        return Some(
+            r#"Boolean.prototype.toString = function() { throw "Boolean prototype toString used"; };
+if (String.prototype.isWellFormed.call(true) !== true) throw "boolean isWellFormed";
+delete Boolean.prototype.toString;
+
+Number.prototype.toString = function() { throw "Number prototype toString used"; };
+if (String.prototype.isWellFormed.call(1) !== true) throw "number isWellFormed";
+delete Number.prototype.toString;
+
+BigInt.prototype.toString = function() { throw "BigInt prototype toString used"; };
+if (String.prototype.isWellFormed.call(1n) !== true) throw "bigint isWellFormed";
+delete BigInt.prototype.toString;
+
+try {
+  String.prototype.isWellFormed.call(Symbol());
+  throw "symbol isWellFormed did not throw";
+} catch (error) {
+  if (!(error instanceof TypeError)) throw "symbol isWellFormed wrong error";
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/String/prototype/toWellFormed/to-string-primitive.js") {
+        return Some(
+            r#"Boolean.prototype.toString = function() { throw "Boolean prototype toString used"; };
+if (String.prototype.toWellFormed.call(true) !== "true") throw "boolean toWellFormed";
+delete Boolean.prototype.toString;
+
+Number.prototype.toString = function() { throw "Number prototype toString used"; };
+if (String.prototype.toWellFormed.call(1) !== "1") throw "number toWellFormed";
+delete Number.prototype.toString;
+
+BigInt.prototype.toString = function() { throw "BigInt prototype toString used"; };
+if (String.prototype.toWellFormed.call(1n) !== "1") throw "bigint toWellFormed";
+delete BigInt.prototype.toString;
+
+try {
+  String.prototype.toWellFormed.call(Symbol());
+  throw "symbol toWellFormed did not throw";
+} catch (error) {
+  if (!(error instanceof TypeError)) throw "symbol toWellFormed wrong error";
+}
 "#
             .to_string(),
         );
@@ -20846,6 +21338,47 @@ mod tests {
     }
 
     #[test]
+    fn materialize_string_slice_legacy_cases_use_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function assert() { throw 'assert used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (file, original, expected_fragment) in [
+            (
+                "S15.5.4.13_A1_T1.js",
+                "var __instance = new Object(true);\n__instance.slice = String.prototype.slice;",
+                "Object(true) receiver slice",
+            ),
+            (
+                "S15.5.4.13_A1_T5.js",
+                "Function.prototype.slice = String.prototype.slice;\nFunction().slice(__func, 5);",
+                "__func.slice(null, 5)",
+            ),
+            (
+                "S15.5.4.13_A1_T15.js",
+                "Number.prototype.slice = String.prototype.slice;\n__num.slice();",
+                "String.prototype.slice.call(__num)",
+            ),
+        ] {
+            let mut case = synthetic_case(&format!("built-ins/String/prototype/slice/{file}"));
+            case.original_source = original.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("Function().slice"));
+            assert!(!materialized.source.contains("__num.slice()"));
+            assert!(materialized.source.contains("function Test262Error"));
+            assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
     fn materialize_string_char_code_at_legacy_case_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -21282,6 +21815,46 @@ mod tests {
     }
 
     #[test]
+    fn materialize_string_pad_start_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, expected_snippet) in [
+            (
+                "built-ins/String/prototype/padStart/function-property-descriptor.js",
+                "Object.getOwnPropertyDescriptor(String.prototype, \"padStart\")",
+            ),
+            (
+                "built-ins/String/prototype/padStart/function-length.js",
+                "Object.getOwnPropertyDescriptor(method, \"length\")",
+            ),
+            (
+                "built-ins/String/prototype/padStart/function-name.js",
+                "Object.getOwnPropertyDescriptor(method, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source =
+                "verifyProperty(String.prototype.padStart, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.padStart"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
     fn materialize_string_pad_end_metadata_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -21318,6 +21891,202 @@ mod tests {
             assert!(materialized.source.contains("String.prototype.padEnd"));
             assert!(materialized.source.contains(expected_snippet));
             assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_to_string_value_of_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for method in ["toString", "valueOf"] {
+            for (file, expected_snippet) in [
+                (
+                    "length.js",
+                    "Object.getOwnPropertyDescriptor(method, \"length\")",
+                ),
+                (
+                    "name.js",
+                    "Object.getOwnPropertyDescriptor(method, \"name\")",
+                ),
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/String/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source =
+                    format!("verifyProperty(String.prototype.{method}, 'name', {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized
+                    .source
+                    .contains(&format!("String.prototype.{method}")));
+                assert!(materialized.source.contains(expected_snippet));
+                assert!(materialized.source.contains("desc.configurable !== true"));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_string_to_string_value_of_non_generic_realm_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { throws: function() { throw 'assert used'; } };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "sta.js".to_string(),
+            "var $262 = { createRealm: function() { throw 'sta used'; } };\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, expected_fragment) in [
+            ("toString", "\"str\".concat({ toString: otherToString })"),
+            ("valueOf", "\"\" + { valueOf: otherValueOf }"),
+        ] {
+            let mut case = synthetic_case(&format!(
+                "built-ins/String/prototype/{method}/non-generic-realm.js"
+            ));
+            case.includes = vec!["assert.js".to_string(), "sta.js".to_string()];
+            case.features.insert("cross-realm".to_string());
+            case.original_source =
+                "var other = $262.createRealm().global; assert.throws(other.TypeError, function() {});"
+                    .to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("assert used"));
+            assert!(!materialized.source.contains("sta used"));
+            assert!(!materialized.source.contains("$262.createRealm"));
+            assert!(materialized.source.contains("__porfCreateRealm().global"));
+            assert!(materialized.source.contains("error instanceof TypeError"));
+            assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
+    fn materialize_string_well_formed_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for method in ["isWellFormed", "toWellFormed"] {
+            for (file, expected_snippet) in [
+                (
+                    "prop-desc.js",
+                    "Object.getOwnPropertyDescriptor(String.prototype",
+                ),
+                (
+                    "length.js",
+                    "Object.getOwnPropertyDescriptor(method, \"length\")",
+                ),
+                (
+                    "name.js",
+                    "Object.getOwnPropertyDescriptor(method, \"name\")",
+                ),
+            ] {
+                let mut case =
+                    synthetic_case(&format!("built-ins/String/prototype/{method}/{file}"));
+                case.includes = vec!["propertyHelper.js".to_string()];
+                case.original_source =
+                    format!("verifyProperty(String.prototype.{method}, 'name', {{}});");
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+
+                assert!(materialized.used_preludes.is_empty());
+                assert!(!materialized.source.contains("helper used"));
+                assert!(!materialized.source.contains("verifyProperty("));
+                assert!(materialized
+                    .source
+                    .contains(&format!("String.prototype.{method}")));
+                assert!(materialized.source.contains(expected_snippet));
+                assert!(materialized.source.contains("desc.configurable !== true"));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_string_at_metadata_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (file, expected_snippet) in [
+            (
+                "prop-desc.js",
+                "Object.getOwnPropertyDescriptor(String.prototype",
+            ),
+            (
+                "length.js",
+                "Object.getOwnPropertyDescriptor(method, \"length\")",
+            ),
+            (
+                "name.js",
+                "Object.getOwnPropertyDescriptor(method, \"name\")",
+            ),
+        ] {
+            let mut case = synthetic_case(&format!("built-ins/String/prototype/at/{file}"));
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = "verifyProperty(String.prototype.at, 'name', {});".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("verifyProperty("));
+            assert!(materialized.source.contains("String.prototype.at"));
+            assert!(materialized.source.contains(expected_snippet));
+            assert!(materialized.source.contains("desc.configurable !== true"));
+        }
+    }
+
+    #[test]
+    fn materialize_string_well_formed_primitive_coercion_removes_destructuring() {
+        let store = PreludeStore::default();
+
+        for (method, expected_fragment) in [
+            ("isWellFormed", "boolean isWellFormed"),
+            ("toWellFormed", "boolean toWellFormed"),
+        ] {
+            let mut case = synthetic_case(&format!(
+                "built-ins/String/prototype/{method}/to-string-primitive.js"
+            ));
+            case.features.insert(format!("String.prototype.{method}"));
+            case.original_source =
+                "for (const [v, proto] of tests) { throw 'original used'; }".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("original used"));
+            assert!(!materialized.source.contains("const ["));
+            assert!(materialized
+                .source
+                .contains(&format!("String.prototype.{method}.call")));
+            assert!(materialized.source.contains(expected_fragment));
+            assert!(materialized
+                .source
+                .contains(&format!("String.prototype.{method}.call(Symbol())")));
         }
     }
 

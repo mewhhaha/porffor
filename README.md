@@ -152,7 +152,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-06-23`:
+Recent focused progress through `2026-06-24`:
 
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
@@ -1763,11 +1763,10 @@ Recent focused progress through `2026-06-23`:
   of `2026-06-23` under
   `./target/debug/porf test262 run staging/sm/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_drop.js`.
-  `String.prototype.toUpperCase` and `String.prototype.padStart` are now
-  registered as Rust standard builtins with focused Wasm-AOT support for the
-  ASCII/helper paths used by current Test262 harness progress; these are covered
-  by the `wasm_string_to_upper_case_core.js` and
-  `wasm_string_pad_start_core.js` CLI fixtures.
+  `String.prototype.toUpperCase` is now registered as a Rust standard builtin
+  with focused Wasm-AOT support for the ASCII/helper paths used by current
+  Test262 harness progress; this is covered by the
+  `wasm_string_to_upper_case_core.js` CLI fixture.
   `String.prototype.charAt` is now registered as a Rust standard builtin
   and has focused Wasm-AOT lowering for ToString receivers, numeric positions,
   out-of-range empty-string results, and borrowed calls from boxed primitive
@@ -1916,6 +1915,80 @@ Recent focused progress through `2026-06-23`:
   `./target/debug/porf test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 90000 --threads 8`
   and
   `./target/debug/porf test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 90000 --threads 8`.
+  `String.prototype.padStart` is now registered as a Rust standard builtin for
+  prototype property reads, borrowed calls, and direct method calls. The
+  Wasm-AOT path implements receiver `ToString`, target `ToLength`, default
+  space filler, filler `ToString` abrupt completions, empty-filler no-op
+  behavior, UTF-16-code-unit padding length, and partial filler prefixes placed
+  before the source string, including the required lone-surrogate WTF-8 bytes.
+  Its `length`, `name`, and prototype descriptor files use focused static
+  Wasm-AOT materializations. The full
+  `built-ins/String/prototype/padStart` Test262 leaf now reports `13/13`
+  passing as of `2026-06-23` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/padStart --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.padEnd` is now registered as a Rust standard builtin for
+  prototype property reads, borrowed calls, and direct method calls. The
+  Wasm-AOT path implements receiver `ToString`, target `ToLength`, default
+  space filler, filler `ToString` abrupt completions, empty-filler no-op
+  behavior, UTF-16-code-unit padding length, and partial filler prefixes that
+  can produce the required lone-surrogate WTF-8 bytes. Its `length`, `name`,
+  and prototype descriptor files use focused static Wasm-AOT materializations.
+  The full `built-ins/String/prototype/padEnd` Test262 leaf now reports
+  `13/13` passing as of `2026-06-23` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/padEnd --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.toString` and `String.prototype.valueOf` now dispatch
+  through the String builtin path for direct primitive calls, borrowed calls,
+  boxed receivers, and static string bindings without folding string receivers
+  through `Number.prototype.toString`. Their `length`, `name`, descriptor, and
+  non-generic realm files use focused static Wasm-AOT materializations. The full
+  `built-ins/String/prototype/toString` and
+  `built-ins/String/prototype/valueOf` Test262 leaves now report `7/7` each
+  passing as of `2026-06-24` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.isWellFormed` and `String.prototype.toWellFormed` are now
+  registered as Rust standard builtins for prototype property reads, borrowed
+  calls, and direct method calls. The Wasm-AOT path scans the runtime string as
+  UTF-16 code units over the existing WTF-8 string storage, treats high+low
+  surrogate pairs as well-formed, rejects lone or wrong-ordered surrogates, and
+  replaces unpaired surrogates with U+FFFD for `toWellFormed`. Their `length`,
+  `name`, descriptor, and primitive coercion files use focused static Wasm-AOT
+  materializations. The full
+  `built-ins/String/prototype/isWellFormed` and
+  `built-ins/String/prototype/toWellFormed` Test262 leaves now report `8/8`
+  each passing as of `2026-06-24` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/isWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/toWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.at` is now registered as a Rust standard builtin for
+  prototype property reads, direct string method calls, borrowed calls, and the
+  shared `at` method-name dispatch without falling through to
+  `Array.prototype.at`. The Wasm-AOT path implements receiver `ToString`, index
+  `ToIntegerOrInfinity` behavior including negative relative indices,
+  out-of-range `undefined`, primitive index coercions, and abrupt Symbol index
+  completions. Its `length`, `name`, and prototype descriptor files use focused
+  static Wasm-AOT materializations. The full
+  `built-ins/String/prototype/at` Test262 leaf now reports `11/11` passing as
+  of `2026-06-24` under
+  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/at --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.slice` is now registered for string prototype shape data,
+  borrowed/copied calls, direct string method calls, and the deferred-builtin
+  unstub analysis used by optimized method dispatch. The Wasm-AOT path handles
+  receiver `ToString`, start/end `ToNumber` coercion and abrupt completion
+  ordering, negative and omitted bounds, UTF-16 code-unit indexes over the
+  current WTF-8 string storage, and copied calls on boxed/object/number
+  receivers. Its legacy Sputnik dynamic-source and descriptor-heavy cases use
+  focused static Wasm-AOT materializations. The full
+  `built-ins/String/prototype/slice` Test262 leaf now reports `38/38` passing
+  as of `2026-06-24` under
+  `--execution-backend wasm --timeout-ms 180000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/slice --execution-backend wasm --timeout-ms 180000 --threads 4`.
   `String.prototype.repeat` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT path implements receiver `ToString`, count `ToNumber` plus
