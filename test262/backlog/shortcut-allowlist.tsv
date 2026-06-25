@@ -1,0 +1,5 @@
+# key	max_count	owner_task	removal_task	reason
+path_rewrite_entrypoints	107	T03	T26-unclassified	Mechanical inventory of current Test262 materialization rewrite entrypoints; each concrete rewrite must be retired by its owning feature task as general semantics land.
+direct_path_predicates	358	T03	T26-unclassified	Mechanical ceiling for current exact-path or path-prefix decisions; routing-only predicates may remain, semantic path predicates need owner-specific removal work.
+source_text_predicates	590	T03	T26-unclassified	Mechanical ceiling for current source-text checks; structured metadata, IR diagnostics, or product semantics should replace semantic source matching.
+harness_helper_reductions	337	T03	T26-unclassified	Mechanical ceiling for current shell/helper reductions; legitimate harness adaptation must stay documented and product semantics must move to compiler/runtime code.

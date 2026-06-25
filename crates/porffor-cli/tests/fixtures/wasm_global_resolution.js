@@ -1,10 +1,10 @@
-globalThis.x = 1;
-x;
+globalThis.globalX = 1;
+globalX;
 
 missing = 2;
 
 function readGlobal() {
-  return x;
+  return globalX;
 }
 
 function writeGlobal() {
@@ -12,9 +12,9 @@ function writeGlobal() {
   return y;
 }
 
-let x = 4;
-globalThis.x = 5;
+let localX = 4;
+globalThis.localX = 5;
 
 readGlobal();
 writeGlobal();
-x;
+localX;

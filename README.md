@@ -143,6 +143,27 @@ Useful status and triage commands:
 ./target/debug/porf test262 failure-details language/wasm --execution-backend wasm-aot
 ```
 
+## Contribution Protocol
+
+Task work is tracked under `tasks/`. Before opening a change that affects the
+Rust rewrite or conformance story, run:
+
+```sh
+./scripts/check-task-plan.sh
+./scripts/check-module-boundaries.sh
+```
+
+Use the pull request template fields to keep fake-suite smoke evidence separate
+from pinned real Test262 evidence. `Unsupported`, timeout, crash, and bug are all
+non-passing outcomes. The generated README status block must only move with the
+publisher output and its snapshot artifacts; documentation-only edits belong
+outside the `porffor-status` markers.
+
+Until T02 lands and splits the monolithic IR and Wasm backend modules, treat
+`crates/porffor-ir/src/lib.rs` and `crates/porffor-aot-wasm/src/lib.rs` as
+single-owner files. Feature work that needs shared ABI changes should land the
+interface first under T04 rather than mixing unrelated feature lanes.
+
 ## Current Capabilities
 
 Rust Wasm-AOT currently compiles a limited but useful JavaScript subset. Treat
@@ -2204,6 +2225,10 @@ cargo test -p porffor-test262 --quiet
 The workspace forbids unsafe Rust through workspace lints. Keep changes scoped
 to the Rust path unless a legacy file is being used deliberately as an oracle or
 fixture source.
+
+Repository contract checks cover the task plan, Rust module-boundary split,
+generated README status edits, the Test262 shortcut allowlist, and the `$262`
+host ABI contract in `test262/backlog/host-abi.tsv`.
 
 ## The Name
 

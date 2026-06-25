@@ -1284,6 +1284,7 @@ dependencies = [
  "porffor-runtime",
  "porffor-spec-exec",
  "wasmi",
+ "wasmparser",
 ]
 
 [[package]]

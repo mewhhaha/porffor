@@ -36,6 +36,7 @@ function check(name, symbol, expectedArgs) {
   if (invoke(name, target) !== null) throw name + " result";
   if (gets !== 1) throw name + " getter";
   total += gets;
+  delete target[symbol];
 }
 
 check("match", Symbol.match, 1);

@@ -188,11 +188,15 @@ var $262 = {
     getReport: function () {
       __porfUnsupportedHost('agent.getReport');
     },
-    sleep: function () {},
-    monotonicNow: function () {
-      return 0;
+    sleep: function () {
+      __porfUnsupportedHost('agent.sleep');
     },
-    leaving: function () {}
+    monotonicNow: function () {
+      __porfUnsupportedHost('agent.monotonicNow');
+    },
+    leaving: function () {
+      __porfUnsupportedHost('agent.leaving');
+    }
   }
 };
 

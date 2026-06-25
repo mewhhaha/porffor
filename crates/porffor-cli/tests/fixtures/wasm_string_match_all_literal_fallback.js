@@ -1,25 +1,25 @@
-function check(actual, expected, label) {
+function check(actual, expected) {
   if (actual !== expected) {
-    throw label + ": " + actual + " !== " + expected;
+    throw "check failed";
   }
 }
 
-function checkMatch(match, value, index, input, label) {
-  check(match[0], value, label + " value");
-  check(match.length, 1, label + " length");
-  check(match.index, index, label + " index");
-  check(match.input, input, label + " input");
+function checkMatch(match, value, index, input) {
+  check(match[0], value);
+  check(match.length, 1);
+  check(match.index, index);
+  check(match.input, input);
 }
 
 var commaMatches = Array.from("a,b,c".matchAll(","));
-check(commaMatches.length, 2, "comma match count");
-checkMatch(commaMatches[0], ",", 1, "a,b,c", "comma first");
-checkMatch(commaMatches[1], ",", 3, "a,b,c", "comma second");
+check(commaMatches.length, 2);
+checkMatch(commaMatches[0], ",", 1, "a,b,c");
+checkMatch(commaMatches[1], ",", 3, "a,b,c");
 
 var numberMatches = Array.from("a1b1c".matchAll(1));
-check(numberMatches.length, 2, "number match count");
-checkMatch(numberMatches[0], "1", 1, "a1b1c", "number first");
-checkMatch(numberMatches[1], "1", 3, "a1b1c", "number second");
+check(numberMatches.length, 2);
+checkMatch(numberMatches[0], "1", 1, "a1b1c");
+checkMatch(numberMatches[1], "1", 3, "a1b1c");
 
 var calls = 0;
 var overrideArg;
@@ -35,7 +35,7 @@ var receiver = {
   }
 };
 String.prototype.matchAll.call(receiver, null);
-check(overrideArg, "abc", "override arg");
-check(calls, 2, "override calls");
+check(overrideArg, "abc");
+check(calls, 2);
 
 true;

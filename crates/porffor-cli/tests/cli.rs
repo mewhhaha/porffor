@@ -44,6 +44,27 @@ fn unique_project_dir(name: &str) -> std::path::PathBuf {
     root
 }
 
+fn copy_dir_recursive(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("copy destination should be created");
+    for entry in fs::read_dir(from).expect("copy source should read") {
+        let entry = entry.expect("copy source entry should read");
+        let source = entry.path();
+        let destination = to.join(entry.file_name());
+        if source.is_dir() {
+            copy_dir_recursive(&source, &destination);
+        } else {
+            fs::copy(&source, &destination).expect("copy file should succeed");
+        }
+    }
+}
+
+fn copied_suite_root(name: &str) -> String {
+    let root = unique_project_dir(name);
+    let suite = root.join("vendor").join("test262");
+    copy_dir_recursive(Path::new(&suite_root()), &suite);
+    suite.display().to_string()
+}
+
 fn write_project_file(root: &Path, relative_path: &str, source: &str) {
     let path = root.join(relative_path);
     fs::create_dir_all(path.parent().expect("test path should have a parent"))
@@ -511,7 +532,7 @@ fn inspect_reports_phase_eighteen_global_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("global_bindings=47"));
+    assert!(stdout.contains("global_bindings=50"));
     assert!(stdout.contains("global_this_uses=4"));
     assert!(stdout.contains("top_level_this_uses=1"));
     assert!(stdout.contains("global_default_this_calls=2"));
@@ -602,7 +623,7 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("builtin_globals=36"));
+    assert!(stdout.contains("builtin_globals=39"));
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));
@@ -5926,6 +5947,82 @@ fn test262_report_all_aggregates_fixture_suite() {
     assert!(stdout.contains("total: 190"));
     assert!(stdout.contains("passed: 190"));
     assert!(stdout.contains("targets:"));
+}
+
+#[test]
+fn test262_backlog_and_snapshot_compare_read_completed_matrix_snapshots() {
+    let snapshot_dir = unique_snapshot_dir("backlog-compare");
+    let suite_root = copied_suite_root("backlog-compare");
+    let base_snapshot_name = "cli-backlog-compare-base";
+    let candidate_snapshot_name = "cli-backlog-compare-candidate";
+    for snapshot_name in [base_snapshot_name, candidate_snapshot_name] {
+        let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+            .arg("test262")
+            .arg("report-all")
+            .arg("--suite-root")
+            .arg(&suite_root)
+            .arg("--snapshot-dir")
+            .arg(&snapshot_dir)
+            .arg("--snapshot-name")
+            .arg(snapshot_name)
+            .output()
+            .expect("test262 report-all should run");
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let backlog = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("generate-backlog")
+        .arg("--suite-root")
+        .arg(&suite_root)
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(candidate_snapshot_name)
+        .output()
+        .expect("test262 generate-backlog should run");
+
+    assert!(
+        backlog.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backlog.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&backlog.stdout);
+    assert!(stdout.contains("execution_backend: spec-exec"));
+    assert!(stdout.contains("total: 190"));
+    assert!(stdout.contains("records: 0"));
+    assert!(stdout.contains("backlog_json:"));
+    assert!(stdout.contains("backlog_txt:"));
+
+    let compare = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("test262")
+        .arg("compare-snapshots")
+        .arg(base_snapshot_name)
+        .arg("--suite-root")
+        .arg(&suite_root)
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg(candidate_snapshot_name)
+        .output()
+        .expect("test262 compare-snapshots should run");
+
+    assert!(
+        compare.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compare.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&compare.stdout);
+    assert!(stdout.contains("base_snapshot: cli-backlog-compare-base"));
+    assert!(stdout.contains("candidate_snapshot: cli-backlog-compare-candidate"));
+    assert!(stdout.contains("added_passes: 0"));
+    assert!(stdout.contains("regressions: 0"));
+    assert!(stdout.contains("changed_failure_hashes: 0"));
 }
 
 #[test]

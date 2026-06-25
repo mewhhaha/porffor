@@ -467,6 +467,76 @@ pub struct RunMatrixNode {
     pub case_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklogArtifact {
+    pub snapshot_version: u32,
+    pub matrix_strategy_version: u32,
+    pub execution_backend: String,
+    pub pinned_revisions: PinnedRevisions,
+    pub manifest_hash: u64,
+    pub snapshot_name: String,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub records: Vec<BacklogRecord>,
+    pub summary_by_task: BTreeMap<String, usize>,
+    pub summary_by_feature: BTreeMap<String, usize>,
+    pub summary_by_failure_hash: BTreeMap<String, usize>,
+    pub slowest_subtrees: Vec<BacklogSlowSubtree>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklogRecord {
+    pub test_path: String,
+    pub features: Vec<String>,
+    pub flags: Vec<String>,
+    pub includes: Vec<String>,
+    pub negative_phase: Option<String>,
+    pub negative_type: Option<String>,
+    pub failure_kind: String,
+    pub outcome: String,
+    pub origin: String,
+    pub normalized_detail: String,
+    pub detail_hash: u64,
+    pub duration_ms: Option<u128>,
+    pub timed_out: bool,
+    pub matrix_node: String,
+    pub owner_task_id: String,
+    pub debt_category: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacklogSlowSubtree {
+    pub subtree: String,
+    pub duration_ms: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BacklogPaths {
+    pub json_path: PathBuf,
+    pub txt_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotComparison {
+    pub base_snapshot_name: String,
+    pub candidate_snapshot_name: String,
+    pub execution_backend: ExecutionBackend,
+    pub pinned_revisions: PinnedRevisions,
+    pub base_total: usize,
+    pub candidate_total: usize,
+    pub added_passes: Vec<String>,
+    pub regressions: Vec<String>,
+    pub changed_failure_hashes: Vec<ChangedFailureHash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedFailureHash {
+    pub test_path: String,
+    pub base_hash: u64,
+    pub candidate_hash: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatrixRunSummary {
     pub nodes: Vec<RunMatrixNode>,
@@ -679,6 +749,28 @@ impl ConformanceRunner {
             node_selector,
         )
     }
+
+    pub fn generate_backlog(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<(BacklogArtifact, BacklogPaths), String> {
+        generate_backlog(&self.config, snapshot_name, execution_backend)
+    }
+
+    pub fn compare_snapshots(
+        &self,
+        base_snapshot_name: &str,
+        candidate_snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<SnapshotComparison, String> {
+        compare_snapshots(
+            &self.config,
+            base_snapshot_name,
+            candidate_snapshot_name,
+            execution_backend,
+        )
+    }
 }
 
 pub fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
@@ -821,7 +913,7 @@ pub fn materialize_test(
         if case.flags.contains("async") {
             if let Some(prelude) = preludes.get("doneprintHandle.js") {
                 source.push_str(&prelude.contents);
-                source.push_str("globalThis.$DONE = $DONE;\n");
+                source.push_str(TEST262_ASYNC_DONE_GUARD_PRELUDE);
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
         }
@@ -908,6 +1000,19 @@ assert.sameValue = function (actual, expected, message) {
   message = message + 'Expected SameValue(' + __porfAssertToString(actual) + ', ' + __porfAssertToString(expected) + ') to be true';
   throw message;
 };
+"#;
+
+const TEST262_ASYNC_DONE_GUARD_PRELUDE: &str = r#"
+var __porfTest262AsyncDone = { active: true, called: false };
+var __porfTest262OriginalDONE = $DONE;
+$DONE = function $DONE(error) {
+  if (__porfTest262AsyncDone.called) {
+    throw new Error('host harness async $DONE called multiple times');
+  }
+  __porfTest262AsyncDone.called = true;
+  return __porfTest262OriginalDONE(error);
+};
+globalThis.$DONE = $DONE;
 "#;
 
 const WASM_AOT_NATIVE_FUNCTION_MATCHER_PRELUDE: &str = r#"
@@ -18711,7 +18816,9 @@ fn aggregate_snapshot(
 
 fn classify_engine_error(message: &str) -> FailureKind {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("runtime execution for wasm is not implemented yet")
+    if lower.contains("local harness host") || lower.contains("host harness") {
+        FailureKind::HostHarness
+    } else if lower.contains("runtime execution for wasm is not implemented yet")
         || lower.contains("not supported in porffor-spec-exec")
         || lower.contains("not supported in porffor")
         || lower.contains("detacharraybuffer")
@@ -19971,6 +20078,489 @@ pub fn load_matrix_failure_details(
     })
 }
 
+pub fn generate_backlog(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<(BacklogArtifact, BacklogPaths), String> {
+    let verified = load_verified_aggregate_summary(config, snapshot_name, execution_backend)?;
+    let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let cases_by_path = discover_suite(config, None)?
+        .cases
+        .into_iter()
+        .map(|case| (case.path.clone(), case))
+        .collect::<BTreeMap<_, _>>();
+    let owner_rules = load_backlog_owner_rules(config)?;
+
+    let mut records = Vec::new();
+    let mut duration_by_path = BTreeMap::new();
+    let mut timeout_paths = BTreeSet::new();
+    for node in &nodes {
+        let Some(snapshot) =
+            load_completed_node_snapshot(config, snapshot_name, node, execution_backend)?
+        else {
+            continue;
+        };
+        for (path, duration_ms) in snapshot.slowest_tests {
+            duration_by_path.insert(path, duration_ms);
+        }
+        timeout_paths.extend(snapshot.timeout_list);
+        for failure in snapshot.failures {
+            let case = cases_by_path.get(&failure.test_path);
+            let features = sorted_set_values(case.map(|case| &case.features));
+            let flags = sorted_set_values(case.map(|case| &case.flags));
+            let includes = case
+                .map(|case| case.includes.clone())
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let (negative_phase, negative_type) = case
+                .and_then(|case| case.negative.as_ref())
+                .map(|negative| {
+                    (
+                        Some(negative.phase.clone()),
+                        Some(negative.error_type.clone()),
+                    )
+                })
+                .unwrap_or((None, None));
+            let normalized_detail = normalize_backlog_detail(&failure.detail);
+            let (owner_task_id, debt_category) =
+                classify_backlog_owner(&failure, case, &owner_rules);
+            records.push(BacklogRecord {
+                test_path: failure.test_path.clone(),
+                features,
+                flags,
+                includes,
+                negative_phase,
+                negative_type,
+                failure_kind: failure.kind.as_str().to_string(),
+                outcome: failure.outcome.as_str().to_string(),
+                origin: failure.origin.as_str().to_string(),
+                normalized_detail,
+                detail_hash: failure.detail_hash,
+                duration_ms: duration_by_path.get(&failure.test_path).copied(),
+                timed_out: timeout_paths.contains(&failure.test_path)
+                    || failure.detail.to_ascii_lowercase().contains("timeout"),
+                matrix_node: node.node_id.clone(),
+                owner_task_id,
+                debt_category,
+            });
+        }
+    }
+    records.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+    if records.len() != verified.summary.failed {
+        return Err(format!(
+            "backlog record count mismatch for {snapshot_name}: expected {} failures from verified aggregate, collected {} from node snapshots",
+            verified.summary.failed,
+            records.len()
+        ));
+    }
+
+    let mut summary_by_task = BTreeMap::new();
+    let mut summary_by_feature = BTreeMap::new();
+    let mut summary_by_failure_hash = BTreeMap::new();
+    let mut slow_by_subtree = BTreeMap::<String, u128>::new();
+    for record in &records {
+        *summary_by_task
+            .entry(record.owner_task_id.clone())
+            .or_insert(0) += 1;
+        if record.features.is_empty() {
+            *summary_by_feature.entry("(none)".to_string()).or_insert(0) += 1;
+        } else {
+            for feature in &record.features {
+                *summary_by_feature.entry(feature.clone()).or_insert(0) += 1;
+            }
+        }
+        *summary_by_failure_hash
+            .entry(format!("{:016x}", record.detail_hash))
+            .or_insert(0) += 1;
+        if let Some(duration_ms) = record.duration_ms {
+            *slow_by_subtree
+                .entry(top_level_subtree(&record.test_path))
+                .or_insert(0) += duration_ms;
+        }
+    }
+    let mut slowest_subtrees = slow_by_subtree
+        .into_iter()
+        .map(|(subtree, duration_ms)| BacklogSlowSubtree {
+            subtree,
+            duration_ms,
+        })
+        .collect::<Vec<_>>();
+    slowest_subtrees.sort_by(|left, right| {
+        right
+            .duration_ms
+            .cmp(&left.duration_ms)
+            .then_with(|| left.subtree.cmp(&right.subtree))
+    });
+    slowest_subtrees.truncate(25);
+
+    let artifact = BacklogArtifact {
+        snapshot_version: SNAPSHOT_VERSION,
+        matrix_strategy_version: MATRIX_STRATEGY_VERSION,
+        execution_backend: execution_backend.as_str().to_string(),
+        pinned_revisions: verified.pinned_revisions.clone(),
+        manifest_hash: verified.manifest_hash,
+        snapshot_name: snapshot_name.to_string(),
+        total: verified.summary.total,
+        passed: verified.summary.passed,
+        failed: verified.summary.failed,
+        records,
+        summary_by_task,
+        summary_by_feature,
+        summary_by_failure_hash,
+        slowest_subtrees,
+    };
+    let paths = write_backlog_artifact(config, &artifact)?;
+    Ok((artifact, paths))
+}
+
+pub fn compare_snapshots(
+    config: &SuiteConfig,
+    base_snapshot_name: &str,
+    candidate_snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<SnapshotComparison, String> {
+    let base = load_verified_aggregate_summary(config, base_snapshot_name, execution_backend)?;
+    let candidate =
+        load_verified_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
+    if base.pinned_revisions != candidate.pinned_revisions {
+        return Err(format!(
+            "snapshot pin mismatch: base ecma262={} test262={}, candidate ecma262={} test262={}",
+            base.pinned_revisions.ecma262,
+            base.pinned_revisions.test262,
+            candidate.pinned_revisions.ecma262,
+            candidate.pinned_revisions.test262
+        ));
+    }
+    if base.manifest_hash != candidate.manifest_hash {
+        return Err(format!(
+            "snapshot manifest mismatch: base {}, candidate {}",
+            base.manifest_hash, candidate.manifest_hash
+        ));
+    }
+
+    let base_failures = load_failure_map(config, base_snapshot_name, execution_backend)?;
+    let candidate_failures = load_failure_map(config, candidate_snapshot_name, execution_backend)?;
+    if base_failures.len() != base.summary.failed {
+        return Err(format!(
+            "failure snapshot count mismatch for {base_snapshot_name}: expected {} failures from verified aggregate, collected {} from node snapshots",
+            base.summary.failed,
+            base_failures.len()
+        ));
+    }
+    if candidate_failures.len() != candidate.summary.failed {
+        return Err(format!(
+            "failure snapshot count mismatch for {candidate_snapshot_name}: expected {} failures from verified aggregate, collected {} from node snapshots",
+            candidate.summary.failed,
+            candidate_failures.len()
+        ));
+    }
+    let mut added_passes = base_failures
+        .keys()
+        .filter(|path| !candidate_failures.contains_key(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    added_passes.sort();
+    let mut regressions = candidate_failures
+        .keys()
+        .filter(|path| !base_failures.contains_key(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    regressions.sort();
+    let mut changed_failure_hashes = Vec::new();
+    for (path, base_failure) in &base_failures {
+        let Some(candidate_failure) = candidate_failures.get(path) else {
+            continue;
+        };
+        if base_failure.detail_hash != candidate_failure.detail_hash {
+            changed_failure_hashes.push(ChangedFailureHash {
+                test_path: path.clone(),
+                base_hash: base_failure.detail_hash,
+                candidate_hash: candidate_failure.detail_hash,
+            });
+        }
+    }
+    changed_failure_hashes.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+
+    Ok(SnapshotComparison {
+        base_snapshot_name: base_snapshot_name.to_string(),
+        candidate_snapshot_name: candidate_snapshot_name.to_string(),
+        execution_backend,
+        pinned_revisions: base.pinned_revisions,
+        base_total: base.summary.total,
+        candidate_total: candidate.summary.total,
+        added_passes,
+        regressions,
+        changed_failure_hashes,
+    })
+}
+
+fn load_failure_map(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<BTreeMap<String, FailureRecord>, String> {
+    let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let mut map = BTreeMap::new();
+    for node in &nodes {
+        let Some(snapshot) =
+            load_completed_node_snapshot(config, snapshot_name, node, execution_backend)?
+        else {
+            continue;
+        };
+        for failure in snapshot.failures {
+            map.insert(failure.test_path.clone(), failure);
+        }
+    }
+    Ok(map)
+}
+
+fn load_completed_node_snapshot(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    node: &RunMatrixNode,
+    execution_backend: ExecutionBackend,
+) -> Result<Option<ProgressSnapshot>, String> {
+    let expected_pinned = pinned_revisions(config);
+    let manifest_hash = hash_manifest_case_paths(
+        &expected_pinned,
+        &node.case_paths,
+        Some(node.filter.as_str()),
+    );
+    let node_snapshot_name = format!(
+        "{}-{}",
+        snapshot_name,
+        sanitize_filter_for_snapshot(&node.node_id)
+    );
+    let path = config
+        .snapshot_dir
+        .join(format!("{}-{}.json", node_snapshot_name, manifest_hash));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let file = read_snapshot_file(&path)?;
+    let summary_entry = TopLevelRunSummary {
+        node_id: node.node_id.clone(),
+        node_kind: node.node_kind,
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: node.total_cases,
+        passed: 0,
+        failed: 0,
+        counts_per_kind: BTreeMap::new(),
+        counts_per_outcome: empty_outcome_counts(),
+        counts_per_origin: BTreeMap::new(),
+        manifest_hash,
+    };
+    validate_resume_node_snapshot(
+        &file,
+        &path,
+        &summary_entry,
+        execution_backend,
+        &expected_pinned,
+    )?;
+    if file.completed_paths.len() != node.case_paths.len() {
+        return Ok(None);
+    }
+    snapshot_from_file(file)
+        .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))
+        .map(Some)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BacklogOwnerRule {
+    prefix: String,
+    task_id: String,
+    debt_category: String,
+}
+
+fn load_backlog_owner_rules(config: &SuiteConfig) -> Result<Vec<BacklogOwnerRule>, String> {
+    let path = test262_root_from_config(config).join("backlog/ownership-map.tsv");
+    let raw = fs::read_to_string(&path).unwrap_or_else(|_| DEFAULT_BACKLOG_OWNERSHIP.to_string());
+    let mut rules = Vec::new();
+    let mut prefixes = BTreeSet::new();
+    for (index, line) in raw.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let parts = line.split('\t').collect::<Vec<_>>();
+        if parts.len() != 3 {
+            return Err(format!(
+                "invalid backlog ownership map line {} in {}: expected prefix<TAB>task_id<TAB>debt_category",
+                index + 1,
+                path.display()
+            ));
+        }
+        let prefix = parts[0].trim();
+        let task_id = parts[1].trim();
+        let debt_category = parts[2].trim();
+        if prefix.is_empty() || task_id.is_empty() || debt_category.is_empty() {
+            return Err(format!(
+                "invalid backlog ownership map line {} in {}: fields must be non-empty",
+                index + 1,
+                path.display()
+            ));
+        }
+        if !is_valid_backlog_task_id(task_id) {
+            return Err(format!(
+                "invalid backlog ownership map line {} in {}: unknown task id `{}`",
+                index + 1,
+                path.display(),
+                task_id
+            ));
+        }
+        if !prefixes.insert(prefix.to_string()) {
+            return Err(format!(
+                "invalid backlog ownership map line {} in {}: duplicate prefix `{}`",
+                index + 1,
+                path.display(),
+                prefix
+            ));
+        }
+        rules.push(BacklogOwnerRule {
+            prefix: prefix.to_string(),
+            task_id: task_id.to_string(),
+            debt_category: debt_category.to_string(),
+        });
+    }
+    rules.sort_by(|left, right| right.prefix.len().cmp(&left.prefix.len()));
+    Ok(rules)
+}
+
+const DEFAULT_BACKLOG_OWNERSHIP: &str = "language\tT07\tparser\nbuilt-ins\tT24\tsemantic\n";
+
+fn is_valid_backlog_task_id(task_id: &str) -> bool {
+    if task_id == "T26-unclassified" {
+        return true;
+    }
+    let Some(num) = task_id.strip_prefix('T') else {
+        return false;
+    };
+    num.len() == 2 && num.parse::<u8>().is_ok_and(|value| value <= 26)
+}
+
+fn classify_backlog_owner(
+    failure: &FailureRecord,
+    case: Option<&TestCase>,
+    rules: &[BacklogOwnerRule],
+) -> (String, String) {
+    if matches!(failure.kind, FailureKind::Parser | FailureKind::EarlyError) {
+        return ("T07".to_string(), "parser".to_string());
+    }
+    if failure.kind == FailureKind::Lowering {
+        return ("T04".to_string(), "semantic".to_string());
+    }
+    if failure.kind == FailureKind::HostHarness || failure.origin == FailureOrigin::LocalHarness {
+        return ("T03".to_string(), "infrastructure".to_string());
+    }
+    if case.is_some_and(|case| {
+        case.features
+            .iter()
+            .any(|feature| feature == "eval" || feature == "dynamic-import")
+    }) {
+        return ("T13".to_string(), "dynamic-source".to_string());
+    }
+    for rule in rules {
+        if failure.test_path == rule.prefix
+            || failure.test_path.starts_with(&format!("{}/", rule.prefix))
+        {
+            return (rule.task_id.clone(), rule.debt_category.clone());
+        }
+    }
+    ("T26-unclassified".to_string(), "unclassified".to_string())
+}
+
+fn write_backlog_artifact(
+    config: &SuiteConfig,
+    artifact: &BacklogArtifact,
+) -> Result<BacklogPaths, String> {
+    let backlog_dir = test262_root_from_config(config)
+        .join("backlog")
+        .join(&artifact.pinned_revisions.test262);
+    fs::create_dir_all(&backlog_dir).map_err(|err| {
+        format!(
+            "failed to create backlog dir {}: {err}",
+            backlog_dir.display()
+        )
+    })?;
+    let json_path = backlog_dir.join(format!("{}.json", artifact.execution_backend));
+    let txt_path = backlog_dir.join(format!("{}.txt", artifact.execution_backend));
+    let json = serde_json::to_string_pretty(artifact)
+        .map(|json| format!("{json}\n"))
+        .map_err(|err| format!("failed to serialize backlog artifact: {err}"))?;
+    fs::write(&json_path, json)
+        .map_err(|err| format!("failed to write backlog {}: {err}", json_path.display()))?;
+    fs::write(&txt_path, render_backlog_summary(artifact))
+        .map_err(|err| format!("failed to write backlog {}: {err}", txt_path.display()))?;
+    Ok(BacklogPaths {
+        json_path,
+        txt_path,
+    })
+}
+
+fn render_backlog_summary(artifact: &BacklogArtifact) -> String {
+    let mut out = String::new();
+    writeln!(
+        &mut out,
+        "test262 backlog {} snapshot={}",
+        artifact.execution_backend, artifact.snapshot_name
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "pinned: ecma262={} test262={}",
+        artifact.pinned_revisions.ecma262, artifact.pinned_revisions.test262
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "total={} passed={} failed={} records={}",
+        artifact.total,
+        artifact.passed,
+        artifact.failed,
+        artifact.records.len()
+    )
+    .unwrap();
+    writeln!(&mut out, "by_task:").unwrap();
+    for (task, count) in &artifact.summary_by_task {
+        writeln!(&mut out, "  {task}: {count}").unwrap();
+    }
+    writeln!(&mut out, "top_failure_hashes:").unwrap();
+    for (hash, count) in artifact.summary_by_failure_hash.iter().take(25) {
+        writeln!(&mut out, "  {hash}: {count}").unwrap();
+    }
+    writeln!(&mut out, "slowest_subtrees:").unwrap();
+    for entry in &artifact.slowest_subtrees {
+        writeln!(&mut out, "  {}: {}ms", entry.subtree, entry.duration_ms).unwrap();
+    }
+    out
+}
+
+fn test262_root_from_config(config: &SuiteConfig) -> PathBuf {
+    config
+        .suite_root
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("test262"))
+}
+
+fn sorted_set_values(values: Option<&BTreeSet<String>>) -> Vec<String> {
+    values
+        .map(|values| values.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn normalize_backlog_detail(detail: &str) -> String {
+    detail
+        .replace('\\', "/")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn outcome_rank(outcome: OutcomeKind) -> usize {
     match outcome {
         OutcomeKind::Crash => 0,
@@ -20444,6 +21034,14 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
     }
 
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("crate should live under <repo>/crates/porffor-test262")
+            .to_path_buf()
+    }
+
     fn fixture_config() -> SuiteConfig {
         let root = fixture_root();
         SuiteConfig {
@@ -20454,6 +21052,14 @@ mod tests {
             worker_count: 2,
             case_runner_bin: None,
         }
+    }
+
+    fn top_level_host_preludes() -> PreludeStore {
+        let config = SuiteConfig {
+            local_harness_path: repo_root().join("test262/harness.js"),
+            ..fixture_config()
+        };
+        load_preludes(&config).expect("top-level host preludes should load")
     }
 
     fn synthetic_case(path: &str) -> TestCase {
@@ -20467,6 +21073,25 @@ mod tests {
             negative: None,
             is_module: false,
         }
+    }
+
+    fn async_done_preludes() -> PreludeStore {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "doneprintHandle.js".to_string(),
+            r#"
+function $DONE(error) {
+  if (error) {
+    print('Test262:AsyncTestFailure:Test262Error: ' + String(error));
+  } else {
+    print('Test262:AsyncTestComplete');
+  }
+}
+"#
+            .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store
     }
 
     fn unique_temp_path(label: &str) -> PathBuf {
@@ -20542,6 +21167,251 @@ mod tests {
         assert!(materialized.source.starts_with("\"use strict\";"));
         assert!(materialized.source.contains("local assert"));
         assert!(materialized.source.contains("vendored helper"));
+    }
+
+    #[test]
+    fn classify_engine_error_marks_host_harness_unsupported() {
+        assert_eq!(
+            classify_engine_error("Test262Error: local harness host createRealm unsupported"),
+            FailureKind::HostHarness
+        );
+        assert_eq!(
+            classify_engine_error("agent.start unsupported in wasm-aot host harness"),
+            FailureKind::HostHarness
+        );
+    }
+
+    #[test]
+    fn local_host_harness_fails_unsupported_host_capabilities_visibly() {
+        let harness = fs::read_to_string(repo_root().join("test262/harness.js"))
+            .expect("local harness should read");
+
+        assert!(harness.contains("local harness host ' + name + ' unsupported"));
+        assert!(harness.contains("__porfUnsupportedHost('createRealm')"));
+        assert!(harness.contains("__porfUnsupportedHost('evalScript')"));
+        assert!(harness.contains("__porfUnsupportedHost('AbstractModuleSource')"));
+        assert!(harness.contains("__porfUnsupportedHost('IsHTMLDDA')"));
+        assert!(harness.contains("__porfUnsupportedHost('detachArrayBuffer')"));
+        assert!(harness.contains("__porfUnsupportedHost('gc')"));
+        assert!(!harness.contains("return {\n      global: globalThis"));
+        assert!(!harness.contains("global: globalThis,\n      evalScript"));
+    }
+
+    #[test]
+    fn local_host_harness_has_no_fake_agent_source_evaluation() {
+        let harness = fs::read_to_string(repo_root().join("test262/harness.js"))
+            .expect("local harness should read");
+
+        for forbidden in [
+            "new Function(\"$262\"",
+            "patternSource.match",
+            "installAtomicsHostShim",
+            "fakeWait",
+            "_run(source)",
+            "_resolveWaitersFor",
+        ] {
+            assert!(
+                !harness.contains(forbidden),
+                "local harness must not contain fake agent machinery: {forbidden}"
+            );
+        }
+
+        for required in [
+            "__porfUnsupportedAgentMethod('start')",
+            "__porfUnsupportedAgentMethod('broadcast')",
+            "__porfUnsupportedAgentMethod('receiveBroadcast')",
+            "__porfUnsupportedAgentMethod('report')",
+            "__porfUnsupportedAgentMethod('getReport')",
+            "__porfUnsupportedAgentMethod('sleep')",
+            "__porfUnsupportedAgentMethod('monotonicNow')",
+            "__porfUnsupportedAgentMethod('leaving')",
+        ] {
+            assert!(
+                harness.contains(required),
+                "local harness should fail visibly for missing {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_aot_harness_agent_stubs_fail_visibly() {
+        let harness = fs::read_to_string(repo_root().join("test262/harness-wasm-aot.js"))
+            .expect("wasm-aot harness should read");
+
+        assert!(harness.contains("__porfUnsupportedHost('agent.sleep')"));
+        assert!(harness.contains("__porfUnsupportedHost('agent.monotonicNow')"));
+        assert!(harness.contains("__porfUnsupportedHost('agent.leaving')"));
+        assert!(!harness.contains("sleep: function () {},"));
+        assert!(!harness.contains("monotonicNow: function () {\n      return 0;"));
+        assert!(!harness.contains("leaving: function () {}"));
+    }
+
+    #[test]
+    fn run_one_case_classifies_missing_host_capability_as_host_harness() {
+        let preludes = top_level_host_preludes();
+        for (path, source, expected_detail) in [
+            (
+                "harness/createRealm-unsupported.js",
+                "var __porfCreateRealm = undefined; $262.createRealm();",
+                "createRealm",
+            ),
+            (
+                "harness/evalScript-unsupported.js",
+                "var __porfEvalScript = undefined; $262.evalScript('0;');",
+                "evalScript",
+            ),
+            (
+                "harness/detachArrayBuffer-unsupported.js",
+                "var __porfDetachArrayBuffer = undefined; $262.detachArrayBuffer({});",
+                "detachArrayBuffer",
+            ),
+            (
+                "harness/gc-unsupported.js",
+                "var gc = undefined; $262.gc();",
+                "gc",
+            ),
+            (
+                "harness/agent-start-unsupported.js",
+                "$262.agent = { start: __porfUnsupportedAgentMethod('start') }; $262.agent.start('');",
+                "agent.start",
+            ),
+            (
+                "harness/agent-broadcast-unsupported.js",
+                "$262.agent = { broadcast: __porfUnsupportedAgentMethod('broadcast') }; $262.agent.broadcast(null, 0);",
+                "agent.broadcast",
+            ),
+            (
+                "harness/agent-receiveBroadcast-unsupported.js",
+                "$262.agent = { receiveBroadcast: __porfUnsupportedAgentMethod('receiveBroadcast') }; $262.agent.receiveBroadcast(function () {});",
+                "agent.receiveBroadcast",
+            ),
+            (
+                "harness/agent-report-unsupported.js",
+                "$262.agent = { report: __porfUnsupportedAgentMethod('report') }; $262.agent.report('x');",
+                "agent.report",
+            ),
+            (
+                "harness/agent-getReport-unsupported.js",
+                "$262.agent = { getReport: __porfUnsupportedAgentMethod('getReport') }; $262.agent.getReport();",
+                "agent.getReport",
+            ),
+            (
+                "harness/agent-sleep-unsupported.js",
+                "$262.agent = { sleep: __porfUnsupportedAgentMethod('sleep') }; $262.agent.sleep(1);",
+                "agent.sleep",
+            ),
+            (
+                "harness/agent-monotonicNow-unsupported.js",
+                "$262.agent = { monotonicNow: __porfUnsupportedAgentMethod('monotonicNow') }; $262.agent.monotonicNow();",
+                "agent.monotonicNow",
+            ),
+            (
+                "harness/agent-leaving-unsupported.js",
+                "$262.agent = { leaving: __porfUnsupportedAgentMethod('leaving') }; $262.agent.leaving();",
+                "agent.leaving",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = source.to_string();
+
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("{path} should fail when host support is missing");
+            };
+            assert_eq!(failure.kind, FailureKind::HostHarness, "{path}");
+            assert_eq!(failure.origin, FailureOrigin::LocalHarness, "{path}");
+            assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{path}");
+            assert!(failure.detail.contains(expected_detail), "{path}");
+            assert!(failure.detail.contains("unsupported"), "{path}");
+        }
+    }
+
+    #[test]
+    fn run_one_case_exposes_current_global_host_accessors() {
+        let preludes = top_level_host_preludes();
+        let mut case = synthetic_case("harness/current-global-accessors.js");
+        case.original_source = r#"
+globalThis.__porfHostAccessorSentinel = 13;
+if ($262.global !== globalThis) {
+  throw new Error('$262.global should be the current global');
+}
+if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
+  throw new Error('$262.getGlobal should read the current global');
+}
+"#
+        .to_string();
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "current-global host accessors should pass"
+        );
+    }
+
+    #[test]
+    fn materialize_async_tests_wraps_done_with_runner_state() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "doneprintHandle.js".to_string(),
+            "function $DONE(error) { if (error) throw error; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case = synthetic_case("harness/async-wrapper.js");
+        case.flags.insert("async".to_string());
+        case.original_source = "$DONE();".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        let materialized_text = materialized.source.as_str();
+        assert!(materialized_text.contains("__porfTest262AsyncDone"));
+        assert!(materialized_text.contains("__porfTest262OriginalDONE"));
+        assert!(materialized_text.contains("host harness async $DONE called multiple times"));
+        assert!(materialized_text.contains("globalThis.$DONE = $DONE"));
+        assert!(materialized_text.contains("$DONE();"));
+    }
+
+    #[test]
+    fn run_one_case_enforces_async_done_contract() {
+        let preludes = async_done_preludes();
+        let mut passing = synthetic_case("harness/async-done-pass.js");
+        passing.flags.insert("async".to_string());
+        passing.original_source = "$DONE();".to_string();
+        let result = run_one_case(&passing, &preludes, 30_000, ExecutionBackend::SpecExec);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "async pass should complete through $DONE, got {:?}",
+            result.status
+        );
+
+        for (path, source, expected_kind, expected_detail) in [
+            (
+                "harness/async-done-reject.js",
+                "$DONE(new Error('boom'));",
+                FailureKind::Runtime,
+                "Test262:AsyncTestFailure",
+            ),
+            (
+                "harness/async-done-duplicate.js",
+                "$DONE(); $DONE();",
+                FailureKind::HostHarness,
+                "called multiple times",
+            ),
+            (
+                "harness/async-done-missing.js",
+                "0;",
+                FailureKind::HostHarness,
+                "was not called",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.flags.insert("async".to_string());
+            case.original_source = source.to_string();
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("{path} should fail under the async $DONE contract");
+            };
+            assert_eq!(failure.kind, expected_kind, "{path}");
+            assert!(failure.detail.contains(expected_detail), "{path}");
+        }
     }
 
     #[test]
@@ -27436,6 +28306,202 @@ mod tests {
         )
         .expect_err("incomplete aggregate snapshot should be rejected");
         assert!(err.contains("aggregate snapshot incomplete"));
+    }
+
+    fn tiny_failing_suite_config(label: &str) -> SuiteConfig {
+        let root = unique_temp_path(label);
+        let test_dir = root
+            .join("vendor")
+            .join("test262")
+            .join("test")
+            .join("built-ins")
+            .join("Array");
+        fs::create_dir_all(&test_dir).expect("tiny failing suite dir should exist");
+        fs::create_dir_all(root.join("backlog")).expect("backlog dir should exist");
+        fs::write(
+            root.join("backlog").join("ownership-map.tsv"),
+            "built-ins/Array\tT16\tsemantic\n",
+        )
+        .expect("ownership map should write");
+        fs::write(root.join("harness.js"), "").expect("harness should write");
+        fs::write(
+            test_dir.join("intentional-failure.js"),
+            "/*---\nfeatures: [resizable-arraybuffer]\nflags: [raw]\n---*/\nthrow \"boom\";\n",
+        )
+        .expect("failing test should write");
+        SuiteConfig {
+            suite_root: root.join("vendor").join("test262"),
+            local_harness_path: root.join("harness.js"),
+            snapshot_dir: root.join("snapshots"),
+            timeout_ms: 5_000,
+            worker_count: 1,
+            case_runner_bin: None,
+        }
+    }
+
+    #[test]
+    fn generate_backlog_writes_deterministic_failure_inventory() {
+        let config = tiny_failing_suite_config("backlog-inventory");
+        let run_config = RunConfig {
+            snapshot_name: "backlog-inventory".to_string(),
+            ..RunConfig::default()
+        };
+        let summary = run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        assert_eq!(summary.failed, 1);
+
+        let (artifact, paths) = generate_backlog(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("backlog should generate");
+        assert_eq!(artifact.records.len(), 1);
+        let record = &artifact.records[0];
+        assert_eq!(record.test_path, "built-ins/Array/intentional-failure.js");
+        assert_eq!(record.owner_task_id, "T16");
+        assert_eq!(record.debt_category, "semantic");
+        assert_eq!(record.features, vec!["resizable-arraybuffer".to_string()]);
+        assert!(paths.json_path.exists());
+        assert!(paths.txt_path.exists());
+
+        let first = fs::read_to_string(&paths.json_path).expect("backlog json should read");
+        let (second_artifact, second_paths) = generate_backlog(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("second backlog should generate");
+        assert_eq!(second_artifact, artifact);
+        let second = fs::read_to_string(&second_paths.json_path).expect("backlog json should read");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn generate_backlog_rejects_malformed_ownership_map() {
+        let config = tiny_failing_suite_config("backlog-invalid-ownership-map");
+        let run_config = RunConfig {
+            snapshot_name: "backlog-invalid-ownership-map".to_string(),
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        fs::write(
+            test262_root_from_config(&config).join("backlog/ownership-map.tsv"),
+            "built-ins/Array\tT16\n",
+        )
+        .expect("malformed ownership map should write");
+
+        let err = generate_backlog(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("malformed ownership map should reject backlog generation");
+        assert!(err.contains("invalid backlog ownership map line"));
+    }
+
+    #[test]
+    fn compare_snapshots_reports_passes_regressions_hash_changes_and_pin_mismatch() {
+        let config = tiny_failing_suite_config("snapshot-compare");
+        let base_run = RunConfig {
+            snapshot_name: "snapshot-compare-base".to_string(),
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
+
+        let candidate_run = RunConfig {
+            snapshot_name: "snapshot-compare-candidate".to_string(),
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
+
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let node = nodes
+            .iter()
+            .find(|node| {
+                node.case_paths
+                    .iter()
+                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+            })
+            .expect("matrix should include failing node");
+        let pinned = pinned_revisions(&config);
+        let manifest_hash =
+            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str()));
+        let candidate_node_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            candidate_run.snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id),
+            manifest_hash
+        ));
+        let mut candidate_node =
+            read_snapshot_file(&candidate_node_path).expect("candidate node should parse");
+        candidate_node.failures[0].detail = "different failure".to_string();
+        candidate_node.failures[0].detail_hash = hash_detail("different failure");
+        fs::write(
+            &candidate_node_path,
+            serde_json::to_string_pretty(&candidate_node).expect("node json should serialize"),
+        )
+        .expect("candidate node should write");
+
+        let comparison = compare_snapshots(
+            &config,
+            &base_run.snapshot_name,
+            &candidate_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("comparison should work");
+        assert_eq!(comparison.added_passes.len(), 0);
+        assert_eq!(comparison.regressions.len(), 0);
+        assert_eq!(comparison.changed_failure_hashes.len(), 1);
+
+        let pass_run = RunConfig {
+            snapshot_name: "snapshot-compare-pass".to_string(),
+            ..RunConfig::default()
+        };
+        fs::write(
+            config
+                .suite_root
+                .join("test")
+                .join("built-ins")
+                .join("Array")
+                .join("intentional-failure.js"),
+            "/*---\nfeatures: [resizable-arraybuffer]\nflags: [raw]\n---*/\n1;\n",
+        )
+        .expect("passing test should write");
+        run_top_level_matrix(&config, pass_run.clone()).expect("pass matrix should run");
+        let pass_comparison = compare_snapshots(
+            &config,
+            &base_run.snapshot_name,
+            &pass_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("pass comparison should work");
+        assert_eq!(
+            pass_comparison.added_passes,
+            vec!["built-ins/Array/intentional-failure.js".to_string()]
+        );
+
+        let stale_verified = load_verified_aggregate_summary(
+            &config,
+            &candidate_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("candidate aggregate should verify");
+        let mut stale_file =
+            read_snapshot_file(&stale_verified.snapshot_paths.json_path).expect("stale aggregate");
+        stale_file.pinned_revisions.test262 = "different-pin".to_string();
+        fs::write(
+            &stale_verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&stale_file).expect("aggregate json should serialize"),
+        )
+        .expect("stale aggregate should write");
+        let err = compare_snapshots(
+            &config,
+            &base_run.snapshot_name,
+            &candidate_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("pin mismatch should fail comparison");
+        assert!(err.contains("test262 revision"));
     }
 
     #[test]

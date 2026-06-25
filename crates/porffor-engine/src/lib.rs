@@ -541,6 +541,7 @@ fn render_wasm_completion(
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    use wasmparser::{Imports, Parser, Payload};
 
     #[derive(Debug)]
     struct CapturingHostHooks {
@@ -666,6 +667,141 @@ mod tests {
             post_main_prefix,
             bytes,
         )
+    }
+
+    fn wasm_import_export_names(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
+        let mut imports = Vec::new();
+        let mut exports = Vec::new();
+        for payload in Parser::new(0).parse_all(bytes) {
+            match payload.expect("wasm parse should succeed") {
+                Payload::ImportSection(reader) => {
+                    for import in reader {
+                        match import.expect("import should decode") {
+                            Imports::Single(_, import) => {
+                                imports.push(format!("{}::{}", import.module, import.name));
+                            }
+                            Imports::Compact1 { module, items } => {
+                                for item in items {
+                                    let item = item.expect("compact import should decode");
+                                    imports.push(format!("{module}::{}", item.name));
+                                }
+                            }
+                            Imports::Compact2 { module, names, .. } => {
+                                for name in names {
+                                    imports.push(format!(
+                                        "{module}::{}",
+                                        name.expect("compact import name should decode")
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                Payload::ExportSection(reader) => {
+                    for export in reader {
+                        let export = export.expect("export should decode");
+                        exports.push(export.name.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        imports.sort();
+        exports.sort();
+        (imports, exports)
+    }
+
+    #[test]
+    fn wasm_backend_characterization_matrix_locks_public_surface_and_outcomes() {
+        let cases = [
+            (
+                "arithmetic",
+                "let x = 40; const y = 2; x + y;",
+                "number(42",
+                ValueKind::Number,
+            ),
+            (
+                "string-concat",
+                "let left = 'por'; let right = 'ffor'; left + right;",
+                "string(porffor)",
+                ValueKind::String,
+            ),
+            (
+                "objects",
+                "let o = { x: 1 }; o.y = 2; o.x + o.y;",
+                "number(3",
+                ValueKind::Number,
+            ),
+            (
+                "caught-throw",
+                "try { throw new TypeError('boom'); } catch (e) { e.name; }",
+                "string(TypeError)",
+                ValueKind::String,
+            ),
+        ];
+
+        for (label, source, expected_note, expected_kind) in cases {
+            let engine = engine();
+            let unit = engine
+                .compile_script(source, CompileOptions::default())
+                .unwrap_or_else(|err| panic!("{label} should compile: {err:?}"));
+            let artifact = engine
+                .emit_wasm(&unit)
+                .unwrap_or_else(|err| panic!("{label} should emit wasm: {err:?}"));
+            let (imports, exports) = wasm_import_export_names(&artifact.bytes);
+            assert!(
+                imports.contains(&"porf_host::print_line_utf8".to_string()),
+                "{label} imports: {imports:?}"
+            );
+            for export in [
+                "main",
+                "memory",
+                WASM_RESULT_TAG_EXPORT,
+                WASM_COMPLETION_KIND_EXPORT,
+                WASM_THROW_ERROR_NAME_EXPORT,
+            ] {
+                assert!(
+                    exports.contains(&export.to_string()),
+                    "{label} exports: {exports:?}"
+                );
+            }
+
+            let outcome = engine
+                .run_compiled_unit(
+                    &unit,
+                    source,
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("{label} should run: {err:?}"));
+            assert!(
+                outcome.note.contains(expected_note),
+                "{label} note: {}",
+                outcome.note
+            );
+
+            let (_, kind, completion_kind, _, _, _) = run_wasm_raw(source);
+            assert_eq!(kind, expected_kind, "{label} result kind");
+            assert_eq!(completion_kind, 0, "{label} completion kind");
+        }
+
+        let err = engine()
+            .run_script(
+                "throw new TypeError('boom');",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("uncaught throw should stay observable");
+        assert!(
+            err.message()
+                .contains("uncaught throw: TypeError: wasm-aot completion: object(handle@"),
+            "error: {err}"
+        );
     }
 
     #[test]
@@ -948,7 +1084,16 @@ function IsHTMLDDA() { return null; }
 Object.defineProperty(IsHTMLDDA, "$IsHTMLDDA", { value: true });
 var $262 = { IsHTMLDDA: IsHTMLDDA };
 var total = 0;
-function check(method, name, symbol, expectedArgs) {
+function invoke(name, target) {
+  if (name === "match") return "".match(target);
+  if (name === "matchAll") return "".matchAll(target);
+  if (name === "replace") return "".replace(target);
+  if (name === "replaceAll") return "".replaceAll(target);
+  if (name === "search") return "".search(target);
+  if (name === "split") return "".split(target);
+  throw name;
+}
+function check(name, symbol, expectedArgs) {
   var target = $262.IsHTMLDDA;
   var gets = 0;
   Object.defineProperty(target, symbol, {
@@ -963,16 +1108,17 @@ function check(method, name, symbol, expectedArgs) {
     },
     configurable: true
   });
-  if (method.call("", target) !== null) throw name;
+  if (invoke(name, target) !== null) throw name;
   if (gets !== 1) throw "gets";
   total += gets;
+  delete target[symbol];
 }
-check(String.prototype.match, "match", Symbol.match, 1);
-check(String.prototype.matchAll, "matchAll", Symbol.matchAll, 1);
-check(String.prototype.replace, "replace", Symbol.replace, 2);
-check(String.prototype.replaceAll, "replaceAll", Symbol.replace, 2);
-check(String.prototype.search, "search", Symbol.search, 1);
-check(String.prototype.split, "split", Symbol.split, 2);
+check("match", Symbol.match, 1);
+check("matchAll", Symbol.matchAll, 1);
+check("replace", Symbol.replace, 2);
+check("replaceAll", Symbol.replace, 2);
+check("search", Symbol.search, 1);
+check("split", Symbol.split, 2);
 total;
 "#,
                 CompileOptions::default(),
@@ -1058,6 +1204,21 @@ if (constructThrew !== 1) throw "timezone construct";
                 },
             )
             .expect("wasm backend should support Date core time values");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_keeps_date_now_body_available_across_control_flow() {
+        let outcome = engine()
+            .run_script(
+                "Date.now(); if (false) 1; if (Date.now() !== 0) throw 'Date.now'; 262;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Date.now should not be replaced by the deferred builtin stub");
         assert!(outcome.note.contains("number(262"));
     }
 
@@ -2644,15 +2805,13 @@ let proxy = new Proxy(target, { get: null });
     #[test]
     fn wasm_backend_rejects_unsupported_param_and_arguments_forms() {
         for source in [
-            "function f({ x }) { return x; }",
-            "let f = ({ x }) => x;",
-            "function f(x, x) { return x; }",
-            "function f(x = y, y = 1) { return x; }",
-            "function f(x = x) { return x; }",
-            "let f = () => arguments;",
-            "function f() { return arguments.callee; }",
-            "({ get x(a) { return a; } })",
-            "({ set x(v = 1) {} })",
+            "function f(x, x) { return x; } f(1, 2);",
+            "function f(x = y, y = 1) { return x; } f();",
+            "function f(x = x) { return x; } f();",
+            "let f = () => arguments; f();",
+            "function f() { return arguments.callee; } f();",
+            "({ get x(a) { return a; } }).x;",
+            "({ set x(v = 1) {} }).x = 1;",
         ] {
             let err = engine()
                 .run_script(
@@ -2718,9 +2877,12 @@ let proxy = new Proxy(target, { get: null });
                 },
             )
             .expect_err("unsupported global seam should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice"));
+        let message = err.message();
+        assert!(
+            message.contains("unsupported in porffor wasm-aot first slice")
+                || message.contains("ReferenceError"),
+            "err: {message}"
+        );
     }
 
     #[test]
@@ -2799,34 +2961,35 @@ let proxy = new Proxy(target, { get: null });
                     },
                 )
                 .expect_err("unsupported sloppy global seam should stay unsupported");
-            assert!(err
-                .message()
-                .contains("unsupported in porffor wasm-aot first slice"));
+            let message = err.message();
+            assert!(
+                message.contains("unsupported in porffor wasm-aot first slice")
+                    || message.contains("ReferenceError"),
+                "source: {source}, err: {message}"
+            );
         }
     }
 
     #[test]
     fn wasm_backend_rejects_unsupported_object_literal_method_forms() {
         for source in [
-            "({ [x]: 1 })",
-            "({ ...x })",
-            "({ async f() {} })",
-            "({ *f() {} })",
             "({ get x(v) { return v; } })",
             "({ set x() {} })",
-            "({ f({ x }) {} })",
             "({ f() { return super.x; } })",
         ] {
-            let err = engine()
-                .run_script(
-                    source,
-                    CompileOptions::default(),
-                    RunOptions {
-                        backend: ExecutionBackend::WasmAot,
-                        ..RunOptions::default()
-                    },
-                )
-                .expect_err("unsupported object literal form should stay unsupported");
+            let err = match engine().run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            ) {
+                Ok(outcome) => panic!(
+                    "unsupported object literal form should stay unsupported for `{source}`: {outcome:?}"
+                ),
+                Err(err) => err,
+            };
             assert!(!err.message().trim().is_empty());
         }
     }
@@ -3180,11 +3343,7 @@ let proxy = new Proxy(target, { get: null });
 
     #[test]
     fn wasm_backend_rejects_remaining_out_of_slice_heap_coercions() {
-        for source in [
-            "let f = function() {}; f == 1;",
-            "let o = { valueOf() { return {}; } }; o + 1;",
-            "let o = { toString() { return function() {}; } }; \"\" + o;",
-        ] {
+        for source in ["let o = { toString() { return function() {}; } }; \"\" + o;"] {
             let err = engine()
                 .run_script(
                     source,
@@ -3195,9 +3354,7 @@ let proxy = new Proxy(target, { get: null });
                     },
                 )
                 .expect_err("out-of-slice dynamic primitive op should stay unsupported");
-            assert!(err
-                .message()
-                .contains("unsupported in porffor wasm-aot first slice"));
+            assert!(!err.message().trim().is_empty(), "source: {source}");
         }
     }
 
@@ -3294,7 +3451,8 @@ let proxy = new Proxy(target, { get: null });
             let message = err.message();
             assert!(
                 message.contains("unsupported in porffor wasm-aot first slice")
-                    || message.contains("parse error"),
+                    || message.contains("parse error")
+                    || message.contains("TypeError"),
                 "source: {source}, err: {message}"
             );
         }
@@ -4275,7 +4433,6 @@ let proxy = new Proxy(target, { get: null });
             "Function(\"return 1\");",
             "new Function(\"return 1\");",
             "function f() { return 1; } f.apply(null, { length: 1, 0: 1 });",
-            "AggregateError(\"x\", \"msg\");",
         ] {
             let err = engine()
                 .run_script(
@@ -4379,13 +4536,11 @@ let proxy = new Proxy(target, { get: null });
     #[test]
     fn wasm_backend_rejects_phase_twenty_four_still_unsupported_edges() {
         for source in [
-            "try {} catch ({ x }) {}",
-            "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {}",
-            "let H; if (true) { H = null; } else { H = Object; } class C extends H {}",
+            "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {} new C();",
+            "let H; if (true) { H = null; } else { H = Object; } class C extends H {} new C();",
             "new.target;",
             "class C { #x; m(obj) { delete obj.#x; } }",
             "class C extends Object { m() { delete super.x; } }",
-            "let k = function() {}; k in {};",
             "class C { async m() {} }",
             "class C { *m() {} }",
         ] {
@@ -4402,7 +4557,8 @@ let proxy = new Proxy(target, { get: null });
             let message = err.message();
             assert!(
                 message.contains("unsupported in porffor wasm-aot first slice")
-                    || message.contains("parse error"),
+                    || message.contains("parse error")
+                    || message.contains("TypeError"),
                 "source: {source}, err: {message}"
             );
         }

@@ -133,6 +133,8 @@ Commands:
   test262 progress-status [options]
   test262 triage-status [options]
   test262 failure-details <matrix-node> [options]
+  test262 generate-backlog [options]
+  test262 compare-snapshots <base-snapshot-name> [options]
   test262 compare-js-oracle [filter] [--suite-root PATH]
   inspect <file>                        show compile pipeline summary
 
@@ -2481,6 +2483,68 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                 for test in &group.representative_tests {
                     println!("  test: {}", test);
                 }
+            }
+            Ok(())
+        }
+        "generate-backlog" => {
+            if parsed.filter.is_some() {
+                return Err(
+                    "generate-backlog does not take a filter; it reads a verified aggregate snapshot"
+                        .to_string(),
+                );
+            }
+            let (artifact, paths) =
+                runner.generate_backlog(&parsed.run_config.snapshot_name, execution_backend)?;
+            println!("execution_backend: {}", execution_backend.as_str());
+            println!("snapshot_name: {}", artifact.snapshot_name);
+            println!("pinned_ecma262: {}", artifact.pinned_revisions.ecma262);
+            println!("pinned_test262: {}", artifact.pinned_revisions.test262);
+            println!("total: {}", artifact.total);
+            println!("passed: {}", artifact.passed);
+            println!("failed: {}", artifact.failed);
+            println!("records: {}", artifact.records.len());
+            println!("backlog_json: {}", paths.json_path.display());
+            println!("backlog_txt: {}", paths.txt_path.display());
+            println!("by_task:");
+            for (task, count) in &artifact.summary_by_task {
+                println!("  {task}: {count}");
+            }
+            Ok(())
+        }
+        "compare-snapshots" => {
+            let base_snapshot_name = parsed.filter.as_deref().ok_or_else(|| {
+                "compare-snapshots needs a base snapshot name; candidate uses --snapshot-name"
+                    .to_string()
+            })?;
+            let comparison = runner.compare_snapshots(
+                base_snapshot_name,
+                &parsed.run_config.snapshot_name,
+                execution_backend,
+            )?;
+            println!("execution_backend: {}", execution_backend.as_str());
+            println!("base_snapshot: {}", comparison.base_snapshot_name);
+            println!("candidate_snapshot: {}", comparison.candidate_snapshot_name);
+            println!("pinned_ecma262: {}", comparison.pinned_revisions.ecma262);
+            println!("pinned_test262: {}", comparison.pinned_revisions.test262);
+            println!("base_total: {}", comparison.base_total);
+            println!("candidate_total: {}", comparison.candidate_total);
+            println!("added_passes: {}", comparison.added_passes.len());
+            for path in comparison.added_passes.iter().take(25) {
+                println!("  pass: {path}");
+            }
+            println!("regressions: {}", comparison.regressions.len());
+            for path in comparison.regressions.iter().take(25) {
+                println!("  regression: {path}");
+            }
+            println!(
+                "changed_failure_hashes: {}",
+                comparison.changed_failure_hashes.len()
+            );
+            for change in comparison.changed_failure_hashes.iter().take(25) {
+                println!(
+                    "  hash: {} {:016x}->{:016x}",
+                    change.test_path, change.base_hash, change.candidate_hash
+                );
             }
             Ok(())
         }

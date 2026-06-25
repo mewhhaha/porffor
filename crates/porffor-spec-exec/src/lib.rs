@@ -374,6 +374,7 @@ pub fn execute_script(
     context
         .run_jobs()
         .map_err(|err| format_js_error(err, &mut context))?;
+    check_test262_async_done(&mut context)?;
     Ok(ExecutionOutcome {
         note: "spec-exec script completed in Rust host".to_string(),
     })
@@ -413,15 +414,18 @@ pub fn execute_module(
         .map_err(|err| format_js_error(err, &mut context))?;
 
     match promise.state() {
-        PromiseState::Fulfilled(_) => Ok(ExecutionOutcome {
-            note: format!(
-                "spec-exec module completed in Rust host{}",
-                module_path
-                    .as_deref()
-                    .map(|path| format!(" ({})", path.display()))
-                    .unwrap_or_default()
-            ),
-        }),
+        PromiseState::Fulfilled(_) => {
+            check_test262_async_done(&mut context)?;
+            Ok(ExecutionOutcome {
+                note: format!(
+                    "spec-exec module completed in Rust host{}",
+                    module_path
+                        .as_deref()
+                        .map(|path| format!(" ({})", path.display()))
+                        .unwrap_or_default()
+                ),
+            })
+        }
         PromiseState::Rejected(err) => Err(format_opaque_error(err, &mut context)),
         PromiseState::Pending => Err(ExecutionError::new(
             "runtime module jobs are still pending after host job flush",
@@ -2095,6 +2099,36 @@ fn host_print(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRes
         println!("{rendered}");
     }
     Ok(JsValue::undefined())
+}
+
+fn check_test262_async_done(context: &mut Context) -> Result<(), ExecutionError> {
+    let state = context
+        .global_object()
+        .get(js_string!("__porfTest262AsyncDone"), context)
+        .map_err(|err| format_js_error(err, context))?;
+    let Some(state) = state.as_object() else {
+        return Ok(());
+    };
+
+    let active = state
+        .get(js_string!("active"), context)
+        .map_err(|err| format_js_error(err, context))?
+        .to_boolean();
+    if !active {
+        return Ok(());
+    }
+
+    let called = state
+        .get(js_string!("called"), context)
+        .map_err(|err| format_js_error(err, context))?
+        .to_boolean();
+    if !called {
+        return Err(ExecutionError::new(
+            "host harness async $DONE was not called before the job queue drained",
+        ));
+    }
+
+    Ok(())
 }
 
 fn host_gc(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {

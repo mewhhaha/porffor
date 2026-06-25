@@ -1,14 +1,33 @@
 name: CI
 
 on:
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_run:
     workflows: ['Bump version and publish']
     types:
       - completed
 
 jobs:
+  repository-contract:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./scripts/check-task-plan.sh
+      - run: ./scripts/check-module-boundaries.sh
+      - run: ./scripts/audit-test262-shortcuts.sh --check
+      - run: ./scripts/check-test262-host-abi.sh
+      - name: Check generated README status edits
+        if: github.event_name == 'pull_request'
+        run: ./scripts/check-readme-status-artifacts.sh origin/${{ github.base_ref }}
+
   build:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:
