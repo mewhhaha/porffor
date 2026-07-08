@@ -9,13 +9,15 @@
 
 Resolve dynamic JavaScript source evaluation without violating the project ban on shipping an interpreter/VM inside emitted Wasm. Implement every compliant subset that can remain direct compilation, and report the rest explicitly until a deliberately approved host-compiler design exists.
 
+Dynamic `import()` is explicitly not in this task's unsupported bucket: T12's componentized-AOT strategy handles it by resolving specifiers to precompiled module components at runtime. This task covers only textual dynamic source — `eval`, the `Function`-family constructors and realm `evalScript`.
+
 ## Required architecture decision record
 
 Before implementation, write an ADR comparing these options:
 
 1. **AOT-known source only:** compile direct `eval`/Function bodies whose source is statically known, while preserving direct-eval scope semantics.
 2. **Optional Rust host compiler service:** Wasm requests compilation/execution from the embedding Rust engine, with explicit capability negotiation and shared realm/state bridging.
-3. **Explicit product unsupported:** keep dynamic source visible as unsupported for Wasm-AOT while full spec-exec remains the oracle.
+3. **Explicit product unsupported:** keep dynamic source visible as unsupported for Wasm-AOT. The spec-exec oracle may still execute these cases during differential triage, but an oracle pass never counts as product support.
 
 Reject compiling a generic parser/interpreter into the Wasm artifact and reject test-specific source recognition. The ADR must address standalone artifacts, security, CSP-like policies, deterministic builds, scope capture, realm ownership, heap identity and re-entrancy.
 

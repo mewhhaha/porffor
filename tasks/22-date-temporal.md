@@ -93,4 +93,4 @@ cargo test -p porffor-cli wasm_date --quiet
 ./target/debug/porf test262 run built-ins/Temporal --execution-backend wasm --timeout-ms 240000 --threads 4
 ```
 
-Run with several injected zones—including UTC and zones with DST gaps/folds—and compare deterministic outputs against the spec-exec backend.
+Run with several injected zones—including UTC and zones with DST gaps/folds—and compare deterministic outputs against the spec-exec differential oracle (diagnostic comparison only; the Wasm-AOT results are the product evidence).

@@ -9,6 +9,8 @@
 
 Replace ad-hoc linear-memory layouts with a documented, validated runtime data model that can represent every ECMAScript value, grow safely, collect unreachable objects and support weak reachability without changing observable JavaScript semantics.
 
+Design the representation from the experimental Wasmtime lower bound in `AGENTS.md`: Wasm GC structs/arrays, reference types and typed function references are available and should carry the object graph. A hand-written tracing collector over linear memory is not the default plan; it is acceptable only where the checked-in design document justifies it for specific data (for example raw string/buffer bytes). There must be exactly one object model — do not build a parallel non-GC representation for runtimes that lack Wasm GC; those runtimes are rejected at the boundary.
+
 ## Scope
 
 ### Tagged value contract
@@ -36,18 +38,18 @@ Offsets, sizes, alignment and pointer fields must be generated or asserted in on
 
 ### Allocation and memory growth
 
-- Implement checked allocation, capacity growth and overflow handling.
-- Keep object references stable across memory growth.
-- Define how host imports borrow memory and how re-entrancy is handled.
+- Implement checked allocation, capacity growth and overflow handling for any linear-memory regions the design retains (for example string/buffer byte storage).
+- Keep object references stable across memory growth for linear-memory data; GC-managed references are stable by construction.
+- Define how host imports borrow memory/references and how re-entrancy is handled.
 - Add stress tests near Wasm page boundaries and large sparse allocations.
 
 ### Garbage collection
 
-Implement a safe collector suitable for linear Wasm memory. A tracing collector with non-moving objects is acceptable initially if it has a path to compaction or fragmentation control. Define roots from globals, realms, tables, active frames, lexical environments, completion values, host handles and pending jobs.
+Lean on the runtime's Wasm GC for object lifetime. The task owns: mapping every heap layout onto GC structs/arrays with validated field metadata; keeping any linear-memory side allocations (byte storage, tables) from leaking when their owning GC object dies; and rooting across host calls, suspended frames and pending jobs. If the design document retains a manually collected region, it must define roots from globals, realms, tables, active frames, lexical environments, completion values, host handles and pending jobs — and it must not grow into a second object model.
 
 ### Weak semantics
 
-Expose ephemeron/weak-edge support required by WeakMap, WeakSet, WeakRef and FinalizationRegistry. `gc()` used by Test262 must request a real collection cycle; finalization scheduling must remain specification-compatible and not promise collection at an exact instant.
+Expose ephemeron/weak-edge support required by WeakMap, WeakSet, WeakRef and FinalizationRegistry. The Wasm GC proposal does not currently provide weak references, so the design document must state explicitly how weak reachability is observed (host-assisted tracking, a dedicated weak-capable region, or a runtime capability) without creating a second general object model. `gc()` used by Test262 must request a real collection cycle; finalization scheduling must remain specification-compatible and not promise collection at an exact instant.
 
 ## Design constraints
 

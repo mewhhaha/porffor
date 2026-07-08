@@ -53,6 +53,10 @@ Define a Rust trait for resolve/load with referrer, attributes and module type. 
 
 Document whether a graph is emitted as one Wasm module or multiple linked modules. The first complete implementation may emit one module, but module records and live bindings must remain explicit so the design can evolve. `build wasm` must include compiled semantics, not source strings fed to a runtime parser.
 
+### Componentized dynamic import
+
+`import()` must work without runtime source compilation. Compile every module reachable through the graph — including specifiers of dynamic imports that are statically discoverable — into separately instantiable compiled units ("components") carried in or alongside the artifact. At runtime, `import(spec)` resolves through the host loader to a precompiled component and lazily instantiates/links it with correct module-record identity, live bindings and job integration. Runtime-computed specifiers resolve against the registry of AOT-compiled components (plus any host-supplied precompiled components); a specifier with no precompiled component rejects the promise with a host resolution error. It never falls back to parsing or evaluating source inside the artifact. This keeps dynamic import out of T13's unsupported dynamic-source bucket.
+
 ## Acceptance criteria
 
 - Static import/export, re-export, namespace import and side-effect-only import cases pass.

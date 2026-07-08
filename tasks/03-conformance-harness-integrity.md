@@ -36,7 +36,7 @@ Specify typed host operations for at least:
 - agent start/broadcast/report/sleep/leaving/monotonic time;
 - async completion and `$DONE` reporting.
 
-The spec-exec and Wasm-AOT runners may implement the ABI differently, but the JavaScript-visible behavior and failure reporting must match.
+The Wasm-AOT product runner owns this ABI. The spec-exec oracle runner may implement it differently for differential runs, but the JavaScript-visible behavior and failure reporting must match, and nothing about the ABI design may assume the interpreter is available on the product path.
 
 ### 3. Remove fake concurrency behavior
 
@@ -71,8 +71,9 @@ cargo test -p porffor-spec-exec --quiet
 cargo test -p porffor-test262 --quiet
 cargo test -p porffor-engine --quiet
 cargo test -p porffor-cli test262_ --quiet
-./target/debug/porf test262 run harness --execution-backend spec
 ./target/debug/porf test262 run harness --execution-backend wasm
+# Oracle runner parity check (diagnostic only):
+./target/debug/porf test262 run harness --execution-backend spec
 ```
 
 Add focused fake fixtures for each host method, but validate representative real `harness`, `language/module-code`, `built-ins/Atomics` and cross-realm cases before completion.
