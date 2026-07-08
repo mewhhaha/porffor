@@ -22,6 +22,7 @@ jobs:
       - run: ./scripts/check-module-boundaries.sh
       - run: ./scripts/audit-test262-shortcuts.sh --check
       - run: ./scripts/check-test262-host-abi.sh
+      - run: ./scripts/check-no-interpreter-in-product-graph.sh
       - name: Check generated README status edits
         if: github.event_name == 'pull_request'
         run: ./scripts/check-readme-status-artifacts.sh origin/${{ github.base_ref }}
