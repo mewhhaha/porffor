@@ -2,7 +2,7 @@
 
 **Status:** Blocked on all applicable task lanes  
 **Parallel group:** Final integration/closure  
-**Depends on:** T00-T25  
+**Depends on:** T00-T25, T27  
 **Blocks:** A truthful 100% Test262 claim and conformance release
 
 ## Objective
@@ -86,12 +86,11 @@ Search and review the repository for:
 
 Every legitimate path reference for discovery, reporting or a minimized test fixture must be documented. Remove all semantic shortcuts or reopen the owning task.
 
+Additionally re-run the T27 interpreter-quarantine audit: the default engine/CLI backend is Wasm-AOT, no product path falls back to `spec-exec`, product/release builds link no interpreter engine crate, and `build wasm` artifacts contain compiled user semantics rather than source fed to an evaluator.
+
 ### 5. Full verification runs
 
-Run complete matrices for both backends:
-
-- `spec-exec` to validate the Rust host/harness and identify oracle limitations;
-- `wasm-aot` as the product conformance target.
+The `wasm-aot` matrix is the release gate; it is the only backend whose results are published or gated on. A complete `spec-exec` oracle matrix may additionally be run to validate the Rust host/harness and identify oracle limitations, but it is diagnostic only and can neither pass nor block the release on its own numbers.
 
 For Wasm-AOT, perform at least:
 
@@ -137,10 +136,12 @@ cargo build -p porffor-cli
 ./target/debug/porf test262 run \
   --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 
-rm -f test262/snapshots/final-spec-exec-*.json test262/snapshots/final-spec-exec-*.txt
 rm -f test262/snapshots/final-wasm-aot-*.json test262/snapshots/final-wasm-aot-*.txt
-./scripts/publish-real-status-low-ram.sh spec-exec final-spec-exec
 ./scripts/publish-real-status-low-ram.sh wasm-aot final-wasm-aot
+
+# Optional oracle-validation matrix; diagnostic only, never published as product conformance:
+rm -f test262/snapshots/final-spec-exec-*.json test262/snapshots/final-spec-exec-*.txt
+./scripts/publish-real-status-low-ram.sh spec-exec final-spec-exec
 
 ./target/debug/porf test262 progress-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
@@ -157,6 +158,7 @@ Adjust snapshot cleanup to the implemented CLI's safe reset command if one exist
 - Timeout, crash, unknown-origin, missing-case and duplicate-case counts are zero.
 - Independent rerun/sharding/resume checks produce the same complete result set.
 - The integrity audit finds no test-specific semantic branch, fake standard builtin or silent host fallback.
+- The T27 interpreter-quarantine audit is green: Wasm-AOT is the default backend everywhere, no interpreter engine crate is linked into product builds, and no emitted artifact embeds an interpreter or user source consumed by an evaluator.
 - All workspace tests, fake suites, differential corpus and required stress checks are green.
 - Published README/status artifacts are generated, current, internally consistent and tied to exact revisions.
 - Any architecture limitation still present is stated separately and prevents a literal 100% claim until it is eliminated.

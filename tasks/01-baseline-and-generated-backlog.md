@@ -7,14 +7,14 @@
 
 ## Objective
 
-Produce a complete, reproducible view of the current pinned Test262 state for both `spec-exec` and `wasm-aot`, then generate a machine-readable backlog that assigns every non-passing case to a semantic family and task ID.
+Produce a complete, reproducible view of the current pinned Test262 state for the `wasm-aot` product backend, then generate a machine-readable backlog that assigns every non-passing case to a semantic family and task ID. A `spec-exec` oracle snapshot may be produced alongside it for differential triage, but it is diagnostic data only — it is never the baseline that tasks burn down and never product status.
 
 The current README explicitly says the last complete real-suite publication is stale for the current pin. This task replaces inference and hand-maintained lists with verified artifacts.
 
 ## Deliverables
 
 1. A deterministic baseline command sequence for the current `ecma262` and `test262` revisions.
-2. Complete aggregate snapshots for both backends, produced by the resumable matrix path.
+2. A complete `wasm-aot` aggregate snapshot produced by the resumable matrix path; optionally a separately labeled `spec-exec` oracle snapshot for triage.
 3. A generated backlog artifact, for example `test262/backlog/<test262-sha>/wasm-aot.json`, with one record per non-passing case:
    - test path and metadata features;
    - flags/includes/negative phase;
@@ -46,7 +46,7 @@ The current README explicitly says the last complete real-suite publication is s
 
 ## Acceptance criteria
 
-- Both backends have complete verified snapshots for the current pin, or the PR documents a concrete infrastructure blocker with a reproducible failing node while still landing the deterministic backlog tooling.
+- The `wasm-aot` backend has a complete verified snapshot for the current pin, or the PR documents a concrete infrastructure blocker with a reproducible failing node while still landing the deterministic backlog tooling. Any `spec-exec` oracle snapshot is stored and labeled separately from product data.
 - Running the generator twice over the same snapshot produces byte-identical backlog output.
 - Every failure is assigned to exactly one task ID or the explicit unclassified closure bucket.
 - The comparison command catches an intentionally injected regression and pin mismatch.
@@ -59,8 +59,9 @@ cargo test -p porffor-test262 --quiet
 cargo test -p porffor-cli test262_ --quiet
 ./target/debug/porf test262 progress-status --execution-backend wasm-aot
 ./target/debug/porf test262 triage-status --execution-backend wasm-aot
-./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
 ./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
+# Optional oracle triage snapshot; never published as product conformance:
+./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
 ```
 
 Use low thread counts for publication, but add unit tests that prove higher worker counts preserve deterministic case accounting.

@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,6 +23,13 @@ const TOP_LEVEL_FILTERS: [&str; 6] = [
 ];
 const MATRIX_SPLIT_FILTERS: [&str; 4] = ["built-ins", "intl402", "language", "staging"];
 const SNAPSHOT_VERSION: u32 = 5;
+/// Snapshot version 4 predates per-failure outcome data. Read-only status,
+/// triage, backlog, and comparison paths may still consume such snapshots
+/// because every outcome can be *derived* from the recorded failure kind and
+/// detail with the same classifier used at write time — nothing is invented.
+/// Resume/merge paths stay strict: new results are never merged into a legacy
+/// snapshot.
+const LEGACY_SNAPSHOT_VERSION: u32 = 4;
 const MATRIX_STRATEGY_VERSION: u32 = 2;
 // Keep matrix nodes small enough that slow semantic buckets like RegExp and
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
@@ -161,10 +168,17 @@ impl Default for SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
             snapshot_dir: root.join("snapshots"),
-            // Conformance buckets now include correctness-green but still slow
-            // wasm-aot paths, so the default timeout must not classify them as
-            // harness failures after they complete successfully.
-            timeout_ms: 240_000,
+            // Keep this bound strict: it exists to turn hangs and pathological
+            // Wasm-AOT stalls into a visible, bounded Timeout failure instead of
+            // an unbounded multi-minute process stall. A correctness-green but
+            // genuinely-this-slow case is itself performance debt (see
+            // tasks/25) and must not hide behind an inflated bound. A single
+            // fresh Engine/Wasmtime bootstrap plus compile in an unoptimized
+            // debug build costs roughly 15-30s even for a trivial script, so
+            // this floor keeps headroom above that legitimate cost while
+            // staying far tighter than the previous 240_000ms/500_000ms
+            // stalls.
+            timeout_ms: 60_000,
             worker_count: thread::available_parallelism()
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
@@ -270,7 +284,11 @@ impl Default for RunConfig {
             shard_count: 1,
             resume: false,
             snapshot_name: "latest".to_string(),
-            execution_backend: ExecutionBackend::SpecExec,
+            // wasm-aot is the only backend whose results count as conformance
+            // (AGENTS.md, tasks/25, tasks/27). spec-exec remains available as an
+            // explicit, developer-selected differential oracle, never a harness
+            // default.
+            execution_backend: ExecutionBackend::WasmAot,
             max_matrix_nodes: None,
         }
     }
@@ -407,6 +425,14 @@ pub struct AggregateRunSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedAggregateSummary {
     pub pinned_revisions: PinnedRevisions,
+    /// Pins recorded inside the snapshot file. May differ textually from
+    /// `pinned_revisions` for legacy snapshots, but only when the vendored
+    /// suite content was verified as identical via the git object store.
+    pub recorded_pinned_revisions: PinnedRevisions,
+    /// Snapshot name the aggregate actually resolved to. Equals the requested
+    /// name unless honest name resolution found exactly one compatible
+    /// published aggregate under a different name.
+    pub resolved_snapshot_name: String,
     pub manifest_hash: u64,
     pub snapshot_paths: SnapshotPaths,
     pub summary: AggregateRunSummary,
@@ -415,6 +441,12 @@ pub struct VerifiedAggregateSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateProgressSummary {
     pub pinned_revisions: PinnedRevisions,
+    /// Pins recorded inside the snapshot file; see
+    /// `VerifiedAggregateSummary::recorded_pinned_revisions`.
+    pub recorded_pinned_revisions: PinnedRevisions,
+    /// Snapshot name the aggregate actually resolved to; see
+    /// `VerifiedAggregateSummary::resolved_snapshot_name`.
+    pub resolved_snapshot_name: String,
     pub manifest_hash: u64,
     pub snapshot_paths: SnapshotPaths,
     pub summary: AggregateRunSummary,
@@ -537,6 +569,53 @@ pub struct ChangedFailureHash {
     pub test_path: String,
     pub base_hash: u64,
     pub candidate_hash: u64,
+}
+
+/// How a snapshot's recorded test262 pin relates to the current vendored
+/// suite content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotPinStatus {
+    /// The recorded pin is textually identical to the current pin.
+    Exact,
+    /// The recorded pin differs textually, but the git object store verifies
+    /// that it describes byte-identical vendored suite content.
+    ContentEquivalent,
+    /// The recorded pin could not be verified as the current suite content.
+    /// Snapshots in this state must not be merged or compared with current
+    /// runs.
+    Mismatch,
+}
+
+impl SnapshotPinStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SnapshotPinStatus::Exact => "exact",
+            SnapshotPinStatus::ContentEquivalent => "content-equivalent",
+            SnapshotPinStatus::Mismatch => "mismatch",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotPinReportEntry {
+    pub file_name: String,
+    pub execution_backend: String,
+    pub manifest_hash: u64,
+    pub matrix_strategy_version: u32,
+    pub recorded_ecma262: String,
+    pub recorded_test262: String,
+    pub status: SnapshotPinStatus,
+}
+
+/// Explicit inventory of every aggregate snapshot's recorded pins versus the
+/// current vendored suite content. This surfaces historically inconsistent
+/// pins as a report instead of leaving them to be discovered one hard error
+/// at a time; it never rewrites any snapshot data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotPinReport {
+    pub current: PinnedRevisions,
+    pub entries: Vec<SnapshotPinReportEntry>,
+    pub mismatched: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -740,6 +819,10 @@ impl ConformanceRunner {
         load_matrix_triage_entries(&self.config, snapshot_name, execution_backend)
     }
 
+    pub fn snapshot_pin_report(&self) -> Result<SnapshotPinReport, String> {
+        snapshot_pin_report(&self.config)
+    }
+
     pub fn load_matrix_failure_details(
         &self,
         snapshot_name: &str,
@@ -778,11 +861,9 @@ impl ConformanceRunner {
 }
 
 pub fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
-    let test262 =
-        read_git_head(&config.suite_root).unwrap_or_else(|| "missing-vendored-suite".to_string());
     PinnedRevisions {
         ecma262: "ecma262-current-draft".to_string(),
-        test262,
+        test262: suite_test262_pin(&config.suite_root),
     }
 }
 
@@ -19357,9 +19438,13 @@ fn load_resume_matrix_node_summary(
             file.pinned_revisions.ecma262
         ));
     }
-    if file.pinned_revisions.test262 != expected_pinned.test262 {
+    let recorded_pinned = PinnedRevisions {
+        ecma262: file.pinned_revisions.ecma262.clone(),
+        test262: file.pinned_revisions.test262.clone(),
+    };
+    if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
         return Err(format!(
-            "resume node snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            "resume node snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
             path.display(),
             expected_pinned.test262,
             file.pinned_revisions.test262
@@ -19397,13 +19482,17 @@ fn load_resume_matrix_node_summary(
 }
 
 fn validate_resume_node_snapshot(
+    config: &SuiteConfig,
     file: &SnapshotFile,
     path: &Path,
     entry: &TopLevelRunSummary,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
+    allow_legacy_version: bool,
 ) -> Result<(), String> {
-    if file.snapshot_version != SNAPSHOT_VERSION {
+    let version_ok = file.snapshot_version == SNAPSHOT_VERSION
+        || (allow_legacy_version && file.snapshot_version == LEGACY_SNAPSHOT_VERSION);
+    if !version_ok {
         return Err(format!(
             "resume node snapshot mismatch for snapshot_version in {}: expected {}, found {}",
             path.display(),
@@ -19443,9 +19532,13 @@ fn validate_resume_node_snapshot(
             file.pinned_revisions.ecma262
         ));
     }
-    if file.pinned_revisions.test262 != expected_pinned.test262 {
+    let recorded_pinned = PinnedRevisions {
+        ecma262: file.pinned_revisions.ecma262.clone(),
+        test262: file.pinned_revisions.test262.clone(),
+    };
+    if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
         return Err(format!(
-            "resume node snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            "resume node snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
             path.display(),
             expected_pinned.test262,
             file.pinned_revisions.test262
@@ -20251,8 +20344,14 @@ fn run_case_entry(
     case: &TestCase,
     run_config: &RunConfig,
 ) -> TestResult {
-    let use_child_runner = config.case_runner_bin.is_some()
-        && (run_config.resume || run_config.filter.as_deref() == Some(case.path.as_str()));
+    // Real process-level timeout enforcement (kill + wait) only exists for the
+    // child-runner path in `run_one_case_in_child_process`. The in-process path
+    // below can only *measure* elapsed time after a call returns, so it cannot
+    // bound a genuine hang (an infinite loop never returns). Every case must
+    // therefore go through the child runner whenever one is configured, not
+    // only single-case/resume invocations, or a directory/full-suite run has
+    // no enforcement at all and a hanging case stalls the whole worker forever.
+    let use_child_runner = config.case_runner_bin.is_some();
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
             TestResult {
@@ -21351,9 +21450,46 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
 }
 
 fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
-    if file.snapshot_version != SNAPSHOT_VERSION {
+    if file.snapshot_version != SNAPSHOT_VERSION && file.snapshot_version != LEGACY_SNAPSHOT_VERSION
+    {
         return None;
     }
+    let failures = file
+        .failures
+        .into_iter()
+        .map(|failure| {
+            let kind = decode_kind(&failure.kind);
+            // Legacy (version 4) records carry no outcome; derive it from the
+            // recorded kind and detail with the same classifier used at write
+            // time for current snapshots.
+            let outcome = if failure.outcome.is_empty() {
+                classify_failure_outcome(kind, &failure.detail)
+            } else {
+                decode_outcome(&failure.outcome, kind)
+            };
+            FailureRecord {
+                test_path: failure.test_path,
+                kind,
+                outcome,
+                origin: decode_origin(&failure.origin),
+                detail: failure.detail,
+                detail_hash: failure.detail_hash,
+                duration_ms: failure.duration_ms,
+            }
+        })
+        .collect::<Vec<_>>();
+    let counts_per_outcome = if file.counts_per_outcome.is_empty() && !failures.is_empty() {
+        // Legacy snapshot with recorded failures: rebuild the outcome counts
+        // from the derived per-failure outcomes plus the recorded pass count.
+        let mut counts = empty_outcome_counts();
+        counts.insert(OutcomeKind::Success, file.passed);
+        for failure in &failures {
+            *counts.entry(failure.outcome).or_insert(0) += 1;
+        }
+        counts
+    } else {
+        decode_outcome_counts(&file.counts_per_outcome, file.passed)
+    };
     Some(ProgressSnapshot {
         snapshot_version: file.snapshot_version,
         matrix_strategy_version: file.matrix_strategy_version,
@@ -21370,26 +21506,14 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
         total: file.total,
         passed: file.passed,
         counts_per_kind: decode_kind_counts(&file.counts_per_kind),
-        counts_per_outcome: decode_outcome_counts(&file.counts_per_outcome, file.passed),
+        counts_per_outcome,
         slowest_tests: file
             .slowest_tests
             .into_iter()
             .map(|entry| (entry.path, entry.duration_ms))
             .collect(),
         timeout_list: file.timeout_list,
-        failures: file
-            .failures
-            .into_iter()
-            .map(|failure| FailureRecord {
-                test_path: failure.test_path,
-                kind: decode_kind(&failure.kind),
-                outcome: decode_outcome(&failure.outcome, decode_kind(&failure.kind)),
-                origin: decode_origin(&failure.origin),
-                detail: failure.detail,
-                detail_hash: failure.detail_hash,
-                duration_ms: failure.duration_ms,
-            })
-            .collect(),
+        failures,
         completed_paths: file.completed_paths,
         matrix_path: file.matrix_path,
         completed_nodes: file.completed_nodes,
@@ -21651,11 +21775,13 @@ fn load_resume_aggregate_snapshot(
             ));
         }
         if validate_resume_aggregate_snapshot(
+            config,
             &file,
             &exact_path,
             expected_manifest_hash,
             expected_backend,
             expected_pinned,
+            false,
         )
         .is_ok()
         {
@@ -21693,11 +21819,13 @@ fn load_resume_aggregate_snapshot(
     while let Some(path) = current {
         let file = read_snapshot_file(&path)?;
         if validate_resume_aggregate_snapshot(
+            config,
             &file,
             &path,
             expected_manifest_hash,
             expected_backend,
             expected_pinned,
+            false,
         )
         .is_ok()
         {
@@ -21709,13 +21837,17 @@ fn load_resume_aggregate_snapshot(
 }
 
 fn validate_resume_aggregate_snapshot(
+    config: &SuiteConfig,
     file: &SnapshotFile,
     path: &Path,
     expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
+    allow_legacy_version: bool,
 ) -> Result<(), String> {
-    if file.snapshot_version != SNAPSHOT_VERSION {
+    let version_ok = file.snapshot_version == SNAPSHOT_VERSION
+        || (allow_legacy_version && file.snapshot_version == LEGACY_SNAPSHOT_VERSION);
+    if !version_ok {
         return Err(format!(
             "resume snapshot mismatch for snapshot_version in {}: expected {}, found {}",
             path.display(),
@@ -21762,9 +21894,13 @@ fn validate_resume_aggregate_snapshot(
             file.pinned_revisions.ecma262
         ));
     }
-    if file.pinned_revisions.test262 != expected_pinned.test262 {
+    let recorded_pinned = PinnedRevisions {
+        ecma262: file.pinned_revisions.ecma262.clone(),
+        test262: file.pinned_revisions.test262.clone(),
+    };
+    if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
         return Err(format!(
-            "resume snapshot mismatch for test262 revision in {}: expected {}, found {}",
+            "resume snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
             path.display(),
             expected_pinned.test262,
             file.pinned_revisions.test262
@@ -21785,11 +21921,149 @@ fn load_previous_snapshot(
         return Ok(None);
     }
     let file = read_snapshot_file(&path)?;
+    // Resume merges new results into the snapshot; never resume from a
+    // legacy-version snapshot, only read-only paths may migrate those.
+    if file.snapshot_version != SNAPSHOT_VERSION {
+        return Ok(None);
+    }
     let Some(mut snapshot) = snapshot_from_file(file) else {
         return Ok(None);
     };
     snapshot.manifest_hash = manifest_hash;
     Ok(Some(snapshot))
+}
+
+struct ResolvedAggregateSnapshot {
+    snapshot_name: String,
+    snapshot_paths: SnapshotPaths,
+    file: SnapshotFile,
+}
+
+fn aggregate_snapshot_paths(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    manifest_hash: u64,
+) -> SnapshotPaths {
+    SnapshotPaths {
+        json_path: config
+            .snapshot_dir
+            .join(format!("{snapshot_name}-aggregate-{manifest_hash}.json")),
+        txt_path: config
+            .snapshot_dir
+            .join(format!("{snapshot_name}-aggregate-{manifest_hash}.txt")),
+    }
+}
+
+/// Honest aggregate snapshot resolution.
+///
+/// When the requested snapshot name has an aggregate file for the current
+/// matrix, that exact file is used and must validate. When it does not, the
+/// snapshot directory is searched for aggregates of the *same* matrix (same
+/// manifest hash) published under other names; a candidate is only usable if
+/// it fully validates (backend, versions, run kind, verified pin
+/// equivalence). The requested name resolves to such a candidate only when it
+/// is unambiguous; zero or multiple compatible candidates are explicit
+/// errors, never a silent pick.
+fn resolve_aggregate_snapshot(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    manifest_hash: u64,
+    execution_backend: ExecutionBackend,
+    expected_pinned: &PinnedRevisions,
+) -> Result<ResolvedAggregateSnapshot, String> {
+    let exact_paths = aggregate_snapshot_paths(config, snapshot_name, manifest_hash);
+    if exact_paths.json_path.exists() {
+        let file = read_snapshot_file(&exact_paths.json_path)?;
+        validate_resume_aggregate_snapshot(
+            config,
+            &file,
+            &exact_paths.json_path,
+            manifest_hash,
+            execution_backend,
+            expected_pinned,
+            true,
+        )?;
+        return Ok(ResolvedAggregateSnapshot {
+            snapshot_name: snapshot_name.to_string(),
+            snapshot_paths: exact_paths,
+            file,
+        });
+    }
+
+    let suffix = format!("-aggregate-{manifest_hash}.json");
+    let mut candidate_names = fs::read_dir(&config.snapshot_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .filter_map(|file_name| {
+            file_name
+                .strip_suffix(&suffix)
+                .filter(|name| !name.is_empty() && *name != snapshot_name)
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    candidate_names.sort();
+    candidate_names.dedup();
+
+    let mut compatible = Vec::new();
+    let mut incompatible = Vec::new();
+    for candidate_name in candidate_names {
+        let candidate_paths = aggregate_snapshot_paths(config, &candidate_name, manifest_hash);
+        let Ok(file) = read_snapshot_file(&candidate_paths.json_path) else {
+            incompatible.push(candidate_name);
+            continue;
+        };
+        match validate_resume_aggregate_snapshot(
+            config,
+            &file,
+            &candidate_paths.json_path,
+            manifest_hash,
+            execution_backend,
+            expected_pinned,
+            true,
+        ) {
+            Ok(()) => compatible.push(ResolvedAggregateSnapshot {
+                snapshot_name: candidate_name,
+                snapshot_paths: candidate_paths,
+                file,
+            }),
+            Err(_) => incompatible.push(candidate_name),
+        }
+    }
+
+    match compatible.len() {
+        1 => Ok(compatible.remove(0)),
+        0 => {
+            let incompatible_note = if incompatible.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "; {} incompatible candidate(s) were rejected: [{}]",
+                    incompatible.len(),
+                    incompatible.join(", ")
+                )
+            };
+            Err(format!(
+                "missing aggregate snapshot {}; no compatible {} aggregate snapshot for manifest hash {} exists in {}{}",
+                exact_paths.json_path.display(),
+                execution_backend.as_str(),
+                manifest_hash,
+                config.snapshot_dir.display(),
+                incompatible_note,
+            ))
+        }
+        _ => Err(format!(
+            "missing aggregate snapshot {}; multiple compatible aggregate snapshots exist for manifest hash {}: [{}]; pass an explicit snapshot name to pick one",
+            exact_paths.json_path.display(),
+            manifest_hash,
+            compatible
+                .iter()
+                .map(|candidate| candidate.snapshot_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 pub fn load_verified_aggregate_summary(
@@ -21803,37 +22077,34 @@ pub fn load_verified_aggregate_summary(
         .map(|node| node.node_id.clone())
         .collect::<BTreeSet<_>>();
     let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
-    let aggregate_snapshot_name = format!("{snapshot_name}-aggregate");
-    let snapshot_paths = SnapshotPaths {
-        json_path: config
-            .snapshot_dir
-            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.json")),
-        txt_path: config
-            .snapshot_dir
-            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.txt")),
-    };
-    if !snapshot_paths.json_path.exists() {
-        return Err(format!(
-            "missing aggregate snapshot {}",
-            snapshot_paths.json_path.display()
-        ));
-    }
-
-    let file = read_snapshot_file(&snapshot_paths.json_path)?;
     let expected_pinned = pinned_revisions(config);
-    validate_resume_aggregate_snapshot(
-        &file,
-        &snapshot_paths.json_path,
+    let resolved = resolve_aggregate_snapshot(
+        config,
+        snapshot_name,
         manifest_hash,
         execution_backend,
         &expected_pinned,
     )?;
-    let snapshot = snapshot_from_file(file).ok_or_else(|| {
+    let recorded_pinned = PinnedRevisions {
+        ecma262: resolved.file.pinned_revisions.ecma262.clone(),
+        test262: resolved.file.pinned_revisions.test262.clone(),
+    };
+    let legacy_version = resolved.file.snapshot_version == LEGACY_SNAPSHOT_VERSION;
+    let mut snapshot = snapshot_from_file(resolved.file).ok_or_else(|| {
         format!(
             "unsupported snapshot version in {}",
-            snapshot_paths.json_path.display()
+            resolved.snapshot_paths.json_path.display()
         )
     })?;
+    if legacy_version {
+        migrate_legacy_aggregate_outcome_counts(
+            config,
+            &mut snapshot,
+            &resolved.snapshot_name,
+            execution_backend,
+            &nodes,
+        )?;
+    }
     let completed_node_ids = snapshot
         .completed_nodes
         .iter()
@@ -21852,7 +22123,7 @@ pub fn load_verified_aggregate_summary(
             .collect::<Vec<_>>();
         return Err(format!(
             "aggregate snapshot incomplete in {}: completed {} of {} matrix nodes; missing [{}]; extra [{}]",
-            snapshot_paths.json_path.display(),
+            resolved.snapshot_paths.json_path.display(),
             completed_node_ids.len(),
             expected_node_ids.len(),
             missing.join(", "),
@@ -21861,8 +22132,10 @@ pub fn load_verified_aggregate_summary(
     }
     Ok(VerifiedAggregateSummary {
         pinned_revisions: expected_pinned,
+        recorded_pinned_revisions: recorded_pinned,
+        resolved_snapshot_name: resolved.snapshot_name,
         manifest_hash,
-        snapshot_paths,
+        snapshot_paths: resolved.snapshot_paths,
         summary: aggregate_summary_from_snapshot(&snapshot),
     })
 }
@@ -21879,37 +22152,34 @@ pub fn load_aggregate_progress_summary(
         .collect::<BTreeSet<_>>();
     let target_total = nodes.iter().map(|node| node.total_cases).sum();
     let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
-    let aggregate_snapshot_name = format!("{snapshot_name}-aggregate");
-    let snapshot_paths = SnapshotPaths {
-        json_path: config
-            .snapshot_dir
-            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.json")),
-        txt_path: config
-            .snapshot_dir
-            .join(format!("{aggregate_snapshot_name}-{manifest_hash}.txt")),
-    };
-    if !snapshot_paths.json_path.exists() {
-        return Err(format!(
-            "missing aggregate snapshot {}",
-            snapshot_paths.json_path.display()
-        ));
-    }
-
-    let file = read_snapshot_file(&snapshot_paths.json_path)?;
     let expected_pinned = pinned_revisions(config);
-    validate_resume_aggregate_snapshot(
-        &file,
-        &snapshot_paths.json_path,
+    let resolved = resolve_aggregate_snapshot(
+        config,
+        snapshot_name,
         manifest_hash,
         execution_backend,
         &expected_pinned,
     )?;
-    let snapshot = snapshot_from_file(file).ok_or_else(|| {
+    let recorded_pinned = PinnedRevisions {
+        ecma262: resolved.file.pinned_revisions.ecma262.clone(),
+        test262: resolved.file.pinned_revisions.test262.clone(),
+    };
+    let legacy_version = resolved.file.snapshot_version == LEGACY_SNAPSHOT_VERSION;
+    let mut snapshot = snapshot_from_file(resolved.file).ok_or_else(|| {
         format!(
             "unsupported snapshot version in {}",
-            snapshot_paths.json_path.display()
+            resolved.snapshot_paths.json_path.display()
         )
     })?;
+    if legacy_version {
+        migrate_legacy_aggregate_outcome_counts(
+            config,
+            &mut snapshot,
+            &resolved.snapshot_name,
+            execution_backend,
+            &nodes,
+        )?;
+    }
     let completed_node_ids = snapshot
         .completed_nodes
         .iter()
@@ -21918,8 +22188,10 @@ pub fn load_aggregate_progress_summary(
     let complete = completed_node_ids == expected_node_ids;
     Ok(AggregateProgressSummary {
         pinned_revisions: expected_pinned,
+        recorded_pinned_revisions: recorded_pinned,
+        resolved_snapshot_name: resolved.snapshot_name,
         manifest_hash,
-        snapshot_paths,
+        snapshot_paths: resolved.snapshot_paths,
         summary: aggregate_summary_from_snapshot(&snapshot),
         target_total,
         complete,
@@ -22001,44 +22273,46 @@ pub fn load_matrix_failure_details(
     };
 
     let expected_pinned = pinned_revisions(config);
-    let manifest_hash = hash_manifest_case_paths(
-        &expected_pinned,
-        &node.case_paths,
-        Some(node.filter.as_str()),
-    );
-    let node_snapshot_name = format!(
-        "{}-{}",
+    let aggregate_manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
+    let resolved = resolve_aggregate_snapshot(
+        config,
         snapshot_name,
-        sanitize_filter_for_snapshot(&node.node_id)
-    );
-    let path = config
-        .snapshot_dir
-        .join(format!("{}-{}.json", node_snapshot_name, manifest_hash));
-    if !path.exists() {
-        return Err(format!("missing matrix node snapshot {}", path.display()));
-    }
-
-    let file = read_snapshot_file(&path)?;
-    let summary_entry = TopLevelRunSummary {
-        node_id: node.node_id.clone(),
-        node_kind: node.node_kind,
-        filter: node.filter.clone(),
-        matrix_path: node.matrix_path.clone(),
-        total: node.total_cases,
-        passed: 0,
-        failed: 0,
-        counts_per_kind: BTreeMap::new(),
-        counts_per_outcome: empty_outcome_counts(),
-        counts_per_origin: BTreeMap::new(),
-        manifest_hash,
-    };
-    validate_resume_node_snapshot(
-        &file,
-        &path,
-        &summary_entry,
+        aggregate_manifest_hash,
         execution_backend,
         &expected_pinned,
     )?;
+    let node_manifest_hash = resolved
+        .file
+        .aggregate_entries
+        .iter()
+        .find(|entry| entry.node_id == node.node_id)
+        .map(|entry| entry.manifest_hash)
+        .ok_or_else(|| {
+            format!(
+                "matrix node {} has no completed entry in aggregate snapshot {}; run that node first",
+                node.node_id,
+                resolved.snapshot_paths.json_path.display()
+            )
+        })?;
+    let Some((path, file)) = locate_node_snapshot(
+        config,
+        &resolved.snapshot_name,
+        node,
+        execution_backend,
+        node_manifest_hash,
+    )?
+    else {
+        let node_snapshot_name = format!(
+            "{}-{}",
+            resolved.snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id)
+        );
+        let path = config.snapshot_dir.join(format!(
+            "{}-{}.json",
+            node_snapshot_name, node_manifest_hash
+        ));
+        return Err(format!("missing matrix node snapshot {}", path.display()));
+    };
     let snapshot = snapshot_from_file(file)
         .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
 
@@ -22107,13 +22381,27 @@ pub fn generate_backlog(
         .map(|case| (case.path.clone(), case))
         .collect::<BTreeMap<_, _>>();
     let owner_rules = load_backlog_owner_rules(config)?;
+    let node_hashes = verified
+        .summary
+        .entries
+        .iter()
+        .map(|entry| (entry.node_id.as_str(), entry.manifest_hash))
+        .collect::<BTreeMap<_, _>>();
 
     let mut records = Vec::new();
     let mut duration_by_path = BTreeMap::new();
     let mut timeout_paths = BTreeSet::new();
     for node in &nodes {
-        let Some(snapshot) =
-            load_completed_node_snapshot(config, snapshot_name, node, execution_backend)?
+        let Some(node_manifest_hash) = node_hashes.get(node.node_id.as_str()).copied() else {
+            continue;
+        };
+        let Some(snapshot) = load_completed_node_snapshot(
+            config,
+            &verified.resolved_snapshot_name,
+            node,
+            execution_backend,
+            node_manifest_hash,
+        )?
         else {
             continue;
         };
@@ -22152,8 +22440,11 @@ pub fn generate_backlog(
                 failure_kind: failure.kind.as_str().to_string(),
                 outcome: failure.outcome.as_str().to_string(),
                 origin: failure.origin.as_str().to_string(),
+                // Hash the normalized detail so the backlog is byte-identical
+                // across machines even when raw details embed absolute paths
+                // or timing data.
+                detail_hash: hash_detail(&normalized_detail),
                 normalized_detail,
-                detail_hash: failure.detail_hash,
                 duration_ms: failure
                     .duration_ms
                     .or_else(|| duration_by_path.get(&failure.test_path).copied()),
@@ -22219,7 +22510,7 @@ pub fn generate_backlog(
         execution_backend: execution_backend.as_str().to_string(),
         pinned_revisions: verified.pinned_revisions.clone(),
         manifest_hash: verified.manifest_hash,
-        snapshot_name: snapshot_name.to_string(),
+        snapshot_name: verified.resolved_snapshot_name.clone(),
         total: verified.summary.total,
         passed: verified.summary.passed,
         failed: verified.summary.failed,
@@ -22242,13 +22533,20 @@ pub fn compare_snapshots(
     let base = load_verified_aggregate_summary(config, base_snapshot_name, execution_backend)?;
     let candidate =
         load_verified_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
-    if base.pinned_revisions != candidate.pinned_revisions {
+    // Refuse to compare snapshots whose suite pins are not verifiably the
+    // same suite content. Textual pin differences are accepted only when the
+    // git object store proves the vendored suite trees are identical.
+    if !test262_pins_equivalent(
+        config,
+        &base.recorded_pinned_revisions,
+        &candidate.recorded_pinned_revisions,
+    ) {
         return Err(format!(
-            "snapshot pin mismatch: base ecma262={} test262={}, candidate ecma262={} test262={}",
-            base.pinned_revisions.ecma262,
-            base.pinned_revisions.test262,
-            candidate.pinned_revisions.ecma262,
-            candidate.pinned_revisions.test262
+            "snapshot pin mismatch: base ecma262={} test262={}, candidate ecma262={} test262={}; refusing to compare snapshots whose test262 pins do not verify as identical suite content",
+            base.recorded_pinned_revisions.ecma262,
+            base.recorded_pinned_revisions.test262,
+            candidate.recorded_pinned_revisions.ecma262,
+            candidate.recorded_pinned_revisions.test262
         ));
     }
     if base.manifest_hash != candidate.manifest_hash {
@@ -22258,8 +22556,8 @@ pub fn compare_snapshots(
         ));
     }
 
-    let base_failures = load_failure_map(config, base_snapshot_name, execution_backend)?;
-    let candidate_failures = load_failure_map(config, candidate_snapshot_name, execution_backend)?;
+    let base_failures = load_failure_map(config, &base, execution_backend)?;
+    let candidate_failures = load_failure_map(config, &candidate, execution_backend)?;
     if base_failures.len() != base.summary.failed {
         return Err(format!(
             "failure snapshot count mismatch for {base_snapshot_name}: expected {} failures from verified aggregate, collected {} from node snapshots",
@@ -22291,11 +22589,16 @@ pub fn compare_snapshots(
         let Some(candidate_failure) = candidate_failures.get(path) else {
             continue;
         };
-        if base_failure.detail_hash != candidate_failure.detail_hash {
+        // Compare hashes of the *normalized* details so unstable data
+        // (absolute paths, timestamps, durations) never reports a spurious
+        // failure-mode change between two runs of the same suite.
+        let base_hash = hash_detail(&normalize_backlog_detail(&base_failure.detail));
+        let candidate_hash = hash_detail(&normalize_backlog_detail(&candidate_failure.detail));
+        if base_hash != candidate_hash {
             changed_failure_hashes.push(ChangedFailureHash {
                 test_path: path.clone(),
-                base_hash: base_failure.detail_hash,
-                candidate_hash: candidate_failure.detail_hash,
+                base_hash,
+                candidate_hash,
             });
         }
     }
@@ -22314,16 +22617,93 @@ pub fn compare_snapshots(
     })
 }
 
+/// Build an explicit pin report over every aggregate snapshot on disk.
+///
+/// Each aggregate's recorded pins are classified against the current vendored
+/// suite content: `Exact` (same pin string), `ContentEquivalent` (different
+/// string, but the git object store verifies identical suite content), or
+/// `Mismatch` (unverifiable — such snapshots are refused by merge/compare
+/// paths). The report is deterministic (sorted by file name) and read-only.
+pub fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, String> {
+    let current = pinned_revisions(config);
+    let mut file_names = fs::read_dir(&config.snapshot_dir)
+        .map_err(|err| {
+            format!(
+                "failed to read snapshot dir {}: {err}",
+                config.snapshot_dir.display()
+            )
+        })?
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .filter(|name| name.ends_with(".json") && name.contains("-aggregate-"))
+        .collect::<Vec<_>>();
+    file_names.sort();
+
+    let mut entries = Vec::new();
+    let mut mismatched = 0;
+    for file_name in file_names {
+        let path = config.snapshot_dir.join(&file_name);
+        let Ok(file) = read_snapshot_file(&path) else {
+            continue;
+        };
+        if file.run_kind != "aggregate-matrix" {
+            continue;
+        }
+        let recorded = PinnedRevisions {
+            ecma262: file.pinned_revisions.ecma262.clone(),
+            test262: file.pinned_revisions.test262.clone(),
+        };
+        let status = if recorded == current {
+            SnapshotPinStatus::Exact
+        } else if test262_pins_equivalent(config, &recorded, &current) {
+            SnapshotPinStatus::ContentEquivalent
+        } else {
+            SnapshotPinStatus::Mismatch
+        };
+        if status == SnapshotPinStatus::Mismatch {
+            mismatched += 1;
+        }
+        entries.push(SnapshotPinReportEntry {
+            file_name,
+            execution_backend: file.execution_backend.clone(),
+            manifest_hash: file.manifest_hash,
+            matrix_strategy_version: file.matrix_strategy_version,
+            recorded_ecma262: recorded.ecma262,
+            recorded_test262: recorded.test262,
+            status,
+        });
+    }
+    Ok(SnapshotPinReport {
+        current,
+        entries,
+        mismatched,
+    })
+}
+
 fn load_failure_map(
     config: &SuiteConfig,
-    snapshot_name: &str,
+    verified: &VerifiedAggregateSummary,
     execution_backend: ExecutionBackend,
 ) -> Result<BTreeMap<String, FailureRecord>, String> {
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
+    let node_hashes = verified
+        .summary
+        .entries
+        .iter()
+        .map(|entry| (entry.node_id.as_str(), entry.manifest_hash))
+        .collect::<BTreeMap<_, _>>();
     let mut map = BTreeMap::new();
     for node in &nodes {
-        let Some(snapshot) =
-            load_completed_node_snapshot(config, snapshot_name, node, execution_backend)?
+        let Some(node_manifest_hash) = node_hashes.get(node.node_id.as_str()).copied() else {
+            continue;
+        };
+        let Some(snapshot) = load_completed_node_snapshot(
+            config,
+            &verified.resolved_snapshot_name,
+            node,
+            execution_backend,
+            node_manifest_hash,
+        )?
         else {
             continue;
         };
@@ -22334,30 +22714,58 @@ fn load_failure_map(
     Ok(map)
 }
 
-fn load_completed_node_snapshot(
+/// Locate the matrix node snapshot that an aggregate entry points at.
+///
+/// Aggregate snapshots record each completed node's manifest hash, which is
+/// also embedded in the node snapshot's file name — that recorded hash is the
+/// only honest join key, because node manifest hashes are derived from the
+/// pin *string* and therefore changed with every legacy pin drift. The
+/// located file must still prove itself: its own recorded pin must reproduce
+/// the recorded manifest hash over the node's exact case paths, and the pin
+/// must verify as the current suite content.
+fn locate_node_snapshot(
     config: &SuiteConfig,
     snapshot_name: &str,
     node: &RunMatrixNode,
     execution_backend: ExecutionBackend,
-) -> Result<Option<ProgressSnapshot>, String> {
+    node_manifest_hash: u64,
+) -> Result<Option<(PathBuf, SnapshotFile)>, String> {
     let expected_pinned = pinned_revisions(config);
-    let manifest_hash = hash_manifest_case_paths(
-        &expected_pinned,
-        &node.case_paths,
-        Some(node.filter.as_str()),
-    );
     let node_snapshot_name = format!(
         "{}-{}",
         snapshot_name,
         sanitize_filter_for_snapshot(&node.node_id)
     );
-    let path = config
-        .snapshot_dir
-        .join(format!("{}-{}.json", node_snapshot_name, manifest_hash));
+    let path = config.snapshot_dir.join(format!(
+        "{}-{}.json",
+        node_snapshot_name, node_manifest_hash
+    ));
     if !path.exists() {
         return Ok(None);
     }
     let file = read_snapshot_file(&path)?;
+    let recorded_pinned = PinnedRevisions {
+        ecma262: file.pinned_revisions.ecma262.clone(),
+        test262: file.pinned_revisions.test262.clone(),
+    };
+    let recomputed_hash = hash_manifest_case_paths(
+        &recorded_pinned,
+        &node.case_paths,
+        Some(node.filter.as_str()),
+    );
+    // The recompute proof only holds for snapshots written by the current
+    // code: legacy snapshot versions may predate changes to the manifest hash
+    // inputs, so for them the join relies on the aggregate-recorded hash plus
+    // verified pin equivalence and the completeness checks below.
+    if file.snapshot_version == SNAPSHOT_VERSION && recomputed_hash != file.manifest_hash {
+        return Err(format!(
+            "node snapshot integrity failure in {}: recorded pin does not reproduce manifest hash {} over the current case set for {} (recomputed {})",
+            path.display(),
+            file.manifest_hash,
+            node.node_id,
+            recomputed_hash
+        ));
+    }
     let summary_entry = TopLevelRunSummary {
         node_id: node.node_id.clone(),
         node_kind: node.node_kind,
@@ -22369,21 +22777,110 @@ fn load_completed_node_snapshot(
         counts_per_kind: BTreeMap::new(),
         counts_per_outcome: empty_outcome_counts(),
         counts_per_origin: BTreeMap::new(),
-        manifest_hash,
+        manifest_hash: node_manifest_hash,
     };
     validate_resume_node_snapshot(
+        config,
         &file,
         &path,
         &summary_entry,
         execution_backend,
         &expected_pinned,
+        true,
     )?;
+    Ok(Some((path, file)))
+}
+
+fn load_completed_node_snapshot(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    node: &RunMatrixNode,
+    execution_backend: ExecutionBackend,
+    node_manifest_hash: u64,
+) -> Result<Option<ProgressSnapshot>, String> {
+    let Some((path, file)) = locate_node_snapshot(
+        config,
+        snapshot_name,
+        node,
+        execution_backend,
+        node_manifest_hash,
+    )?
+    else {
+        return Ok(None);
+    };
     if file.completed_paths.len() != node.case_paths.len() {
         return Ok(None);
     }
     snapshot_from_file(file)
         .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))
         .map(Some)
+}
+
+/// Rebuild the outcome counts of a legacy (version 4) aggregate snapshot from
+/// its node snapshots, which record every failure's kind and detail.
+///
+/// Legacy aggregates predate outcome tracking and carry neither per-failure
+/// outcomes nor outcome counts. The node snapshots hold the full recorded
+/// failure data, so the outcome counts are *derived* from real recorded
+/// results — when a node snapshot is missing, migration refuses loudly
+/// instead of inventing counts.
+fn migrate_legacy_aggregate_outcome_counts(
+    config: &SuiteConfig,
+    snapshot: &mut ProgressSnapshot,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+    nodes: &[RunMatrixNode],
+) -> Result<(), String> {
+    let nodes_by_id = nodes
+        .iter()
+        .map(|node| (node.node_id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let mut total_counts = empty_outcome_counts();
+    for entry in &mut snapshot.aggregate_entries {
+        let Some(node) = nodes_by_id.get(entry.node_id.as_str()) else {
+            return Err(format!(
+                "legacy aggregate snapshot migration failed: matrix node {} is not part of the current run matrix",
+                entry.node_id
+            ));
+        };
+        let Some((path, file)) = locate_node_snapshot(
+            config,
+            snapshot_name,
+            node,
+            execution_backend,
+            entry.manifest_hash,
+        )?
+        else {
+            return Err(format!(
+                "legacy aggregate snapshot (version {LEGACY_SNAPSHOT_VERSION}) cannot derive outcome counts: missing node snapshot for {} under snapshot name {}; re-publish the matrix with the current tooling",
+                entry.node_id, snapshot_name
+            ));
+        };
+        let node_snapshot = snapshot_from_file(file)
+            .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
+        if node_snapshot.passed != entry.passed || node_snapshot.failures.len() != entry.failed {
+            return Err(format!(
+                "legacy aggregate snapshot migration failed: node snapshot {} records passed={} failures={} but the aggregate entry {} records passed={} failed={}",
+                path.display(),
+                node_snapshot.passed,
+                node_snapshot.failures.len(),
+                entry.node_id,
+                entry.passed,
+                entry.failed
+            ));
+        }
+        let mut counts = empty_outcome_counts();
+        counts.insert(OutcomeKind::Success, node_snapshot.passed);
+        for failure in &node_snapshot.failures {
+            *counts.entry(failure.outcome).or_insert(0) += 1;
+        }
+        for (outcome, count) in &counts {
+            *total_counts.entry(*outcome).or_insert(0) += count;
+        }
+        entry.counts_per_outcome = counts;
+    }
+    snapshot.counts_per_outcome = total_counts;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22571,12 +23068,80 @@ fn sorted_set_values(values: Option<&BTreeSet<String>>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Normalize a failure detail for stable comparison and backlog output:
+/// collapse whitespace, unify path separators, and scrub unstable data
+/// (absolute filesystem paths, wall-clock timestamps, durations) that would
+/// otherwise make identical failure modes hash differently across machines or
+/// runs.
 fn normalize_backlog_detail(detail: &str) -> String {
     detail
         .replace('\\', "/")
         .split_whitespace()
+        .map(normalize_detail_token)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn normalize_detail_token(token: &str) -> String {
+    const OPENERS: &[char] = &['(', '[', '{', '<', '"', '\''];
+    const CLOSERS: &[char] = &[')', ']', '}', '>', '"', '\'', ',', ';', ':', '.'];
+    let core_start = token
+        .find(|c: char| !OPENERS.contains(&c))
+        .unwrap_or(token.len());
+    let (prefix, rest) = token.split_at(core_start);
+    let core_end = rest
+        .rfind(|c: char| !CLOSERS.contains(&c))
+        .map(|index| index + rest[index..].chars().next().map_or(1, char::len_utf8))
+        .unwrap_or(0);
+    let (core, suffix) = rest.split_at(core_end);
+    let replacement = if core.starts_with('/') {
+        Some("<abs-path>")
+    } else if is_timestamp_token(core) {
+        Some("<timestamp>")
+    } else if is_duration_token(core) {
+        Some("<duration>")
+    } else {
+        None
+    };
+    match replacement {
+        Some(replacement) => format!("{prefix}{replacement}{suffix}"),
+        None => token.to_string(),
+    }
+}
+
+/// Matches wall-clock timestamps of the shape `YYYY-MM-DD` optionally
+/// followed by `T`/`t` and a time component (e.g. RFC 3339).
+fn is_timestamp_token(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    if bytes.len() < 10 {
+        return false;
+    }
+    let date_ok = bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+    if !date_ok {
+        return false;
+    }
+    match bytes.get(10) {
+        None => true,
+        Some(b'T') | Some(b't') => bytes[11..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b':' | b'.' | b'+' | b'-' | b'Z')),
+        Some(_) => false,
+    }
+}
+
+/// Matches duration tokens like `123ms`, `4s`, or `1.5s`.
+fn is_duration_token(token: &str) -> bool {
+    let digits = token.strip_suffix("ms").or_else(|| token.strip_suffix('s'));
+    let Some(digits) = digits else {
+        return false;
+    };
+    !digits.is_empty()
+        && digits.chars().filter(|c| *c == '.').count() <= 1
+        && digits.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
 fn outcome_rank(outcome: OutcomeKind) -> usize {
@@ -22965,18 +23530,209 @@ fn scan_harness_files(
     Ok(())
 }
 
-fn read_git_head(path: &Path) -> Option<String> {
+fn git_capture(dir: &Path, args: &[&str]) -> Option<String> {
     let output = std::process::Command::new("git")
         .arg("-C")
-        .arg(path)
-        .arg("rev-parse")
-        .arg("HEAD")
+        .arg(dir)
+        .args(args)
         .output()
         .ok()?;
     if !output.status.success() {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SuiteGitContext {
+    toplevel: PathBuf,
+    /// Path of the suite root relative to `toplevel`, without a trailing
+    /// slash. Empty when the suite root is itself the repository toplevel.
+    prefix: String,
+}
+
+fn suite_git_context(suite_root: &Path) -> Option<SuiteGitContext> {
+    let canonical = suite_root.canonicalize().ok()?;
+    let toplevel = git_capture(&canonical, &["rev-parse", "--show-toplevel"])?;
+    let prefix = git_capture(&canonical, &["rev-parse", "--show-prefix"])?;
+    Some(SuiteGitContext {
+        toplevel: PathBuf::from(toplevel),
+        prefix: prefix.trim_end_matches('/').to_string(),
+    })
+}
+
+/// Content identity of the vendored Test262 suite.
+///
+/// Historically this was `git -C <suite_root> rev-parse HEAD`, which is only
+/// honest when the suite root is its own git checkout. The vendored suite in
+/// this repository is plain committed files, so git resolved the *enclosing*
+/// repository HEAD instead: every unrelated Porffor commit changed the
+/// recorded "test262 pin" even though the suite content was untouched, which
+/// is how the published snapshots ended up with mutually inconsistent pins.
+///
+/// The honest pin for a vendored suite is the git tree object id of the suite
+/// directory: it identifies the exact file contents and stays stable until
+/// the suite is actually re-vendored. Legacy pins that recorded an enclosing
+/// repository commit are accepted only after `test262_pins_equivalent`
+/// verifies (via the git object store) that the vendored suite tree at that
+/// commit is byte-identical to the current one.
+fn suite_test262_pin(suite_root: &Path) -> String {
+    static CACHE: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceLock::new();
+    let key = suite_root.canonicalize().ok();
+    if let Some(key) = &key {
+        if let Some(hit) = CACHE
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("suite pin cache lock should not be poisoned")
+            .get(key)
+        {
+            return hit.clone();
+        }
+    }
+    let pin = compute_suite_test262_pin(suite_root);
+    if let Some(key) = key {
+        CACHE
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("suite pin cache lock should not be poisoned")
+            .insert(key, pin.clone());
+    }
+    pin
+}
+
+fn compute_suite_test262_pin(suite_root: &Path) -> String {
+    let Some(context) = suite_git_context(suite_root) else {
+        return "missing-vendored-suite".to_string();
+    };
+    if context.prefix.is_empty() {
+        // The suite root is its own repository checkout; HEAD is the honest
+        // upstream pin.
+        return git_capture(&context.toplevel, &["rev-parse", "HEAD"])
+            .unwrap_or_else(|| "missing-vendored-suite".to_string());
+    }
+    let tree = git_capture(
+        &context.toplevel,
+        &["rev-parse", "--verify", &format!("HEAD:{}", context.prefix)],
+    );
+    let dirty = git_capture(
+        &context.toplevel,
+        &["status", "--porcelain", "--", &context.prefix],
+    )
+    .map(|status| !status.is_empty());
+    match (tree, dirty) {
+        (Some(tree), Some(false)) => tree,
+        // Uncommitted/untracked vendored content: derive the pin from the
+        // actual bytes on disk so it can never silently collide with a clean
+        // committed pin. Such pins are process-local working states, never
+        // publishable identities.
+        _ => format!("worktree-{:016x}", hash_directory_content(suite_root)),
+    }
+}
+
+fn hash_directory_content(root: &Path) -> u64 {
+    let mut relative_paths = Vec::new();
+    collect_relative_files(root, root, &mut relative_paths);
+    relative_paths.sort();
+    let mut hasher = DefaultHasher::new();
+    for relative in &relative_paths {
+        relative.hash(&mut hasher);
+        fs::read(root.join(relative))
+            .unwrap_or_default()
+            .hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn collect_relative_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_relative_files(root, &path, out);
+        } else if let Ok(relative) = path.strip_prefix(root) {
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+fn is_full_hex_oid(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Resolve a recorded test262 pin to the git tree object id of the suite
+/// content it described, when that is verifiable from the local object store.
+fn resolve_pin_to_suite_tree(context: &SuiteGitContext, pin: &str) -> Option<String> {
+    if !is_full_hex_oid(pin) {
+        return None;
+    }
+    let object_type = git_capture(&context.toplevel, &["cat-file", "-t", pin])?;
+    match object_type.as_str() {
+        "tree" => Some(pin.to_string()),
+        "commit" => {
+            let spec = if context.prefix.is_empty() {
+                format!("{pin}^{{tree}}")
+            } else {
+                format!("{pin}:{}", context.prefix)
+            };
+            git_capture(&context.toplevel, &["rev-parse", "--verify", &spec])
+        }
+        _ => None,
+    }
+}
+
+/// Verified pin equivalence: two pins are equivalent only when they are equal
+/// strings, or when both can be resolved through the local git object store
+/// to the same suite content tree. Legacy snapshots recorded the enclosing
+/// repository HEAD commit as the "test262 pin"; those verify against the
+/// current content pin exactly when the vendored suite tree at that commit is
+/// identical to the current tree. Nothing is ever assumed: unresolvable pins
+/// are a mismatch.
+fn test262_pins_equivalent(
+    config: &SuiteConfig,
+    recorded: &PinnedRevisions,
+    expected: &PinnedRevisions,
+) -> bool {
+    if recorded.ecma262 != expected.ecma262 {
+        return false;
+    }
+    if recorded.test262 == expected.test262 {
+        return true;
+    }
+    static CACHE: OnceLock<Mutex<BTreeMap<(PathBuf, String, String), bool>>> = OnceLock::new();
+    let cache_key = config
+        .suite_root
+        .canonicalize()
+        .ok()
+        .map(|root| (root, recorded.test262.clone(), expected.test262.clone()));
+    if let Some(cache_key) = &cache_key {
+        if let Some(hit) = CACHE
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("pin equivalence cache lock should not be poisoned")
+            .get(cache_key)
+        {
+            return *hit;
+        }
+    }
+    let equivalent = suite_git_context(&config.suite_root).is_some_and(|context| {
+        match (
+            resolve_pin_to_suite_tree(&context, &recorded.test262),
+            resolve_pin_to_suite_tree(&context, &expected.test262),
+        ) {
+            (Some(recorded_tree), Some(expected_tree)) => recorded_tree == expected_tree,
+            _ => false,
+        }
+    });
+    if let Some(cache_key) = cache_key {
+        CACHE
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("pin equivalence cache lock should not be poisoned")
+            .insert(cache_key, equivalent);
+    }
+    equivalent
 }
 
 fn hash_manifest(
@@ -23264,6 +24020,7 @@ function $DONE(error) {
         assert!(!harness.contains("leaving: function () {}"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_classifies_missing_host_capability_as_host_harness() {
         let preludes = top_level_host_preludes();
@@ -23344,6 +24101,7 @@ function $DONE(error) {
         }
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_exposes_current_global_host_accessors() {
         let preludes = top_level_host_preludes();
@@ -23445,6 +24203,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(materialized_text.contains("$DONE();"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_enforces_async_done_contract() {
         let preludes = async_done_preludes();
@@ -29398,6 +30157,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "fixture".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
@@ -29414,6 +30174,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "resume".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_full(&config, run_config.clone()).expect("first run should complete");
@@ -29429,11 +30190,13 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(second.completed_paths.len(), first.completed_paths.len());
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn baseline_report_groups_by_kind_and_subtree() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "baseline-report".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
@@ -29443,6 +30206,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(report.buckets.iter().all(|bucket| bucket.total == 0));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_aggregates_fixture_suite() {
         let config = fixture_config();
@@ -29450,6 +30214,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             &config,
             RunConfig {
                 snapshot_name: "aggregate".to_string(),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -29469,6 +30234,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-resume".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone()).expect("first matrix run");
@@ -29493,11 +30259,13 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(raw.contains("\"aggregate_entries\""));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_resume_reloads_completed_node_snapshot_summaries() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-refresh".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -29573,6 +30341,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-low-ram".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -29631,6 +30400,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-low-ram-repair".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -29713,6 +30483,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-stale-nodes".to_string(),
             max_matrix_nodes: Some(4),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_top_level_matrix(&config, run_config.clone())
@@ -29778,6 +30549,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-ignore-checkpoint".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let nodes = build_run_matrix(&config).expect("matrix should build");
@@ -29870,6 +30642,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-recover".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -29925,6 +30698,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-stale-fallback".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let nodes = build_run_matrix(&config).expect("matrix should build");
@@ -29980,6 +30754,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-ignore-checkpoint".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30025,6 +30800,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-promote-checkpoint".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30190,6 +30966,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(resumed_snapshot.failures.len(), 1);
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_can_checkpoint_with_max_matrix_nodes() {
         let config = fixture_config();
@@ -30198,6 +30975,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 snapshot_name: "aggregate-checkpoint".to_string(),
                 max_matrix_nodes: Some(1),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -30209,6 +30987,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 snapshot_name: "aggregate-checkpoint".to_string(),
                 resume: true,
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -30294,6 +31073,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 resume: true,
                 snapshot_name: "stale-aggregate".to_string(),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -30306,6 +31086,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "verified-aggregate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary =
@@ -30327,6 +31108,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "stale-pinned".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
@@ -30359,6 +31141,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "incomplete-aggregate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
@@ -30422,6 +31205,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = tiny_failing_suite_config("backlog-inventory");
         let run_config = RunConfig {
             snapshot_name: "backlog-inventory".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -30461,6 +31245,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = tiny_failing_suite_config("backlog-invalid-ownership-map");
         let run_config = RunConfig {
             snapshot_name: "backlog-invalid-ownership-map".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -30479,17 +31264,20 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(err.contains("invalid backlog ownership map line"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn compare_snapshots_reports_passes_regressions_hash_changes_and_pin_mismatch() {
         let config = tiny_failing_suite_config("snapshot-compare");
         let base_run = RunConfig {
             snapshot_name: "snapshot-compare-base".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
 
         let candidate_run = RunConfig {
             snapshot_name: "snapshot-compare-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
@@ -30535,6 +31323,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
 
         let pass_run = RunConfig {
             snapshot_name: "snapshot-compare-pass".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         fs::write(
@@ -30582,6 +31371,485 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         )
         .expect_err("pin mismatch should fail comparison");
         assert!(err.contains("test262 revision"));
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_snapshot_name_resolution_finds_unique_compatible_aggregate() {
+        let config = tiny_failing_suite_config("backlog-name-resolution");
+        let published_run = RunConfig {
+            snapshot_name: "published-elsewhere".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, published_run.clone()).expect("matrix should run");
+
+        // The default snapshot name has no aggregate, but exactly one
+        // compatible aggregate exists under another name: honest resolution
+        // must find it and report the resolved name, not fabricate a "latest"
+        // artifact and not fail with a missing-snapshot error.
+        let progress =
+            load_aggregate_progress_summary(&config, "latest", ExecutionBackend::SpecExec)
+                .expect("progress should resolve to the published aggregate");
+        assert_eq!(progress.resolved_snapshot_name, "published-elsewhere");
+        assert!(progress.complete);
+        assert_eq!(progress.summary.failed, 1);
+        assert!(progress
+            .snapshot_paths
+            .json_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("snapshot path should have a name")
+            .starts_with("published-elsewhere-aggregate-"));
+
+        let verified =
+            load_verified_aggregate_summary(&config, "latest", ExecutionBackend::SpecExec)
+                .expect("verified summary should resolve to the published aggregate");
+        assert_eq!(verified.resolved_snapshot_name, "published-elsewhere");
+
+        let triage = load_matrix_triage_entries(&config, "latest", ExecutionBackend::SpecExec)
+            .expect("triage should resolve to the published aggregate");
+        assert_eq!(triage.len(), 1);
+
+        let (artifact, _paths) = generate_backlog(&config, "latest", ExecutionBackend::SpecExec)
+            .expect("backlog should generate from the resolved aggregate");
+        assert_eq!(artifact.snapshot_name, "published-elsewhere");
+        assert_eq!(artifact.records.len(), 1);
+
+        // A second compatible aggregate makes resolution ambiguous; that must
+        // be an explicit error listing the candidates, never a silent pick.
+        let second_run = RunConfig {
+            snapshot_name: "published-elsewhere-two".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, second_run).expect("second matrix should run");
+        let err = load_aggregate_progress_summary(&config, "latest", ExecutionBackend::SpecExec)
+            .expect_err("ambiguous resolution should fail");
+        assert!(err.contains("multiple compatible aggregate snapshots"));
+        assert!(err.contains("published-elsewhere"));
+        assert!(err.contains("published-elsewhere-two"));
+
+        // An exact-name aggregate always wins over resolution.
+        let exact = load_aggregate_progress_summary(
+            &config,
+            "published-elsewhere",
+            ExecutionBackend::SpecExec,
+        )
+        .expect("exact snapshot name should load");
+        assert_eq!(exact.resolved_snapshot_name, "published-elsewhere");
+    }
+
+    #[test]
+    fn backlog_snapshot_name_resolution_reports_missing_when_no_candidate_is_compatible() {
+        let config = tiny_failing_suite_config("backlog-name-resolution-missing");
+        let err = load_aggregate_progress_summary(&config, "latest", ExecutionBackend::SpecExec)
+            .expect_err("missing aggregate should fail");
+        assert!(err.contains("missing aggregate snapshot"));
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_pin_equivalence_accepts_verified_legacy_commit_pin() {
+        let config = fixture_config();
+        let pinned = pinned_revisions(&config);
+        if !is_full_hex_oid(&pinned.test262) {
+            // Dirty or non-git checkout of the fixture suite: content
+            // equivalence with a repository commit cannot be verified here.
+            return;
+        }
+        let Some(head_commit) = git_capture(&repo_root(), &["rev-parse", "HEAD"]) else {
+            return;
+        };
+        assert_ne!(
+            pinned.test262, head_commit,
+            "vendored-suite pin must be the suite content tree, not the enclosing repo HEAD"
+        );
+
+        let run_config = RunConfig {
+            snapshot_name: "legacy-pin".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("verified aggregate summary should load");
+
+        // Legacy publications recorded the enclosing repository HEAD commit
+        // as the test262 pin. Such a pin must verify (via the git object
+        // store) as identical vendored suite content — never be trusted
+        // blindly, never be rejected when the content provably matches.
+        let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
+            .expect("snapshot file should parse");
+        file.pinned_revisions.test262 = head_commit.clone();
+        fs::write(
+            &verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),
+        )
+        .expect("legacy-pin snapshot should write");
+
+        let legacy = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("content-equivalent legacy commit pin should verify");
+        assert_eq!(legacy.recorded_pinned_revisions.test262, head_commit);
+        assert_eq!(legacy.pinned_revisions.test262, pinned.test262);
+
+        let report = snapshot_pin_report(&config).expect("pin report should build");
+        let entry = report
+            .entries
+            .iter()
+            .find(|entry| {
+                verified
+                    .snapshot_paths
+                    .json_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    == Some(entry.file_name.as_str())
+            })
+            .expect("pin report should include the aggregate");
+        assert_eq!(entry.status, SnapshotPinStatus::ContentEquivalent);
+        assert_eq!(report.mismatched, 0);
+
+        // An unverifiable pin stays a hard mismatch.
+        let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
+            .expect("snapshot file should parse");
+        file.pinned_revisions.test262 = "0123456789abcdef0123456789abcdef01234567".to_string();
+        fs::write(
+            &verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),
+        )
+        .expect("tampered snapshot should write");
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("unverifiable pin should be rejected");
+        assert!(err.contains("test262 revision"));
+        let report = snapshot_pin_report(&config).expect("pin report should build");
+        assert_eq!(report.mismatched, 1);
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_legacy_snapshot_version_migrates_outcomes_from_recorded_details() {
+        let config = tiny_failing_suite_config("backlog-legacy-migration");
+        let run_config = RunConfig {
+            snapshot_name: "legacy-migrate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+
+        // Rewrite every snapshot to the legacy pre-outcome format: version 4,
+        // no per-failure outcomes, no outcome counts anywhere.
+        for entry in fs::read_dir(&config.snapshot_dir).expect("snapshot dir should read") {
+            let path = entry.expect("dir entry should read").path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let raw = fs::read_to_string(&path).expect("snapshot should read");
+            let mut value: serde_json::Value =
+                serde_json::from_str(&raw).expect("snapshot should parse");
+            let Some(object) = value.as_object_mut() else {
+                continue;
+            };
+            if !object.contains_key("run_kind") {
+                continue;
+            }
+            object.insert("snapshot_version".to_string(), serde_json::json!(4));
+            object.remove("counts_per_outcome");
+            if let Some(failures) = object.get_mut("failures").and_then(|v| v.as_array_mut()) {
+                for failure in failures {
+                    if let Some(failure) = failure.as_object_mut() {
+                        failure.remove("outcome");
+                    }
+                }
+            }
+            if let Some(entries) = object
+                .get_mut("aggregate_entries")
+                .and_then(|v| v.as_array_mut())
+            {
+                for entry in entries {
+                    if let Some(entry) = entry.as_object_mut() {
+                        entry.remove("counts_per_outcome");
+                    }
+                }
+            }
+            fs::write(
+                &path,
+                serde_json::to_string_pretty(&value).expect("snapshot should serialize"),
+            )
+            .expect("legacy snapshot should write");
+        }
+
+        // Outcomes must be derived from the recorded failure kinds/details of
+        // the node snapshots — real recorded data, not invented counts.
+        let progress = load_aggregate_progress_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("legacy aggregate should load with derived outcome counts");
+        assert_eq!(
+            progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::Bug)
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+        assert_eq!(
+            progress
+                .summary
+                .counts_per_outcome
+                .get(&OutcomeKind::Success)
+                .copied()
+                .unwrap_or(0),
+            progress.summary.passed
+        );
+
+        let triage = load_matrix_triage_entries(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("legacy triage should load");
+        assert_eq!(triage.len(), 1);
+        assert_eq!(triage[0].bug, 1);
+
+        let (artifact, _paths) = generate_backlog(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("legacy backlog should generate");
+        assert_eq!(artifact.records.len(), 1);
+        assert_eq!(artifact.records[0].outcome, "Bug");
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_snapshot_pin_report_classifies_exact_and_mismatched_pins() {
+        let config = tiny_failing_suite_config("backlog-pin-report");
+        let run_config = RunConfig {
+            snapshot_name: "pin-report".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+
+        let report = snapshot_pin_report(&config).expect("pin report should build");
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SnapshotPinStatus::Exact);
+        assert_eq!(report.mismatched, 0);
+
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("verified aggregate summary should load");
+        let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
+            .expect("snapshot file should parse");
+        file.pinned_revisions.test262 = "inconsistent-pin".to_string();
+        fs::write(
+            &verified.snapshot_paths.json_path,
+            serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),
+        )
+        .expect("tampered snapshot should write");
+
+        let report = snapshot_pin_report(&config).expect("pin report should build");
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SnapshotPinStatus::Mismatch);
+        assert_eq!(report.entries[0].recorded_test262, "inconsistent-pin");
+        assert_eq!(report.mismatched, 1);
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_comparison_catches_injected_regression() {
+        let config = tiny_failing_suite_config("backlog-compare-regression");
+        let extra_test = config
+            .suite_root
+            .join("test")
+            .join("built-ins")
+            .join("Array")
+            .join("regression-probe.js");
+        fs::write(&extra_test, "/*---\nflags: [raw]\n---*/\n1;\n")
+            .expect("passing probe should write");
+
+        let base_run = RunConfig {
+            snapshot_name: "regression-base".to_string(),
+            // Oracle-backend fixture test: the base/candidate runs must use the
+            // same backend the comparison below loads (spec-exec), otherwise the
+            // aggregate snapshot is written under the wrong backend key. This is
+            // no longer implied by RunConfig::default() since the harness default
+            // flipped to wasm-aot (tasks/25).
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
+
+        // Inject a real regression: the probe case now fails at candidate
+        // time while the manifest (case paths) stays identical.
+        fs::write(
+            &extra_test,
+            "/*---\nflags: [raw]\n---*/\nthrow \"regressed\";\n",
+        )
+        .expect("regressed probe should write");
+        let candidate_run = RunConfig {
+            snapshot_name: "regression-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
+
+        let comparison = compare_snapshots(
+            &config,
+            &base_run.snapshot_name,
+            &candidate_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("comparison should work");
+        assert_eq!(
+            comparison.regressions,
+            vec!["built-ins/Array/regression-probe.js".to_string()]
+        );
+        assert!(comparison.added_passes.is_empty());
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn backlog_comparison_normalizes_unstable_detail_data() {
+        let config = tiny_failing_suite_config("backlog-compare-normalize");
+        let base_run = RunConfig {
+            snapshot_name: "normalize-base".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
+        let candidate_run = RunConfig {
+            snapshot_name: "normalize-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
+
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let node = nodes
+            .iter()
+            .find(|node| {
+                node.case_paths
+                    .iter()
+                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+            })
+            .expect("matrix should include failing node");
+        let pinned = pinned_revisions(&config);
+        let manifest_hash =
+            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str()));
+        let node_file_name = format!(
+            "{{}}-{}-{}.json",
+            sanitize_filter_for_snapshot(&node.node_id),
+            manifest_hash
+        );
+        for (snapshot_name, detail) in [
+            (
+                base_run.snapshot_name.as_str(),
+                "boom at /home/alice/porffor/case.js on 2026-01-02T03:04:05Z after 123ms",
+            ),
+            (
+                candidate_run.snapshot_name.as_str(),
+                "boom at /var/ci/porffor/case.js on 2026-03-04T05:06:07Z after 999ms",
+            ),
+        ] {
+            let path = config
+                .snapshot_dir
+                .join(node_file_name.replace("{}", snapshot_name));
+            let mut file = read_snapshot_file(&path).expect("node snapshot should parse");
+            file.failures[0].detail = detail.to_string();
+            file.failures[0].detail_hash = hash_detail(detail);
+            fs::write(
+                &path,
+                serde_json::to_string_pretty(&file).expect("node json should serialize"),
+            )
+            .expect("node snapshot should write");
+        }
+
+        let comparison = compare_snapshots(
+            &config,
+            &base_run.snapshot_name,
+            &candidate_run.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("comparison should work");
+        assert!(
+            comparison.changed_failure_hashes.is_empty(),
+            "absolute paths, timestamps, and durations must not report failure-mode changes: {:?}",
+            comparison.changed_failure_hashes
+        );
+    }
+
+    #[test]
+    fn backlog_normalize_detail_scrubs_unstable_tokens() {
+        assert_eq!(
+            normalize_backlog_detail("boom   at\t/home/alice/porffor/case.js line 3"),
+            "boom at <abs-path> line 3"
+        );
+        assert_eq!(
+            normalize_backlog_detail(r"failed C:\-less path (/var/ci/x.js)"),
+            "failed C:/-less path (<abs-path>)"
+        );
+        assert_eq!(
+            normalize_backlog_detail("started 2026-01-02T03:04:05.123Z took 45ms then 1.5s"),
+            "started <timestamp> took <duration> then <duration>"
+        );
+        // Suite-relative paths and ordinary tokens stay intact.
+        assert_eq!(
+            normalize_backlog_detail("[origin:backend] built-ins/Array/x.js: expected 1"),
+            "[origin:backend] built-ins/Array/x.js: expected 1"
+        );
+    }
+
+    #[test]
+    fn backlog_checked_in_ownership_map_is_valid_and_routes_unknowns_to_unclassified() {
+        let config = SuiteConfig {
+            suite_root: repo_root().join("test262").join("vendor").join("test262"),
+            local_harness_path: repo_root().join("test262").join("harness.js"),
+            snapshot_dir: unique_temp_path("ownership-map-check"),
+            timeout_ms: 5_000,
+            worker_count: 1,
+            case_runner_bin: None,
+        };
+        let rules =
+            load_backlog_owner_rules(&config).expect("checked-in ownership map should load");
+        assert!(
+            rules.len() >= 10,
+            "checked-in ownership map should cover the suite subtrees"
+        );
+        let failure = classify_failure(
+            "totally/unknown/subtree/case.js",
+            FailureKind::Runtime,
+            "boom",
+        );
+        let (task, category) = classify_backlog_owner(&failure, None, &rules);
+        assert_eq!(task, "T26-unclassified");
+        assert_eq!(category, "unclassified");
+        let array_failure = classify_failure(
+            "built-ins/Array/prototype/map/callable.js",
+            FailureKind::Runtime,
+            "boom",
+        );
+        let (task, _category) = classify_backlog_owner(&array_failure, None, &rules);
+        assert_eq!(task, "T16");
     }
 
     #[test]
@@ -31191,6 +32459,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "versioned".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_full(&config, run_config).expect("run should complete");

@@ -43,6 +43,7 @@ The convention must work across user functions, builtins, proxy traps, host impo
 - Operations must preserve observable order and stop immediately on abrupt completion.
 - Object operations must dispatch through the internal-method protocol from T10; static-shape fast paths require guards proving no observable trap/accessor/prototype difference.
 - Avoid a runtime interpreter. These are compiler-emitted helpers or specialized Wasm functions generated from typed operation IR.
+- Design the Wasm-level completion convention from the experimental Wasmtime lower bound: `exnref` exception handling, typed function references and reference types are available and may carry throw/abrupt paths. Do not maintain a second completion mechanism for runtimes that lack them.
 - Keep operation signatures stable enough for feature modules to depend on them. Version or feature-gate ABI changes rather than silently changing tuple layout.
 - Emit structured diagnostics when an operation cannot yet lower; do not panic.
 

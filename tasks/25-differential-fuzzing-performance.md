@@ -13,8 +13,8 @@ Build automated methods that discover semantic divergences, crashes, hangs and p
 
 Create a runner that can execute the same generated or minimized program through:
 
-- Porffor Wasm-AOT;
-- Porffor `spec-exec`;
+- Porffor Wasm-AOT (the product under test);
+- Porffor `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
 - the legacy JavaScript implementation when it provides useful independent evidence;
 - an optional external standards-oriented engine configured explicitly for developer testing.
 

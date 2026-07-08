@@ -114,8 +114,10 @@ fn usage() -> &'static str {
     "porf <command> [args]
 
 Commands:
-  run [--execution-backend spec|wasm] <file>
+  run [--execution-backend wasm|spec] <file>
                                         compile and run a script through Rust engine path
+                                        (default backend: wasm; wasm-aot is the only
+                                        supported product execution path)
   repl                                  reserved for the Rust REPL shell
   build wasm <file>                     compile JavaScript directly to Wasm
   build c <file>                        emit C from shared IR
@@ -143,7 +145,12 @@ test262 options:
   --snapshot-dir PATH
   --threads N
   --timeout-ms N
-  --execution-backend spec|wasm
+  --execution-backend wasm|spec         default: wasm (wasm-aot). `spec` selects
+                                         spec-exec, an INTERNAL/DEBUG-ONLY interpreter
+                                         (Boa) differential oracle for triage/T25 use
+                                         only; it is never a product conformance
+                                         backend and requires a `spec-exec-oracle`
+                                         feature build of porffor-engine/porffor-cli
   --resume
   --snapshot-name NAME
   --max-matrix-nodes N
@@ -192,22 +199,7 @@ fn real_main() -> Result<(), String> {
     );
     match command.as_str() {
         "run" => {
-            let mut backend = ExecutionBackend::SpecExec;
-            let mut path = None;
-            while let Some(arg) = args.next() {
-                match arg.as_str() {
-                    "--execution-backend" => {
-                        let value = args
-                            .next()
-                            .ok_or_else(|| "--execution-backend needs a value".to_string())?;
-                        backend = parse_execution_backend(&value)?;
-                    }
-                    value if !value.starts_with('-') && path.is_none() => {
-                        path = Some(value.to_string());
-                    }
-                    value => return Err(format!("unknown run arg: {value}")),
-                }
-            }
+            let ParsedRunArgs { backend, path } = parse_run_args(&args.collect::<Vec<_>>())?;
             let path = path.ok_or_else(|| "run needs a source file".to_string())?;
             let source = read_source(&path)?;
             engine
@@ -2593,6 +2585,13 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     let mut config = SuiteConfig::default();
     let mut filter = None::<String>;
     let mut run_config = RunConfig::default();
+    // CLI-level product default: Wasm-AOT is the only backend whose results
+    // count as conformance (AGENTS.md). `porffor-test262::RunConfig`'s own
+    // struct default stays out of this lane's scope; the CLI entry point
+    // overrides it here so `porf test262 ...` is Wasm-AOT flag-free.
+    // `--execution-backend spec-exec` remains available as an explicit,
+    // internal/debug-only differential-oracle override (see usage()).
+    run_config.execution_backend = ExecutionBackend::WasmAot;
     let mut readme_path = None::<PathBuf>;
 
     let mut index = 0;
@@ -2726,6 +2725,38 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedRunArgs {
+    backend: ExecutionBackend,
+    path: Option<String>,
+}
+
+fn parse_run_args(args: &[String]) -> Result<ParsedRunArgs, String> {
+    // Product default: Wasm-AOT. `--execution-backend spec-exec` is an
+    // explicit, internal/debug-only differential-oracle override (never a
+    // silent fallback) — see usage() and ExecutionBackend's docs.
+    let mut backend = ExecutionBackend::WasmAot;
+    let mut path = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--execution-backend" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--execution-backend needs a value".to_string())?;
+                backend = parse_execution_backend(value)?;
+            }
+            value if !value.starts_with('-') && path.is_none() => {
+                path = Some(value.to_string());
+            }
+            value => return Err(format!("unknown run arg: {value}")),
+        }
+        index += 1;
+    }
+    Ok(ParsedRunArgs { backend, path })
+}
+
 fn parse_execution_backend(value: &str) -> Result<ExecutionBackend, String> {
     match value {
         "spec" | "spec-exec" => Ok(ExecutionBackend::SpecExec),
@@ -2765,6 +2796,47 @@ mod tests {
         assert_eq!(parsed.filter.as_deref(), Some("language/expressions"));
         assert_eq!(parsed.config.timeout_ms, 50);
         assert!(parsed.config.case_runner_bin.is_some());
+        // Product default: `porf test262 ...` runs Wasm-AOT flag-free.
+        assert_eq!(
+            parsed.run_config.execution_backend,
+            ExecutionBackend::WasmAot
+        );
+    }
+
+    #[test]
+    fn parse_run_args_defaults_to_wasm_aot_backend() {
+        let parsed = parse_run_args(&["script.js".to_string()]).expect("run args should parse");
+        assert_eq!(parsed.backend, ExecutionBackend::WasmAot);
+        assert_eq!(parsed.path.as_deref(), Some("script.js"));
+    }
+
+    #[test]
+    fn parse_run_args_spec_exec_requires_explicit_flag() {
+        let parsed = parse_run_args(&[
+            "--execution-backend".to_string(),
+            "spec-exec".to_string(),
+            "script.js".to_string(),
+        ])
+        .expect("run args should parse");
+        assert_eq!(parsed.backend, ExecutionBackend::SpecExec);
+    }
+
+    #[test]
+    fn parse_test262_args_defaults_to_wasm_aot_backend() {
+        let parsed = parse_test262_args(&[]).expect("empty args should parse");
+        assert_eq!(
+            parsed.run_config.execution_backend,
+            ExecutionBackend::WasmAot
+        );
+    }
+
+    #[test]
+    fn parse_test262_args_spec_exec_requires_explicit_flag() {
+        // wasm-aot is the harness default (tasks/25); spec-exec requires the
+        // explicit --execution-backend flag exercised here.
+        let parsed =
+            parse_test262_args(&["--execution-backend".to_string(), "spec-exec".to_string()])
+                .expect("explicit spec-exec backend should parse");
         assert_eq!(
             parsed.run_config.execution_backend,
             ExecutionBackend::SpecExec

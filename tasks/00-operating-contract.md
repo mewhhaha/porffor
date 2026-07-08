@@ -27,6 +27,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
 - Add a short contributor note explaining the one-owner rule for the monolithic IR/Wasm files until `T02` lands.
 - Add a CI check that fails when README status markers are edited without a corresponding generated status artifact change, unless the edit is explicitly documentation-only outside the generated block.
 - Document which commands are smoke tests and which commands are evidence for real-suite progress.
+- Document the backend policy: only `wasm-aot` results are Porffor conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
 
 ## Out of scope
 

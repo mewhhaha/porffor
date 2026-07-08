@@ -253,6 +253,78 @@ mod tests {
     }
 
     #[test]
+    fn operations_ordinary_object_to_primitive_default_concat_validates() {
+        // "a" + {}: OrdinaryToPrimitive on a plain object must fall back to the
+        // inherited Object.prototype.toString default ("[object Object]") instead of
+        // throwing a TypeError.
+        let artifact = emit_script(r#""a" + {};"#).expect("string concat with object should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn operations_ordinary_object_to_primitive_default_loose_equality_validates() {
+        // {} == "[object Object]": abstract equality coerces the object through the
+        // same OrdinaryToPrimitive default path.
+        let artifact = emit_script(
+            r#"let o = {};
+o == "[object Object]";"#,
+        )
+        .expect("loose equality with object should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn operations_ordinary_object_to_primitive_respects_own_hooks() {
+        // Own valueOf / toString / @@toPrimitive still take precedence over the
+        // inherited default fallback.
+        let artifact = emit_script(
+            r#"let a = { toString() { return "x"; } };
+let b = { valueOf() { return 1; } };
+let c = { [Symbol.toPrimitive]() { return "s"; } };
+("" + a) + (b + 0) + ("" + c);"#,
+        )
+        .expect("objects with own coercion hooks should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn operations_in_operator_type_error_reaches_active_catch_handler() {
+        // `"x" in 1` throws a TypeError that must be caught by the enclosing
+        // try/catch rather than escaping the function via an over-shooting branch.
+        let artifact = emit_script(
+            r#"try {
+  "x" in 1;
+} catch (e) {
+  e instanceof TypeError;
+}"#,
+        )
+        .expect("`in` on a non-object should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn operations_instanceof_dynamic_rhs_guard_validates() {
+        // A right-hand side that is not a single statically-known constructor reaches
+        // the runtime OrdinaryHasInstance guard in emit_instanceof_i32, which throws a
+        // TypeError about the `instanceof` operand when the value is not callable/an
+        // object at runtime. The union constructor keeps the RHS off the static-prototype
+        // fast path so the guard is actually emitted.
+        let artifact = emit_script(
+            r#"function pick(flag) {
+  let Ctor = flag ? Array : Object;
+  try {
+    return ({}) instanceof Ctor;
+  } catch (e) {
+    return e instanceof TypeError;
+  }
+}
+pick(true);"#,
+        )
+        .expect("instanceof with a dynamic rhs should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
     fn operations_emits_to_bigint_spec_operation() {
         let source = parse("0;", ParseOptions::script()).expect("script should parse");
         let mut program = lower(&source);

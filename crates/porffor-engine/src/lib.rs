@@ -72,10 +72,19 @@ pub enum ArtifactKind {
     Native,
 }
 
+/// The product execution backend selector.
+///
+/// `WasmAot` is the only backend whose results count as conformance and it is
+/// the default everywhere (engine, CLI `run`/`build`/`test262`). `SpecExec`
+/// wraps an interpreter (Boa) and exists solely as a hidden, developer-only
+/// differential oracle for T25-style testing; per `AGENTS.md` it must never be
+/// the product default, a silent fallback, or linked into product/release
+/// builds. Its implementation is gated behind the `spec-exec-oracle` cargo
+/// feature, which is off by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum ExecutionBackend {
-    #[default]
     SpecExec,
+    #[default]
     WasmAot,
 }
 
@@ -369,37 +378,21 @@ impl Engine {
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
         match run.backend {
-            ExecutionBackend::SpecExec => {
-                let outcome = if unit.source.goal == ParseGoal::Module {
-                    porffor_spec_exec::execute_module(
-                        source,
-                        unit.source.filename.as_deref(),
-                        porffor_spec_exec::ModuleHostConfig {
-                            module_root: run.module_root.clone().map(Into::into),
-                            test_path: run.test_path.clone().map(Into::into),
-                        },
-                        &run.argv,
-                        run.can_block,
-                    )
-                } else {
-                    porffor_spec_exec::execute_script(
-                        source,
-                        unit.source.filename.as_deref(),
-                        &run.argv,
-                        run.can_block,
-                    )
-                }
-                .map_err(|err| EngineError::new(err.to_string()))?;
-
-                Ok(RunOutcome {
-                    backend_used: ExecutionBackend::SpecExec,
-                    note: outcome.note,
-                })
-            }
+            ExecutionBackend::SpecExec => self.run_with_spec_exec(
+                source,
+                unit.source.filename.as_deref(),
+                unit.source.goal,
+                run,
+            ),
             ExecutionBackend::WasmAot => self.run_with_wasm_aot(unit),
         }
     }
 
+    /// Developer-only differential oracle path (Boa interpreter). Never the
+    /// product/default execution path — see `ExecutionBackend` docs. Real
+    /// implementation only exists when the `spec-exec-oracle` cargo feature
+    /// is enabled, keeping `boa_engine` out of product/release builds.
+    #[cfg(feature = "spec-exec-oracle")]
     fn run_with_spec_exec(
         &self,
         source: &str,
@@ -430,6 +423,21 @@ impl Engine {
                 note: outcome.note,
             })
         })
+    }
+
+    #[cfg(not(feature = "spec-exec-oracle"))]
+    fn run_with_spec_exec(
+        &self,
+        _source: &str,
+        _filename: Option<&str>,
+        _goal: ParseGoal,
+        _run: RunOptions,
+    ) -> Result<RunOutcome, EngineError> {
+        Err(EngineError::new(
+            "spec-exec is a developer-only differential oracle backend and is not linked into \
+             this build; rebuild with `--features spec-exec-oracle` (porffor-engine/porffor-cli) \
+             to use it for differential testing only, never as the product execution backend",
+        ))
     }
 
     fn run_with_wasm_aot(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
@@ -1318,10 +1326,50 @@ mod tests {
     }
 
     #[test]
-    fn run_defaults_to_spec_exec() {
+    fn run_defaults_to_wasm_aot() {
+        // Product invariant: Wasm-AOT is the default execution backend
+        // everywhere. Selecting spec-exec (the hidden differential oracle)
+        // requires an explicit `RunOptions::backend` override.
+        assert_eq!(ExecutionBackend::default(), ExecutionBackend::WasmAot);
+        assert_eq!(RunOptions::default().backend, ExecutionBackend::WasmAot);
         let outcome = engine()
             .run_script("1 + 1;", CompileOptions::default(), RunOptions::default())
-            .expect("spec exec should run a simple script");
+            .expect("wasm-aot should run a simple script by default");
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+    }
+
+    #[test]
+    #[cfg(not(feature = "spec-exec-oracle"))]
+    fn spec_exec_backend_errors_clearly_when_oracle_feature_is_off() {
+        // Product/release builds compile without the `spec-exec-oracle`
+        // feature, so selecting the interpreter oracle backend must fail
+        // loudly instead of silently falling back to Wasm-AOT or panicking.
+        let err = engine()
+            .run_script(
+                "1 + 1;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::SpecExec,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("spec-exec must not be usable without the spec-exec-oracle feature");
+        assert!(err.message().contains("spec-exec-oracle"));
+    }
+
+    #[test]
+    #[cfg(feature = "spec-exec-oracle")]
+    fn spec_exec_backend_runs_as_developer_oracle_when_feature_enabled() {
+        let outcome = engine()
+            .run_script(
+                "1 + 1;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::SpecExec,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("spec exec oracle should run a simple script when explicitly enabled");
         assert_eq!(outcome.backend_used, ExecutionBackend::SpecExec);
     }
 

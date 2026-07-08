@@ -38,7 +38,7 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 
 ## Implementation sequence
 
-1. Add characterization tests before moving code: compile representative fixtures, validate Wasm, execute with `wasmi`, and record observable outputs/completion kinds.
+1. Add characterization tests before moving code: compile representative fixtures, validate Wasm, execute with the project's lower-bound runtime (experimental Wasmtime feature set per `AGENTS.md`), and record observable outputs/completion kinds. Do not gate characterization on engines that lack the lower-bound features (Wasm GC, typed function references, `exnref`).
 2. Extract pure data types and constants first, then helpers, then large emit branches.
 3. Replace magic global/table/layout numbers with named registries that can assert uniqueness and stable ordering.
 4. Use private modules and narrow `pub(crate)` interfaces. Do not make every helper public to avoid import work.

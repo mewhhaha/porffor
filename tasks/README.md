@@ -4,6 +4,8 @@ This directory is the implementation backlog for the Rust rewrite. It is designe
 
 The north star is the repository contract in `AGENTS.md`: Porffor compiles JavaScript directly to Wasm, does not ship an interpreter/VM inside the artifact, and drives the pinned real Test262 suite to zero unowned failures. Fake-suite results are smoke tests only. An `Unsupported` result is visible debt, never a passing result, and must not be hidden in a skip list or status denominator.
 
+Backend policy: `wasm-aot` is the product. It is the execution path every task targets, the only backend whose results may be published as Porffor conformance, and the only backend the T26 release gate accepts. `spec-exec` (the Boa-based engine in `crates/porffor-spec-exec`) is an internal differential-testing and debug oracle only, used by T25 and quarantined by T27 — never the CLI default, never a silent fallback, never part of an emitted artifact, and never a source of published conformance numbers. Wherever a task mentions running spec-exec, that run is oracle triage; the Wasm-AOT run is the requirement.
+
 ## Non-negotiable rules
 
 1. Product execution remains `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
@@ -13,6 +15,8 @@ The north star is the repository contract in `AGENTS.md`: Porffor compiles JavaS
 5. Do not hand-edit published conformance totals. Use `porf test262 publish-status` or `scripts/publish-real-status-low-ram.sh` after a complete verified matrix.
 6. Keep `unsafe_code = "forbid"`. New dependencies require a reason, license review, deterministic behavior, and a clear Wasm/runtime story.
 7. Feature PRs should not combine unrelated refactors. When a prerequisite interface is missing, land the interface first under its foundation task.
+8. The interpreter stays quarantined. No CLI or library product path may execute user programs through `spec-exec` by default or as a silent fallback, and emitted Wasm never embeds an interpreter/VM or feeds user source to one. T27 enforces this in code; every other task must not reintroduce it.
+9. Backend design targets the experimental Wasmtime lower bound from `AGENTS.md` (Wasm GC, typed function references, reference types, `exnref` exception handling). Do not build second object models, closure representations, or exception mechanisms for runtimes that lack these features; reject such runtimes at the boundary.
 
 ## How to execute one task
 
@@ -76,7 +80,8 @@ Once their listed foundations are present, these lanes should be owned by separa
 | ID | Task | Depends on |
 |---|---|---|
 | [T25](25-differential-fuzzing-performance.md) | Differential testing, fuzzing, timeout and code-size work | T01-T04; runs continuously |
-| [T26](26-zero-failure-conformance-closure.md) | Full pinned suite closure and release gate | All applicable tasks |
+| [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; labeling/dependency work can start immediately |
+| [T26](26-zero-failure-conformance-closure.md) | Full pinned suite closure and release gate | All applicable tasks, including T27 |
 
 ## Merge-conflict policy
 
@@ -88,7 +93,7 @@ When two tasks require the same abstract operation, the first agent implements i
 
 A lane is complete only when:
 
-- its real Test262 subtree is fully green for the intended backend and pinned revision;
+- its real Test262 subtree is fully green for the Wasm-AOT backend and pinned revision;
 - parser, early-error, runtime, backend, host-harness, timeout, and crash failures are all zero in that subtree;
 - no test-specific semantic materialization remains for the covered behavior;
 - descriptor metadata, subclassing/species, proxies, cross-realm behavior, abrupt completions, and coercion order have representative coverage;
@@ -97,4 +102,4 @@ A lane is complete only when:
 
 ## Final acceptance target
 
-`T26` owns the final evidence: a complete resumable matrix for the current pin, verified snapshot artifacts, zero crashes and bugs, no silent skips, no stale status claims, and an explicit accounting of any dynamic-source cases permitted by `AGENTS.md`. Literal `passed == total` remains the project target; architecture exceptions must stay separately visible until the project deliberately resolves them.
+`T26` owns the final evidence: a complete resumable Wasm-AOT matrix for the current pin, verified snapshot artifacts, zero crashes and bugs, no silent skips, no stale status claims, a green T27 interpreter-quarantine audit (no interpreter in product builds or emitted artifacts), and an explicit accounting of any dynamic-source cases permitted by `AGENTS.md`. Literal `passed == total` remains the project target; architecture exceptions must stay separately visible until the project deliberately resolves them.
