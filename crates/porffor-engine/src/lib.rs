@@ -20,6 +20,43 @@ const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
 #[cfg(test)]
 const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
+/// Stack size for the worker thread that runs lowering, Wasm codegen, and
+/// Wasm execution.
+///
+/// Wasmtime's `max_wasm_stack` config (see `run_with_wasm_aot_inner`) tells
+/// the engine how much of the *host* thread's real stack a Wasm call is
+/// allowed to use; Wasmtime does not provide a separate stack for sync
+/// execution, so the calling native thread must already have at least that
+/// much stack available. Deep IR lowering/codegen recursion has the same
+/// requirement. The platform default thread stack (as small as ~2MiB for
+/// `cargo test` worker threads) is not big enough, so every heavy
+/// compile/codegen/run entry point below is routed through
+/// `run_on_sized_stack` onto a worker thread sized the same way the test262
+/// harness sizes its worker threads (see `crates/porffor-test262/src/lib.rs`),
+/// so this crate is safe to call from any host thread by default.
+const ENGINE_WORKER_STACK_SIZE: usize = 64 * 1024 * 1024;
+
+/// Runs `f` on a dedicated worker thread with `ENGINE_WORKER_STACK_SIZE`
+/// bytes of stack, then joins and returns its result.
+///
+/// Uses `thread::scope` so `f` may borrow non-`'static` data (e.g. `&str`
+/// source text, `&CompilationUnit`): the scope guarantees the worker
+/// finishes before this function returns.
+fn run_on_sized_stack<T, F>(f: F) -> T
+where
+    T: Send,
+    F: FnOnce() -> T + Send,
+{
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(ENGINE_WORKER_STACK_SIZE)
+            .spawn_scoped(scope, f)
+            .expect("porffor-engine worker thread should spawn")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
 pub use porffor_runtime::{
     AgentId, GlobalEnvironmentId, HostHooks, IntrinsicDescriptor, IntrinsicFunctionMetadata,
     IntrinsicId, IntrinsicKind, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor,
@@ -230,7 +267,7 @@ impl Engine {
     }
 
     pub fn emit_wasm(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        match porffor_aot_wasm::emit(&unit.ir) {
+        run_on_sized_stack(|| match porffor_aot_wasm::emit(&unit.ir) {
             Ok(wasm) => Ok(Artifact {
                 kind: ArtifactKind::Wasm,
                 bytes: wasm.bytes,
@@ -240,18 +277,18 @@ impl Engine {
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
             ))),
-        }
+        })
     }
 
     pub fn emit_c(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        match porffor_backend_c::emit(&unit.ir) {
+        run_on_sized_stack(|| match porffor_backend_c::emit(&unit.ir) {
             Ok(c) => Ok(Artifact {
                 kind: ArtifactKind::C,
                 bytes: c.source.into_bytes(),
                 description: "shared IR to C artifact".to_string(),
             }),
             Err(err) => Err(EngineError::new(err)),
-        }
+        })
     }
 
     pub fn emit_native(
@@ -259,14 +296,14 @@ impl Engine {
         unit: &CompilationUnit,
         target_triple: Option<&str>,
     ) -> Result<Artifact, EngineError> {
-        match porffor_backend_native::emit(&unit.ir, target_triple) {
+        run_on_sized_stack(|| match porffor_backend_native::emit(&unit.ir, target_triple) {
             Ok(native) => Ok(Artifact {
                 kind: ArtifactKind::Native,
                 bytes: Vec::new(),
                 description: format!("native artifact placeholder for {:?}", native.target_triple),
             }),
             Err(err) => Err(EngineError::new(err)),
-        }
+        })
     }
 
     pub fn inspect(&self, unit: &CompilationUnit) -> InspectionReport {
@@ -304,23 +341,25 @@ impl Engine {
         goal: ParseGoal,
         options: CompileOptions,
     ) -> Result<CompilationUnit, EngineError> {
-        let source = parse(
-            source,
-            ParseOptions {
-                goal,
-                filename: options.filename,
-            },
-        )
-        .map_err(EngineError::from_parse_error)?;
-        let ir = lower(&source);
-        if let Some(diagnostic) = ir
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
-        {
-            return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
-        }
-        Ok(CompilationUnit { source, ir })
+        run_on_sized_stack(move || {
+            let source = parse(
+                source,
+                ParseOptions {
+                    goal,
+                    filename: options.filename,
+                },
+            )
+            .map_err(EngineError::from_parse_error)?;
+            let ir = lower(&source);
+            if let Some(diagnostic) = ir
+                .diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
+            {
+                return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
+            }
+            Ok(CompilationUnit { source, ir })
+        })
     }
 
     pub fn run_compiled_unit(
@@ -368,30 +407,36 @@ impl Engine {
         goal: ParseGoal,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
-        let outcome = match goal {
-            ParseGoal::Module => porffor_spec_exec::execute_module(
-                source,
-                filename,
-                porffor_spec_exec::ModuleHostConfig {
-                    module_root: run.module_root.clone().map(Into::into),
-                    test_path: run.test_path.clone().map(Into::into),
-                },
-                &run.argv,
-                run.can_block,
-            ),
-            ParseGoal::Script => {
-                porffor_spec_exec::execute_script(source, filename, &run.argv, run.can_block)
+        run_on_sized_stack(move || {
+            let outcome = match goal {
+                ParseGoal::Module => porffor_spec_exec::execute_module(
+                    source,
+                    filename,
+                    porffor_spec_exec::ModuleHostConfig {
+                        module_root: run.module_root.clone().map(Into::into),
+                        test_path: run.test_path.clone().map(Into::into),
+                    },
+                    &run.argv,
+                    run.can_block,
+                ),
+                ParseGoal::Script => {
+                    porffor_spec_exec::execute_script(source, filename, &run.argv, run.can_block)
+                }
             }
-        }
-        .map_err(|err| EngineError::new(err.to_string()))?;
+            .map_err(|err| EngineError::new(err.to_string()))?;
 
-        Ok(RunOutcome {
-            backend_used: ExecutionBackend::SpecExec,
-            note: outcome.note,
+            Ok(RunOutcome {
+                backend_used: ExecutionBackend::SpecExec,
+                note: outcome.note,
+            })
         })
     }
 
     fn run_with_wasm_aot(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
+        run_on_sized_stack(|| self.run_with_wasm_aot_inner(unit))
+    }
+
+    fn run_with_wasm_aot_inner(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
         let trace_phase = |phase: &str| {
