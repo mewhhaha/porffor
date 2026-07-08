@@ -7938,6 +7938,40 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Emits a `call` into the shared object-read runtime helper, leaving the
+    /// read value in `payload_local`/`tag_local` and the read's completion in
+    /// the current completion locals. Returns `false` if outlining is disabled
+    /// (e.g. while compiling the helper itself), in which case the caller must
+    /// fall back to inlining.
+    fn emit_object_read_ordinary_via_helper(
+        &mut self,
+        object_local: u32,
+        object_tag_local: u32,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        key_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> bool {
+        if !self.outline_object_read {
+            return false;
+        }
+        let Some(helper) = self.object_read_helper_function_index() else {
+            return false;
+        };
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::LocalGet(receiver_payload_local));
+        function.instruction(&Instruction::LocalGet(receiver_tag_local));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(payload_local, tag_local, function);
+        true
+    }
+
     pub(crate) fn emit_object_read_ordinary(
         &mut self,
         object_local: u32,
@@ -7949,6 +7983,18 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_object_read_ordinary_via_helper(
+            object_local,
+            object_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function);
+        }
         self.emit_object_read_ordinary_inner(
             object_local,
             object_tag_local,
@@ -7974,6 +8020,18 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_object_read_ordinary_via_helper(
+            object_local,
+            object_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return Ok(());
+        }
         self.emit_object_read_ordinary_inner(
             object_local,
             object_tag_local,
@@ -8778,6 +8836,19 @@ impl<'a> FunctionBuilder<'a> {
         configurable_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.outline_object_define_data {
+            if let Some(helper) = self.object_define_data_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(object_local));
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::LocalGet(writable_payload_local));
+                function.instruction(&Instruction::LocalGet(enumerable_payload_local));
+                function.instruction(&Instruction::LocalGet(configurable_payload_local));
+                function.instruction(&Instruction::Call(helper));
+                return Ok(());
+            }
+        }
         self.emit_object_define_entry(
             object_local,
             key_local,
@@ -10082,6 +10153,58 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Emits a `call` into the shared object-write runtime helper. Mirrors the
+    /// inline `emit_object_write` contract: on a setter/proxy throw the thrown
+    /// value lands in the current result locals and the completion becomes
+    /// `Throw`; on success the pre-call result locals are preserved.
+    fn emit_object_write_via_helper(
+        &mut self,
+        helper: u32,
+        object_local: u32,
+        object_tag_local: u32,
+        key_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let saved_result_local = self.reserve_temp_local();
+        let saved_result_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(saved_result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(saved_result_tag_local));
+
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results_to(
+            self.result_local,
+            self.result_tag_local,
+            self.completion_local,
+            self.completion_aux_local,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(saved_result_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(saved_result_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(saved_result_tag_local);
+        self.release_temp_local(saved_result_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_object_write(
         &mut self,
         object_local: u32,
@@ -10091,6 +10214,19 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.outline_object_write {
+            if let Some(helper) = self.object_write_helper_function_index() {
+                return self.emit_object_write_via_helper(
+                    helper,
+                    object_local,
+                    object_tag_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
+        }
         let buffer_local = self.reserve_temp_local();
         let len_local = self.reserve_temp_local();
         let cap_local = self.reserve_temp_local();

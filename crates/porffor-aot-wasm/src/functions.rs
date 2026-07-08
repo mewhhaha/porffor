@@ -1614,6 +1614,21 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
+        if self.outline_proxy_construct {
+            if let Some(helper) = self.proxy_construct_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(callee_payload_local));
+                function.instruction(&Instruction::LocalGet(callee_tag_local));
+                function.instruction(&Instruction::LocalGet(new_target_payload_local));
+                function.instruction(&Instruction::LocalGet(new_target_tag_local));
+                function.instruction(&Instruction::LocalGet(argc_local));
+                function.instruction(&Instruction::LocalGet(argv_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(payload_local, tag_local, function);
+                return Ok(());
+            }
+        }
+
         let current_payload_local = self.reserve_temp_local();
         let current_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
@@ -3250,6 +3265,24 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion_if_throw(function);
             }
             return Ok(());
+        }
+
+        if self.outline_proxy_call {
+            if let Some(helper) = self.proxy_call_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(callee_payload_local));
+                function.instruction(&Instruction::LocalGet(callee_tag_local));
+                function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::LocalGet(this_tag_local));
+                function.instruction(&Instruction::LocalGet(argc_local));
+                function.instruction(&Instruction::LocalGet(argv_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(payload_local, tag_local, function);
+                if return_on_throw {
+                    self.emit_return_current_completion_if_throw(function);
+                }
+                return Ok(());
+            }
         }
 
         let current_payload_local = self.reserve_temp_local();

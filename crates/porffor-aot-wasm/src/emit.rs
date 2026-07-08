@@ -128,6 +128,29 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) function_object_alloc_function_index: Option<u32>,
     pub(crate) plain_object_alloc_function_index: Option<u32>,
     pub(crate) array_alloc_function_index: Option<u32>,
+    /// When false, `emit_object_read_ordinary` inlines its body instead of
+    /// emitting a call to the shared object-read runtime helper. Set false only
+    /// while compiling the object-read helper itself (to avoid self-recursion).
+    pub(crate) outline_object_read: bool,
+    /// When false, `emit_object_write` inlines its body instead of emitting a
+    /// call to the shared object-write runtime helper. Set false only while
+    /// compiling the object-write helper itself.
+    pub(crate) outline_object_write: bool,
+    /// When false, `emit_object_define_data_with_flag_locals` inlines its body
+    /// instead of emitting a call to the shared object-define-data helper. Set
+    /// false only while compiling that helper itself. Realm/global bootstrap
+    /// defines hundreds of data properties, so outlining this keeps the
+    /// bootstrap-style functions well under Cranelift's per-function limit.
+    pub(crate) outline_object_define_data: bool,
+    /// When false, `emit_function_or_proxy_call_with_argv_inner` inlines the
+    /// proxy-aware call-dispatch state machine instead of calling the shared
+    /// helper. Only the proxy-enabled dispatch is outlined; the plain call path
+    /// stays inline. Set false only while compiling that helper itself.
+    pub(crate) outline_proxy_call: bool,
+    /// When false, `emit_function_or_proxy_construct_with_argv` inlines the
+    /// proxy-aware construct-dispatch state machine instead of calling the
+    /// shared helper. Set false only while compiling that helper itself.
+    pub(crate) outline_proxy_construct: bool,
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
@@ -280,6 +303,97 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         compiled_functions.push(builder.compile_builtin()?);
     }
 
+    // Shared object-read / object-write runtime helpers. These carry the large
+    // property-access state machines that would otherwise be inlined at every
+    // read/write site, blowing single functions past Cranelift's per-function
+    // code-size limit. They are emitted once, directly after the heap helpers,
+    // and are reached with plain `call`s (never through the funcref table).
+    let object_read_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_read_helper()
+        })
+        .transpose()?;
+    let object_write_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_write_helper()
+        })
+        .transpose()?;
+    let object_define_data_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_define_data_helper()
+        })
+        .transpose()?;
+    let proxy_call_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_proxy_call_helper()
+        })
+        .transpose()?;
+    let proxy_construct_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_proxy_construct_helper()
+        })
+        .transpose()?;
+
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I64]);
     if uses_function_table {
@@ -349,6 +463,14 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         functions.function(FUNCTION_OBJECT_ALLOC_TYPE_INDEX);
         functions.function(PLAIN_OBJECT_ALLOC_TYPE_INDEX);
         functions.function(ARRAY_ALLOC_TYPE_INDEX);
+        // object-read + object-write runtime helpers share the JS function type.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // object-define-data helper: seven i64 params, no results.
+        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
+        // proxy call + construct dispatch helpers share the JS function type.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        functions.function(JS_FUNCTION_TYPE_INDEX);
     }
 
     let mut exports = ExportSection::new();
@@ -472,6 +594,31 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         code.function(&emit_array_alloc_helper_function(
             heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
         ));
+        code.function(
+            object_read_helper_function
+                .as_ref()
+                .expect("object-read helper must exist when heap is enabled"),
+        );
+        code.function(
+            object_write_helper_function
+                .as_ref()
+                .expect("object-write helper must exist when heap is enabled"),
+        );
+        code.function(
+            object_define_data_helper_function
+                .as_ref()
+                .expect("object-define-data helper must exist when heap is enabled"),
+        );
+        code.function(
+            proxy_call_helper_function
+                .as_ref()
+                .expect("proxy-call helper must exist when heap is enabled"),
+        );
+        code.function(
+            proxy_construct_helper_function
+                .as_ref()
+                .expect("proxy-construct helper must exist when heap is enabled"),
+        );
     }
 
     let mut module = Module::new();
@@ -506,7 +653,7 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         format!("internal functions: {}", callable_function_count),
         format!(
             "runtime helper functions: {}",
-            if uses_heap { 6 } else { 0 }
+            if uses_heap { 11 } else { 0 }
         ),
         format!(
             "standard builtin bodies: {} real, {} shared-stubbed",
@@ -754,6 +901,44 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn new_runtime_operation_helper(
+        strings: &'a StringPool,
+        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        uses_heap: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
+    ) -> Self {
+        Self::new(
+            &EMPTY_BLOCK,
+            &[],
+            &[],
+            &[],
+            strings,
+            functions,
+            None,
+            FunctionFlavor::Ordinary,
+            true,
+            None,
+            BTreeMap::new(),
+            uses_heap,
+            ReturnAbi::MultiValue,
+            false,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+        )
+    }
+
     fn new_standard_builtin(
         builtin: StandardBuiltinId,
         strings: &'a StringPool,
@@ -886,7 +1071,38 @@ impl<'a> FunctionBuilder<'a> {
             function_object_alloc_function_index,
             plain_object_alloc_function_index,
             array_alloc_function_index,
+            outline_object_read: true,
+            outline_object_write: true,
+            outline_object_define_data: true,
+            outline_proxy_call: true,
+            outline_proxy_construct: true,
         }
+    }
+
+    /// Wasm function index of the shared object-read runtime helper. It is
+    /// emitted immediately after the six heap/object allocation helpers.
+    pub(crate) fn object_read_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 6)
+    }
+
+    /// Wasm function index of the shared object-write runtime helper.
+    pub(crate) fn object_write_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 7)
+    }
+
+    /// Wasm function index of the shared object-define-data runtime helper.
+    pub(crate) fn object_define_data_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 8)
+    }
+
+    /// Wasm function index of the shared proxy-aware call-dispatch helper.
+    pub(crate) fn proxy_call_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 9)
+    }
+
+    /// Wasm function index of the shared proxy-aware construct-dispatch helper.
+    pub(crate) fn proxy_construct_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 10)
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -1095,6 +1311,155 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
         }
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared object-read runtime helper. Rather than inlining the
+    /// large ordinary/proxy property-read state machine at every read site, that
+    /// sequence is emitted exactly once here and reached with a plain `call`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
+    /// results). Params: 0=object payload, 1=object tag, 2=receiver payload,
+    /// 3=receiver tag, 4=key payload. Params 5/6 are unused. Results are the
+    /// standard `(result, result_tag, completion, completion_aux)` tuple.
+    fn compile_object_read_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_read = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_object_read_ordinary_inner(
+            0,
+            1,
+            2,
+            3,
+            4,
+            self.result_local,
+            self.result_tag_local,
+            None,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared object-write runtime helper. The large ordinary/proxy
+    /// property-write state machine is emitted once here and reached with a
+    /// plain `call`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
+    /// 1=object tag, 2=key payload, 3=value payload, 4=value tag. Params 5/6 are
+    /// unused. On a setter/proxy throw the thrown value is surfaced through the
+    /// `(result, result_tag, completion, completion_aux)` result tuple.
+    fn compile_object_write_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_write = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared object-define-data runtime helper. Bootstrap-style
+    /// code (realm setup, `$262.createRealm`) defines hundreds of data
+    /// properties; emitting the define state machine once here keeps those
+    /// functions under Cranelift's per-function limit.
+    ///
+    /// Wasm signature is [`OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX`] (seven
+    /// i64 params, no results). Params: 0=object payload, 1=key payload,
+    /// 2=value payload, 3=value tag, 4=writable, 5=enumerable, 6=configurable.
+    fn compile_object_define_data_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_define_data = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared proxy-aware call-dispatch helper. The proxy call
+    /// state machine (walk the proxy chain, invoke the `apply` trap, otherwise
+    /// `call_indirect`) is emitted once here and reached with a plain `call`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
+    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Params 6 is
+    /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
+    /// throws are surfaced through the completion rather than propagated.
+    fn compile_proxy_call_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_proxy_call = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_function_or_proxy_call_with_argv_inner(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            self.result_local,
+            self.result_tag_local,
+            false,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared proxy-aware construct-dispatch helper.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
+    /// 1=callee tag, 2=new.target payload, 3=new.target tag, 4=argc, 5=argv.
+    /// Param 6 is unused. Results are the `(result, result_tag, completion,
+    /// aux)` tuple.
+    fn compile_proxy_construct_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_proxy_construct = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_function_or_proxy_construct_with_argv(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
