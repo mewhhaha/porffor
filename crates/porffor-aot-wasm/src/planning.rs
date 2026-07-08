@@ -20,6 +20,964 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) this_before_super: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RuntimeBootstrapPlan {
+    pub(crate) full_standard_globals: bool,
+    pub(crate) standard_roots: BTreeSet<StandardBuiltinId>,
+    pub(crate) reflect_object: bool,
+    pub(crate) math_object: bool,
+    pub(crate) json_object: bool,
+    pub(crate) atomics_object: bool,
+}
+
+impl RuntimeBootstrapPlan {
+    pub(crate) fn from_script(
+        script: &ScriptIr,
+        compiled_standard_builtins: &[StandardBuiltinId],
+    ) -> Self {
+        let mut plan = Self::default();
+        plan.full_standard_globals =
+            script_uses_create_realm(script) || script_exposes_global_object(script);
+        for builtin in compiled_standard_builtins {
+            plan.require_standard_builtin(*builtin);
+        }
+        for name in script_referenced_global_property_names(script) {
+            if let Some(binding) = script
+                .global_bindings
+                .iter()
+                .find(|binding| binding.name == name)
+            {
+                plan.require_script_global_binding(binding.kind);
+            }
+        }
+        plan.require_foundational_roots();
+        plan
+    }
+
+    pub(crate) fn should_initialize_standard_builtin(&self, builtin: StandardBuiltinId) -> bool {
+        self.full_standard_globals || self.standard_roots.contains(&builtin)
+    }
+
+    pub(crate) fn should_install_script_global_binding(
+        &self,
+        kind: ScriptGlobalBindingKind,
+    ) -> bool {
+        match kind {
+            ScriptGlobalBindingKind::Intrinsic
+            | ScriptGlobalBindingKind::Infinity
+            | ScriptGlobalBindingKind::NaN
+            | ScriptGlobalBindingKind::Undefined
+            | ScriptGlobalBindingKind::Var
+            | ScriptGlobalBindingKind::Function
+            | ScriptGlobalBindingKind::HostFunction(_) => true,
+            ScriptGlobalBindingKind::ReflectObject => {
+                self.full_standard_globals || self.reflect_object
+            }
+            ScriptGlobalBindingKind::MathObject => self.full_standard_globals || self.math_object,
+            ScriptGlobalBindingKind::JsonObject => self.full_standard_globals || self.json_object,
+            ScriptGlobalBindingKind::AtomicsObject => {
+                self.full_standard_globals || self.atomics_object
+            }
+            ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
+                self.should_initialize_standard_builtin(builtin)
+            }
+        }
+    }
+
+    pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {
+        self.full_standard_globals
+            || self
+                .standard_roots
+                .iter()
+                .any(|builtin| is_typed_array_constructor(*builtin))
+    }
+
+    fn require_script_global_binding(&mut self, kind: ScriptGlobalBindingKind) {
+        match kind {
+            ScriptGlobalBindingKind::ReflectObject => self.reflect_object = true,
+            ScriptGlobalBindingKind::MathObject => self.math_object = true,
+            ScriptGlobalBindingKind::JsonObject => self.json_object = true,
+            ScriptGlobalBindingKind::AtomicsObject => self.atomics_object = true,
+            ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
+                self.require_standard_builtin(builtin);
+            }
+            ScriptGlobalBindingKind::Intrinsic
+            | ScriptGlobalBindingKind::Infinity
+            | ScriptGlobalBindingKind::NaN
+            | ScriptGlobalBindingKind::Undefined
+            | ScriptGlobalBindingKind::Var
+            | ScriptGlobalBindingKind::Function
+            | ScriptGlobalBindingKind::HostFunction(_) => {}
+        }
+    }
+
+    fn require_foundational_roots(&mut self) {
+        for builtin in [
+            StandardBuiltinId::FunctionConstructor,
+            StandardBuiltinId::ObjectConstructor,
+            StandardBuiltinId::ErrorConstructor,
+            StandardBuiltinId::EvalErrorConstructor,
+            StandardBuiltinId::AggregateErrorConstructor,
+            StandardBuiltinId::SuppressedErrorConstructor,
+            StandardBuiltinId::RangeErrorConstructor,
+            StandardBuiltinId::SyntaxErrorConstructor,
+            StandardBuiltinId::TypeErrorConstructor,
+            StandardBuiltinId::URIErrorConstructor,
+            StandardBuiltinId::ReferenceErrorConstructor,
+        ] {
+            self.standard_roots.insert(builtin);
+        }
+    }
+
+    fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
+        self.standard_roots.insert(builtin);
+        match builtin {
+            StandardBuiltinId::ReflectConstruct
+            | StandardBuiltinId::ReflectApply
+            | StandardBuiltinId::ReflectGet
+            | StandardBuiltinId::ReflectGetPrototypeOf
+            | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
+            | StandardBuiltinId::ReflectSet
+            | StandardBuiltinId::ReflectHas
+            | StandardBuiltinId::ReflectDefineProperty
+            | StandardBuiltinId::ReflectDeleteProperty
+            | StandardBuiltinId::ReflectIsExtensible
+            | StandardBuiltinId::ReflectPreventExtensions
+            | StandardBuiltinId::ReflectSetPrototypeOf
+            | StandardBuiltinId::ReflectOwnKeys => self.reflect_object = true,
+            StandardBuiltinId::MathAbs
+            | StandardBuiltinId::MathAcos
+            | StandardBuiltinId::MathAcosh
+            | StandardBuiltinId::MathAsin
+            | StandardBuiltinId::MathAsinh
+            | StandardBuiltinId::MathAtan
+            | StandardBuiltinId::MathAtan2
+            | StandardBuiltinId::MathAtanh
+            | StandardBuiltinId::MathCbrt
+            | StandardBuiltinId::MathCeil
+            | StandardBuiltinId::MathClz32
+            | StandardBuiltinId::MathCos
+            | StandardBuiltinId::MathCosh
+            | StandardBuiltinId::MathExp
+            | StandardBuiltinId::MathExpm1
+            | StandardBuiltinId::MathF16Round
+            | StandardBuiltinId::MathFloor
+            | StandardBuiltinId::MathFround
+            | StandardBuiltinId::MathHypot
+            | StandardBuiltinId::MathImul
+            | StandardBuiltinId::MathLog
+            | StandardBuiltinId::MathLog10
+            | StandardBuiltinId::MathLog1p
+            | StandardBuiltinId::MathLog2
+            | StandardBuiltinId::MathMax
+            | StandardBuiltinId::MathMin
+            | StandardBuiltinId::MathPow
+            | StandardBuiltinId::MathRandom
+            | StandardBuiltinId::MathRound
+            | StandardBuiltinId::MathSign
+            | StandardBuiltinId::MathSin
+            | StandardBuiltinId::MathSinh
+            | StandardBuiltinId::MathSqrt
+            | StandardBuiltinId::MathSumPrecise
+            | StandardBuiltinId::MathTan
+            | StandardBuiltinId::MathTanh
+            | StandardBuiltinId::MathTrunc => self.math_object = true,
+            StandardBuiltinId::JsonParse
+            | StandardBuiltinId::JsonStringify
+            | StandardBuiltinId::JsonRawJson
+            | StandardBuiltinId::JsonIsRawJson => self.json_object = true,
+            StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsNotify
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsPause
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsWait
+            | StandardBuiltinId::AtomicsWaitAsync
+            | StandardBuiltinId::AtomicsXor
+            | StandardBuiltinId::AtomicsIsLockFree => self.atomics_object = true,
+            StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
+            | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
+            | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
+            | StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+            | StandardBuiltinId::ArrayBufferPrototypeResize
+            | StandardBuiltinId::ArrayBufferPrototypeSlice
+            | StandardBuiltinId::ArrayBufferPrototypeTransfer
+            | StandardBuiltinId::ArrayBufferPrototypeTransferToFixedLength
+            | StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable
+            | StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable
+            | StandardBuiltinId::ArrayBufferSpeciesGetter => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::ArrayBufferConstructor);
+            }
+            StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
+            | StandardBuiltinId::SharedArrayBufferPrototypeMaxByteLengthGetter
+            | StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter
+            | StandardBuiltinId::SharedArrayBufferPrototypeGrow
+            | StandardBuiltinId::SharedArrayBufferPrototypeSlice => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::SharedArrayBufferConstructor);
+            }
+            StandardBuiltinId::DataViewPrototypeBufferGetter
+            | StandardBuiltinId::DataViewPrototypeByteLengthGetter
+            | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
+            | StandardBuiltinId::DataViewPrototypeGetUint8
+            | StandardBuiltinId::DataViewPrototypeSetUint8
+            | StandardBuiltinId::DataViewPrototypeGetInt8
+            | StandardBuiltinId::DataViewPrototypeSetInt8
+            | StandardBuiltinId::DataViewPrototypeGetUint16
+            | StandardBuiltinId::DataViewPrototypeSetUint16
+            | StandardBuiltinId::DataViewPrototypeGetInt16
+            | StandardBuiltinId::DataViewPrototypeSetInt16
+            | StandardBuiltinId::DataViewPrototypeGetUint32
+            | StandardBuiltinId::DataViewPrototypeSetUint32
+            | StandardBuiltinId::DataViewPrototypeGetInt32
+            | StandardBuiltinId::DataViewPrototypeSetInt32
+            | StandardBuiltinId::DataViewPrototypeGetFloat16
+            | StandardBuiltinId::DataViewPrototypeSetFloat16
+            | StandardBuiltinId::DataViewPrototypeGetFloat32
+            | StandardBuiltinId::DataViewPrototypeSetFloat32
+            | StandardBuiltinId::DataViewPrototypeGetFloat64
+            | StandardBuiltinId::DataViewPrototypeSetFloat64
+            | StandardBuiltinId::DataViewPrototypeGetBigInt64
+            | StandardBuiltinId::DataViewPrototypeSetBigInt64
+            | StandardBuiltinId::DataViewPrototypeGetBigUint64
+            | StandardBuiltinId::DataViewPrototypeSetBigUint64 => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::DataViewConstructor);
+            }
+            StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateUtc
+            | StandardBuiltinId::DatePrototypeGetTime
+            | StandardBuiltinId::DatePrototypeSetTime
+            | StandardBuiltinId::DatePrototypeValueOf
+            | StandardBuiltinId::DatePrototypeGetFullYear
+            | StandardBuiltinId::DatePrototypeGetUtcFullYear
+            | StandardBuiltinId::DatePrototypeGetMonth
+            | StandardBuiltinId::DatePrototypeGetUtcMonth
+            | StandardBuiltinId::DatePrototypeGetDate
+            | StandardBuiltinId::DatePrototypeGetUtcDate
+            | StandardBuiltinId::DatePrototypeGetDay
+            | StandardBuiltinId::DatePrototypeGetUtcDay
+            | StandardBuiltinId::DatePrototypeGetHours
+            | StandardBuiltinId::DatePrototypeGetUtcHours
+            | StandardBuiltinId::DatePrototypeGetMinutes
+            | StandardBuiltinId::DatePrototypeGetUtcMinutes
+            | StandardBuiltinId::DatePrototypeGetSeconds
+            | StandardBuiltinId::DatePrototypeGetUtcSeconds
+            | StandardBuiltinId::DatePrototypeGetMilliseconds
+            | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeGetTimezoneOffset
+            | StandardBuiltinId::DatePrototypeGetYear
+            | StandardBuiltinId::DatePrototypeSetYear
+            | StandardBuiltinId::DatePrototypeSetFullYear
+            | StandardBuiltinId::DatePrototypeSetUtcFullYear
+            | StandardBuiltinId::DatePrototypeSetMonth
+            | StandardBuiltinId::DatePrototypeSetUtcMonth
+            | StandardBuiltinId::DatePrototypeSetDate
+            | StandardBuiltinId::DatePrototypeSetUtcDate
+            | StandardBuiltinId::DatePrototypeSetHours
+            | StandardBuiltinId::DatePrototypeSetUtcHours
+            | StandardBuiltinId::DatePrototypeSetMinutes
+            | StandardBuiltinId::DatePrototypeSetUtcMinutes
+            | StandardBuiltinId::DatePrototypeSetSeconds
+            | StandardBuiltinId::DatePrototypeSetUtcSeconds
+            | StandardBuiltinId::DatePrototypeSetMilliseconds
+            | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeToUtcString => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::DateConstructor);
+            }
+            StandardBuiltinId::RegExpEscape
+            | StandardBuiltinId::RegExpSpeciesGetter
+            | StandardBuiltinId::RegExpLegacyStaticGetter
+            | StandardBuiltinId::RegExpLegacyStaticSetter
+            | StandardBuiltinId::RegExpPrototypeSymbolMatch
+            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::RegExpConstructor);
+            }
+            StandardBuiltinId::TypedArrayPrototypeBufferGetter
+            | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
+            | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
+            | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+            | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayFrom
+            | StandardBuiltinId::TypedArrayOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::Int32ArrayConstructor);
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn script_exposes_global_object(script: &ScriptIr) -> bool {
+    block_exposes_global_object(&script.body)
+        || script.functions.iter().any(|function| {
+            function.params.iter().any(|param| {
+                param
+                    .default_init
+                    .as_ref()
+                    .is_some_and(expr_exposes_global_object)
+            }) || block_exposes_global_object(&function.body)
+        })
+}
+
+pub(crate) fn script_referenced_global_property_names(script: &ScriptIr) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    collect_block_global_property_names(&script.body, &mut names);
+    for function in &script.functions {
+        for param in &function.params {
+            if let Some(init) = &param.default_init {
+                collect_expr_global_property_names(init, &mut names);
+            }
+        }
+        collect_block_global_property_names(&function.body, &mut names);
+    }
+    names
+}
+
+fn block_exposes_global_object(block: &BlockIr) -> bool {
+    block.statements.iter().any(statement_exposes_global_object)
+}
+
+fn statement_exposes_global_object(statement: &StatementIr) -> bool {
+    match statement {
+        StatementIr::Empty
+        | StatementIr::Debugger
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. } => false,
+        StatementIr::Lexical { init, .. }
+        | StatementIr::Expression(init)
+        | StatementIr::Throw(init)
+        | StatementIr::Return(init) => expr_exposes_global_object(init),
+        StatementIr::LexicalBlock(statements) => {
+            statements.iter().any(statement_exposes_global_object)
+        }
+        StatementIr::Var(declarators) => declarators.iter().any(|declarator| {
+            declarator
+                .init
+                .as_ref()
+                .is_some_and(expr_exposes_global_object)
+        }),
+        StatementIr::Block(block) => block_exposes_global_object(block),
+        StatementIr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_exposes_global_object(condition)
+                || statement_exposes_global_object(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(statement_exposes_global_object)
+        }
+        StatementIr::While { condition, body } | StatementIr::DoWhile { condition, body } => {
+            expr_exposes_global_object(condition) || statement_exposes_global_object(body)
+        }
+        StatementIr::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            init.as_ref().is_some_and(for_init_exposes_global_object)
+                || test.as_ref().is_some_and(expr_exposes_global_object)
+                || update.as_ref().is_some_and(expr_exposes_global_object)
+                || statement_exposes_global_object(body)
+        }
+        StatementIr::ForOfArray { iterable, body, .. }
+        | StatementIr::ForOfString { iterable, body, .. }
+        | StatementIr::ForOfIterator { iterable, body, .. } => {
+            expr_exposes_global_object(iterable) || statement_exposes_global_object(body)
+        }
+        StatementIr::ForInArray {
+            target: iterable,
+            body,
+            ..
+        }
+        | StatementIr::ForInString {
+            target: iterable,
+            body,
+            ..
+        }
+        | StatementIr::ForInObject {
+            target: iterable,
+            body,
+            ..
+        } => expr_exposes_global_object(iterable) || statement_exposes_global_object(body),
+        StatementIr::Switch {
+            discriminant,
+            cases,
+        } => {
+            expr_exposes_global_object(discriminant)
+                || cases.iter().any(|case| {
+                    case.condition
+                        .as_ref()
+                        .is_some_and(expr_exposes_global_object)
+                        || block_exposes_global_object(&case.body)
+                })
+        }
+        StatementIr::Labelled { statement, .. } => statement_exposes_global_object(statement),
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => block_exposes_global_object(try_block) || block_exposes_global_object(catch_block),
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+        } => block_exposes_global_object(try_block) || block_exposes_global_object(finally_block),
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            block_exposes_global_object(try_block)
+                || block_exposes_global_object(catch_block)
+                || block_exposes_global_object(finally_block)
+        }
+    }
+}
+
+fn for_init_exposes_global_object(init: &ForInitIr) -> bool {
+    match init {
+        ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+            expr_exposes_global_object(init)
+        }
+        ForInitIr::LexicalBlock(bindings) => bindings
+            .iter()
+            .any(|binding| expr_exposes_global_object(&binding.init)),
+        ForInitIr::Var(declarators) => declarators.iter().any(|declarator| {
+            declarator
+                .init
+                .as_ref()
+                .is_some_and(expr_exposes_global_object)
+        }),
+    }
+}
+
+fn property_key_exposes_global_object(key: &PropertyKeyIr) -> bool {
+    match key {
+        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+            expr_exposes_global_object(expr)
+        }
+    }
+}
+
+fn expr_is_global_object(expr: &TypedExpr) -> bool {
+    matches!(&expr.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME)
+}
+
+fn property_access_exposes_global_object(target: &TypedExpr, key: &PropertyKeyIr) -> bool {
+    if expr_is_global_object(target) {
+        !matches!(
+            key,
+            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength
+        )
+    } else {
+        expr_exposes_global_object(target)
+    }
+}
+
+fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
+    match property {
+        ObjectPropertyIr::Data { value, .. }
+        | ObjectPropertyIr::NonEnumerableData { value, .. }
+        | ObjectPropertyIr::Method {
+            function: value, ..
+        }
+        | ObjectPropertyIr::Getter {
+            function: value, ..
+        }
+        | ObjectPropertyIr::Setter {
+            function: value, ..
+        } => expr_exposes_global_object(value),
+        ObjectPropertyIr::ComputedData { key, value } => {
+            expr_exposes_global_object(key) || expr_exposes_global_object(value)
+        }
+        ObjectPropertyIr::ComputedMethod { key, function }
+        | ObjectPropertyIr::ComputedGetter { key, function }
+        | ObjectPropertyIr::ComputedSetter { key, function } => {
+            expr_exposes_global_object(key) || expr_exposes_global_object(function)
+        }
+    }
+}
+
+fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
+    match &expr.expr {
+        ExprIr::Identifier(name) => name == GLOBAL_THIS_NAME,
+        ExprIr::ObjectLiteral(properties) => {
+            properties.iter().any(object_property_exposes_global_object)
+        }
+        ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_exposes_global_object),
+        ExprIr::AssignIdentifier { value, .. }
+        | ExprIr::GlobalPropertyWrite { value, .. }
+        | ExprIr::CompoundAssignIdentifier { value, .. }
+        | ExprIr::GlobalPropertyCompoundAssign { value, .. }
+        | ExprIr::UnaryNumber { expr: value, .. }
+        | ExprIr::Void { expr: value }
+        | ExprIr::DeleteValue { expr: value }
+        | ExprIr::TypeOf { expr: value }
+        | ExprIr::LogicalNot { expr: value }
+        | ExprIr::StringFromCharCode { code: value }
+        | ExprIr::SpreadArgument(value)
+        | ExprIr::JsonParseStaticReviver { reviver: value, .. }
+        | ExprIr::PrivateIn { rhs: value, .. } => expr_exposes_global_object(value),
+        ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_exposes_global_object),
+        ExprIr::PropertyRead { target, key }
+        | ExprIr::DeleteProperty { target, key, .. }
+        | ExprIr::PropertyUpdate { target, key, .. } => {
+            property_access_exposes_global_object(target, key)
+                || property_key_exposes_global_object(key)
+        }
+        ExprIr::PropertyWrite { target, key, value } => {
+            property_access_exposes_global_object(target, key)
+                || property_key_exposes_global_object(key)
+                || expr_exposes_global_object(value)
+        }
+        ExprIr::StringCharCodeAt { target, index } => {
+            expr_exposes_global_object(target) || expr_exposes_global_object(index)
+        }
+        ExprIr::BinaryNumber { lhs, rhs, .. }
+        | ExprIr::CoerciveAdd { lhs, rhs }
+        | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
+        | ExprIr::BitwiseNumber { lhs, rhs, .. }
+        | ExprIr::StringConcat { lhs, rhs }
+        | ExprIr::CompareNumber { lhs, rhs, .. }
+        | ExprIr::CompareValue { lhs, rhs, .. }
+        | ExprIr::StrictEquality { lhs, rhs, .. }
+        | ExprIr::LooseEquality { lhs, rhs, .. }
+        | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
+        | ExprIr::Comma { lhs, rhs }
+        | ExprIr::InstanceOf { lhs, rhs }
+        | ExprIr::In { lhs, rhs } => {
+            expr_exposes_global_object(lhs) || expr_exposes_global_object(rhs)
+        }
+        ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            expr_exposes_global_object(condition)
+                || expr_exposes_global_object(then_expr)
+                || expr_exposes_global_object(else_expr)
+        }
+        ExprIr::CallNamed { args, .. } | ExprIr::SuperConstruct { args } => {
+            args.iter().any(expr_exposes_global_object)
+        }
+        ExprIr::CallIndirect {
+            callee,
+            this_arg,
+            args,
+        } => {
+            expr_exposes_global_object(callee)
+                || this_arg.as_deref().is_some_and(expr_exposes_global_object)
+                || args.iter().any(expr_exposes_global_object)
+        }
+        ExprIr::Construct { callee, args } => {
+            expr_exposes_global_object(callee) || args.iter().any(expr_exposes_global_object)
+        }
+        ExprIr::CallMethod {
+            receiver,
+            key,
+            args,
+        } => {
+            property_access_exposes_global_object(receiver, key)
+                || property_key_exposes_global_object(key)
+                || args.iter().any(expr_exposes_global_object)
+        }
+        ExprIr::SuperPropertyRead { key } => property_key_exposes_global_object(key),
+        ExprIr::SuperPropertyWrite { key, value } => {
+            property_key_exposes_global_object(key) || expr_exposes_global_object(value)
+        }
+        ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
+        ExprIr::PrivateWrite { target, value, .. } => {
+            expr_exposes_global_object(target) || expr_exposes_global_object(value)
+        }
+        ExprIr::ClassDefinition(class) => class
+            .heritage
+            .as_deref()
+            .is_some_and(expr_exposes_global_object),
+        ExprIr::AssertSameValue {
+            actual, expected, ..
+        } => expr_exposes_global_object(actual) || expr_exposes_global_object(expected),
+        ExprIr::Undefined
+        | ExprIr::ArrayHole
+        | ExprIr::Null
+        | ExprIr::Boolean(_)
+        | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
+        | ExprIr::Symbol
+        | ExprIr::String(_)
+        | ExprIr::FunctionValue(_)
+        | ExprIr::This
+        | ExprIr::Arguments
+        | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::UpdateIdentifier { .. }
+        | ExprIr::GlobalPropertyUpdate { .. }
+        | ExprIr::DeleteIdentifier { .. }
+        | ExprIr::DeleteGlobalProperty { .. }
+        | ExprIr::NewTarget
+        | ExprIr::TypeOfUnresolvedIdentifier { .. }
+        | ExprIr::RuntimeThrow { .. } => false,
+    }
+}
+
+fn collect_block_global_property_names(block: &BlockIr, names: &mut BTreeSet<String>) {
+    for statement in &block.statements {
+        collect_statement_global_property_names(statement, names);
+    }
+}
+
+fn collect_statement_global_property_names(statement: &StatementIr, names: &mut BTreeSet<String>) {
+    match statement {
+        StatementIr::Empty
+        | StatementIr::Debugger
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. } => {}
+        StatementIr::Lexical { init, .. }
+        | StatementIr::Expression(init)
+        | StatementIr::Throw(init)
+        | StatementIr::Return(init) => collect_expr_global_property_names(init, names),
+        StatementIr::LexicalBlock(statements) => {
+            for statement in statements {
+                collect_statement_global_property_names(statement, names);
+            }
+        }
+        StatementIr::Var(declarators) => {
+            for declarator in declarators {
+                if let Some(init) = &declarator.init {
+                    collect_expr_global_property_names(init, names);
+                }
+            }
+        }
+        StatementIr::Block(block) => collect_block_global_property_names(block, names),
+        StatementIr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_global_property_names(condition, names);
+            collect_statement_global_property_names(then_branch, names);
+            if let Some(else_branch) = else_branch {
+                collect_statement_global_property_names(else_branch, names);
+            }
+        }
+        StatementIr::While { condition, body } | StatementIr::DoWhile { condition, body } => {
+            collect_expr_global_property_names(condition, names);
+            collect_statement_global_property_names(body, names);
+        }
+        StatementIr::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            if let Some(init) = init {
+                collect_for_init_global_property_names(init, names);
+            }
+            if let Some(test) = test {
+                collect_expr_global_property_names(test, names);
+            }
+            if let Some(update) = update {
+                collect_expr_global_property_names(update, names);
+            }
+            collect_statement_global_property_names(body, names);
+        }
+        StatementIr::ForOfArray { iterable, body, .. }
+        | StatementIr::ForOfString { iterable, body, .. }
+        | StatementIr::ForOfIterator { iterable, body, .. } => {
+            collect_expr_global_property_names(iterable, names);
+            collect_statement_global_property_names(body, names);
+        }
+        StatementIr::ForInArray {
+            target: iterable,
+            body,
+            ..
+        }
+        | StatementIr::ForInString {
+            target: iterable,
+            body,
+            ..
+        }
+        | StatementIr::ForInObject {
+            target: iterable,
+            body,
+            ..
+        } => {
+            collect_expr_global_property_names(iterable, names);
+            collect_statement_global_property_names(body, names);
+        }
+        StatementIr::Switch {
+            discriminant,
+            cases,
+        } => {
+            collect_expr_global_property_names(discriminant, names);
+            for case in cases {
+                if let Some(condition) = &case.condition {
+                    collect_expr_global_property_names(condition, names);
+                }
+                collect_block_global_property_names(&case.body, names);
+            }
+        }
+        StatementIr::Labelled { statement, .. } => {
+            collect_statement_global_property_names(statement, names);
+        }
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => {
+            collect_block_global_property_names(try_block, names);
+            collect_block_global_property_names(catch_block, names);
+        }
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+        } => {
+            collect_block_global_property_names(try_block, names);
+            collect_block_global_property_names(finally_block, names);
+        }
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            collect_block_global_property_names(try_block, names);
+            collect_block_global_property_names(catch_block, names);
+            collect_block_global_property_names(finally_block, names);
+        }
+    }
+}
+
+fn collect_for_init_global_property_names(init: &ForInitIr, names: &mut BTreeSet<String>) {
+    match init {
+        ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+            collect_expr_global_property_names(init, names);
+        }
+        ForInitIr::LexicalBlock(bindings) => {
+            for binding in bindings {
+                collect_expr_global_property_names(&binding.init, names);
+            }
+        }
+        ForInitIr::Var(declarators) => {
+            for declarator in declarators {
+                if let Some(init) = &declarator.init {
+                    collect_expr_global_property_names(init, names);
+                }
+            }
+        }
+    }
+}
+
+fn collect_property_key_global_property_names(key: &PropertyKeyIr, names: &mut BTreeSet<String>) {
+    match key {
+        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+            collect_expr_global_property_names(expr, names);
+        }
+    }
+}
+
+fn collect_object_property_global_property_names(
+    property: &ObjectPropertyIr,
+    names: &mut BTreeSet<String>,
+) {
+    match property {
+        ObjectPropertyIr::Data { value, .. }
+        | ObjectPropertyIr::NonEnumerableData { value, .. }
+        | ObjectPropertyIr::Method {
+            function: value, ..
+        }
+        | ObjectPropertyIr::Getter {
+            function: value, ..
+        }
+        | ObjectPropertyIr::Setter {
+            function: value, ..
+        } => {
+            collect_expr_global_property_names(value, names);
+        }
+        ObjectPropertyIr::ComputedData { key, value } => {
+            collect_expr_global_property_names(key, names);
+            collect_expr_global_property_names(value, names);
+        }
+        ObjectPropertyIr::ComputedMethod { key, function }
+        | ObjectPropertyIr::ComputedGetter { key, function }
+        | ObjectPropertyIr::ComputedSetter { key, function } => {
+            collect_expr_global_property_names(key, names);
+            collect_expr_global_property_names(function, names);
+        }
+    }
+}
+
+fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
+    match &expr.expr {
+        ExprIr::Identifier(name) | ExprIr::GlobalPropertyRead { name } => {
+            names.insert(name.clone());
+        }
+        ExprIr::GlobalPropertyWrite { name, value, .. }
+        | ExprIr::GlobalPropertyCompoundAssign { name, value, .. } => {
+            names.insert(name.clone());
+            collect_expr_global_property_names(value, names);
+        }
+        ExprIr::GlobalPropertyUpdate { name, .. } | ExprIr::DeleteGlobalProperty { name } => {
+            names.insert(name.clone());
+        }
+        ExprIr::ObjectLiteral(properties) => {
+            for property in properties {
+                collect_object_property_global_property_names(property, names);
+            }
+        }
+        ExprIr::ArrayLiteral(elements) => {
+            for element in elements {
+                collect_expr_global_property_names(element, names);
+            }
+        }
+        ExprIr::AssignIdentifier { name, value }
+        | ExprIr::CompoundAssignIdentifier { name, value, .. } => {
+            names.insert(name.clone());
+            collect_expr_global_property_names(value, names);
+        }
+        ExprIr::UnaryNumber { expr: value, .. }
+        | ExprIr::Void { expr: value }
+        | ExprIr::DeleteValue { expr: value }
+        | ExprIr::TypeOf { expr: value }
+        | ExprIr::LogicalNot { expr: value }
+        | ExprIr::StringFromCharCode { code: value }
+        | ExprIr::SpreadArgument(value)
+        | ExprIr::JsonParseStaticReviver { reviver: value, .. }
+        | ExprIr::PrivateIn { rhs: value, .. } => collect_expr_global_property_names(value, names),
+        ExprIr::SpecOperation { operands, .. } => {
+            for operand in operands {
+                collect_expr_global_property_names(operand, names);
+            }
+        }
+        ExprIr::PropertyRead { target, key }
+        | ExprIr::DeleteProperty { target, key, .. }
+        | ExprIr::PropertyUpdate { target, key, .. } => {
+            collect_expr_global_property_names(target, names);
+            collect_property_key_global_property_names(key, names);
+        }
+        ExprIr::PropertyWrite { target, key, value } => {
+            collect_expr_global_property_names(target, names);
+            collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(value, names);
+        }
+        ExprIr::StringCharCodeAt { target, index } => {
+            collect_expr_global_property_names(target, names);
+            collect_expr_global_property_names(index, names);
+        }
+        ExprIr::BinaryNumber { lhs, rhs, .. }
+        | ExprIr::CoerciveAdd { lhs, rhs }
+        | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
+        | ExprIr::BitwiseNumber { lhs, rhs, .. }
+        | ExprIr::StringConcat { lhs, rhs }
+        | ExprIr::CompareNumber { lhs, rhs, .. }
+        | ExprIr::CompareValue { lhs, rhs, .. }
+        | ExprIr::StrictEquality { lhs, rhs, .. }
+        | ExprIr::LooseEquality { lhs, rhs, .. }
+        | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
+        | ExprIr::Comma { lhs, rhs }
+        | ExprIr::InstanceOf { lhs, rhs }
+        | ExprIr::In { lhs, rhs } => {
+            collect_expr_global_property_names(lhs, names);
+            collect_expr_global_property_names(rhs, names);
+        }
+        ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_expr_global_property_names(condition, names);
+            collect_expr_global_property_names(then_expr, names);
+            collect_expr_global_property_names(else_expr, names);
+        }
+        ExprIr::CallNamed { args, .. } | ExprIr::SuperConstruct { args } => {
+            for arg in args {
+                collect_expr_global_property_names(arg, names);
+            }
+        }
+        ExprIr::CallIndirect {
+            callee,
+            this_arg,
+            args,
+        } => {
+            collect_expr_global_property_names(callee, names);
+            if let Some(this_arg) = this_arg {
+                collect_expr_global_property_names(this_arg, names);
+            }
+            for arg in args {
+                collect_expr_global_property_names(arg, names);
+            }
+        }
+        ExprIr::Construct { callee, args } => {
+            collect_expr_global_property_names(callee, names);
+            for arg in args {
+                collect_expr_global_property_names(arg, names);
+            }
+        }
+        ExprIr::CallMethod {
+            receiver,
+            key,
+            args,
+        } => {
+            collect_expr_global_property_names(receiver, names);
+            collect_property_key_global_property_names(key, names);
+            for arg in args {
+                collect_expr_global_property_names(arg, names);
+            }
+        }
+        ExprIr::SuperPropertyRead { key } => collect_property_key_global_property_names(key, names),
+        ExprIr::SuperPropertyWrite { key, value } => {
+            collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(value, names);
+        }
+        ExprIr::PrivateRead { target, .. } => collect_expr_global_property_names(target, names),
+        ExprIr::PrivateWrite { target, value, .. } => {
+            collect_expr_global_property_names(target, names);
+            collect_expr_global_property_names(value, names);
+        }
+        ExprIr::ClassDefinition(class) => {
+            if let Some(heritage) = &class.heritage {
+                collect_expr_global_property_names(heritage, names);
+            }
+        }
+        ExprIr::AssertSameValue {
+            actual, expected, ..
+        } => {
+            collect_expr_global_property_names(actual, names);
+            collect_expr_global_property_names(expected, names);
+        }
+        ExprIr::Undefined
+        | ExprIr::ArrayHole
+        | ExprIr::Null
+        | ExprIr::Boolean(_)
+        | ExprIr::Number(_)
+        | ExprIr::BigInt(_)
+        | ExprIr::Symbol
+        | ExprIr::String(_)
+        | ExprIr::FunctionValue(_)
+        | ExprIr::This
+        | ExprIr::Arguments
+        | ExprIr::UpdateIdentifier { .. }
+        | ExprIr::DeleteIdentifier { .. }
+        | ExprIr::NewTarget
+        | ExprIr::TypeOfUnresolvedIdentifier { .. }
+        | ExprIr::RuntimeThrow { .. } => {}
+    }
+}
+
 pub(crate) fn script_references_standard_builtin(
     script: &ScriptIr,
     builtin: StandardBuiltinId,
@@ -36,17 +994,33 @@ pub(crate) fn script_references_standard_builtin(
         })
 }
 
+pub(crate) fn script_references_memory_atomics(script: &ScriptIr) -> bool {
+    [
+        StandardBuiltinId::AtomicsAdd,
+        StandardBuiltinId::AtomicsAnd,
+        StandardBuiltinId::AtomicsCompareExchange,
+        StandardBuiltinId::AtomicsExchange,
+        StandardBuiltinId::AtomicsLoad,
+        StandardBuiltinId::AtomicsOr,
+        StandardBuiltinId::AtomicsStore,
+        StandardBuiltinId::AtomicsSub,
+        StandardBuiltinId::AtomicsWait,
+        StandardBuiltinId::AtomicsWaitAsync,
+        StandardBuiltinId::AtomicsXor,
+    ]
+    .into_iter()
+    .any(|builtin| script_references_standard_builtin(script, builtin))
+}
+
 pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardBuiltinId) -> bool {
-    if builtin == StandardBuiltinId::StringPrototypeSplit {
+    if script_references_standard_builtin(script, builtin) {
         return false;
     }
-    if matches!(
-        builtin,
-        StandardBuiltinId::DateNow | StandardBuiltinId::DateUtc
-    ) {
-        return false;
-    }
-    if builtin == StandardBuiltinId::StringPrototypeSubstr {
+    if builtin == StandardBuiltinId::ErrorConstructor
+        && ordinary_native_error_constructors()
+            .into_iter()
+            .any(|error_builtin| script_references_standard_builtin(script, error_builtin))
+    {
         return false;
     }
     if builtin == StandardBuiltinId::StringPrototypeIndexOf
@@ -117,35 +1091,29 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
-    if builtin == StandardBuiltinId::ArrayPrototypeToLocaleString
-        && typed_array_constructor_bytes_per_element_entries()
-            .into_iter()
-            .any(|(dependency, _)| script_references_standard_builtin(script, dependency))
+    if builtin == StandardBuiltinId::ReflectSet
+        && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
         return false;
     }
-    if builtin == StandardBuiltinId::TypedArrayPrototypeToLocaleString
-        && typed_array_constructor_bytes_per_element_entries()
-            .into_iter()
-            .any(|(dependency, _)| script_references_standard_builtin(script, dependency))
-    {
-        return false;
-    }
-    if builtin == StandardBuiltinId::TypedArrayPrototypeToString
-        && typed_array_constructor_bytes_per_element_entries()
-            .into_iter()
-            .any(|(dependency, _)| script_references_standard_builtin(script, dependency))
-    {
-        return false;
-    }
-    if builtin == StandardBuiltinId::TypedArrayPrototypeToString
-        && script_references_standard_builtin(script, StandardBuiltinId::ArrayConstructor)
+    if builtin == StandardBuiltinId::StringPrototypeStartsWith
+        && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
         return false;
     }
 
-    is_large_deferred_standard_builtin(builtin)
-        && !script_references_standard_builtin(script, builtin)
+    true
+}
+
+fn ordinary_native_error_constructors() -> [StandardBuiltinId; 6] {
+    [
+        StandardBuiltinId::EvalErrorConstructor,
+        StandardBuiltinId::RangeErrorConstructor,
+        StandardBuiltinId::ReferenceErrorConstructor,
+        StandardBuiltinId::SyntaxErrorConstructor,
+        StandardBuiltinId::TypeErrorConstructor,
+        StandardBuiltinId::URIErrorConstructor,
+    ]
 }
 
 pub(crate) fn script_uses_create_realm(script: &ScriptIr) -> bool {
@@ -156,19 +1124,261 @@ pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) 
     matches!(
         builtin,
         StandardBuiltinId::FunctionConstructor
+            | StandardBuiltinId::FunctionPrototypeCall
+            | StandardBuiltinId::FunctionPrototypeApply
+            | StandardBuiltinId::FunctionPrototypeBind
+            | StandardBuiltinId::FunctionPrototypeToString
+            | StandardBuiltinId::EvalFunction
+            | StandardBuiltinId::IteratorConstructor
+            | StandardBuiltinId::IteratorFrom
+            | StandardBuiltinId::IteratorPrototypeToArray
+            | StandardBuiltinId::IteratorPrototypeForEach
+            | StandardBuiltinId::IteratorPrototypeEvery
+            | StandardBuiltinId::IteratorPrototypeSome
+            | StandardBuiltinId::IteratorPrototypeFind
+            | StandardBuiltinId::IteratorPrototypeReduce
+            | StandardBuiltinId::IteratorPrototypeMap
+            | StandardBuiltinId::IteratorPrototypeFilter
+            | StandardBuiltinId::IteratorPrototypeFlatMap
+            | StandardBuiltinId::IteratorPrototypeTake
+            | StandardBuiltinId::IteratorPrototypeDrop
+            | StandardBuiltinId::IteratorPrototypeConstructorGetter
+            | StandardBuiltinId::IteratorPrototypeConstructorSetter
+            | StandardBuiltinId::IteratorPrototypeSymbolDispose
+            | StandardBuiltinId::IteratorPrototypeToStringTagGetter
+            | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+            | StandardBuiltinId::IteratorFromWrapperNext
+            | StandardBuiltinId::IteratorFromWrapperReturn
             | StandardBuiltinId::ObjectConstructor
+            | StandardBuiltinId::ObjectCreate
+            | StandardBuiltinId::ObjectGetPrototypeOf
+            | StandardBuiltinId::ObjectSetPrototypeOf
+            | StandardBuiltinId::ObjectDefineProperty
+            | StandardBuiltinId::ObjectDefineProperties
+            | StandardBuiltinId::ObjectGetOwnPropertyDescriptor
+            | StandardBuiltinId::ObjectGetOwnPropertyNames
+            | StandardBuiltinId::ObjectGetOwnPropertySymbols
+            | StandardBuiltinId::ObjectKeys
+            | StandardBuiltinId::ObjectValues
+            | StandardBuiltinId::ObjectHasOwn
+            | StandardBuiltinId::ObjectIs
+            | StandardBuiltinId::ObjectIsSealed
+            | StandardBuiltinId::ObjectIsFrozen
+            | StandardBuiltinId::ObjectFreeze
+            | StandardBuiltinId::ObjectIsExtensible
+            | StandardBuiltinId::ObjectPreventExtensions
+            | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+            | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
+            | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
+            | StandardBuiltinId::ObjectPrototypeToString
+            | StandardBuiltinId::ObjectPrototypeToLocaleString
+            | StandardBuiltinId::ObjectPrototypeValueOf
+            | StandardBuiltinId::ReflectConstruct
+            | StandardBuiltinId::ReflectApply
+            | StandardBuiltinId::ReflectGet
+            | StandardBuiltinId::ReflectGetPrototypeOf
+            | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
+            | StandardBuiltinId::ReflectSet
+            | StandardBuiltinId::ReflectHas
+            | StandardBuiltinId::ReflectDefineProperty
+            | StandardBuiltinId::ReflectDeleteProperty
+            | StandardBuiltinId::ReflectIsExtensible
+            | StandardBuiltinId::ReflectPreventExtensions
+            | StandardBuiltinId::ReflectSetPrototypeOf
+            | StandardBuiltinId::ReflectOwnKeys
+            | StandardBuiltinId::GlobalIsFinite
+            | StandardBuiltinId::GlobalIsNaN
+            | StandardBuiltinId::Escape
+            | StandardBuiltinId::Unescape
             | StandardBuiltinId::ArrayConstructor
+            | StandardBuiltinId::ArrayFrom
+            | StandardBuiltinId::ArrayOf
+            | StandardBuiltinId::ArrayIsArray
+            | StandardBuiltinId::ArraySpeciesGetter
+            | StandardBuiltinId::ArrayPrototypeConcat
+            | StandardBuiltinId::ArrayPrototypeToLocaleString
+            | StandardBuiltinId::ArrayPrototypeAt
+            | StandardBuiltinId::ArrayPrototypeIncludes
+            | StandardBuiltinId::ArrayPrototypeIndexOf
+            | StandardBuiltinId::ArrayPrototypeLastIndexOf
+            | StandardBuiltinId::ArrayPrototypeFind
+            | StandardBuiltinId::ArrayPrototypeFindIndex
+            | StandardBuiltinId::ArrayPrototypeFindLast
+            | StandardBuiltinId::ArrayPrototypeFindLastIndex
+            | StandardBuiltinId::ArrayPrototypeForEach
+            | StandardBuiltinId::ArrayPrototypeEvery
+            | StandardBuiltinId::ArrayPrototypeSome
+            | StandardBuiltinId::ArrayPrototypeFilter
+            | StandardBuiltinId::ArrayPrototypeMap
+            | StandardBuiltinId::ArrayPrototypePop
+            | StandardBuiltinId::ArrayPrototypePush
+            | StandardBuiltinId::ArrayPrototypeFlat
+            | StandardBuiltinId::ArrayPrototypeFlatMap
+            | StandardBuiltinId::ArrayPrototypeKeys
+            | StandardBuiltinId::ArrayPrototypeEntries
+            | StandardBuiltinId::ArrayPrototypeValues
+            | StandardBuiltinId::ArrayIteratorNext
+            | StandardBuiltinId::ArrayIteratorIdentity
             | StandardBuiltinId::NumberConstructor
+            | StandardBuiltinId::NumberIsInteger
+            | StandardBuiltinId::NumberIsSafeInteger
+            | StandardBuiltinId::NumberIsFinite
+            | StandardBuiltinId::NumberIsNaN
+            | StandardBuiltinId::NumberPrototypeToString
+            | StandardBuiltinId::NumberPrototypeToLocaleString
+            | StandardBuiltinId::NumberPrototypeValueOf
+            | StandardBuiltinId::StringConstructor
+            | StandardBuiltinId::StringPrototypeAt
+            | StandardBuiltinId::StringPrototypeCharAt
+            | StandardBuiltinId::StringPrototypeEndsWith
+            | StandardBuiltinId::StringPrototypeIncludes
+            | StandardBuiltinId::StringPrototypeIndexOf
+            | StandardBuiltinId::StringPrototypeIsWellFormed
+            | StandardBuiltinId::StringPrototypeMatch
+            | StandardBuiltinId::StringPrototypeMatchAll
+            | StandardBuiltinId::StringPrototypePadEnd
+            | StandardBuiltinId::StringPrototypePadStart
+            | StandardBuiltinId::StringPrototypeRepeat
+            | StandardBuiltinId::StringPrototypeReplace
+            | StandardBuiltinId::StringPrototypeReplaceAll
+            | StandardBuiltinId::StringPrototypeSearch
+            | StandardBuiltinId::StringPrototypeSlice
+            | StandardBuiltinId::StringPrototypeSplit
+            | StandardBuiltinId::StringPrototypeStartsWith
+            | StandardBuiltinId::StringPrototypeToString
+            | StandardBuiltinId::StringPrototypeToUpperCase
+            | StandardBuiltinId::StringPrototypeToWellFormed
+            | StandardBuiltinId::StringPrototypeTrim
+            | StandardBuiltinId::StringPrototypeTrimEnd
+            | StandardBuiltinId::StringPrototypeTrimStart
+            | StandardBuiltinId::StringPrototypeValueOf
             | StandardBuiltinId::ArrayBufferConstructor
+            | StandardBuiltinId::ArrayBufferIsView
             | StandardBuiltinId::DataViewConstructor
+            | StandardBuiltinId::Float64ArrayConstructor
+            | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Int32ArrayConstructor
+            | StandardBuiltinId::Int16ArrayConstructor
+            | StandardBuiltinId::Int8ArrayConstructor
+            | StandardBuiltinId::Uint32ArrayConstructor
+            | StandardBuiltinId::Uint16ArrayConstructor
+            | StandardBuiltinId::Uint8ArrayConstructor
+            | StandardBuiltinId::Uint8ClampedArrayConstructor
+            | StandardBuiltinId::BigInt64ArrayConstructor
+            | StandardBuiltinId::BigUint64ArrayConstructor
             | StandardBuiltinId::AggregateErrorConstructor
             | StandardBuiltinId::SuppressedErrorConstructor
             | StandardBuiltinId::BigIntConstructor
+            | StandardBuiltinId::BigIntAsIntN
+            | StandardBuiltinId::BigIntAsUintN
+            | StandardBuiltinId::BigIntPrototypeToString
+            | StandardBuiltinId::BigIntPrototypeToLocaleString
+            | StandardBuiltinId::BigIntPrototypeValueOf
+            | StandardBuiltinId::BooleanConstructor
+            | StandardBuiltinId::BooleanPrototypeToString
+            | StandardBuiltinId::BooleanPrototypeValueOf
             | StandardBuiltinId::ProxyConstructor
             | StandardBuiltinId::ProxyRevocable
             | StandardBuiltinId::RegExpConstructor
             | StandardBuiltinId::RegExpEscape
+            | StandardBuiltinId::DateConstructor
+            | StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateUtc
+            | StandardBuiltinId::DatePrototypeGetTime
+            | StandardBuiltinId::DatePrototypeSetTime
+            | StandardBuiltinId::DatePrototypeValueOf
+            | StandardBuiltinId::DatePrototypeGetFullYear
+            | StandardBuiltinId::DatePrototypeGetUtcFullYear
+            | StandardBuiltinId::DatePrototypeGetMonth
+            | StandardBuiltinId::DatePrototypeGetUtcMonth
+            | StandardBuiltinId::DatePrototypeGetDate
+            | StandardBuiltinId::DatePrototypeGetUtcDate
+            | StandardBuiltinId::DatePrototypeGetDay
+            | StandardBuiltinId::DatePrototypeGetUtcDay
+            | StandardBuiltinId::DatePrototypeGetHours
+            | StandardBuiltinId::DatePrototypeGetUtcHours
+            | StandardBuiltinId::DatePrototypeGetMinutes
+            | StandardBuiltinId::DatePrototypeGetUtcMinutes
+            | StandardBuiltinId::DatePrototypeGetSeconds
+            | StandardBuiltinId::DatePrototypeGetUtcSeconds
+            | StandardBuiltinId::DatePrototypeGetMilliseconds
+            | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeGetTimezoneOffset
+            | StandardBuiltinId::DatePrototypeGetYear
+            | StandardBuiltinId::DatePrototypeSetYear
+            | StandardBuiltinId::DatePrototypeSetFullYear
+            | StandardBuiltinId::DatePrototypeSetUtcFullYear
+            | StandardBuiltinId::DatePrototypeSetMonth
+            | StandardBuiltinId::DatePrototypeSetUtcMonth
+            | StandardBuiltinId::DatePrototypeSetDate
+            | StandardBuiltinId::DatePrototypeSetUtcDate
+            | StandardBuiltinId::DatePrototypeSetHours
+            | StandardBuiltinId::DatePrototypeSetUtcHours
+            | StandardBuiltinId::DatePrototypeSetMinutes
+            | StandardBuiltinId::DatePrototypeSetUtcMinutes
+            | StandardBuiltinId::DatePrototypeSetSeconds
+            | StandardBuiltinId::DatePrototypeSetUtcSeconds
+            | StandardBuiltinId::DatePrototypeSetMilliseconds
+            | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeToUtcString
+            | StandardBuiltinId::MathAbs
+            | StandardBuiltinId::MathAcos
+            | StandardBuiltinId::MathAcosh
+            | StandardBuiltinId::MathAsin
+            | StandardBuiltinId::MathAsinh
+            | StandardBuiltinId::MathAtan
+            | StandardBuiltinId::MathAtan2
+            | StandardBuiltinId::MathAtanh
+            | StandardBuiltinId::MathCbrt
+            | StandardBuiltinId::MathCeil
+            | StandardBuiltinId::MathClz32
+            | StandardBuiltinId::MathCos
+            | StandardBuiltinId::MathCosh
+            | StandardBuiltinId::MathExp
+            | StandardBuiltinId::MathExpm1
+            | StandardBuiltinId::MathF16Round
+            | StandardBuiltinId::MathFloor
+            | StandardBuiltinId::MathFround
+            | StandardBuiltinId::MathHypot
+            | StandardBuiltinId::MathImul
+            | StandardBuiltinId::MathLog
+            | StandardBuiltinId::MathLog10
+            | StandardBuiltinId::MathLog1p
+            | StandardBuiltinId::MathLog2
+            | StandardBuiltinId::MathMax
+            | StandardBuiltinId::MathMin
+            | StandardBuiltinId::MathPow
+            | StandardBuiltinId::MathRandom
+            | StandardBuiltinId::MathRound
+            | StandardBuiltinId::MathSign
+            | StandardBuiltinId::MathSin
+            | StandardBuiltinId::MathSinh
+            | StandardBuiltinId::MathSqrt
+            | StandardBuiltinId::MathSumPrecise
+            | StandardBuiltinId::MathTan
+            | StandardBuiltinId::MathTanh
+            | StandardBuiltinId::MathTrunc
+            | StandardBuiltinId::JsonParse
+            | StandardBuiltinId::JsonStringify
+            | StandardBuiltinId::JsonRawJson
+            | StandardBuiltinId::JsonIsRawJson
+            | StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsNotify
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsPause
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsWait
+            | StandardBuiltinId::AtomicsWaitAsync
+            | StandardBuiltinId::AtomicsXor
+            | StandardBuiltinId::AtomicsIsLockFree
             | StandardBuiltinId::ErrorConstructor
+            | StandardBuiltinId::ErrorIsError
+            | StandardBuiltinId::ErrorPrototypeToString
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::RangeErrorConstructor
             | StandardBuiltinId::ReferenceErrorConstructor
@@ -186,6 +1396,20 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::JsonStringify
                 | StandardBuiltinId::JsonRawJson
                 | StandardBuiltinId::JsonIsRawJson
+                | StandardBuiltinId::AtomicsAdd
+                | StandardBuiltinId::AtomicsAnd
+                | StandardBuiltinId::AtomicsCompareExchange
+                | StandardBuiltinId::AtomicsExchange
+                | StandardBuiltinId::AtomicsLoad
+                | StandardBuiltinId::AtomicsNotify
+                | StandardBuiltinId::AtomicsOr
+                | StandardBuiltinId::AtomicsPause
+                | StandardBuiltinId::AtomicsSub
+                | StandardBuiltinId::AtomicsStore
+                | StandardBuiltinId::AtomicsWait
+                | StandardBuiltinId::AtomicsWaitAsync
+                | StandardBuiltinId::AtomicsXor
+                | StandardBuiltinId::AtomicsIsLockFree
                 | StandardBuiltinId::ArrayFrom
                 | StandardBuiltinId::ArrayOf
                 | StandardBuiltinId::ArrayPrototypeConcat
@@ -750,6 +1974,9 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::SpreadArgument(value)
         | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_references_function(value, target),
+        ExprIr::SpecOperation { operands, .. } => operands
+            .iter()
+            .any(|operand| expr_references_function(operand, target)),
         ExprIr::PropertyRead {
             target: object,
             key,
@@ -833,7 +2060,10 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || expr_references_function(then_expr, target)
                 || expr_references_function(else_expr, target)
         }
-        ExprIr::CallNamed { args, .. } | ExprIr::SuperConstruct { args } => {
+        ExprIr::CallNamed { name, args } => {
+            name == target || args.iter().any(|arg| expr_references_function(arg, target))
+        }
+        ExprIr::SuperConstruct { args } => {
             args.iter().any(|arg| expr_references_function(arg, target))
         }
         ExprIr::CallIndirect {
@@ -903,8 +2133,10 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
 
 pub(crate) fn build_function_metas(
     functions: &[FunctionIr],
-    standard_builtins: &[StandardBuiltinId],
-    host_builtins: &[HostBuiltinId],
+    compiled_standard_builtins: &[StandardBuiltinId],
+    stubbed_standard_builtins: &[StandardBuiltinId],
+    compiled_host_builtins: &[HostBuiltinId],
+    stubbed_host_builtins: &[HostBuiltinId],
     imported_function_count: u32,
 ) -> BTreeMap<FunctionId, WasmFunctionMeta> {
     let mut metas = BTreeMap::new();
@@ -934,74 +2166,122 @@ pub(crate) fn build_function_metas(
         );
         callable_index += 1;
     }
-    for builtin in standard_builtins {
-        metas.insert(
-            builtin.function_id(),
-            WasmFunctionMeta {
-                name: builtin
+
+    let standard_builtin_meta =
+        |builtin: StandardBuiltinId, callable_index: u32| WasmFunctionMeta {
+            name: builtin
+                .native_function_name()
+                .unwrap_or_else(|| builtin.debug_name())
+                .to_string(),
+            to_string_value: match builtin {
+                StandardBuiltinId::BoundFunctionInvoker => {
+                    CallableToStringRepresentation::NativeAnonymous.materialize()
+                }
+                _ => builtin
                     .native_function_name()
-                    .unwrap_or_else(|| builtin.debug_name())
-                    .to_string(),
-                to_string_value: match builtin {
-                    StandardBuiltinId::BoundFunctionInvoker => {
+                    .map(|name| {
+                        CallableToStringRepresentation::NativeNamed(name.to_string()).materialize()
+                    })
+                    .unwrap_or_else(|| {
                         CallableToStringRepresentation::NativeAnonymous.materialize()
-                    }
-                    _ => builtin
-                        .native_function_name()
-                        .map(|name| {
-                            CallableToStringRepresentation::NativeNamed(name.to_string())
-                                .materialize()
-                        })
-                        .unwrap_or_else(|| {
-                            CallableToStringRepresentation::NativeAnonymous.materialize()
-                        }),
-                },
-                length: standard_builtin_length(*builtin),
-                length_name_configurable: !matches!(builtin, StandardBuiltinId::ThrowTypeError),
-                wasm_index: imported_function_count + 1 + callable_index,
-                table_index: callable_index,
-                constructable: builtin.constructable(),
-                strict: true,
-                class_kind: ClassFunctionKind::None,
-                class_heritage_kind: ClassHeritageKind::None,
-                is_static_class_member: false,
-                is_derived_constructor: false,
-                is_synthetic_default_derived_constructor: false,
-                super_constructor_target: None,
-                uses_super: false,
-                this_before_super: false,
+                    }),
             },
-        );
-        callable_index += 1;
-    }
-    for builtin in host_builtins {
+            length: standard_builtin_length(builtin),
+            length_name_configurable: !matches!(builtin, StandardBuiltinId::ThrowTypeError),
+            wasm_index: imported_function_count + 1 + callable_index,
+            table_index: callable_index,
+            constructable: builtin.constructable(),
+            strict: true,
+            class_kind: ClassFunctionKind::None,
+            class_heritage_kind: ClassHeritageKind::None,
+            is_static_class_member: false,
+            is_derived_constructor: false,
+            is_synthetic_default_derived_constructor: false,
+            super_constructor_target: None,
+            uses_super: false,
+            this_before_super: false,
+        };
+    let host_builtin_meta = |builtin: HostBuiltinId, callable_index: u32| WasmFunctionMeta {
+        name: builtin.as_str().to_string(),
+        to_string_value: CallableToStringRepresentation::NativeNamed(builtin.as_str().to_string())
+            .materialize(),
+        length: host_builtin_length(builtin),
+        length_name_configurable: true,
+        wasm_index: imported_function_count + 1 + callable_index,
+        table_index: callable_index,
+        constructable: false,
+        strict: true,
+        class_kind: ClassFunctionKind::None,
+        class_heritage_kind: ClassHeritageKind::None,
+        is_static_class_member: false,
+        is_derived_constructor: false,
+        is_synthetic_default_derived_constructor: false,
+        super_constructor_target: None,
+        uses_super: false,
+        this_before_super: false,
+    };
+
+    let mut shared_typed_array_constructor_callable_index = None;
+    for builtin in compiled_standard_builtins {
+        let builtin_callable_index = if is_typed_array_constructor(*builtin) {
+            *shared_typed_array_constructor_callable_index.get_or_insert_with(|| {
+                let index = callable_index;
+                callable_index += 1;
+                index
+            })
+        } else {
+            let index = callable_index;
+            callable_index += 1;
+            index
+        };
         metas.insert(
             builtin.function_id(),
-            WasmFunctionMeta {
-                name: builtin.as_str().to_string(),
-                to_string_value: CallableToStringRepresentation::NativeNamed(
-                    builtin.as_str().to_string(),
-                )
-                .materialize(),
-                length: host_builtin_length(*builtin),
-                length_name_configurable: true,
-                wasm_index: imported_function_count + 1 + callable_index,
-                table_index: callable_index,
-                constructable: false,
-                strict: true,
-                class_kind: ClassFunctionKind::None,
-                class_heritage_kind: ClassHeritageKind::None,
-                is_static_class_member: false,
-                is_derived_constructor: false,
-                is_synthetic_default_derived_constructor: false,
-                super_constructor_target: None,
-                uses_super: false,
-                this_before_super: false,
-            },
+            standard_builtin_meta(*builtin, builtin_callable_index),
+        );
+    }
+
+    if !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty() {
+        let shared_stub_callable_index = callable_index;
+        callable_index += 1;
+        for builtin in stubbed_standard_builtins {
+            metas.insert(
+                builtin.function_id(),
+                standard_builtin_meta(*builtin, shared_stub_callable_index),
+            );
+        }
+        for builtin in stubbed_host_builtins {
+            metas.insert(
+                builtin.function_id(),
+                host_builtin_meta(*builtin, shared_stub_callable_index),
+            );
+        }
+    }
+
+    for builtin in compiled_host_builtins {
+        metas.insert(
+            builtin.function_id(),
+            host_builtin_meta(*builtin, callable_index),
         );
         callable_index += 1;
     }
     metas
+}
+
+pub(crate) fn emitted_compiled_standard_builtins(
+    compiled_standard_builtins: &[StandardBuiltinId],
+) -> Vec<StandardBuiltinId> {
+    let mut emitted = Vec::with_capacity(compiled_standard_builtins.len());
+    let mut emitted_typed_array_constructor = false;
+    for builtin in compiled_standard_builtins {
+        if is_typed_array_constructor(*builtin) {
+            if emitted_typed_array_constructor {
+                continue;
+            }
+            emitted_typed_array_constructor = true;
+        }
+        emitted.push(*builtin);
+    }
+    emitted
 }
 
 pub(crate) fn function_length(params: &[FunctionParamIr]) -> u64 {
@@ -1048,11 +2328,13 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ReflectConstruct => 2,
         StandardBuiltinId::ReflectApply => 3,
         StandardBuiltinId::ReflectGet => 2,
+        StandardBuiltinId::ReflectGetPrototypeOf => 1,
         StandardBuiltinId::ReflectGetOwnPropertyDescriptor => 2,
         StandardBuiltinId::ReflectSet => 3,
         StandardBuiltinId::ReflectHas => 2,
         StandardBuiltinId::ReflectDefineProperty => 3,
         StandardBuiltinId::ReflectDeleteProperty => 2,
+        StandardBuiltinId::ReflectIsExtensible => 1,
         StandardBuiltinId::ReflectPreventExtensions => 1,
         StandardBuiltinId::ReflectSetPrototypeOf => 2,
         StandardBuiltinId::ReflectOwnKeys => 1,
@@ -1114,6 +2396,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IteratorPrototypeSymbolDispose => 0,
         StandardBuiltinId::IteratorPrototypeToStringTagGetter => 0,
         StandardBuiltinId::IteratorPrototypeToStringTagSetter => 1,
+        StandardBuiltinId::IteratorFromWrapperNext => 0,
         StandardBuiltinId::IteratorFromWrapperReturn => 0,
         StandardBuiltinId::ArrayBufferConstructor
         | StandardBuiltinId::SharedArrayBufferConstructor => 1,
@@ -1133,6 +2416,20 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::ArrayBufferPrototypeTransferToFixedLength
         | StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable => 0,
         StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable => 2,
+        StandardBuiltinId::AtomicsAdd => 3,
+        StandardBuiltinId::AtomicsAnd => 3,
+        StandardBuiltinId::AtomicsCompareExchange => 4,
+        StandardBuiltinId::AtomicsExchange => 3,
+        StandardBuiltinId::AtomicsLoad => 2,
+        StandardBuiltinId::AtomicsNotify => 3,
+        StandardBuiltinId::AtomicsOr => 3,
+        StandardBuiltinId::AtomicsPause => 0,
+        StandardBuiltinId::AtomicsSub => 3,
+        StandardBuiltinId::AtomicsStore => 3,
+        StandardBuiltinId::AtomicsWait => 4,
+        StandardBuiltinId::AtomicsWaitAsync => 4,
+        StandardBuiltinId::AtomicsXor => 3,
+        StandardBuiltinId::AtomicsIsLockFree => 1,
         StandardBuiltinId::DataViewConstructor => 1,
         StandardBuiltinId::DateConstructor => 7,
         StandardBuiltinId::RegExpConstructor => 2,
@@ -1378,6 +2675,15 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
             | ExprIr::CallMethod { .. }
             | ExprIr::Construct { .. }
             | ExprIr::SuperConstruct { .. }
+            | ExprIr::SpecOperation {
+                operation: SpecOperationIr::Get
+                    | SpecOperationIr::GetV
+                    | SpecOperationIr::GetMethod
+                    | SpecOperationIr::HasProperty
+                    | SpecOperationIr::Call
+                    | SpecOperationIr::Construct,
+                ..
+            }
     )
 }
 
@@ -1700,6 +3006,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::TypeOf { expr: value }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value } => expr_uses_function_table(value),
+        ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_uses_function_table),
         ExprIr::StringCharCodeAt { target, index } => {
             expr_uses_function_table(target) || expr_uses_function_table(index)
         }
@@ -1841,6 +3148,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::TypeOf { expr: value }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value } => expr_uses_calls(value),
+        ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_uses_calls),
         ExprIr::StringCharCodeAt { target, index } => {
             expr_uses_calls(target) || expr_uses_calls(index)
         }
@@ -2265,6 +3573,255 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value } => count_expr_temp_locals(value),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::IsCallable,
+            operands,
+        } => {
+            2 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                .max(4)
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::IsConstructor,
+            operands,
+        } => {
+            2 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                .max(6)
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::IsPropertyKey,
+            operands,
+        } => {
+            2 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToBoolean,
+            operands,
+        } => {
+            1 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToPrimitive(_),
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToNumeric,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(4),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToNumber,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(12),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToBigInt,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToString,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToObject,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(8),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToPropertyKey,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToIntegerOrInfinity,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(3),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToLength,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(3),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToIndex,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(3),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::SameValue,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(4),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::SameValueZero,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(4),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::StrictEqualityComparison,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(4),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::IsLooselyEqual,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(9),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::Get | SpecOperationIr::GetV,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(14),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetMethod,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::Call,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(4 + operands.len() * 2),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::Construct,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(6 + operands.len() * 2),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::Set,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(32),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::HasProperty,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(14),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::HasOwnProperty,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(16),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::DeletePropertyOrThrow,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(18),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::CreateDataPropertyOrThrow,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(24),
         ExprIr::TypeOf { expr: value } => count_expr_temp_locals(value).max(5),
         ExprIr::StringCharCodeAt { target, index } => {
             16 + count_expr_temp_locals(target).max(count_expr_temp_locals(index))

@@ -39,6 +39,7 @@ pub const DATA_VIEW_NAME: &str = "DataView";
 pub const DATE_NAME: &str = "Date";
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
+pub const ATOMICS_NAME: &str = "Atomics";
 pub const FLOAT64_ARRAY_NAME: &str = "Float64Array";
 pub const FLOAT32_ARRAY_NAME: &str = "Float32Array";
 pub const INT32_ARRAY_NAME: &str = "Int32Array";
@@ -110,12 +111,14 @@ pub const BUILTIN_PROXY_REVOKE_FUNCTION_ID: &str = "$builtin.[[ProxyRevoke]]";
 pub const BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID: &str = "$builtin.Reflect.construct";
 pub const BUILTIN_REFLECT_APPLY_FUNCTION_ID: &str = "$builtin.Reflect.apply";
 pub const BUILTIN_REFLECT_GET_FUNCTION_ID: &str = "$builtin.Reflect.get";
+pub const BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Reflect.getPrototypeOf";
 pub const BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID: &str =
     "$builtin.Reflect.getOwnPropertyDescriptor";
 pub const BUILTIN_REFLECT_SET_FUNCTION_ID: &str = "$builtin.Reflect.set";
 pub const BUILTIN_REFLECT_HAS_FUNCTION_ID: &str = "$builtin.Reflect.has";
 pub const BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID: &str = "$builtin.Reflect.defineProperty";
 pub const BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID: &str = "$builtin.Reflect.deleteProperty";
+pub const BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID: &str = "$builtin.Reflect.isExtensible";
 pub const BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID: &str =
     "$builtin.Reflect.preventExtensions";
 pub const BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Reflect.setPrototypeOf";
@@ -193,6 +196,8 @@ pub const BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID: &str =
     "$builtin.Iterator.prototype[Symbol.toStringTag].set";
 pub const BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID: &str =
     "$builtin.Iterator.from.wrapper.return";
+pub const BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID: &str =
+    "$builtin.Iterator.from.wrapper.next";
 pub const BUILTIN_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.ArrayBuffer";
 pub const BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID: &str = "$builtin.SharedArrayBuffer";
 pub const BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID: &str = "$builtin.ArrayBuffer.isView";
@@ -375,6 +380,20 @@ pub const BUILTIN_JSON_PARSE_FUNCTION_ID: &str = "$builtin.JSON.parse";
 pub const BUILTIN_JSON_STRINGIFY_FUNCTION_ID: &str = "$builtin.JSON.stringify";
 pub const BUILTIN_JSON_RAW_JSON_FUNCTION_ID: &str = "$builtin.JSON.rawJSON";
 pub const BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID: &str = "$builtin.JSON.isRawJSON";
+pub const BUILTIN_ATOMICS_ADD_FUNCTION_ID: &str = "$builtin.Atomics.add";
+pub const BUILTIN_ATOMICS_AND_FUNCTION_ID: &str = "$builtin.Atomics.and";
+pub const BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID: &str = "$builtin.Atomics.compareExchange";
+pub const BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID: &str = "$builtin.Atomics.exchange";
+pub const BUILTIN_ATOMICS_LOAD_FUNCTION_ID: &str = "$builtin.Atomics.load";
+pub const BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID: &str = "$builtin.Atomics.notify";
+pub const BUILTIN_ATOMICS_OR_FUNCTION_ID: &str = "$builtin.Atomics.or";
+pub const BUILTIN_ATOMICS_PAUSE_FUNCTION_ID: &str = "$builtin.Atomics.pause";
+pub const BUILTIN_ATOMICS_STORE_FUNCTION_ID: &str = "$builtin.Atomics.store";
+pub const BUILTIN_ATOMICS_SUB_FUNCTION_ID: &str = "$builtin.Atomics.sub";
+pub const BUILTIN_ATOMICS_WAIT_FUNCTION_ID: &str = "$builtin.Atomics.wait";
+pub const BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID: &str = "$builtin.Atomics.waitAsync";
+pub const BUILTIN_ATOMICS_XOR_FUNCTION_ID: &str = "$builtin.Atomics.xor";
+pub const BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID: &str = "$builtin.Atomics.isLockFree";
 pub const BUILTIN_FLOAT64_ARRAY_FUNCTION_ID: &str = "$builtin.Float64Array";
 pub const BUILTIN_FLOAT32_ARRAY_FUNCTION_ID: &str = "$builtin.Float32Array";
 pub const BUILTIN_INT32_ARRAY_FUNCTION_ID: &str = "$builtin.Int32Array";

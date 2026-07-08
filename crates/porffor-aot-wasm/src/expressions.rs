@@ -22,8 +22,13 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::Number(bits) => {
                 function.instruction(&Instruction::I64Const(*bits as i64));
             }
-            ExprIr::BigInt(bits) => {
-                function.instruction(&Instruction::I64Const(*bits as i64));
+            ExprIr::BigInt(value) => {
+                if value.requires_arbitrary_precision_storage {
+                    return Err(EmitError::unsupported(
+                        "BigInt literal requires heap-backed arbitrary precision storage",
+                    ));
+                }
+                function.instruction(&Instruction::I64Const(value.wrapping_payload() as i64));
             }
             ExprIr::Symbol => {
                 self.emit_heap_alloc_const(8, function)?;
@@ -1725,6 +1730,18 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::NewTarget => {
                 self.compile_new_target_to_locals(payload_local, tag_local, function);
+            }
+            ExprIr::SpecOperation {
+                operation,
+                operands,
+            } => {
+                self.compile_spec_operation_to_locals(
+                    *operation,
+                    operands,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
             }
             ExprIr::Identifier(name) => {
                 if name == LEXICAL_THIS_NAME {

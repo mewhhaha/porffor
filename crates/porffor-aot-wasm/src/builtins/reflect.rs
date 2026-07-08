@@ -312,6 +312,53 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn compile_reflect_get_prototype_of_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let target_payload_local = self.reserve_temp_local();
+        let target_tag_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
+        self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Reflect.getPrototypeOf target must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+        {
+            self.emit_object_get_prototype_of(
+                target_payload_local,
+                target_tag_local,
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+        } else {
+            self.emit_object_get_prototype_of_without_proxy(
+                target_payload_local,
+                target_tag_local,
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+        }
+
+        self.release_temp_local(target_tag_local);
+        self.release_temp_local(target_payload_local);
+        Ok(())
+    }
+
     pub(crate) fn compile_reflect_set_builtin(
         &mut self,
         function: &mut Function,
@@ -1429,6 +1476,41 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_object_prevent_extensions_i32(
+            target_payload_local,
+            target_tag_local,
+            self.result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(target_tag_local);
+        self.release_temp_local(target_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_reflect_is_extensible_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let target_payload_local = self.reserve_temp_local();
+        let target_tag_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
+        self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Reflect.isExtensible target must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_is_extensible_i32(
             target_payload_local,
             target_tag_local,
             self.result_local,

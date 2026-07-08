@@ -35,6 +35,11 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(target, state);
             expr_contains_this_before_super(index, state);
         }
+        ExprIr::SpecOperation { operands, .. } => {
+            for operand in operands {
+                expr_contains_this_before_super(operand, state);
+            }
+        }
         ExprIr::DeleteIdentifier { .. } | ExprIr::DeleteGlobalProperty { .. } => {}
         ExprIr::BinaryNumber { lhs, rhs, .. }
         | ExprIr::CoerciveAdd { lhs, rhs }

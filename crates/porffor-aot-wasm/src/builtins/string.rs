@@ -81,8 +81,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "String.prototype method receiver is null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -163,10 +162,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32And);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(match_all_prototype_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::LocalSet(match_all_prototype_tag_local));
+            self.emit_ordinary_get_prototype_of(
+                symbol_receiver_payload_local,
+                symbol_receiver_tag_local,
+                match_all_prototype_payload_local,
+                match_all_prototype_tag_local,
+                function,
+            );
             self.emit_object_read(
                 match_all_prototype_payload_local,
                 match_all_prototype_tag_local,
@@ -484,8 +486,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "String.prototype method receiver is null or undefined",
             self.result_local,
             self.result_tag_local,

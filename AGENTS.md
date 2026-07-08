@@ -22,6 +22,21 @@
 - The interpreter must not be used as the product path, CLI runtime path, or emitted Wasm artifact path.
 - Dynamic source evaluation features such as `eval`, `new Function`, and cross-realm `Function` constructors do not need AOT support when support would require bundling a parser, interpreter, or VM into emitted Wasm. Track these as explicit Wasm-AOT unsupported dynamic-code-generation cases, not silent skips.
 
+## Wasm Runtime Target
+
+- Treat experimental Wasmtime as the lower-bound execution target for backend feature planning unless a task explicitly names a narrower runtime.
+- Treat that lower bound as a required backend capability set, not an optional optimization tier. Backend code may assume those features exist by default.
+- Design from that lower bound upward: absence of a lower-bound feature such as Wasm GC is a runtime rejection condition, not a requirement to implement a compatibility backend or fallback representation.
+- This means Porffor may rely on Wasmtime-gated Wasm features when they materially improve the compiler architecture or ECMAScript correctness, including Wasm GC, exception handling with `exnref`, typed function references, reference types, and related GC/reference-heavy infrastructure.
+- Do not add complex fallback implementations merely to support runtimes without those lower-bound features. If a backend design is clean with Wasm GC, typed function references, or `exnref`, prefer that design over maintaining a non-GC/non-reference fallback path, and treat non-GC runtimes as outside this backend target unless a task explicitly changes the target.
+- Do not build or preserve a second object model, closure representation, exception mechanism, memory layout, or compiler backend solely for engines that lack the experimental Wasmtime lower-bound feature set.
+- Treat missing Wasm GC support as an unsupported runtime capability gap for this backend, not as a reason to add a parallel manual heap/object model solely for compatibility.
+- Do not spend compiler complexity emulating lower-bound Wasm features that the selected runtime lacks. If GC, reference types, typed function references, `exnref`, or related Wasmtime experimental features are required for the clean design, require that runtime capability and fail clearly when it is absent.
+- When the experimental Wasmtime lower bound provides a feature, do not spend implementation complexity preserving support for runtimes that lack it. For example, if GC is required by the chosen object model, the boundary should reject non-GC runtimes instead of adding a second non-GC representation.
+- Do not design every Wasm feature around a lowest-common-denominator fallback. For example, if an object model, closure representation, exception path, or reference layout depends on GC, `exnref`, typed function references, or reference types, implement the clean experimental-Wasmtime path and report unsupported runtimes at the boundary.
+- Keep those features explicit in code, tests, and docs as Wasmtime experimental/runtime-gated assumptions. Do not imply that wasm3, wasmi, browsers, or every Wasm engine supports the same feature surface.
+- Prefer runtime capability checks, feature flags, or clear backend errors over compatibility shims or silent fallbacks when emitted Wasm requires these experimental Wasmtime features.
+
 ## Correctness Rules
 
 - Spec correctness comes before speed, cleverness, or legacy compatibility.

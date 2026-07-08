@@ -1,5 +1,368 @@
 use super::*;
 
+fn helper_store_i64_local_at_offset(
+    function: &mut Function,
+    object_local: u32,
+    offset: u64,
+    value_local: u32,
+) {
+    function.instruction(&Instruction::LocalGet(object_local));
+    function.instruction(&Instruction::I32WrapI64);
+    function.instruction(&Instruction::LocalGet(value_local));
+    function.instruction(&Instruction::I64Store(FunctionBuilder::memarg64(offset)));
+}
+
+fn helper_store_i64_const_at_offset(
+    function: &mut Function,
+    object_local: u32,
+    offset: u64,
+    value: i64,
+) {
+    function.instruction(&Instruction::LocalGet(object_local));
+    function.instruction(&Instruction::I32WrapI64);
+    function.instruction(&Instruction::I64Const(value));
+    function.instruction(&Instruction::I64Store(FunctionBuilder::memarg64(offset)));
+}
+
+pub(crate) fn emit_array_alloc_helper_function(heap_alloc_function_index: u32) -> Function {
+    const LEN_LOCAL: u32 = 0;
+    const ARRAY_LOCAL: u32 = 1;
+    const BUFFER_LOCAL: u32 = 2;
+    const CAP_LOCAL: u32 = 3;
+    const SIZE_LOCAL: u32 = 4;
+    const SCRATCH_LOCAL: u32 = 5;
+
+    let mut function = Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, 5));
+
+    function.instruction(&Instruction::I64Const(HEAP_HEADER_SIZE as i64));
+    function.instruction(&Instruction::Call(heap_alloc_function_index));
+    function.instruction(&Instruction::LocalSet(ARRAY_LOCAL));
+    function.instruction(&Instruction::LocalGet(LEN_LOCAL));
+    function.instruction(&Instruction::I64Eqz);
+    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+    function.instruction(&Instruction::I64Const(MIN_HEAP_CAPACITY as i64));
+    function.instruction(&Instruction::Else);
+    function.instruction(&Instruction::LocalGet(LEN_LOCAL));
+    function.instruction(&Instruction::End);
+    function.instruction(&Instruction::LocalSet(CAP_LOCAL));
+    function.instruction(&Instruction::LocalGet(CAP_LOCAL));
+    function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
+    function.instruction(&Instruction::I64Mul);
+    function.instruction(&Instruction::LocalSet(SIZE_LOCAL));
+    function.instruction(&Instruction::LocalGet(SIZE_LOCAL));
+    function.instruction(&Instruction::Call(heap_alloc_function_index));
+    function.instruction(&Instruction::LocalSet(BUFFER_LOCAL));
+
+    helper_store_i64_local_at_offset(&mut function, ARRAY_LOCAL, HEAP_PTR_OFFSET, BUFFER_LOCAL);
+    helper_store_i64_local_at_offset(&mut function, ARRAY_LOCAL, HEAP_LEN_OFFSET, LEN_LOCAL);
+    helper_store_i64_local_at_offset(&mut function, ARRAY_LOCAL, HEAP_CAP_OFFSET, CAP_LOCAL);
+    function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+    function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+    helper_store_i64_local_at_offset(
+        &mut function,
+        ARRAY_LOCAL,
+        HEAP_PROTOTYPE_OFFSET,
+        SCRATCH_LOCAL,
+    );
+
+    for (offset, value) in [
+        (
+            HEAP_ARRAY_CONSTRUCTOR_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_CONSTRUCTOR_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET, -1),
+        (HEAP_ARRAY_CONSTRUCTOR_DESCRIPTOR_KIND_OFFSET, 0),
+        (
+            HEAP_ARRAY_CONSTRUCTOR_GETTER_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_CONSTRUCTOR_GETTER_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET, 0),
+        (
+            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_PROP_DESCRIPTOR_KIND_OFFSET, 0),
+        (
+            HEAP_ARRAY_PROP_DATA_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_PROP_DATA_PAYLOAD_OFFSET, 0),
+        (
+            HEAP_ARRAY_PROP_GETTER_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_PROP_GETTER_PAYLOAD_OFFSET, 0),
+        (
+            HEAP_ARRAY_PROP_SETTER_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_PROP_SETTER_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET, 0),
+        (
+            HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET, 0),
+        (
+            HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
+            ValueKind::Undefined.tag() as i64,
+        ),
+        (HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET, 0),
+        (HEAP_ARRAY_PRESENT_INDEXES_PTR_OFFSET, 0),
+        (HEAP_ARRAY_PRESENT_INDEXES_LEN_OFFSET, 0),
+        (HEAP_ARRAY_PRESENT_INDEXES_CAP_OFFSET, 0),
+        (HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET, 0),
+        (HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET, 0),
+        (HEAP_ARRAY_NAMED_PROPS_CAP_OFFSET, 0),
+    ] {
+        helper_store_i64_const_at_offset(&mut function, ARRAY_LOCAL, offset, value);
+    }
+
+    function.instruction(&Instruction::LocalGet(ARRAY_LOCAL));
+    function.instruction(&Instruction::LocalGet(BUFFER_LOCAL));
+    function.instruction(&Instruction::End);
+    function
+}
+
+pub(crate) fn emit_function_object_alloc_helper_function(
+    heap_alloc_function_index: u32,
+    object_append_data_property_function_index: u32,
+) -> Function {
+    const TABLE_INDEX_LOCAL: u32 = 0;
+    const ENV_HANDLE_LOCAL: u32 = 1;
+    const FLAGS_LOCAL: u32 = 2;
+    const TO_STRING_PAYLOAD_LOCAL: u32 = 3;
+    const LENGTH_KEY_LOCAL: u32 = 4;
+    const LENGTH_PAYLOAD_LOCAL: u32 = 5;
+    const NAME_KEY_LOCAL: u32 = 6;
+    const NAME_PAYLOAD_LOCAL: u32 = 7;
+    const DESCRIPTOR_KIND_LOCAL: u32 = 8;
+    const OBJECT_LOCAL: u32 = 9;
+    const BUFFER_LOCAL: u32 = 10;
+    const SCRATCH_LOCAL: u32 = 11;
+
+    let mut function = Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, 3));
+
+    function.instruction(&Instruction::I64Const(HEAP_FUNCTION_OBJECT_SIZE as i64));
+    function.instruction(&Instruction::Call(heap_alloc_function_index));
+    function.instruction(&Instruction::LocalSet(OBJECT_LOCAL));
+    function.instruction(&Instruction::I64Const(
+        (MIN_HEAP_CAPACITY * HEAP_OBJECT_ENTRY_SIZE) as i64,
+    ));
+    function.instruction(&Instruction::Call(heap_alloc_function_index));
+    function.instruction(&Instruction::LocalSet(BUFFER_LOCAL));
+    helper_store_i64_local_at_offset(&mut function, OBJECT_LOCAL, HEAP_PTR_OFFSET, BUFFER_LOCAL);
+    helper_store_i64_const_at_offset(&mut function, OBJECT_LOCAL, HEAP_LEN_OFFSET, 0);
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_CAP_OFFSET,
+        MIN_HEAP_CAPACITY as i64,
+    );
+
+    function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
+    function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_PROTOTYPE_OFFSET,
+        SCRATCH_LOCAL,
+    );
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+        ValueKind::Object.tag() as i64,
+    );
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_TABLE_INDEX_OFFSET,
+        TABLE_INDEX_LOCAL,
+    );
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+        ENV_HANDLE_LOCAL,
+    );
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_FLAGS_OFFSET,
+        FLAGS_LOCAL,
+    );
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+        ValueKind::Undefined.tag() as i64,
+    );
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+        0,
+    );
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_TO_STRING_PAYLOAD_OFFSET,
+        TO_STRING_PAYLOAD_LOCAL,
+    );
+
+    function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+    function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+    helper_store_i64_local_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+        SCRATCH_LOCAL,
+    );
+
+    for (global_index, offset) in [
+        (
+            ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
+        ),
+        (
+            DATA_VIEW_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_DATA_VIEW_PROTOTYPE_OFFSET,
+        ),
+        (
+            AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+        ),
+        (
+            NUMBER_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,
+        ),
+        (
+            BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_BOOLEAN_PROTOTYPE_OFFSET,
+        ),
+        (
+            TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+        ),
+    ] {
+        function.instruction(&Instruction::GlobalGet(global_index));
+        function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+        helper_store_i64_local_at_offset(&mut function, OBJECT_LOCAL, offset, SCRATCH_LOCAL);
+    }
+
+    for (_, global_index, offset) in error_realm_prototype_entries() {
+        function.instruction(&Instruction::GlobalGet(global_index));
+        function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+        helper_store_i64_local_at_offset(&mut function, OBJECT_LOCAL, offset, SCRATCH_LOCAL);
+    }
+
+    for (constructor_global_index, offset) in [
+        (
+            FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            INT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_INT16_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            INT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_INT8_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            UINT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_UINT32_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            UINT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_UINT16_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            UINT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_UINT8_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            UINT8_CLAMPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_UINT8_CLAMPED_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            BIGINT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_BIGINT64_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
+            BIGUINT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_BIGUINT64_ARRAY_PROTOTYPE_OFFSET,
+        ),
+    ] {
+        function.instruction(&Instruction::GlobalGet(constructor_global_index));
+        function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+        function.instruction(&Instruction::LocalGet(SCRATCH_LOCAL));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(FunctionBuilder::memarg64(
+            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+        )));
+        function.instruction(&Instruction::LocalSet(SCRATCH_LOCAL));
+        helper_store_i64_local_at_offset(&mut function, OBJECT_LOCAL, offset, SCRATCH_LOCAL);
+    }
+
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+        0,
+    );
+    helper_store_i64_const_at_offset(
+        &mut function,
+        OBJECT_LOCAL,
+        HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+        0,
+    );
+
+    function.instruction(&Instruction::LocalGet(OBJECT_LOCAL));
+    function.instruction(&Instruction::LocalGet(LENGTH_KEY_LOCAL));
+    function.instruction(&Instruction::LocalGet(LENGTH_PAYLOAD_LOCAL));
+    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+    function.instruction(&Instruction::LocalGet(DESCRIPTOR_KIND_LOCAL));
+    function.instruction(&Instruction::Call(
+        object_append_data_property_function_index,
+    ));
+    function.instruction(&Instruction::LocalGet(OBJECT_LOCAL));
+    function.instruction(&Instruction::LocalGet(NAME_KEY_LOCAL));
+    function.instruction(&Instruction::LocalGet(NAME_PAYLOAD_LOCAL));
+    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+    function.instruction(&Instruction::LocalGet(DESCRIPTOR_KIND_LOCAL));
+    function.instruction(&Instruction::Call(
+        object_append_data_property_function_index,
+    ));
+
+    function.instruction(&Instruction::LocalGet(DESCRIPTOR_KIND_LOCAL));
+    function.instruction(&Instruction::I64Const(
+        OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
+    ));
+    function.instruction(&Instruction::I64And);
+    function.instruction(&Instruction::I64Eqz);
+    function.instruction(&Instruction::If(BlockType::Empty));
+    helper_store_i64_const_at_offset(&mut function, OBJECT_LOCAL, HEAP_CAP_OFFSET, 0);
+    function.instruction(&Instruction::End);
+
+    function.instruction(&Instruction::LocalGet(OBJECT_LOCAL));
+    function.instruction(&Instruction::End);
+    function
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_class_definition_payload(
         &mut self,
@@ -827,6 +1190,13 @@ impl<'a> FunctionBuilder<'a> {
         buffer_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(array_alloc_function_index) = self.array_alloc_function_index {
+            function.instruction(&Instruction::LocalGet(len_local));
+            function.instruction(&Instruction::Call(array_alloc_function_index));
+            function.instruction(&Instruction::LocalSet(buffer_local));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            return Ok(());
+        }
         let cap_local = self.reserve_temp_local();
         let size_local = self.reserve_temp_local();
 
@@ -1003,6 +1373,12 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.store_i64_const_at_offset(
             object_local,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
             HEAP_FUNCTION_TABLE_INDEX_OFFSET,
             meta.table_index as u64,
             function,
@@ -1039,6 +1415,18 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             HEAP_FUNCTION_TO_STRING_PAYLOAD_OFFSET,
             self.strings.payload(meta.to_string_value.as_str()) as u64,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            target_payload_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            self.scratch_local,
             function,
         );
         self.load_i64_to_local_from_offset(
@@ -1127,6 +1515,30 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             function,
         )?;
+        self.load_i64_to_local_from_offset(
+            target_payload_local,
+            HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            object_local,
+            HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            target_payload_local,
+            HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            object_local,
+            HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+            self.scratch_local,
+            function,
+        );
 
         function.instruction(&Instruction::LocalGet(flags_local));
         function.instruction(&Instruction::I64Const(FUNCTION_FLAG_CONSTRUCTABLE as i64));
@@ -1185,6 +1597,23 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if !self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+        {
+            return self.emit_function_handle_construct_with_argv(
+                callee_payload_local,
+                callee_tag_local,
+                new_target_payload_local,
+                new_target_tag_local,
+                argc_local,
+                argv_local,
+                payload_local,
+                tag_local,
+                function,
+            );
+        }
+
         let current_payload_local = self.reserve_temp_local();
         let current_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
@@ -2077,38 +2506,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn store_current_realm_typed_array_prototypes(
-        &self,
-        object_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        for (builtin, _) in typed_array_constructor_bytes_per_element_entries() {
-            let constructor_global_index =
-                standard_builtin_constructor_global_index(builtin).ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in porffor wasm-aot first slice: missing builtin constructor global `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-            let offset = typed_array_realm_prototype_offset(builtin).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: missing typed array realm prototype offset `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            function.instruction(&Instruction::GlobalGet(constructor_global_index));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.load_i64_to_local_from_offset(
-                self.scratch_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            self.store_i64_local_at_offset(object_local, offset, self.scratch_local, function);
-        }
-        Ok(())
-    }
-
     pub(crate) fn copy_function_realm_typed_array_prototypes(
         &self,
         source_function_local: u32,
@@ -2161,190 +2558,71 @@ impl<'a> FunctionBuilder<'a> {
         meta: &WasmFunctionMeta,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let function_object_alloc_function_index =
+            self.function_object_alloc_function_index.ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing function object helper",
+                )
+            })?;
+        let flags = (if meta.constructable {
+            FUNCTION_FLAG_CONSTRUCTABLE
+        } else {
+            0
+        }) | if meta.class_kind == ClassFunctionKind::Constructor {
+            FUNCTION_FLAG_CLASS_CONSTRUCTOR
+        } else {
+            0
+        } | if meta.is_derived_constructor {
+            FUNCTION_FLAG_DERIVED_CONSTRUCTOR
+        } else {
+            0
+        } | if meta.is_synthetic_default_derived_constructor {
+            FUNCTION_FLAG_SYNTHETIC_DEFAULT_DERIVED_CONSTRUCTOR
+        } else {
+            0
+        } | if meta.class_heritage_kind == ClassHeritageKind::Null {
+            FUNCTION_FLAG_NULL_HERITAGE_CONSTRUCTOR
+        } else {
+            0
+        } | if meta.uses_super {
+            FUNCTION_FLAG_USES_SUPER
+        } else {
+            0
+        } | if meta.this_before_super {
+            FUNCTION_FLAG_THIS_BEFORE_SUPER
+        } else {
+            0
+        } | if meta.strict { FUNCTION_FLAG_STRICT } else { 0 }
+            | if meta.name == "__porfIsHTMLDDA" {
+                FUNCTION_FLAG_IS_HTMLDDA
+            } else {
+                0
+            };
         let object_local = self.reserve_temp_local();
-        let buffer_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let proto_value_local = self.reserve_temp_local();
         let proto_tag_local = self.reserve_temp_local();
 
-        self.emit_heap_alloc_const(HEAP_FUNCTION_OBJECT_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * HEAP_OBJECT_ENTRY_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(buffer_local));
-        self.store_i64_local_at_offset(object_local, HEAP_PTR_OFFSET, buffer_local, function);
-        self.store_i64_const_at_offset(object_local, HEAP_LEN_OFFSET, 0, function);
-        self.store_i64_const_at_offset(object_local, HEAP_CAP_OFFSET, MIN_HEAP_CAPACITY, function);
-        function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_TABLE_INDEX_OFFSET,
-            meta.table_index as u64,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            self.current_env_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_FLAGS_OFFSET,
-            (if meta.constructable {
-                FUNCTION_FLAG_CONSTRUCTABLE
-            } else {
-                0
-            }) | if meta.class_kind == ClassFunctionKind::Constructor {
-                FUNCTION_FLAG_CLASS_CONSTRUCTOR
-            } else {
-                0
-            } | if meta.is_derived_constructor {
-                FUNCTION_FLAG_DERIVED_CONSTRUCTOR
-            } else {
-                0
-            } | if meta.is_synthetic_default_derived_constructor {
-                FUNCTION_FLAG_SYNTHETIC_DEFAULT_DERIVED_CONSTRUCTOR
-            } else {
-                0
-            } | if meta.class_heritage_kind == ClassHeritageKind::Null {
-                FUNCTION_FLAG_NULL_HERITAGE_CONSTRUCTOR
-            } else {
-                0
-            } | if meta.uses_super {
-                FUNCTION_FLAG_USES_SUPER
-            } else {
-                0
-            } | if meta.this_before_super {
-                FUNCTION_FLAG_THIS_BEFORE_SUPER
-            } else {
-                0
-            } | if meta.strict { FUNCTION_FLAG_STRICT } else { 0 }
-                | if meta.name == "__porfIsHTMLDDA" {
-                    FUNCTION_FLAG_IS_HTMLDDA
-                } else {
-                    0
-                },
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Undefined.tag() as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_TO_STRING_PAYLOAD_OFFSET,
-            self.strings.payload(meta.to_string_value.as_str()) as u64,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(DATA_VIEW_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_DATA_VIEW_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        function.instruction(&Instruction::I64Const(meta.table_index as i64));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Const(flags as i64));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(meta.to_string_value.as_str()),
         ));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(BOOLEAN_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_BOOLEAN_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        for (_, global_index, offset) in error_realm_prototype_entries() {
-            function.instruction(&Instruction::GlobalGet(global_index));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.store_i64_local_at_offset(object_local, offset, self.scratch_local, function);
-        }
-        self.store_current_realm_typed_array_prototypes(object_local, function)?;
-
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::F64Const(Ieee64::from(meta.length as f64)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(proto_value_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proto_tag_local));
-        self.emit_object_define_data_with_configurable(
-            object_local,
-            key_local,
-            proto_value_local,
-            proto_tag_local,
-            false,
-            false,
-            meta.length_name_configurable,
-            function,
-        )?;
-
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
-        function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(
             self.strings.payload(meta.name.as_str()),
         ));
-        function.instruction(&Instruction::LocalSet(proto_value_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proto_tag_local));
-        self.emit_object_define_data_with_configurable(
-            object_local,
-            key_local,
-            proto_value_local,
-            proto_tag_local,
-            false,
-            false,
-            meta.length_name_configurable,
-            function,
-        )?;
+        function.instruction(&Instruction::I64Const(
+            crate::objects::object_data_descriptor_kind(false, false, meta.length_name_configurable)
+                as i64,
+        ));
+        function.instruction(&Instruction::Call(function_object_alloc_function_index));
+        function.instruction(&Instruction::LocalSet(object_local));
 
         if !meta.length_name_configurable {
             self.store_i64_const_at_offset(object_local, HEAP_CAP_OFFSET, 0, function);
@@ -2375,11 +2653,14 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(key_local));
             function.instruction(&Instruction::LocalGet(prototype_local));
             function.instruction(&Instruction::LocalSet(proto_value_local));
-            self.emit_object_define_data(
+            self.emit_object_append_data_property_with_flags(
                 object_local,
                 key_local,
                 proto_value_local,
                 proto_tag_local,
+                true,
+                false,
+                true,
                 function,
             )?;
 
@@ -2389,11 +2670,14 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(proto_value_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(proto_tag_local));
-            self.emit_object_define_data(
+            self.emit_object_append_data_property_with_flags(
                 prototype_local,
                 key_local,
                 proto_value_local,
                 proto_tag_local,
+                true,
+                false,
+                true,
                 function,
             )?;
         }
@@ -2403,9 +2687,302 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(proto_value_local);
         self.release_temp_local(key_local);
         self.release_temp_local(prototype_local);
-        self.release_temp_local(buffer_local);
         self.release_temp_local(object_local);
         Ok(())
+    }
+
+    pub(crate) fn emit_alloc_realm_record(
+        &mut self,
+        realm_id: u64,
+        agent_id: u64,
+        realm_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let intrinsics_local = self.reserve_temp_local();
+
+        self.emit_heap_alloc_const(HEAP_REALM_INTRINSICS_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(intrinsics_local));
+        self.store_i64_const_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            0,
+            function,
+        );
+
+        self.emit_heap_alloc_const(HEAP_REALM_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(realm_local));
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_ID_OFFSET, realm_id, function);
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_AGENT_ID_OFFSET, agent_id, function);
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_GLOBAL_OBJECT_OFFSET, 0, function);
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_GLOBAL_THIS_OFFSET, 0, function);
+        self.store_i64_const_at_offset(
+            realm_local,
+            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_HOST_HOOKS_OFFSET, 0, function);
+        self.store_i64_const_at_offset(realm_local, HEAP_REALM_MODULE_REGISTRY_OFFSET, 0, function);
+        self.release_temp_local(intrinsics_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_store_function_defining_realm(
+        &self,
+        function_object_local: u32,
+        realm_local: u32,
+        function: &mut Function,
+    ) {
+        self.store_i64_local_at_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_store_realm_type_error_prototype(
+        &mut self,
+        realm_local: u32,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        let intrinsics_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            prototype_local,
+            function,
+        );
+        self.release_temp_local(intrinsics_local);
+    }
+
+    pub(crate) fn emit_store_realm_array_iterator_prototype(
+        &mut self,
+        realm_local: u32,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        let intrinsics_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
+            prototype_local,
+            function,
+        );
+        self.release_temp_local(intrinsics_local);
+    }
+
+    pub(crate) fn emit_store_realm_object_prototype(
+        &mut self,
+        realm_local: u32,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        let intrinsics_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            prototype_local,
+            function,
+        );
+        self.release_temp_local(intrinsics_local);
+    }
+
+    pub(crate) fn emit_load_function_defining_realm_type_error_prototype(
+        &mut self,
+        function_object_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
+    }
+
+    pub(crate) fn emit_load_function_defining_realm_array_iterator_prototype(
+        &mut self,
+        function_object_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
+    }
+
+    pub(crate) fn emit_load_function_defining_realm_object_prototype(
+        &mut self,
+        function_object_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
     }
 
     pub(crate) fn emit_load_function_object_fields(
@@ -2655,6 +3232,26 @@ impl<'a> FunctionBuilder<'a> {
         return_on_throw: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if !self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+        {
+            self.emit_function_handle_call_with_argv_without_throw_propagation(
+                callee_payload_local,
+                callee_tag_local,
+                Some((this_payload_local, Some(this_tag_local))),
+                argc_local,
+                argv_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            if return_on_throw {
+                self.emit_return_current_completion_if_throw(function);
+            }
+            return Ok(());
+        }
+
         let current_payload_local = self.reserve_temp_local();
         let current_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
@@ -5531,62 +6128,6 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             );
-        }
-        if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "from" | "of"))
-            && (receiver.function_targets.iter().any(|function_id| {
-                StandardBuiltinId::from_function_id(function_id)
-                    .is_some_and(is_typed_array_constructor)
-            }) || matches!(
-                &receiver.expr,
-                ExprIr::FunctionValue(function_id)
-                    if StandardBuiltinId::from_function_id(function_id)
-                        .is_some_and(is_typed_array_constructor)
-            ))
-        {
-            let builtin = match key {
-                PropertyKeyIr::StaticString(name) if name == "of" => {
-                    StandardBuiltinId::TypedArrayOf
-                }
-                _ => StandardBuiltinId::TypedArrayFrom,
-            };
-            let receiver_payload_local = self.reserve_temp_local();
-            let receiver_tag_local = self.reserve_temp_local();
-            let callee_payload_local = self.reserve_temp_local();
-            let callee_tag_local = self.reserve_temp_local();
-            self.compile_expr_to_locals(
-                receiver,
-                receiver_payload_local,
-                receiver_tag_local,
-                function,
-            )?;
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_function_value_payload(meta, function)?;
-            function.instruction(&Instruction::LocalSet(callee_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(callee_tag_local));
-            let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-            self.emit_function_handle_call_with_argv(
-                callee_payload_local,
-                callee_tag_local,
-                Some((receiver_payload_local, Some(receiver_tag_local))),
-                argc_local,
-                argv_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.release_temp_local(argv_local);
-            self.release_temp_local(argc_local);
-            self.release_temp_local(callee_tag_local);
-            self.release_temp_local(callee_payload_local);
-            self.release_temp_local(receiver_tag_local);
-            self.release_temp_local(receiver_payload_local);
-            return Ok(());
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "substr")
             && args

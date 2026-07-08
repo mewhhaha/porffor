@@ -1,6 +1,1887 @@
 use super::super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AtomicsIntegerOperation {
+    Load,
+    Add,
+    And,
+    CompareExchange,
+    Exchange,
+    Or,
+    Store,
+    Sub,
+    Xor,
+}
+
+impl AtomicsIntegerOperation {
+    fn value_arg_count(self) -> u8 {
+        match self {
+            Self::Load => 0,
+            Self::CompareExchange => 2,
+            _ => 1,
+        }
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
+    fn emit_native_error_constructor_wrapper(
+        &mut self,
+        builtin: StandardBuiltinId,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let error_wasm_index = self
+            .functions
+            .get(&StandardBuiltinId::ErrorConstructor.function_id())
+            .map(|meta| meta.wasm_index)
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Error`",
+                )
+            })?;
+        let constructor_global_index =
+            standard_builtin_constructor_global_index(builtin).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing constructor global for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+        let new_target_payload_local = self.reserve_temp_local();
+        let new_target_tag_local = self.reserve_temp_local();
+
+        self.compile_new_target_to_locals(new_target_payload_local, new_target_tag_local, function);
+        function.instruction(&Instruction::LocalGet(new_target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(constructor_global_index));
+        function.instruction(&Instruction::LocalSet(new_target_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(new_target_tag_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::LocalGet(
+            self.this_payload_local
+                .expect("native error wrapper must use function ABI"),
+        ));
+        function.instruction(&Instruction::LocalGet(
+            self.this_tag_local
+                .expect("native error wrapper must use function ABI"),
+        ));
+        function.instruction(&Instruction::LocalGet(new_target_payload_local));
+        function.instruction(&Instruction::LocalGet(new_target_tag_local));
+        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+        function.instruction(&Instruction::LocalGet(self.argv_param_local()));
+        function.instruction(&Instruction::Call(error_wasm_index));
+        self.store_call_results(self.result_local, self.result_tag_local, function);
+
+        self.release_temp_local(new_target_tag_local);
+        self.release_temp_local(new_target_payload_local);
+        Ok(())
+    }
+
+    fn emit_atomics_load(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Load, function)
+    }
+
+    fn emit_atomics_add(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Add, function)
+    }
+
+    fn emit_atomics_and(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::And, function)
+    }
+
+    fn emit_atomics_compare_exchange(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::CompareExchange, function)
+    }
+
+    fn emit_atomics_exchange(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Exchange, function)
+    }
+
+    fn emit_atomics_or(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Or, function)
+    }
+
+    fn emit_atomics_store(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Store, function)
+    }
+
+    fn emit_atomics_sub(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Sub, function)
+    }
+
+    fn emit_atomics_xor(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Xor, function)
+    }
+
+    fn emit_atomics_pause(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let iteration_payload_local = self.reserve_temp_local();
+        let iteration_tag_local = self.reserve_temp_local();
+        let valid_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, iteration_payload_local, iteration_tag_local, function);
+
+        function.instruction(&Instruction::LocalGet(iteration_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(valid_local));
+
+        function.instruction(&Instruction::LocalGet(iteration_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(iteration_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::LocalGet(iteration_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::LocalGet(iteration_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.pause iterationNumber must be a finite integral Number",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(valid_local);
+        self.release_temp_local(iteration_tag_local);
+        self.release_temp_local(iteration_payload_local);
+
+        Ok(())
+    }
+
+    fn emit_atomics_notify(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let typed_array_payload_local = self.reserve_temp_local();
+        let typed_array_tag_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+        let count_payload_local = self.reserve_temp_local();
+        let count_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let slot_present_local = self.reserve_temp_local();
+        let buffer_payload_local = self.reserve_temp_local();
+        let buffer_tag_local = self.reserve_temp_local();
+        let data_ptr_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let element_kind_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(
+            0,
+            typed_array_payload_local,
+            typed_array_tag_local,
+            function,
+        );
+        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
+        self.emit_builtin_arg_to_locals(2, count_payload_local, count_tag_local, function);
+
+        self.emit_is_heap_object_like_tag_i32(typed_array_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.notify requires an Int32Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            key_local,
+            slot_present_local,
+            buffer_payload_local,
+            buffer_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.notify requires an Int32Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_ELEMENT_KIND_SLOT,
+            element_kind_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.notify requires an Int32Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            buffer_payload_local,
+            ARRAY_BUFFER_DATA_PTR_SLOT,
+            data_ptr_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "TypedArray backing buffer is detached",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_OFFSET_SLOT,
+            byte_offset_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_LENGTH_SLOT,
+            byte_length_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
+            bytes_per_element_local,
+            function,
+        )?;
+        self.emit_typed_array_current_byte_length(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            buffer_payload_local,
+            byte_offset_local,
+            byte_length_local,
+            function,
+        )?;
+
+        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_index_from_number_payload(
+            index_payload_local,
+            index_local,
+            "Atomics.notify index out of range",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(byte_length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "Atomics.notify index out of range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(count_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_value_to_number_payload(count_tag_local, count_payload_local, function)?;
+        function.instruction(&Instruction::Drop);
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(index_local);
+        self.release_temp_local(element_kind_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(data_ptr_local);
+        self.release_temp_local(buffer_tag_local);
+        self.release_temp_local(buffer_payload_local);
+        self.release_temp_local(slot_present_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(count_tag_local);
+        self.release_temp_local(count_payload_local);
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(typed_array_tag_local);
+        self.release_temp_local(typed_array_payload_local);
+
+        Ok(())
+    }
+
+    fn emit_atomics_wait_return_string(&mut self, value: &str, function: &mut Function) {
+        function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+    }
+
+    fn emit_atomics_wait_async_return_object(
+        &mut self,
+        value: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let result_object_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(result_object_local));
+        self.emit_object_define_bool_data(result_object_local, "async", false, function)?;
+        function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_local_data(
+            result_object_local,
+            "value",
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(result_object_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(result_object_local);
+        Ok(())
+    }
+
+    fn emit_atomics_wait_async(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let typed_array_payload_local = self.reserve_temp_local();
+        let typed_array_tag_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let timeout_payload_local = self.reserve_temp_local();
+        let timeout_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let slot_present_local = self.reserve_temp_local();
+        let buffer_payload_local = self.reserve_temp_local();
+        let buffer_tag_local = self.reserve_temp_local();
+        let shared_payload_local = self.reserve_temp_local();
+        let shared_tag_local = self.reserve_temp_local();
+        let data_ptr_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let element_kind_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let address_local = self.reserve_temp_local();
+        let expected_raw_local = self.reserve_temp_local();
+        let current_raw_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(
+            0,
+            typed_array_payload_local,
+            typed_array_tag_local,
+            function,
+        );
+        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
+        self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
+        self.emit_builtin_arg_to_locals(3, timeout_payload_local, timeout_tag_local, function);
+
+        self.emit_is_heap_object_like_tag_i32(typed_array_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            key_local,
+            slot_present_local,
+            buffer_payload_local,
+            buffer_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_ELEMENT_KIND_SLOT,
+            element_kind_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(ARRAY_BUFFER_SHARED_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            buffer_payload_local,
+            buffer_tag_local,
+            key_local,
+            slot_present_local,
+            shared_payload_local,
+            shared_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(shared_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(shared_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            buffer_payload_local,
+            ARRAY_BUFFER_DATA_PTR_SLOT,
+            data_ptr_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "TypedArray backing buffer is detached",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_OFFSET_SLOT,
+            byte_offset_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_LENGTH_SLOT,
+            byte_length_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
+            bytes_per_element_local,
+            function,
+        )?;
+        self.emit_typed_array_current_byte_length(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            buffer_payload_local,
+            byte_offset_local,
+            byte_length_local,
+            function,
+        )?;
+
+        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_index_from_number_payload(
+            index_payload_local,
+            index_local,
+            "Atomics.waitAsync index out of range",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(byte_length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "Atomics.waitAsync index out of range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_value_to_bigint_payload(value_tag_local, value_payload_local, false, function)?;
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        function.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_integer_typed_array_value_i64(value_payload_local, function);
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        self.emit_atomics_normalize_integer_element_i64(
+            expected_raw_local,
+            element_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        function.instruction(&Instruction::End);
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::LocalGet(timeout_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(timeout_payload_local));
+        function.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(timeout_tag_local, timeout_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(timeout_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::LocalGet(byte_offset_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(address_local));
+
+        self.emit_atomics_load_integer_element_to_i64(
+            address_local,
+            element_kind_local,
+            current_raw_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(current_raw_local));
+        function.instruction(&Instruction::LocalGet(expected_raw_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_atomics_wait_async_return_object("not-equal", function)?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(timeout_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Le);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_atomics_wait_async_return_object("timed-out", function)?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.waitAsync blocking wait queues unsupported in wasm-aot",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+
+        self.release_temp_local(current_raw_local);
+        self.release_temp_local(expected_raw_local);
+        self.release_temp_local(address_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(element_kind_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(data_ptr_local);
+        self.release_temp_local(shared_tag_local);
+        self.release_temp_local(shared_payload_local);
+        self.release_temp_local(buffer_tag_local);
+        self.release_temp_local(buffer_payload_local);
+        self.release_temp_local(slot_present_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(timeout_tag_local);
+        self.release_temp_local(timeout_payload_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(typed_array_tag_local);
+        self.release_temp_local(typed_array_payload_local);
+
+        Ok(())
+    }
+
+    fn emit_atomics_wait(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let typed_array_payload_local = self.reserve_temp_local();
+        let typed_array_tag_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let timeout_payload_local = self.reserve_temp_local();
+        let timeout_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let slot_present_local = self.reserve_temp_local();
+        let buffer_payload_local = self.reserve_temp_local();
+        let buffer_tag_local = self.reserve_temp_local();
+        let shared_payload_local = self.reserve_temp_local();
+        let shared_tag_local = self.reserve_temp_local();
+        let data_ptr_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let element_kind_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let address_local = self.reserve_temp_local();
+        let expected_raw_local = self.reserve_temp_local();
+        let current_raw_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(
+            0,
+            typed_array_payload_local,
+            typed_array_tag_local,
+            function,
+        );
+        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
+        self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
+        self.emit_builtin_arg_to_locals(3, timeout_payload_local, timeout_tag_local, function);
+
+        self.emit_is_heap_object_like_tag_i32(typed_array_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.wait requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            key_local,
+            slot_present_local,
+            buffer_payload_local,
+            buffer_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.wait requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_ELEMENT_KIND_SLOT,
+            element_kind_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.wait requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(ARRAY_BUFFER_SHARED_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            buffer_payload_local,
+            buffer_tag_local,
+            key_local,
+            slot_present_local,
+            shared_payload_local,
+            shared_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(shared_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(shared_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.wait requires a shared Int32Array or BigInt64Array",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            buffer_payload_local,
+            ARRAY_BUFFER_DATA_PTR_SLOT,
+            data_ptr_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "TypedArray backing buffer is detached",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_OFFSET_SLOT,
+            byte_offset_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_LENGTH_SLOT,
+            byte_length_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
+            bytes_per_element_local,
+            function,
+        )?;
+        self.emit_typed_array_current_byte_length(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            buffer_payload_local,
+            byte_offset_local,
+            byte_length_local,
+            function,
+        )?;
+
+        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_index_from_number_payload(
+            index_payload_local,
+            index_local,
+            "Atomics.wait index out of range",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(byte_length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "Atomics.wait index out of range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_value_to_bigint_payload(value_tag_local, value_payload_local, false, function)?;
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        function.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_integer_typed_array_value_i64(value_payload_local, function);
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        self.emit_atomics_normalize_integer_element_i64(
+            expected_raw_local,
+            element_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalSet(expected_raw_local));
+        function.instruction(&Instruction::End);
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::LocalGet(timeout_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(timeout_payload_local));
+        function.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(timeout_tag_local, timeout_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(timeout_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::LocalGet(byte_offset_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(address_local));
+
+        self.emit_atomics_load_integer_element_to_i64(
+            address_local,
+            element_kind_local,
+            current_raw_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(current_raw_local));
+        function.instruction(&Instruction::LocalGet(expected_raw_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_atomics_wait_return_string("not-equal", function);
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(timeout_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Le);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_atomics_wait_return_string("timed-out", function);
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Atomics.wait blocking wait queues unsupported in wasm-aot",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+
+        self.release_temp_local(current_raw_local);
+        self.release_temp_local(expected_raw_local);
+        self.release_temp_local(address_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(element_kind_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(data_ptr_local);
+        self.release_temp_local(shared_tag_local);
+        self.release_temp_local(shared_payload_local);
+        self.release_temp_local(buffer_tag_local);
+        self.release_temp_local(buffer_payload_local);
+        self.release_temp_local(slot_present_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(timeout_tag_local);
+        self.release_temp_local(timeout_payload_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(typed_array_tag_local);
+        self.release_temp_local(typed_array_payload_local);
+
+        Ok(())
+    }
+
+    fn emit_atomics_integer_operation(
+        &mut self,
+        operation: AtomicsIntegerOperation,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let type_error_message = match operation {
+            AtomicsIntegerOperation::Add => "Atomics.add requires an integer typed array",
+            AtomicsIntegerOperation::And => "Atomics.and requires an integer typed array",
+            AtomicsIntegerOperation::CompareExchange => {
+                "Atomics.compareExchange requires an integer typed array"
+            }
+            AtomicsIntegerOperation::Exchange => "Atomics.exchange requires an integer typed array",
+            AtomicsIntegerOperation::Load => "Atomics.load requires an integer typed array",
+            AtomicsIntegerOperation::Or => "Atomics.or requires an integer typed array",
+            AtomicsIntegerOperation::Store => "Atomics.store requires an integer typed array",
+            AtomicsIntegerOperation::Sub => "Atomics.sub requires an integer typed array",
+            AtomicsIntegerOperation::Xor => "Atomics.xor requires an integer typed array",
+        };
+        let range_error_message = match operation {
+            AtomicsIntegerOperation::Add => "Atomics.add index out of range",
+            AtomicsIntegerOperation::And => "Atomics.and index out of range",
+            AtomicsIntegerOperation::CompareExchange => {
+                "Atomics.compareExchange index out of range"
+            }
+            AtomicsIntegerOperation::Exchange => "Atomics.exchange index out of range",
+            AtomicsIntegerOperation::Load => "Atomics.load index out of range",
+            AtomicsIntegerOperation::Or => "Atomics.or index out of range",
+            AtomicsIntegerOperation::Store => "Atomics.store index out of range",
+            AtomicsIntegerOperation::Sub => "Atomics.sub index out of range",
+            AtomicsIntegerOperation::Xor => "Atomics.xor index out of range",
+        };
+        let value_arg_count = operation.value_arg_count();
+
+        let typed_array_payload_local = self.reserve_temp_local();
+        let typed_array_tag_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let replacement_payload_local = self.reserve_temp_local();
+        let replacement_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let slot_present_local = self.reserve_temp_local();
+        let buffer_payload_local = self.reserve_temp_local();
+        let buffer_tag_local = self.reserve_temp_local();
+        let data_ptr_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let element_kind_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let address_local = self.reserve_temp_local();
+        let old_raw_local = self.reserve_temp_local();
+        let value_raw_local = self.reserve_temp_local();
+        let replacement_raw_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(
+            0,
+            typed_array_payload_local,
+            typed_array_tag_local,
+            function,
+        );
+        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
+        if value_arg_count > 0 {
+            self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
+        }
+        if value_arg_count > 1 {
+            self.emit_builtin_arg_to_locals(
+                3,
+                replacement_payload_local,
+                replacement_tag_local,
+                function,
+            );
+        }
+
+        self.emit_is_heap_object_like_tag_i32(typed_array_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_own_data_field_read(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            key_local,
+            slot_present_local,
+            buffer_payload_local,
+            buffer_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(slot_present_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_ELEMENT_KIND_SLOT,
+            element_kind_local,
+            function,
+        )?;
+        self.emit_atomics_friendly_element_kind_i32(element_kind_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            buffer_payload_local,
+            ARRAY_BUFFER_DATA_PTR_SLOT,
+            data_ptr_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "TypedArray backing buffer is detached",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_OFFSET_SLOT,
+            byte_offset_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTE_LENGTH_SLOT,
+            byte_length_local,
+            function,
+        )?;
+        self.emit_object_read_number_slot_to_i64_local(
+            typed_array_payload_local,
+            TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
+            bytes_per_element_local,
+            function,
+        )?;
+        self.emit_typed_array_current_byte_length(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            buffer_payload_local,
+            byte_offset_local,
+            byte_length_local,
+            function,
+        )?;
+
+        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_index_from_number_payload(
+            index_payload_local,
+            index_local,
+            range_error_message,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(byte_length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            range_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        if value_arg_count > 0 {
+            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_value_to_bigint_payload(
+                value_tag_local,
+                value_payload_local,
+                false,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(value_raw_local));
+            function.instruction(&Instruction::Else);
+            self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
+            function.instruction(&Instruction::LocalSet(value_payload_local));
+            self.emit_return_current_completion_if_throw(function);
+            self.emit_integer_typed_array_value_i64(value_payload_local, function);
+            function.instruction(&Instruction::LocalSet(value_raw_local));
+            function.instruction(&Instruction::End);
+            self.emit_return_current_completion_if_throw(function);
+        }
+
+        if value_arg_count > 1 {
+            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_value_to_bigint_payload(
+                replacement_tag_local,
+                replacement_payload_local,
+                false,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(replacement_raw_local));
+            function.instruction(&Instruction::Else);
+            self.emit_value_to_number_payload(
+                replacement_tag_local,
+                replacement_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(replacement_payload_local));
+            self.emit_return_current_completion_if_throw(function);
+            self.emit_integer_typed_array_value_i64(replacement_payload_local, function);
+            function.instruction(&Instruction::LocalSet(replacement_raw_local));
+            function.instruction(&Instruction::End);
+            self.emit_return_current_completion_if_throw(function);
+        }
+
+        function.instruction(&Instruction::LocalGet(data_ptr_local));
+        function.instruction(&Instruction::LocalGet(byte_offset_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(address_local));
+
+        match operation {
+            AtomicsIntegerOperation::Store => {
+                self.emit_atomics_store_integer_element_from_i64(
+                    address_local,
+                    element_kind_local,
+                    value_raw_local,
+                    function,
+                );
+                self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_raw_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value_raw_local));
+                function.instruction(&Instruction::F64ConvertI64S);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+            }
+            AtomicsIntegerOperation::Load => {
+                self.emit_atomics_load_integer_element_to_i64(
+                    address_local,
+                    element_kind_local,
+                    old_raw_local,
+                    function,
+                );
+            }
+            AtomicsIntegerOperation::CompareExchange => {
+                self.emit_atomics_normalize_integer_element_i64(
+                    value_raw_local,
+                    element_kind_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalSet(value_raw_local));
+                self.emit_atomics_compare_exchange_integer_element_to_i64(
+                    address_local,
+                    element_kind_local,
+                    value_raw_local,
+                    replacement_raw_local,
+                    old_raw_local,
+                    function,
+                );
+            }
+            AtomicsIntegerOperation::Add
+            | AtomicsIntegerOperation::And
+            | AtomicsIntegerOperation::Exchange
+            | AtomicsIntegerOperation::Or
+            | AtomicsIntegerOperation::Sub
+            | AtomicsIntegerOperation::Xor => {
+                self.emit_atomics_rmw_integer_element_to_i64(
+                    address_local,
+                    element_kind_local,
+                    value_raw_local,
+                    operation,
+                    old_raw_local,
+                    function,
+                );
+            }
+        }
+
+        if operation != AtomicsIntegerOperation::Store {
+            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(old_raw_local));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            function.instruction(&Instruction::Else);
+            self.emit_atomics_signed_number_element_kind_i32(element_kind_local, function);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
+            function.instruction(&Instruction::LocalGet(old_raw_local));
+            function.instruction(&Instruction::F64ConvertI64S);
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(old_raw_local));
+            function.instruction(&Instruction::F64ConvertI64U);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            function.instruction(&Instruction::End);
+        }
+
+        self.release_temp_local(replacement_raw_local);
+        self.release_temp_local(value_raw_local);
+        self.release_temp_local(old_raw_local);
+        self.release_temp_local(address_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(element_kind_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(data_ptr_local);
+        self.release_temp_local(buffer_tag_local);
+        self.release_temp_local(buffer_payload_local);
+        self.release_temp_local(slot_present_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(replacement_tag_local);
+        self.release_temp_local(replacement_payload_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(typed_array_tag_local);
+        self.release_temp_local(typed_array_payload_local);
+
+        Ok(())
+    }
+
+    fn emit_atomics_friendly_element_kind_i32(
+        &mut self,
+        element_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(11));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    fn emit_atomics_normalize_integer_element_i64(
+        &mut self,
+        value_local: u32,
+        element_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(56));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Const(56));
+        function.instruction(&Instruction::I64ShrS);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(48));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Const(48));
+        function.instruction(&Instruction::I64ShrS);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrS);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(0xff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(0xffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(9));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(0xffff_ffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_atomics_bigint_element_kind_i32(
+        &mut self,
+        element_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(11));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    fn emit_atomics_signed_number_element_kind_i32(
+        &mut self,
+        element_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    fn emit_atomics_rmw_integer_element_to_i64(
+        &mut self,
+        address_local: u32,
+        element_kind_local: u32,
+        value_local: u32,
+        operation: AtomicsIntegerOperation,
+        output_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        match operation {
+            AtomicsIntegerOperation::Add => {
+                function.instruction(&Instruction::I64AtomicRmwAdd(Self::memarg64(0)));
+            }
+            AtomicsIntegerOperation::And => {
+                function.instruction(&Instruction::I64AtomicRmwAnd(Self::memarg64(0)));
+            }
+            AtomicsIntegerOperation::Exchange => {
+                function.instruction(&Instruction::I64AtomicRmwXchg(Self::memarg64(0)));
+            }
+            AtomicsIntegerOperation::Or => {
+                function.instruction(&Instruction::I64AtomicRmwOr(Self::memarg64(0)));
+            }
+            AtomicsIntegerOperation::Sub => {
+                function.instruction(&Instruction::I64AtomicRmwSub(Self::memarg64(0)));
+            }
+            AtomicsIntegerOperation::Xor => {
+                function.instruction(&Instruction::I64AtomicRmwXor(Self::memarg64(0)));
+            }
+            _ => unreachable!("non-rmw atomic operation"),
+        }
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        match operation {
+            AtomicsIntegerOperation::Add => {
+                function.instruction(&Instruction::I32AtomicRmw8AddU(Self::memarg8(0)));
+            }
+            AtomicsIntegerOperation::And => {
+                function.instruction(&Instruction::I32AtomicRmw8AndU(Self::memarg8(0)));
+            }
+            AtomicsIntegerOperation::Exchange => {
+                function.instruction(&Instruction::I32AtomicRmw8XchgU(Self::memarg8(0)));
+            }
+            AtomicsIntegerOperation::Or => {
+                function.instruction(&Instruction::I32AtomicRmw8OrU(Self::memarg8(0)));
+            }
+            AtomicsIntegerOperation::Sub => {
+                function.instruction(&Instruction::I32AtomicRmw8SubU(Self::memarg8(0)));
+            }
+            AtomicsIntegerOperation::Xor => {
+                function.instruction(&Instruction::I32AtomicRmw8XorU(Self::memarg8(0)));
+            }
+            _ => unreachable!("non-rmw atomic operation"),
+        }
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        match operation {
+            AtomicsIntegerOperation::Add => {
+                function.instruction(&Instruction::I32AtomicRmw16AddU(Self::memarg16(0)));
+            }
+            AtomicsIntegerOperation::And => {
+                function.instruction(&Instruction::I32AtomicRmw16AndU(Self::memarg16(0)));
+            }
+            AtomicsIntegerOperation::Exchange => {
+                function.instruction(&Instruction::I32AtomicRmw16XchgU(Self::memarg16(0)));
+            }
+            AtomicsIntegerOperation::Or => {
+                function.instruction(&Instruction::I32AtomicRmw16OrU(Self::memarg16(0)));
+            }
+            AtomicsIntegerOperation::Sub => {
+                function.instruction(&Instruction::I32AtomicRmw16SubU(Self::memarg16(0)));
+            }
+            AtomicsIntegerOperation::Xor => {
+                function.instruction(&Instruction::I32AtomicRmw16XorU(Self::memarg16(0)));
+            }
+            _ => unreachable!("non-rmw atomic operation"),
+        }
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        match operation {
+            AtomicsIntegerOperation::Add => {
+                function.instruction(&Instruction::I32AtomicRmwAdd(Self::memarg32(0)));
+            }
+            AtomicsIntegerOperation::And => {
+                function.instruction(&Instruction::I32AtomicRmwAnd(Self::memarg32(0)));
+            }
+            AtomicsIntegerOperation::Exchange => {
+                function.instruction(&Instruction::I32AtomicRmwXchg(Self::memarg32(0)));
+            }
+            AtomicsIntegerOperation::Or => {
+                function.instruction(&Instruction::I32AtomicRmwOr(Self::memarg32(0)));
+            }
+            AtomicsIntegerOperation::Sub => {
+                function.instruction(&Instruction::I32AtomicRmwSub(Self::memarg32(0)));
+            }
+            AtomicsIntegerOperation::Xor => {
+                function.instruction(&Instruction::I32AtomicRmwXor(Self::memarg32(0)));
+            }
+            _ => unreachable!("non-rmw atomic operation"),
+        }
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind_local, function);
+        function.instruction(&Instruction::LocalSet(output_local));
+    }
+
+    fn emit_atomics_compare_exchange_integer_element_to_i64(
+        &mut self,
+        address_local: u32,
+        element_kind_local: u32,
+        expected_local: u32,
+        replacement_local: u32,
+        output_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(expected_local));
+        function.instruction(&Instruction::LocalGet(replacement_local));
+        function.instruction(&Instruction::I64AtomicRmwCmpxchg(Self::memarg64(0)));
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(expected_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(replacement_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicRmw8CmpxchgU(Self::memarg8(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(expected_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(replacement_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicRmw16CmpxchgU(Self::memarg16(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(expected_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(replacement_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicRmwCmpxchg(Self::memarg32(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind_local, function);
+        function.instruction(&Instruction::LocalSet(output_local));
+    }
+
+    fn emit_atomics_load_integer_element_to_i64(
+        &mut self,
+        address_local: u32,
+        element_kind_local: u32,
+        output_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad8U(Self::memarg8(0)));
+        function.instruction(&Instruction::I32Const(24));
+        function.instruction(&Instruction::I32Shl);
+        function.instruction(&Instruction::I32Const(24));
+        function.instruction(&Instruction::I32ShrS);
+        function.instruction(&Instruction::I64ExtendI32S);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad16U(Self::memarg16(0)));
+        function.instruction(&Instruction::I32Const(16));
+        function.instruction(&Instruction::I32Shl);
+        function.instruction(&Instruction::I32Const(16));
+        function.instruction(&Instruction::I32ShrS);
+        function.instruction(&Instruction::I64ExtendI32S);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad(Self::memarg32(0)));
+        function.instruction(&Instruction::I64ExtendI32S);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad8U(Self::memarg8(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad16U(Self::memarg16(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(9));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicLoad(Self::memarg32(0)));
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64AtomicLoad(Self::memarg64(0)));
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_atomics_store_integer_element_from_i64(
+        &mut self,
+        address_local: u32,
+        element_kind_local: u32,
+        value_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64AtomicStore(Self::memarg64(0)));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicStore8(Self::memarg8(0)));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicStore16(Self::memarg16(0)));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32AtomicStore(Self::memarg32(0)));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
     pub(crate) fn compile_standard_builtin(
         &mut self,
         builtin: StandardBuiltinId,
@@ -21,8 +1902,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(arg_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "dynamic eval unsupported",
                     self.result_local,
                     self.result_tag_local,
@@ -58,8 +1938,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator constructor cannot be called",
                     self.result_local,
                     self.result_tag_local,
@@ -368,6 +2247,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::ObjectConstructor => {
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();
+                let object_prototype_local = self.reserve_temp_local();
                 self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
                 function.instruction(&Instruction::Block(BlockType::Empty));
                 for kind in [
@@ -484,15 +2364,32 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(bigint_constructor_local);
                 function.instruction(&Instruction::Br(1));
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(object_prototype_local));
+                if let (Some(new_target_payload_local), Some(new_target_tag_local)) =
+                    (self.new_target_payload_local(), self.new_target_tag_local())
+                {
+                    function.instruction(&Instruction::LocalGet(new_target_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_load_function_defining_realm_object_prototype(
+                        new_target_payload_local,
+                        object_prototype_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::End);
+                }
                 self.emit_alloc_plain_object_with_prototype(
+                    Some(object_prototype_local),
                     None,
-                    Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::End);
+                self.release_temp_local(object_prototype_local);
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
@@ -565,13 +2462,26 @@ impl<'a> FunctionBuilder<'a> {
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();
                 self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_object_get_prototype_of(
-                    arg_payload_local,
-                    arg_tag_local,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                if self
+                    .runtime_bootstrap_plan
+                    .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+                {
+                    self.emit_object_get_prototype_of(
+                        arg_payload_local,
+                        arg_tag_local,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                } else {
+                    self.emit_object_get_prototype_of_without_proxy(
+                        arg_payload_local,
+                        arg_tag_local,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                }
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
@@ -2771,88 +4681,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(key_string_local));
-                function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_object_read(
-                    target_payload_local,
-                    target_tag_local,
-                    target_payload_local,
-                    target_tag_local,
-                    key_string_local,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(writable_payload_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(enumerable_payload_local));
-                function.instruction(&Instruction::LocalGet(target_payload_local));
-                function.instruction(&Instruction::GlobalGet(THROW_TYPE_ERROR_GLOBAL_INDEX));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(configurable_payload_local));
-                self.emit_alloc_data_descriptor_from_locals_with_flag_locals(
-                    value_payload_local,
-                    value_tag_local,
-                    writable_payload_local,
-                    enumerable_payload_local,
-                    configurable_payload_local,
-                    self.result_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Br(1));
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(key_string_local));
-                function.instruction(&Instruction::I64Const(self.strings.payload("name")));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_object_read(
-                    target_payload_local,
-                    target_tag_local,
-                    target_payload_local,
-                    target_tag_local,
-                    key_string_local,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(writable_payload_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(enumerable_payload_local));
-                function.instruction(&Instruction::LocalGet(target_payload_local));
-                function.instruction(&Instruction::GlobalGet(THROW_TYPE_ERROR_GLOBAL_INDEX));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(configurable_payload_local));
-                self.emit_alloc_data_descriptor_from_locals_with_flag_locals(
-                    value_payload_local,
-                    value_tag_local,
-                    writable_payload_local,
-                    enumerable_payload_local,
-                    configurable_payload_local,
-                    self.result_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Br(1));
-                function.instruction(&Instruction::End);
-
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(function_like_local));
                 function.instruction(&Instruction::LocalGet(target_tag_local));
@@ -4207,20 +6035,14 @@ impl<'a> FunctionBuilder<'a> {
                     len_local,
                     function,
                 );
-                function.instruction(&Instruction::End);
-                self.emit_alloc_array_payload_with_length(
-                    len_local,
-                    result_payload_local,
-                    function,
-                )?;
-                self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
                 self.load_i64_to_local_from_offset(
                     arg_payload_local,
                     HEAP_PTR_OFFSET,
                     buffer_local,
                     function,
                 );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(write_index_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(index_local));
                 function.instruction(&Instruction::Block(BlockType::Empty));
@@ -4241,15 +6063,74 @@ impl<'a> FunctionBuilder<'a> {
                     key_payload_local,
                     function,
                 );
+                self.emit_property_key_payload_is_symbol_i32(key_payload_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(write_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(write_index_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                self.emit_alloc_array_payload_with_length(
+                    write_index_local,
+                    result_payload_local,
+                    function,
+                )?;
+                self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    arg_payload_local,
+                    HEAP_PTR_OFFSET,
+                    buffer_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(write_index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::LocalGet(len_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(buffer_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(entry_local));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_KEY_OFFSET,
+                    key_payload_local,
+                    function,
+                );
+                self.emit_property_key_payload_is_symbol_i32(key_payload_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.scratch_local));
                 self.emit_array_write(
                     result_payload_local,
-                    index_local,
+                    write_index_local,
                     key_payload_local,
                     self.scratch_local,
                     function,
                 )?;
+                function.instruction(&Instruction::LocalGet(write_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(write_index_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(index_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
@@ -6546,9 +8427,8 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
+                    self.emit_load_function_defining_realm_type_error_prototype(
                         this_payload_local,
-                        HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
                         type_error_prototype_local,
                         function,
                     );
@@ -7341,8 +9221,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(receiver_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Object.prototype.valueOf called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -7359,6 +9238,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::ReflectGet => {
                 self.compile_reflect_get_builtin(function)?;
             }
+            StandardBuiltinId::ReflectGetPrototypeOf => {
+                self.compile_reflect_get_prototype_of_builtin(function)?;
+            }
             StandardBuiltinId::ReflectGetOwnPropertyDescriptor => {
                 self.compile_reflect_get_own_property_descriptor_builtin(function)?;
             }
@@ -7373,6 +9255,9 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::ReflectDeleteProperty => {
                 self.compile_reflect_delete_property_builtin(function)?;
+            }
+            StandardBuiltinId::ReflectIsExtensible => {
+                self.compile_reflect_is_extensible_builtin(function)?;
             }
             StandardBuiltinId::ReflectPreventExtensions => {
                 self.compile_reflect_prevent_extensions_builtin(function)?;
@@ -8247,6 +10132,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_from_locals(
+                        element_payload_local,
+                        element_tag_local,
+                        function,
+                    )?;
                     self.emit_iterator_close_preserving_current_throw(
                         IteratorCloseOnThrowLocals {
                             iterator_payload_local,
@@ -8510,6 +10400,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_from_locals(
+                        element_payload_local,
+                        element_tag_local,
+                        function,
+                    )?;
                     self.emit_iterator_close_preserving_current_throw(
                         IteratorCloseOnThrowLocals {
                             iterator_payload_local,
@@ -9056,8 +10951,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array.prototype.pop receiver is not array",
                     self.result_local,
                     self.result_tag_local,
@@ -9126,8 +11020,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(this_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array.prototype.push receiver is not array",
                     self.result_local,
                     self.result_tag_local,
@@ -9168,8 +11061,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array.prototype.push receiver is not array",
                     self.result_local,
                     self.result_tag_local,
@@ -9246,8 +11138,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Br(1));
                 function.instruction(&Instruction::End);
 
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array.prototype.push receiver is not array",
                     self.result_local,
                     self.result_tag_local,
@@ -9546,8 +11437,7 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 self.compile_nullish_tagged_i32(this_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array.prototype iterator method called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -9589,12 +11479,29 @@ impl<'a> FunctionBuilder<'a> {
                 let base_payload_local = self.reserve_temp_local();
                 let base_tag_local = self.reserve_temp_local();
                 let lookup_tag_local = self.reserve_temp_local();
+                let wrapper_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFromWrapperReturn.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from wrapper return`",
+                        )
+                    })?;
+                let wrapper_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFromWrapperNext.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from wrapper next`",
+                        )
+                    })?;
 
                 function.instruction(&Instruction::LocalGet(self.argc_param_local()));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -9610,8 +11517,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.compile_nullish_tagged_i32(self.result_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -9626,8 +11532,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -9675,8 +11580,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -9716,8 +11620,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -9748,8 +11651,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from iterator method must return object",
                     self.result_local,
                     self.result_tag_local,
@@ -9861,6 +11763,18 @@ impl<'a> FunctionBuilder<'a> {
                     next_tag_local,
                     function,
                 )?;
+                self.emit_object_define_function_data(
+                    self.result_local,
+                    "next",
+                    &wrapper_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    self.result_local,
+                    "return",
+                    &wrapper_return_meta,
+                    function,
+                )?;
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
@@ -9886,8 +11800,7 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 self.compile_nullish_tagged_i32(this_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.toArray called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -9898,8 +11811,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.toArray called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -10015,8 +11927,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.toArray next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10047,8 +11958,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.toArray next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -10180,8 +12090,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype[Symbol.dispose] return method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10247,7 +12156,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
                 function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
@@ -10317,8 +12232,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.forEach called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -10337,8 +12251,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.forEach callback must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10408,8 +12321,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.forEach next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10435,8 +12347,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.forEach next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -10617,8 +12528,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.every called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -10637,8 +12547,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.every callback must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10708,8 +12617,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.every next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -10735,8 +12643,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.every next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -10941,8 +12848,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.some called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -10961,8 +12867,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.some callback must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11032,8 +12937,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.some next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11059,8 +12963,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.some next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -11264,8 +13167,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.find called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -11284,8 +13186,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.find callback must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11355,8 +13256,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.find next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11382,8 +13282,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.find next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -11589,8 +13488,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -11609,8 +13507,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce reducer must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11680,8 +13577,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -11716,8 +13612,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -11749,8 +13644,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce of empty iterator with no initial value",
                     self.result_local,
                     self.result_tag_local,
@@ -11799,8 +13693,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.reduce next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -11993,8 +13886,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.map called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -12013,8 +13905,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.map mapper must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -12182,8 +14073,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12207,8 +14097,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12232,8 +14121,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12245,8 +14133,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper is already running",
                     self.result_local,
                     self.result_tag_local,
@@ -12270,8 +14157,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12328,8 +14214,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.map next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -12354,8 +14239,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.map mapper must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -12409,8 +14293,7 @@ impl<'a> FunctionBuilder<'a> {
                     false,
                     function,
                 )?;
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -12655,8 +14538,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12680,8 +14562,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12705,8 +14586,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator map helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -12825,8 +14705,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.filter called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -12845,8 +14724,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.filter predicate must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -13014,8 +14892,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13039,8 +14916,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13064,8 +14940,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13077,8 +14952,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper is already running",
                     self.result_local,
                     self.result_tag_local,
@@ -13102,8 +14976,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13160,8 +15033,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.filter next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -13186,8 +15058,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.filter predicate must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -13244,8 +15115,7 @@ impl<'a> FunctionBuilder<'a> {
                     false,
                     function,
                 )?;
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -13493,8 +15363,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13518,8 +15387,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13543,8 +15411,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator filter helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13663,8 +15530,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -13683,8 +15549,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap mapper must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -13897,8 +15762,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13922,8 +15786,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13947,8 +15810,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -13960,8 +15822,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper is already running",
                     self.result_local,
                     self.result_tag_local,
@@ -14031,8 +15892,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -14139,8 +15999,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -14270,8 +16129,7 @@ impl<'a> FunctionBuilder<'a> {
                     false,
                     function,
                 )?;
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -14407,8 +16265,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(mapped_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap mapper result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -14487,8 +16344,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap inner iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -14552,8 +16408,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(inner_iterator_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap inner iterator method must return object",
                     self.result_local,
                     self.result_tag_local,
@@ -14605,8 +16460,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.flatMap inner iterator next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -14744,8 +16598,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -14769,8 +16622,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator flatMap helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -14955,8 +16807,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.take called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -14969,8 +16820,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.take limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15000,8 +16850,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.take limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15059,8 +16908,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.take limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15092,8 +16940,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64LtS);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.take limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15242,8 +17089,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15267,8 +17113,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15293,8 +17138,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15306,8 +17150,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper is already running",
                     self.result_local,
                     self.result_tag_local,
@@ -15332,8 +17175,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15443,8 +17285,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.take next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -15486,8 +17327,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -15615,8 +17455,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15640,8 +17479,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15665,8 +17503,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator take helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -15786,8 +17623,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.drop called on null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -15800,8 +17636,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.drop limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15831,8 +17666,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.drop limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15890,8 +17724,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.drop limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -15923,8 +17756,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64LtS);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
+                self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.drop limit must be a non-negative number",
                     self.result_local,
                     self.result_tag_local,
@@ -16068,8 +17900,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16093,8 +17924,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16118,8 +17948,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16131,8 +17960,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper is already running",
                     self.result_local,
                     self.result_tag_local,
@@ -16156,8 +17984,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16214,8 +18041,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.prototype.drop next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -16275,8 +18101,7 @@ impl<'a> FunctionBuilder<'a> {
                     false,
                     function,
                 )?;
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -16384,8 +18209,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper next result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -16499,8 +18323,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16524,8 +18347,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16549,8 +18371,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator drop helper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16625,8 +18446,15 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             StandardBuiltinId::IteratorPrototypeConstructorGetter => {
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
@@ -16661,7 +18489,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::LocalGet(this_payload_local));
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
                 function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
@@ -16730,8 +18564,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from wrapper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16756,8 +18589,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from wrapper return called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16814,8 +18646,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from wrapper return method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -16836,8 +18667,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Iterator.from wrapper return result must be object",
                     self.result_local,
                     self.result_tag_local,
@@ -16852,6 +18682,145 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(result_payload_local);
                 self.release_temp_local(return_tag_local);
                 self.release_temp_local(return_payload_local);
+                self.release_temp_local(iterator_tag_local);
+                self.release_temp_local(iterator_payload_local);
+                self.release_temp_local(wrapper_tag_local);
+                self.release_temp_local(wrapper_payload_local);
+                self.release_temp_local(present_local);
+                self.release_temp_local(key_local);
+            }
+            StandardBuiltinId::IteratorFromWrapperNext => {
+                let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing wrapper next receiver",
+                    )
+                })?;
+                let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing wrapper next receiver tag",
+                    )
+                })?;
+                let key_local = self.reserve_temp_local();
+                let present_local = self.reserve_temp_local();
+                let wrapper_payload_local = self.reserve_temp_local();
+                let wrapper_tag_local = self.reserve_temp_local();
+                let iterator_payload_local = self.reserve_temp_local();
+                let iterator_tag_local = self.reserve_temp_local();
+                let next_payload_local = self.reserve_temp_local();
+                let next_tag_local = self.reserve_temp_local();
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$PorfforIteratorFromWrapper"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    wrapper_payload_local,
+                    wrapper_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Iterator.from wrapper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFromIterator"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Iterator.from wrapper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("$IteratorFromNext"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_own_data_field_read(
+                    this_payload_local,
+                    this_tag_local,
+                    key_local,
+                    present_local,
+                    next_payload_local,
+                    next_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Iterator.from wrapper next called on incompatible receiver",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(next_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Iterator.from wrapper next method must be callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_function_handle_call(
+                    next_payload_local,
+                    next_tag_local,
+                    Some((iterator_payload_local, Some(iterator_tag_local))),
+                    &[],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Iterator.from wrapper next result must be object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(next_tag_local);
+                self.release_temp_local(next_payload_local);
                 self.release_temp_local(iterator_tag_local);
                 self.release_temp_local(iterator_payload_local);
                 self.release_temp_local(wrapper_tag_local);
@@ -16884,6 +18853,7 @@ impl<'a> FunctionBuilder<'a> {
                 let kind_payload_local = self.reserve_temp_local();
                 let kind_tag_local = self.reserve_temp_local();
                 let kind_local = self.reserve_temp_local();
+                let result_prototype_local = self.reserve_temp_local();
                 let slot_present_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let length_payload_local = self.reserve_temp_local();
@@ -16900,6 +18870,12 @@ impl<'a> FunctionBuilder<'a> {
                 let typed_array_out_of_bounds_local = self.reserve_temp_local();
                 let entry_array_local = self.reserve_temp_local();
                 let entry_index_local = self.reserve_temp_local();
+
+                self.emit_load_function_defining_realm_object_prototype(
+                    self.current_env_local,
+                    result_prototype_local,
+                    function,
+                );
 
                 function.instruction(&Instruction::I64Const(
                     self.strings.payload("$RegExpStringIterator.done"),
@@ -16944,8 +18920,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(slot_present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -16956,8 +18931,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_alloc_plain_object_with_prototype(
+                    Some(result_prototype_local),
                     None,
-                    Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(result_object_local));
@@ -16996,8 +18971,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(slot_present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17012,8 +18986,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17038,8 +19011,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(slot_present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17075,8 +19047,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(slot_present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17095,8 +19066,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64TruncSatF64U);
                 function.instruction(&Instruction::LocalSet(kind_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17108,8 +19078,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ARRAY_ITERATOR_KIND_ENTRIES as i64));
                 function.instruction(&Instruction::I64GtU);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on incompatible receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -17119,8 +19088,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
 
                 self.emit_alloc_plain_object_with_prototype(
+                    Some(result_prototype_local),
                     None,
-                    Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(result_object_local));
@@ -17177,8 +19146,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray backing buffer is detached",
                     self.result_local,
                     self.result_tag_local,
@@ -17256,8 +19224,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Array Iterator next called on out-of-bounds TypedArray",
                     self.result_local,
                     self.result_tag_local,
@@ -17463,6 +19430,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(length_payload_local);
                 self.release_temp_local(key_local);
                 self.release_temp_local(slot_present_local);
+                self.release_temp_local(result_prototype_local);
                 self.release_temp_local(kind_local);
                 self.release_temp_local(kind_tag_local);
                 self.release_temp_local(kind_payload_local);
@@ -19872,8 +21840,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -19901,8 +21868,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -20100,8 +22066,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray accessor requires TypedArray",
                     self.result_local,
                     self.result_tag_local,
@@ -20129,8 +22094,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray accessor requires TypedArray",
                     self.result_local,
                     self.result_tag_local,
@@ -20188,8 +22152,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray accessor requires TypedArray",
                     self.result_local,
                     self.result_tag_local,
@@ -20217,8 +22180,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray accessor requires TypedArray",
                     self.result_local,
                     self.result_tag_local,
@@ -20504,6 +22466,7 @@ impl<'a> FunctionBuilder<'a> {
                 let second_payload_local = self.reserve_temp_local();
                 let ms_payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
+                let prototype_payload_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -20623,9 +22586,15 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
-                self.emit_alloc_plain_object_with_prototype(
+                self.emit_error_new_target_prototype_to_local(
+                    DATE_PROTOTYPE_GLOBAL_INDEX,
                     None,
-                    Some(DATE_PROTOTYPE_GLOBAL_INDEX),
+                    prototype_payload_local,
+                    function,
+                )?;
+                self.emit_alloc_plain_object_with_prototype(
+                    Some(prototype_payload_local),
+                    None,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(object_local));
@@ -20643,6 +22612,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+                self.release_temp_local(prototype_payload_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(ms_payload_local);
                 self.release_temp_local(second_payload_local);
@@ -21651,6 +23621,7 @@ impl<'a> FunctionBuilder<'a> {
                 let byte_offset_local = self.reserve_temp_local();
                 let byte_length_local = self.reserve_temp_local();
                 let bytes_per_element_local = self.reserve_temp_local();
+                let element_kind_local = self.reserve_temp_local();
                 let length_tracking_local = self.reserve_temp_local();
                 let source_is_array_buffer_local = self.reserve_temp_local();
                 let length_local = self.reserve_temp_local();
@@ -21684,10 +23655,34 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(byte_offset_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(byte_length_local));
+                self.load_i64_to_local_from_offset(
+                    self.current_env_local,
+                    HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+                    bytes_per_element_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(
                     typed_array_bytes_per_element(builtin) as i64,
                 ));
                 function.instruction(&Instruction::LocalSet(bytes_per_element_local));
+                function.instruction(&Instruction::End);
+                self.load_i64_to_local_from_offset(
+                    self.current_env_local,
+                    HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+                    element_kind_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(element_kind_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(
+                    typed_array_element_kind(builtin) as i64
+                ));
+                function.instruction(&Instruction::LocalSet(element_kind_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(length_tracking_local));
                 function.instruction(&Instruction::I64Const(0));
@@ -22379,6 +24374,44 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(arg_payload_local));
+                function.instruction(&Instruction::LocalSet(array_address_local));
+                self.emit_alloc_array_payload_with_length(
+                    length_local,
+                    buffer_object_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(array_index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(array_index_local));
+                function.instruction(&Instruction::LocalGet(length_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                self.emit_array_read(
+                    array_address_local,
+                    array_index_local,
+                    array_element_payload_local,
+                    array_element_tag_local,
+                    function,
+                );
+                self.emit_array_write(
+                    buffer_object_local,
+                    array_index_local,
+                    array_element_payload_local,
+                    array_element_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(array_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(array_index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(buffer_object_local));
+                function.instruction(&Instruction::LocalSet(arg_payload_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(array_index_local));
                 function.instruction(&Instruction::Block(BlockType::Empty));
@@ -22406,12 +24439,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Mul);
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::LocalSet(array_address_local));
-                self.emit_store_number_payload_to_typed_array_address(
-                    builtin,
+                self.emit_store_number_payload_to_typed_array_address_by_kind(
+                    bytes_per_element_local,
+                    element_kind_local,
                     array_address_local,
                     array_number_payload_local,
                     function,
-                )?;
+                );
                 function.instruction(&Instruction::LocalGet(array_index_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
@@ -22474,12 +24508,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Mul);
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::LocalSet(array_address_local));
-                self.emit_store_number_payload_to_typed_array_address(
-                    builtin,
+                self.emit_store_number_payload_to_typed_array_address_by_kind(
+                    bytes_per_element_local,
+                    element_kind_local,
                     array_address_local,
                     array_number_payload_local,
                     function,
-                )?;
+                );
                 function.instruction(&Instruction::LocalGet(array_index_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
@@ -22573,12 +24608,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Mul);
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::LocalSet(array_address_local));
-                self.emit_store_number_payload_to_typed_array_address(
-                    builtin,
+                self.emit_store_number_payload_to_typed_array_address_by_kind(
+                    bytes_per_element_local,
+                    element_kind_local,
                     array_address_local,
                     array_number_payload_local,
                     function,
-                )?;
+                );
                 function.instruction(&Instruction::LocalGet(array_index_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
@@ -22621,6 +24657,15 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::End);
 
+                self.load_i64_to_local_from_offset(
+                    self.current_env_local,
+                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                    prototype_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(prototype_payload_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::GlobalGet(
                     typed_array_constructor_global_index,
                 ));
@@ -22631,6 +24676,7 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_payload_local,
                     function,
                 );
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(prototype_tag_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
@@ -22654,52 +24700,56 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                let realm_prototype_offset =
-                    typed_array_realm_prototype_offset(builtin).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in porffor wasm-aot first slice: missing typed array realm prototype offset `{}`",
-                            builtin.debug_name()
-                        ))
-                    })?;
-                self.load_i64_to_local_from_offset(
-                    self.new_target_payload_local().unwrap(),
-                    realm_prototype_offset,
-                    prototype_payload_local,
-                    function,
-                );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+                for (constructor, _) in typed_array_constructor_bytes_per_element_entries() {
+                    let realm_prototype_offset =
+                        typed_array_realm_prototype_offset(constructor).ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in porffor wasm-aot first slice: missing typed array realm prototype offset `{}`",
+                                constructor.debug_name()
+                            ))
+                        })?;
+                    function.instruction(&Instruction::LocalGet(element_kind_local));
+                    function.instruction(&Instruction::I64Const(typed_array_element_kind(
+                        constructor,
+                    ) as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_to_local_from_offset(
+                        self.new_target_payload_local().unwrap(),
+                        realm_prototype_offset,
+                        prototype_payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::End);
+                }
                 function.instruction(&Instruction::LocalGet(prototype_payload_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.load_i64_to_local_from_offset(
-                    self.new_target_payload_local().unwrap(),
-                    HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
+                    self.current_env_local,
+                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
                     prototype_payload_local,
                     function,
                 );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(prototype_payload_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::GlobalGet(
+                    typed_array_constructor_global_index,
+                ));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+                self.load_i64_to_local_from_offset(
+                    prototype_payload_local,
+                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                    prototype_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(prototype_tag_local));
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(
-                        typed_array_realm_prototype_debug_slot(builtin).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in porffor wasm-aot first slice: missing typed array realm prototype debug slot `{}`",
-                                builtin.debug_name()
-                            ))
-                        })?,
-                    ),
-                ));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_object_read(
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    key_local,
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
                 self.emit_alloc_plain_object_with_prototype(
@@ -22742,14 +24792,10 @@ impl<'a> FunctionBuilder<'a> {
                     bytes_per_element_local,
                     function,
                 )?;
-                function.instruction(&Instruction::I64Const(
-                    typed_array_element_kind(builtin) as i64
-                ));
-                function.instruction(&Instruction::LocalSet(bytes_per_element_local));
                 self.emit_object_define_number_data_from_i64_local(
                     typed_array_object_local,
                     TYPED_ARRAY_ELEMENT_KIND_SLOT,
-                    bytes_per_element_local,
+                    element_kind_local,
                     function,
                 )?;
                 self.emit_object_define_bool_data(
@@ -22791,6 +24837,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(length_local);
                 self.release_temp_local(source_is_array_buffer_local);
                 self.release_temp_local(length_tracking_local);
+                self.release_temp_local(element_kind_local);
                 self.release_temp_local(bytes_per_element_local);
                 self.release_temp_local(byte_length_local);
                 self.release_temp_local(byte_offset_local);
@@ -22839,8 +24886,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -22868,8 +24914,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -23134,8 +25179,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -23163,8 +25207,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "DataView accessor requires DataView",
                     self.result_local,
                     self.result_tag_local,
@@ -26200,8 +28243,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Number.prototype method requires a Number receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -26210,8 +28252,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Number.prototype method requires a Number receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -26288,8 +28329,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "cannot convert value to BigInt",
                     self.result_local,
                     self.result_tag_local,
@@ -26298,8 +28338,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "cannot convert value to BigInt",
                     self.result_local,
                     self.result_tag_local,
@@ -26416,8 +28455,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -26578,8 +28616,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -26826,8 +28863,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Boolean.prototype method requires a Boolean receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -26836,8 +28872,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Boolean.prototype method requires a Boolean receiver",
                     self.result_local,
                     self.result_tag_local,
@@ -28686,6 +30721,10 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(error_arg_payload_local);
                     return Ok(());
                 }
+                if builtin != StandardBuiltinId::ErrorConstructor {
+                    self.emit_native_error_constructor_wrapper(builtin, function)?;
+                    return Ok(());
+                }
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();
                 let message_payload_local = self.reserve_temp_local();
@@ -28814,8 +30853,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Function.prototype.toString receiver is not callable",
                     self.result_local,
                     self.result_tag_local,
@@ -28992,8 +31030,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -29357,8 +31394,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -29509,8 +31545,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -30063,8 +32098,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -30317,8 +32351,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -30597,8 +32630,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -30843,17 +32875,20 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::RegExpConstructor => {
                 let object_local = self.reserve_temp_local();
+                let prototype_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let value_payload_local = self.reserve_temp_local();
                 let value_tag_local = self.reserve_temp_local();
                 let flags_payload_local = self.reserve_temp_local();
                 let flags_tag_local = self.reserve_temp_local();
 
-                self.emit_alloc_plain_object_with_prototype(
+                self.emit_error_new_target_prototype_to_local(
+                    REGEXP_PROTOTYPE_GLOBAL_INDEX,
                     None,
-                    Some(REGEXP_PROTOTYPE_GLOBAL_INDEX),
+                    prototype_local,
                     function,
                 )?;
+                self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
                 function.instruction(&Instruction::LocalSet(object_local));
 
                 self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
@@ -31009,6 +33044,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(value_tag_local);
                 self.release_temp_local(value_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(prototype_local);
                 self.release_temp_local(object_local);
             }
             StandardBuiltinId::JsonParse => {
@@ -31551,6 +33587,71 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
+            StandardBuiltinId::AtomicsAdd => {
+                self.emit_atomics_add(function)?;
+            }
+            StandardBuiltinId::AtomicsAnd => {
+                self.emit_atomics_and(function)?;
+            }
+            StandardBuiltinId::AtomicsCompareExchange => {
+                self.emit_atomics_compare_exchange(function)?;
+            }
+            StandardBuiltinId::AtomicsExchange => {
+                self.emit_atomics_exchange(function)?;
+            }
+            StandardBuiltinId::AtomicsLoad => {
+                self.emit_atomics_load(function)?;
+            }
+            StandardBuiltinId::AtomicsNotify => {
+                self.emit_atomics_notify(function)?;
+            }
+            StandardBuiltinId::AtomicsOr => {
+                self.emit_atomics_or(function)?;
+            }
+            StandardBuiltinId::AtomicsPause => {
+                self.emit_atomics_pause(function)?;
+            }
+            StandardBuiltinId::AtomicsStore => {
+                self.emit_atomics_store(function)?;
+            }
+            StandardBuiltinId::AtomicsSub => {
+                self.emit_atomics_sub(function)?;
+            }
+            StandardBuiltinId::AtomicsWait => {
+                self.emit_atomics_wait(function)?;
+            }
+            StandardBuiltinId::AtomicsWaitAsync => {
+                self.emit_atomics_wait_async(function)?;
+            }
+            StandardBuiltinId::AtomicsXor => {
+                self.emit_atomics_xor(function)?;
+            }
+            StandardBuiltinId::AtomicsIsLockFree => {
+                let size_payload_local = self.reserve_temp_local();
+                let size_tag_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, size_payload_local, size_tag_local, function);
+                self.emit_value_to_number_payload(size_tag_local, size_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(size_payload_local));
+                self.emit_return_current_completion_if_throw(function);
+
+                function.instruction(&Instruction::LocalGet(size_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
+                function.instruction(&Instruction::F64Ge);
+                function.instruction(&Instruction::LocalGet(size_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(5.0)));
+                function.instruction(&Instruction::F64Lt);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(size_tag_local);
+                self.release_temp_local(size_payload_local);
+            }
             StandardBuiltinId::RegExpLegacyStaticGetter
             | StandardBuiltinId::RegExpLegacyStaticSetter => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -31606,8 +33707,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "RegExp.escape input must be a string",
                     self.result_local,
                     self.result_tag_local,
@@ -31654,8 +33754,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -31751,8 +33850,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -31845,8 +33943,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -31895,8 +33992,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -31935,8 +34031,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -31983,8 +34078,7 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "String.prototype method receiver is null or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -32160,8 +34254,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Error.prototype.toString receiver is not object",
                     self.result_local,
                     self.result_tag_local,

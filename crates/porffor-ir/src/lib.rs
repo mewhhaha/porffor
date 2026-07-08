@@ -55,17 +55,22 @@ mod names;
 mod operations;
 pub(crate) use analysis::*;
 pub use builtins::{CallableToStringRepresentation, HostBuiltinId, StandardBuiltinId};
-pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, LoweringStage};
+pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage};
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
 pub use lowering::lower;
 pub(crate) use lowering_helpers::*;
 pub use operations::{
-    find_spec_operation, spec_operation_catalog, ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp,
-    CompletionAbruptKind, EqualityBinaryOp, LogicalBinaryOp, NumericUpdateOp,
-    OperationLoweringStatus, RelationalBinaryOp, SpecOperationCatalogEntry, SpecOperationFamily,
-    SpecOperationIr, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode, SPEC_OPERATION_CATALOG,
+    completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
+    AbstractRelationalComparisonResult, ArithmeticBinaryOp, ArraySpeciesCreateIr, BindingMode,
+    BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr,
+    CreateDataPropertyIr, DefinePropertyIr, EcmaLanguageType, EqualityBinaryOp,
+    IntegerIndexedConversionIr, IntegerIndexedElementType, IteratorRecordIr, IteratorRecordKind,
+    LogicalBinaryOp, NumericUpdateOp, OperationLoweringStatus, OrdinaryCreateFromConstructorIr,
+    PropertyDescriptorIr, PropertyDescriptorKind, RelationalBinaryOp, SpecOperationCatalogEntry,
+    SpecOperationFamily, SpecOperationIr, SpeciesConstructorIr, ToPrimitiveHint, UnaryNumericOp,
+    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
 };
 
 pub use names::*;
@@ -114,6 +119,19 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("module imports")));
+    }
+
+    #[test]
+    fn allows_non_prototype_proto_property_forms() {
+        let program = lower_script(r#"({ __proto__() { return 1; }, ["__proto__"]: 2 });"#);
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != Some("E_OBJECT_DUPLICATE_PROTO")),
+            "diagnostics: {:?}",
+            program.diagnostics
+        );
     }
 
     #[test]
@@ -215,7 +233,7 @@ mod tests {
     fn operations_lowers_boolean_call_to_to_boolean_spec_operation() {
         let program = lower_script("Boolean(globalThis.flag);");
         assert!(program.is_wasm_supported());
-        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("spec_operations=2"));
         let script = program.script.as_ref().expect("script ir should exist");
         let StatementIr::Expression(expr) = &script.body.statements[0] else {
             panic!("expected expression statement");
@@ -229,6 +247,268 @@ mod tests {
         };
         assert_eq!(*operation, SpecOperationIr::ToBoolean);
         assert_eq!(operands.len(), 1);
+        assert!(matches!(
+            operands[0].expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn operations_lowers_host_is_constructor_call_to_spec_operation() {
+        let program = lower_script("let value = function C() {}; __porfIsConstructor(value);");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected __porfIsConstructor call to lower to a spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::IsConstructor);
+        assert_eq!(operands.len(), 1);
+    }
+
+    #[test]
+    fn operations_lowers_number_call_to_to_number_spec_operation() {
+        let program = lower_script("let value = \"42\"; Number(value);");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::ToNumber);
+        assert_eq!(operands.len(), 1);
+    }
+
+    #[test]
+    fn operations_keeps_bigint_number_call_off_to_number_spec_operation() {
+        let program = lower_script("let value = 1n; Number(value);");
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        assert!(!matches!(
+            expr.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToNumber,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn bigint_literal_ir_preserves_arbitrary_precision_decimal() {
+        let program = lower_script("184467440737095516161234567890n;");
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::BigInt(value) = &expr.expr else {
+            panic!("expected BigInt literal");
+        };
+
+        assert_eq!(value.decimal, "184467440737095516161234567890");
+        assert!(value.requires_arbitrary_precision_storage);
+        assert_eq!(
+            value.wrapping_payload(),
+            184467440737095516161234567890_u128 as u64
+        );
+    }
+
+    #[test]
+    fn bigint_constant_fold_uses_arbitrary_precision_decimal() {
+        let program = lower_script("184467440737095516161234567890n + 10n;");
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::BigInt(value) = &expr.expr else {
+            panic!("expected folded BigInt literal");
+        };
+
+        assert_eq!(value.decimal, "184467440737095516161234567900");
+        assert!(value.requires_arbitrary_precision_storage);
+    }
+
+    #[test]
+    fn operations_lowers_string_call_to_to_string_spec_operation() {
+        let program = lower_script("let value = 42; String(value);");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::ToString);
+        assert_eq!(operands.len(), 1);
+    }
+
+    #[test]
+    fn operations_lowers_strict_equality_to_spec_operation() {
+        let program = lower_script("let value = 1; value === 1;");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected strict equality to lower to a spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::StrictEqualityComparison);
+        assert_eq!(operands.len(), 2);
+    }
+
+    #[test]
+    fn operations_lowers_strict_not_equal_to_logical_not_spec_operation() {
+        let program = lower_script("let value = 1; value !== 2;");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::LogicalNot { expr } = &expr.expr else {
+            panic!("expected strict not equal to lower to logical not");
+        };
+        assert!(matches!(
+            expr.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::StrictEqualityComparison,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn operations_lowers_loose_equality_to_spec_operation() {
+        let program = lower_script("let value = 1; value == \"1\";");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected loose equality to lower to a spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::IsLooselyEqual);
+        assert_eq!(operands.len(), 2);
+    }
+
+    #[test]
+    fn operations_lowers_loose_not_equal_to_logical_not_spec_operation() {
+        let program = lower_script("let value = 1; value != \"2\";");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::LogicalNot { expr } = &expr.expr else {
+            panic!("expected loose not equal to lower to logical not");
+        };
+        assert!(matches!(
+            expr.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::IsLooselyEqual,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn operations_lowers_object_is_to_same_value_spec_operation() {
+        let program = lower_script("Object.is(NaN, NaN);");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected Object.is to lower to a spec operation");
+        };
+        assert_eq!(*operation, SpecOperationIr::SameValue);
+        assert_eq!(operands.len(), 2);
+    }
+
+    #[test]
+    fn operations_lowers_generic_object_property_read_to_get_v_spec_operation() {
+        let program = lower_script("let object = {}; object.missing;");
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("spec_operations=1"));
+        assert!(summary.contains("property_reads=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected generic property read to lower to GetV");
+        };
+        assert_eq!(*operation, SpecOperationIr::GetV);
+        assert_eq!(operands.len(), 2);
+    }
+
+    #[test]
+    fn operations_lowers_in_operator_to_has_property_spec_operation() {
+        let program = lower_script("let object = {}; \"missing\" in object;");
+        assert!(program.is_wasm_supported());
+        let summary = program.ir_summary();
+        assert!(summary.contains("spec_operations=1"));
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected in operator to lower to HasProperty");
+        };
+        assert_eq!(*operation, SpecOperationIr::HasProperty);
+        assert_eq!(operands.len(), 2);
     }
 
     #[test]
@@ -296,7 +576,7 @@ mod tests {
         let program = lower_script("1 == \"1\"; \"2\" - 1; \"10\" > \"2\"; void 1; (1, 2);");
         assert!(program.is_wasm_supported());
         let summary = program.ir_summary();
-        assert!(summary.contains("loose_equalities=1"));
+        assert!(summary.contains("spec_operations=1"));
         assert!(summary.contains("coercive_numeric_ops=1"));
         assert!(summary.contains("coercive_relational_ops=1"));
         assert!(summary.contains("void_uses=1"));
@@ -318,8 +598,7 @@ mod tests {
         let program = lower_script("let object = {}; object == undefined; null != object;");
         assert!(program.is_wasm_supported());
         let summary = program.ir_summary();
-        assert!(summary.contains("loose_equalities=2"));
-        assert!(summary.contains("heap_loose_equalities=2"));
+        assert!(summary.contains("spec_operations=2"));
     }
 
     #[test]

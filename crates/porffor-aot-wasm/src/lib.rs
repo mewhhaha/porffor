@@ -15,20 +15,20 @@ use porffor_ir::{
     ValueInfo, ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_DATA_PTR_SLOT, ARRAY_BUFFER_IMMUTABLE_SLOT, ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_NAME, ARRAY_BUFFER_RESIZABLE_SLOT, ARRAY_BUFFER_SHARED_SLOT, ARRAY_NAME,
-    BOOLEAN_NAME, DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT, DATA_VIEW_DATA_PTR_SLOT,
-    DATA_VIEW_LENGTH_TRACKING_SLOT, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
-    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
-    LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, NUMBER_NAME, OBJECT_NAME,
-    PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
-    PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME,
-    REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME,
-    SUPPRESSED_ERROR_NAME, SYNTAX_ERROR_NAME, TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
-    TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT, TYPED_ARRAY_ELEMENT_KIND_SLOT,
-    TYPED_ARRAY_LENGTH_TRACKING_SLOT, TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT, TYPE_ERROR_NAME,
-    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
-    URI_ERROR_NAME,
+    ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT,
+    DATA_VIEW_DATA_PTR_SLOT, DATA_VIEW_LENGTH_TRACKING_SLOT, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
+    FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
+    INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
+    JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_NEW_TARGET_NAME,
+    LEXICAL_THIS_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PORFFOR_GENERATOR_THROW_SLOT,
+    PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT, PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME,
+    PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
+    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYNTAX_ERROR_NAME,
+    TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT, TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT,
+    TYPED_ARRAY_ELEMENT_KIND_SLOT, TYPED_ARRAY_LENGTH_TRACKING_SLOT,
+    TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME,
+    UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
 use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
 
@@ -92,7 +92,7 @@ static EMPTY_BLOCK: LazyLock<BlockIr> = LazyLock::new(|| BlockIr {
 mod tests {
     use super::*;
     use porffor_front::{parse, ParseOptions};
-    use porffor_ir::lower;
+    use porffor_ir::{lower, BigIntLiteralIr};
     use wasmi::{Engine as WasmiEngine, Module as WasmiModule};
     use wasmparser::{Operator, Parser, Payload};
 
@@ -103,11 +103,576 @@ mod tests {
 
     #[test]
     fn operations_emits_to_boolean_spec_operation() {
-        let source =
-            parse("Boolean(globalThis.flag);", ParseOptions::script()).expect("script should parse");
+        let source = parse("Boolean(globalThis.flag);", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=2"));
+        let artifact = emit(&program).expect("spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_numeric_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_to_numeric(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::BigInt),
+                ExprIr::BigInt(BigIntLiteralIr::from_i64(1)),
+            )));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToNumeric spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn rejects_arbitrary_precision_bigint_literal_until_heap_storage_lands() {
+        let source = parse("184467440737095516161234567890n;", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        let err = emit(&program).expect_err("arbitrary precision BigInt should not truncate");
+        let message = err.to_string();
+        assert!(
+            message.contains("BigInt literal requires heap-backed arbitrary precision storage"),
+            "{}",
+            message
+        );
+    }
+
+    #[test]
+    fn operations_emits_is_callable_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_is_callable(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Function),
+                ExprIr::FunctionValue(StandardBuiltinId::MathMax.function_id()),
+            )));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("IsCallable spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn planning_roots_number_static_method_reached_through_getv_call() {
+        let source = parse(
+            r#"
+            let actual = Number.isNaN(NaN);
+            if (actual !== true) throw actual;
+            if (Number.isNaN("NaN") !== false) throw "string must not coerce";
+            if (Number.isFinite(Infinity) !== false) throw "infinity must stay non-finite";
+            262;
+            "#,
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        assert!(script_references_standard_builtin(
+            script,
+            StandardBuiltinId::NumberIsNaN
+        ));
+        assert!(!should_stub_standard_builtin(
+            script,
+            StandardBuiltinId::NumberIsNaN
+        ));
+        assert!(script_references_standard_builtin(
+            script,
+            StandardBuiltinId::NumberIsFinite
+        ));
+        assert!(!should_stub_standard_builtin(
+            script,
+            StandardBuiltinId::NumberIsFinite
+        ));
+    }
+
+    #[test]
+    fn operations_emits_is_constructor_spec_operation() {
+        let source = parse(
+            "let value = function C() {}; __porfIsConstructor(value);",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
         let program = lower(&source);
         assert!(program.ir_summary().contains("spec_operations=1"));
-        let artifact = emit(&program).expect("spec operation should emit");
+        let artifact = emit(&program).expect("IsConstructor spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_is_property_key_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_is_property_key(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("key".to_string()),
+            )));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("IsPropertyKey spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_number_spec_operation() {
+        let source = parse("let value = \"42\"; Number(value);", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToNumber spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_primitive_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_to_primitive(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::ObjectLiteral(vec![]),
+            ),
+            ToPrimitiveHint::String,
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToPrimitive spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_bigint_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_to_bigint(
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Boolean), ExprIr::Boolean(true)),
+        ));
+        script.body.result_kind = ValueKind::BigInt;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToBigInt spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_string_spec_operation() {
+        let source = parse("let value = 42; String(value);", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToString spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_object_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_to_object(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("boxed".to_string()),
+            )));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToObject spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_property_key_spec_operation_for_string_result() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_to_property_key(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(7.0f64.to_bits()),
+            )));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToPropertyKey spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_property_key_spec_operation_for_symbol_result() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_to_property_key(
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol),
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToPropertyKey symbol spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_integer_or_infinity_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(
+            TypedExpr::spec_to_integer_or_infinity(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("-3.7".to_string()),
+            )),
+        );
+        script.body.result_kind = ValueKind::Number;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToIntegerOrInfinity spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_length_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_to_length(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("3.7".to_string()),
+            )));
+        script.body.result_kind = ValueKind::Number;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToLength spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_to_index_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_to_index(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("3".to_string()),
+            )));
+        script.body.result_kind = ValueKind::Number;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("ToIndex spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_strict_equality_spec_operation() {
+        let source = parse("let value = 1; value === 1;", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("StrictEqualityComparison spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_loose_equality_spec_operation() {
+        let source = parse("let value = 1; value == \"1\";", ParseOptions::script())
+            .expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("IsLooselyEqual spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_same_value_spec_operation() {
+        let source =
+            parse("Object.is(NaN, NaN);", ParseOptions::script()).expect("script should parse");
+        let program = lower(&source);
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("SameValue spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_same_value_zero_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_same_value_zero(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(0.0f64.to_bits()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number((-0.0f64).to_bits()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("SameValueZero spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_get_v_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get_v(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("GetV spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_get_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("Get spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_has_property_spec_operation() {
+        let source =
+            parse("\"flag\" in globalThis;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_has_property(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("HasProperty spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_create_data_property_or_throw_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_create_data_property_or_throw(
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ),
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::String),
+                    ExprIr::String("flag".to_string()),
+                ),
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::Number(1.0f64.to_bits()),
+                ),
+            ));
+        script.body.result_kind = ValueKind::Undefined;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("property_writes=1"));
+        let artifact =
+            emit(&program).expect("CreateDataPropertyOrThrow spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_set_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_set(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0f64.to_bits()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("property_writes=1"));
+        let artifact = emit(&program).expect("Set spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_delete_property_or_throw_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] =
+            StatementIr::Expression(TypedExpr::spec_delete_property_or_throw(
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ),
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::String),
+                    ExprIr::String("flag".to_string()),
+                ),
+            ));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("deletes=1"));
+        let artifact = emit(&program).expect("DeletePropertyOrThrow spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_has_own_property_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_has_own_property(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Boolean;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        let artifact = emit(&program).expect("HasOwnProperty spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_get_method_spec_operation() {
+        let source =
+            parse("globalThis.flag;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get_method(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("flag".to_string()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("property_reads=1"));
+        let artifact = emit(&program).expect("GetMethod spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_call_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_call(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Function),
+                ExprIr::FunctionValue(StandardBuiltinId::MathMax.function_id()),
+            ),
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Undefined), ExprIr::Undefined),
+            vec![TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0f64.to_bits()),
+            )],
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("calls=1"));
+        let artifact = emit(&program).expect("Call spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn operations_emits_construct_spec_operation() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_construct(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Function),
+                ExprIr::FunctionValue(StandardBuiltinId::ArrayConstructor.function_id()),
+            ),
+            vec![TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0f64.to_bits()),
+            )],
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        assert!(program.ir_summary().contains("spec_operations=1"));
+        assert!(program.ir_summary().contains("constructs=1"));
+        let artifact = emit(&program).expect("Construct spec operation should emit");
         assert!(!artifact.bytes.is_empty());
     }
 
@@ -492,10 +1057,10 @@ desc;
     }
 
     #[test]
-    fn supports_noop_host_gc_builtin() {
+    fn supports_host_gc_builtin_as_explicit_unsupported_throw() {
         let artifact = emit_script("if (typeof gc === \"function\") { gc(); }")
             .expect("gc host builtin should emit");
-        expect_valid_module(&artifact, 0);
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]

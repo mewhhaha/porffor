@@ -81,10 +81,18 @@ pub(crate) const BIGUINT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 69;
 pub(crate) const REGEXP_PROTOTYPE_SYMBOL_SEARCH_GLOBAL_INDEX: u32 = 70;
 pub(crate) const REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_GLOBAL_INDEX: u32 = 71;
 pub(crate) const ARRAY_TYPED_ARRAY_TO_STRING_GLOBAL_INDEX: u32 = 72;
+pub(crate) const CURRENT_REALM_GLOBAL_INDEX: u32 = 73;
+pub(crate) const ATOMICS_OBJECT_GLOBAL_INDEX: u32 = 74;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
-pub(crate) const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 2;
+pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
+pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
+pub(crate) const OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX: u32 = 4;
+pub(crate) const FUNCTION_OBJECT_ALLOC_TYPE_INDEX: u32 = 5;
+pub(crate) const PLAIN_OBJECT_ALLOC_TYPE_INDEX: u32 = 6;
+pub(crate) const ARRAY_ALLOC_TYPE_INDEX: u32 = 7;
+pub(crate) const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 8;
 pub(crate) const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,6 +394,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%ArrayTypedArrayToString%",
         index: ARRAY_TYPED_ARRAY_TO_STRING_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "[[CurrentRealm]]",
+        index: CURRENT_REALM_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Atomics",
+        index: ATOMICS_OBJECT_GLOBAL_INDEX,
+    },
 ];
 
 pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Option<u32> {
@@ -559,11 +575,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ReflectConstruct
         | StandardBuiltinId::ReflectApply
         | StandardBuiltinId::ReflectGet
+        | StandardBuiltinId::ReflectGetPrototypeOf
         | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
         | StandardBuiltinId::ReflectSet
         | StandardBuiltinId::ReflectHas
         | StandardBuiltinId::ReflectDefineProperty
         | StandardBuiltinId::ReflectDeleteProperty
+        | StandardBuiltinId::ReflectIsExtensible
         | StandardBuiltinId::ReflectPreventExtensions
         | StandardBuiltinId::ReflectSetPrototypeOf
         | StandardBuiltinId::ReflectOwnKeys
@@ -622,6 +640,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IteratorPrototypeSymbolDispose
         | StandardBuiltinId::IteratorPrototypeToStringTagGetter
         | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+        | StandardBuiltinId::IteratorFromWrapperNext
         | StandardBuiltinId::IteratorFromWrapperReturn
         | StandardBuiltinId::ArrayBufferIsView
         | StandardBuiltinId::BigIntAsIntN
@@ -737,6 +756,20 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::JsonStringify
         | StandardBuiltinId::JsonRawJson
         | StandardBuiltinId::JsonIsRawJson
+        | StandardBuiltinId::AtomicsAdd
+        | StandardBuiltinId::AtomicsAnd
+        | StandardBuiltinId::AtomicsCompareExchange
+        | StandardBuiltinId::AtomicsExchange
+        | StandardBuiltinId::AtomicsLoad
+        | StandardBuiltinId::AtomicsNotify
+        | StandardBuiltinId::AtomicsOr
+        | StandardBuiltinId::AtomicsPause
+        | StandardBuiltinId::AtomicsSub
+        | StandardBuiltinId::AtomicsStore
+        | StandardBuiltinId::AtomicsWait
+        | StandardBuiltinId::AtomicsWaitAsync
+        | StandardBuiltinId::AtomicsXor
+        | StandardBuiltinId::AtomicsIsLockFree
         | StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape => None,
     }

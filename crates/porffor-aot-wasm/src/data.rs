@@ -165,6 +165,7 @@ impl StringPool {
             DATA_VIEW_NAME,
             DATE_NAME,
             REGEXP_NAME,
+            MATH_NAME,
             JSON_NAME,
             FLOAT64_ARRAY_NAME,
             FLOAT32_ARRAY_NAME,
@@ -434,6 +435,9 @@ impl StringPool {
             "Iterator.prototype[Symbol.dispose] return method must be callable",
             "Iterator.prototype.constructor setter called on incompatible receiver",
             "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
+            "Iterator.from wrapper next called on incompatible receiver",
+            "Iterator.from wrapper next method must be callable",
+            "Iterator.from wrapper next result must be object",
             "Iterator.from wrapper return called on incompatible receiver",
             "Iterator.from wrapper return method must be callable",
             "Iterator.from wrapper return result must be object",
@@ -471,8 +475,12 @@ impl StringPool {
             "isArray",
             "isView",
             "isInteger",
+            "isSafeInteger",
             "isFinite",
             "isNaN",
+            "isError",
+            "escape",
+            "unescape",
             "asIntN",
             "asUintN",
             "E",
@@ -600,10 +608,53 @@ impl StringPool {
             "(?:)",
             "source",
             "flags",
+            "gc requires a real collector in wasm-aot",
             "parse",
             "stringify",
             "rawJSON",
             "isRawJSON",
+            "add",
+            "and",
+            "compareExchange",
+            "exchange",
+            "load",
+            "notify",
+            "or",
+            "pause",
+            "store",
+            "sub",
+            "wait",
+            "waitAsync",
+            "xor",
+            "Atomics.add requires an integer typed array",
+            "Atomics.and requires an integer typed array",
+            "Atomics.compareExchange requires an integer typed array",
+            "Atomics.exchange requires an integer typed array",
+            "Atomics.load requires an integer typed array",
+            "Atomics.notify requires an Int32Array",
+            "Atomics.or requires an integer typed array",
+            "Atomics.pause iterationNumber must be a finite integral Number",
+            "Atomics.store requires an integer typed array",
+            "Atomics.sub requires an integer typed array",
+            "Atomics.wait requires a shared Int32Array or BigInt64Array",
+            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
+            "Atomics.xor requires an integer typed array",
+            "Atomics.add index out of range",
+            "Atomics.and index out of range",
+            "Atomics.compareExchange index out of range",
+            "Atomics.exchange index out of range",
+            "Atomics.load index out of range",
+            "Atomics.notify index out of range",
+            "Atomics.or index out of range",
+            "Atomics.store index out of range",
+            "Atomics.sub index out of range",
+            "Atomics.wait blocking wait queues unsupported in wasm-aot",
+            "Atomics.wait index out of range",
+            "Atomics.waitAsync blocking wait queues unsupported in wasm-aot",
+            "Atomics.waitAsync index out of range",
+            "not-equal",
+            "timed-out",
+            "Atomics.xor index out of range",
             "toJSON",
             "hasIndices",
             "ignoreCase",
@@ -645,6 +696,7 @@ impl StringPool {
             "DataView",
             "get",
             "set",
+            "async",
             "value",
             "next",
             "done",
@@ -689,10 +741,12 @@ impl StringPool {
             "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
             "Reflect.defineProperty target must be object",
+            "Reflect.getPrototypeOf target must be object",
             "Reflect.getOwnPropertyDescriptor target must be object",
             "Reflect.set target must be object",
             "deleteProperty",
             "Reflect.deleteProperty target must be object",
+            "Reflect.isExtensible target must be object",
             "Reflect.preventExtensions target must be object",
             "Reflect.ownKeys target must be object",
             "Proxy deleteProperty trap is not callable",
@@ -803,6 +857,7 @@ impl StringPool {
             "Array.prototype.filter cannot define non-configurable target property",
             "Invalid array length",
             "Object.prototype.valueOf called on null or undefined",
+            "Cannot convert undefined or null to object",
             "Object.setPrototypeOf target must be object",
             "Object.setPrototypeOf prototype must be object or null",
             "Object.setPrototypeOf returned false",
@@ -968,6 +1023,12 @@ impl StringPool {
         for meta in function_metas.values() {
             pool.intern_string(&meta.name);
             pool.intern_string(&meta.to_string_value);
+        }
+        for builtin in StandardBuiltinId::all_functions() {
+            pool.intern_string(&format!(
+                "standard builtin body is not emitted unless referenced directly: {}",
+                builtin.debug_name()
+            ));
         }
         for function in &script.functions {
             for param in &function.params {
@@ -1213,6 +1274,56 @@ impl StringPool {
             | ExprIr::LogicalNot { expr: value }
             | ExprIr::Void { expr: value }
             | ExprIr::DeleteValue { expr: value } => self.collect_expr(value),
+            ExprIr::SpecOperation {
+                operation,
+                operands,
+            } => {
+                if matches!(operation, SpecOperationIr::ToIndex) {
+                    self.intern_string("ToIndex out of range");
+                }
+                if matches!(operation, SpecOperationIr::CreateDataPropertyOrThrow) {
+                    self.uses_heap = true;
+                    self.intern_string("value");
+                    self.intern_string("writable");
+                    self.intern_string("enumerable");
+                    self.intern_string("configurable");
+                    self.intern_string(
+                        "CreateDataPropertyOrThrow symbol property keys are not supported",
+                    );
+                    self.intern_string("CreateDataPropertyOrThrow target is not an object");
+                    self.intern_string("Cannot redefine non-configurable property");
+                    self.intern_string("Cannot define property on non-extensible object");
+                }
+                if matches!(operation, SpecOperationIr::Set) {
+                    self.uses_heap = true;
+                    self.intern_string("Set symbol property keys are not supported");
+                    self.intern_string("Set target is not an object");
+                }
+                if matches!(operation, SpecOperationIr::HasOwnProperty) {
+                    self.uses_heap = true;
+                    self.intern_string("HasOwnProperty target is not an object");
+                }
+                if matches!(operation, SpecOperationIr::GetMethod) {
+                    self.uses_heap = true;
+                    self.intern_string("GetMethod target is not callable");
+                }
+                if matches!(operation, SpecOperationIr::Construct) {
+                    self.uses_heap = true;
+                    self.intern_string("target is not a constructor");
+                    self.intern_string("Spread argument is not an array");
+                }
+                if matches!(operation, SpecOperationIr::DeletePropertyOrThrow) {
+                    self.uses_heap = true;
+                    self.intern_string(
+                        "DeletePropertyOrThrow symbol property keys are not supported",
+                    );
+                    self.intern_string("DeletePropertyOrThrow target is not an object");
+                    self.intern_string("Cannot delete property");
+                }
+                for operand in operands {
+                    self.collect_expr(operand);
+                }
+            }
             ExprIr::DeleteIdentifier { name, .. } | ExprIr::DeleteGlobalProperty { name } => {
                 self.uses_heap = true;
                 self.intern_string(name);

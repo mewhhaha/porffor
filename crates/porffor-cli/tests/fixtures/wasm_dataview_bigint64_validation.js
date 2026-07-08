@@ -1,5 +1,6 @@
 let buffer = new ArrayBuffer(32);
 let view = new DataView(buffer, 1, 24);
+let maxUint64 = BigInt.asUintN(64, BigInt(-1));
 
 view.setBigUint64(0, 0x0102030405060708n);
 let bigEndian = view.getBigUint64(0);
@@ -44,8 +45,8 @@ __porfAssertThrows(TypeError, function () {
   detachedView.setBigInt64(0, 1n);
 });
 
-(bigEndian === 0x0102030405060708n) +
+  (bigEndian === 0x0102030405060708n) +
   (reversed === 0x0807060504030201n) +
   (signedLittle === -1n) +
-  (unsignedLittle === 0xffffffffffffffffn) +
+  (unsignedLittle === maxUint64) +
   (customOffset === 255n);

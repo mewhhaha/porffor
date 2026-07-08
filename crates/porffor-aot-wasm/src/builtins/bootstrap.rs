@@ -51,8 +51,32 @@ impl<'a> FunctionBuilder<'a> {
                     self.scratch_local,
                     function,
                 );
+                self.store_i64_const_at_offset(
+                    object_local,
+                    HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                    ValueKind::Function.tag() as u64,
+                    function,
+                );
             }
             if is_typed_array_constructor(builtin) {
+                self.store_i64_local_at_offset(
+                    object_local,
+                    HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                    object_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    object_local,
+                    HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+                    typed_array_bytes_per_element(builtin),
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    object_local,
+                    HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+                    typed_array_element_kind(builtin),
+                    function,
+                );
                 function.instruction(&Instruction::GlobalGet(
                     TYPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
                 ));
@@ -61,6 +85,12 @@ impl<'a> FunctionBuilder<'a> {
                     object_local,
                     HEAP_PROTOTYPE_OFFSET,
                     self.scratch_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    object_local,
+                    HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                    ValueKind::Function.tag() as u64,
                     function,
                 );
                 self.emit_alloc_plain_object_with_prototype(
@@ -139,11 +169,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(tag_local));
                 function.instruction(&Instruction::GlobalGet(prototype_global_index));
                 function.instruction(&Instruction::LocalSet(prototype_object_local));
-                self.emit_object_define_data(
+                self.emit_object_append_data_property_with_flags(
                     prototype_object_local,
                     key_local,
                     payload_local,
                     tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
             }
@@ -588,11 +621,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_define_data(
+                self.emit_object_append_data_property_with_flags(
                     object_local,
                     key_local,
                     payload_local,
                     tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
@@ -603,11 +639,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_define_data(
+                self.emit_object_append_data_property_with_flags(
                     object_local,
                     key_local,
                     payload_local,
                     tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
@@ -620,11 +659,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_define_data(
+                self.emit_object_append_data_property_with_flags(
                     object_local,
                     key_local,
                     payload_local,
                     tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
                 function.instruction(&Instruction::GlobalGet(REGEXP_CONSTRUCTOR_GLOBAL_INDEX));
@@ -660,11 +702,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_define_accessor(
+                self.emit_object_append_accessor_property_with_flags(
                     object_local,
                     key_local,
                     Some((payload_local, tag_local)),
                     None,
+                    false,
+                    true,
                     function,
                 )?;
                 let getter_meta = self
@@ -698,11 +742,13 @@ impl<'a> FunctionBuilder<'a> {
                 for name in ["input", "$_"] {
                     function.instruction(&Instruction::I64Const(self.strings.payload(name)));
                     function.instruction(&Instruction::LocalSet(key_local));
-                    self.emit_object_define_accessor(
+                    self.emit_object_append_accessor_property_with_flags(
                         object_local,
                         key_local,
                         Some(getter),
                         Some(setter),
+                        false,
+                        true,
                         function,
                     )?;
                 }
@@ -728,11 +774,13 @@ impl<'a> FunctionBuilder<'a> {
                     let payload = self.strings.payload(name);
                     function.instruction(&Instruction::I64Const(payload));
                     function.instruction(&Instruction::LocalSet(key_local));
-                    self.emit_object_define_accessor(
+                    self.emit_object_append_accessor_property_with_flags(
                         object_local,
                         key_local,
                         Some(getter),
                         None,
+                        false,
+                        true,
                         function,
                     )?;
                 }
@@ -869,6 +917,14 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.return`",
                         )
                     })?;
+                let wrapper_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorFromWrapperNext.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.next`",
+                        )
+                    })?;
                 let iterator_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayIteratorIdentity.function_id())
@@ -998,11 +1054,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(setter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(setter_tag_local));
-                self.emit_object_define_accessor(
+                self.emit_object_append_accessor_property_with_flags(
                     prototype_object_local,
                     key_local,
                     Some((payload_local, tag_local)),
                     Some((setter_payload_local, setter_tag_local)),
+                    false,
+                    true,
                     function,
                 )?;
                 self.emit_object_define_function_data(
@@ -1029,17 +1087,25 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(setter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(setter_tag_local));
-                self.emit_object_define_accessor(
+                self.emit_object_append_accessor_property_with_flags(
                     prototype_object_local,
                     key_local,
                     Some((payload_local, tag_local)),
                     Some((setter_payload_local, setter_tag_local)),
+                    false,
+                    true,
                     function,
                 )?;
                 function.instruction(&Instruction::GlobalGet(
                     ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX,
                 ));
                 function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "next",
+                    wrapper_next_meta,
+                    function,
+                )?;
                 self.emit_object_define_function_data(
                     prototype_object_local,
                     "return",
@@ -1099,11 +1165,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(getter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_define_accessor(
+                self.emit_object_append_accessor_property_with_flags(
                     object_local,
                     key_local,
                     Some((getter_payload_local, getter_tag_local)),
                     None,
+                    false,
+                    true,
                     function,
                 )?;
                 self.release_temp_local(getter_tag_local);
@@ -1546,11 +1614,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(getter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_define_accessor(
+                self.emit_object_append_accessor_property_with_flags(
                     object_local,
                     key_local,
                     Some((getter_payload_local, getter_tag_local)),
                     None,
+                    false,
+                    true,
                     function,
                 )?;
 
@@ -1576,11 +1646,13 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(getter_payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                     function.instruction(&Instruction::LocalSet(getter_tag_local));
-                    self.emit_object_define_accessor(
+                    self.emit_object_append_accessor_property_with_flags(
                         object_local,
                         key_local,
                         Some((getter_payload_local, getter_tag_local)),
                         None,
+                        false,
+                        true,
                         function,
                     )?;
                 }
@@ -1622,11 +1694,13 @@ impl<'a> FunctionBuilder<'a> {
                         function
                             .instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                         function.instruction(&Instruction::LocalSet(getter_tag_local));
-                        self.emit_object_define_accessor(
+                        self.emit_object_append_accessor_property_with_flags(
                             object_local,
                             key_local,
                             Some((getter_payload_local, getter_tag_local)),
                             None,
+                            false,
+                            true,
                             function,
                         )?;
                     }
@@ -1658,11 +1732,13 @@ impl<'a> FunctionBuilder<'a> {
                         function
                             .instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                         function.instruction(&Instruction::LocalSet(getter_tag_local));
-                        self.emit_object_define_accessor(
+                        self.emit_object_append_accessor_property_with_flags(
                             object_local,
                             key_local,
                             Some((getter_payload_local, getter_tag_local)),
                             None,
+                            false,
+                            true,
                             function,
                         )?;
                     }
@@ -1733,7 +1809,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(getter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_define_data_with_configurable(
+                self.emit_object_append_data_property_with_flags(
                     object_local,
                     key_local,
                     getter_payload_local,
@@ -1777,11 +1853,13 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(getter_payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                     function.instruction(&Instruction::LocalSet(getter_tag_local));
-                    self.emit_object_define_accessor(
+                    self.emit_object_append_accessor_property_with_flags(
                         prototype_object_local,
                         key_local,
                         Some((getter_payload_local, getter_tag_local)),
                         None,
+                        false,
+                        true,
                         function,
                     )?;
                 }
@@ -1844,11 +1922,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(getter_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_define_data(
+                self.emit_object_append_data_property_with_flags(
                     prototype_object_local,
                     key_local,
                     getter_payload_local,
                     getter_tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
                 self.release_temp_local(getter_tag_local);
@@ -1963,18 +2044,34 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
                     self.emit_object_define_function_data(object_local, name, meta, function)?;
                 }
-                self.emit_object_define_function_data(
+                let utc_payload_local = self.reserve_temp_local();
+                let utc_tag_local = self.reserve_temp_local();
+                self.emit_function_value_payload(utc_meta, function)?;
+                function.instruction(&Instruction::LocalSet(utc_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(utc_tag_local));
+                self.emit_object_append_local_data_property_with_flags(
                     object_local,
                     "toUTCString",
-                    utc_meta,
+                    utc_payload_local,
+                    utc_tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
-                self.emit_object_define_function_data(
+                self.emit_object_append_local_data_property_with_flags(
                     object_local,
                     "toGMTString",
-                    utc_meta,
+                    utc_payload_local,
+                    utc_tag_local,
+                    true,
+                    false,
+                    true,
                     function,
                 )?;
+                self.release_temp_local(utc_tag_local);
+                self.release_temp_local(utc_payload_local);
             }
             StandardBuiltinId::ErrorConstructor => {
                 let prototype_object_local = self.reserve_temp_local();
@@ -2066,7 +2163,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_define_data_with_configurable(
+                self.emit_object_append_data_property_with_flags(
                     prototype_object_local,
                     key_local,
                     payload_local,
@@ -2134,7 +2231,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
-                    self.emit_object_define_data_with_configurable(
+                    self.emit_object_append_data_property_with_flags(
                         object_local,
                         key_local,
                         payload_local,
@@ -2356,11 +2453,13 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ReflectConstruct
             | StandardBuiltinId::ReflectApply
             | StandardBuiltinId::ReflectGet
+            | StandardBuiltinId::ReflectGetPrototypeOf
             | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
             | StandardBuiltinId::ReflectSet
             | StandardBuiltinId::ReflectHas
             | StandardBuiltinId::ReflectDefineProperty
             | StandardBuiltinId::ReflectDeleteProperty
+            | StandardBuiltinId::ReflectIsExtensible
             | StandardBuiltinId::ReflectPreventExtensions
             | StandardBuiltinId::ReflectSetPrototypeOf
             | StandardBuiltinId::ReflectOwnKeys
@@ -2468,6 +2567,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::IteratorPrototypeSymbolDispose
             | StandardBuiltinId::IteratorPrototypeToStringTagGetter
             | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+            | StandardBuiltinId::IteratorFromWrapperNext
             | StandardBuiltinId::IteratorFromWrapperReturn
             | StandardBuiltinId::ArrayBufferIsView
             | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
@@ -2607,6 +2707,20 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::JsonStringify
             | StandardBuiltinId::JsonRawJson
             | StandardBuiltinId::JsonIsRawJson
+            | StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsNotify
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsPause
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsWait
+            | StandardBuiltinId::AtomicsWaitAsync
+            | StandardBuiltinId::AtomicsXor
+            | StandardBuiltinId::AtomicsIsLockFree
             | StandardBuiltinId::EvalFunction
             | StandardBuiltinId::ThrowTypeError
             | StandardBuiltinId::Escape
@@ -2650,11 +2764,13 @@ impl<'a> FunctionBuilder<'a> {
         for name in ["arguments", "caller"] {
             function.instruction(&Instruction::I64Const(self.strings.payload(name)));
             function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_define_accessor(
+            self.emit_object_append_accessor_property_with_flags(
                 function_prototype_local,
                 key_local,
                 Some((thrower_payload_local, thrower_tag_local)),
                 Some((thrower_payload_local, thrower_tag_local)),
+                false,
+                true,
                 function,
             )?;
         }
@@ -2690,6 +2806,14 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.get`",
+                )
+            })?;
+        let get_prototype_of_meta = self
+            .functions
+            .get(&StandardBuiltinId::ReflectGetPrototypeOf.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.getPrototypeOf`",
                 )
             })?;
         let get_own_property_descriptor_meta = self
@@ -2732,6 +2856,14 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.deleteProperty`",
                 )
             })?;
+        let is_extensible_meta = self
+            .functions
+            .get(&StandardBuiltinId::ReflectIsExtensible.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.isExtensible`",
+                )
+            })?;
         let prevent_extensions_meta = self
             .functions
             .get(&StandardBuiltinId::ReflectPreventExtensions.function_id())
@@ -2767,6 +2899,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_function_data(object_local, "get", get_meta, function)?;
         self.emit_object_define_function_data(
             object_local,
+            "getPrototypeOf",
+            get_prototype_of_meta,
+            function,
+        )?;
+        self.emit_object_define_function_data(
+            object_local,
             "getOwnPropertyDescriptor",
             get_own_property_descriptor_meta,
             function,
@@ -2783,6 +2921,12 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             "deleteProperty",
             delete_property_meta,
+            function,
+        )?;
+        self.emit_object_define_function_data(
+            object_local,
+            "isExtensible",
+            is_extensible_meta,
             function,
         )?;
         self.emit_object_define_function_data(
@@ -2890,7 +3034,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_data_with_configurable(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             payload_local,
@@ -2928,7 +3072,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_data_with_configurable(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             payload_local,
@@ -2957,6 +3101,69 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(JSON_OBJECT_GLOBAL_INDEX));
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    pub(crate) fn init_atomics_object(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(ATOMICS_NAME)));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+
+        for (name, builtin) in [
+            ("add", StandardBuiltinId::AtomicsAdd),
+            ("and", StandardBuiltinId::AtomicsAnd),
+            ("compareExchange", StandardBuiltinId::AtomicsCompareExchange),
+            ("exchange", StandardBuiltinId::AtomicsExchange),
+            ("load", StandardBuiltinId::AtomicsLoad),
+            ("notify", StandardBuiltinId::AtomicsNotify),
+            ("or", StandardBuiltinId::AtomicsOr),
+            ("pause", StandardBuiltinId::AtomicsPause),
+            ("store", StandardBuiltinId::AtomicsStore),
+            ("sub", StandardBuiltinId::AtomicsSub),
+            ("wait", StandardBuiltinId::AtomicsWait),
+            ("waitAsync", StandardBuiltinId::AtomicsWaitAsync),
+            ("xor", StandardBuiltinId::AtomicsXor),
+            ("isLockFree", StandardBuiltinId::AtomicsIsLockFree),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::GlobalSet(ATOMICS_OBJECT_GLOBAL_INDEX));
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -3018,11 +3225,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             typed_array_prototype_local,
             key_local,
             payload_local,
             tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
 
@@ -3052,11 +3262,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(tag_local));
             function.instruction(&Instruction::GlobalGet(TYPED_ARRAY_PROTOTYPE_GLOBAL_INDEX));
             function.instruction(&Instruction::LocalSet(typed_array_prototype_local));
-            self.emit_object_define_accessor(
+            self.emit_object_append_accessor_property_with_flags(
                 typed_array_prototype_local,
                 key_local,
                 Some((payload_local, tag_local)),
                 None,
+                false,
+                true,
                 function,
             )?;
         }
@@ -3218,6 +3430,12 @@ impl<'a> FunctionBuilder<'a> {
             constructor_local,
             HEAP_PROTOTYPE_OFFSET,
             self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Function.tag() as u64,
             function,
         );
         self.load_i64_to_local_from_offset(
@@ -3412,7 +3630,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_data_with_configurable(
+        self.emit_object_append_data_property_with_flags(
             prototype_local,
             key_local,
             payload_local,
@@ -3435,6 +3653,17 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.emit_alloc_plain_object_with_prototype(None, None, function)?;
         function.instruction(&Instruction::GlobalSet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        let object_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(object_prototype_local));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_object_prototype(
+            self.scratch_local,
+            object_prototype_local,
+            function,
+        );
+        self.release_temp_local(object_prototype_local);
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3520,6 +3749,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_object_define_string_data(native_error_prototype_local, "message", "", function)?;
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_type_error_prototype(
+            self.scratch_local,
+            native_error_prototype_local,
+            function,
+        );
         self.release_temp_local(native_error_prototype_local);
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -3753,67 +3989,103 @@ impl<'a> FunctionBuilder<'a> {
             OBJECT_PROTOTYPE_GLOBAL_INDEX,
             function,
         )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::ProxyConstructor,
-            OBJECT_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::IteratorConstructor,
-            ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::ArrayConstructor,
-            ARRAY_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_array_iterator_prototype(function)?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::ArrayBufferConstructor,
-            ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::SharedArrayBufferConstructor,
-            SHARED_ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::DataViewConstructor,
-            DATA_VIEW_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::DateConstructor,
-            DATE_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::RegExpConstructor,
-            REGEXP_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_typed_array_intrinsic(function)?;
-        for builtin in [
-            StandardBuiltinId::Float64ArrayConstructor,
-            StandardBuiltinId::Float32ArrayConstructor,
-            StandardBuiltinId::Int32ArrayConstructor,
-            StandardBuiltinId::Int16ArrayConstructor,
-            StandardBuiltinId::Int8ArrayConstructor,
-            StandardBuiltinId::Uint32ArrayConstructor,
-            StandardBuiltinId::Uint16ArrayConstructor,
-            StandardBuiltinId::Uint8ArrayConstructor,
-            StandardBuiltinId::Uint8ClampedArrayConstructor,
-            StandardBuiltinId::BigInt64ArrayConstructor,
-            StandardBuiltinId::BigUint64ArrayConstructor,
-        ] {
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+        {
             self.init_builtin_constructor_object(
-                builtin,
-                TYPED_ARRAY_PROTOTYPE_GLOBAL_INDEX,
+                StandardBuiltinId::ProxyConstructor,
+                OBJECT_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IteratorConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IteratorConstructor,
+                ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ArrayConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::ArrayConstructor,
+                ARRAY_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        self.init_array_iterator_prototype(function)?;
+        let array_iterator_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(array_iterator_prototype_local));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_array_iterator_prototype(
+            self.scratch_local,
+            array_iterator_prototype_local,
+            function,
+        );
+        self.release_temp_local(array_iterator_prototype_local);
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ArrayBufferConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::ArrayBufferConstructor,
+                ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::SharedArrayBufferConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::SharedArrayBufferConstructor,
+                SHARED_ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::DataViewConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::DataViewConstructor,
+                DATA_VIEW_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::DateConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::DateConstructor,
+                DATE_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::RegExpConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::RegExpConstructor,
+                REGEXP_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self.runtime_bootstrap_plan.needs_typed_array_intrinsic() {
+            self.init_typed_array_intrinsic(function)?;
+        }
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
@@ -3827,28 +4099,77 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::BigInt64ArrayConstructor,
             StandardBuiltinId::BigUint64ArrayConstructor,
         ] {
-            self.repair_typed_array_constructor_graph(builtin, function)?;
+            if self
+                .runtime_bootstrap_plan
+                .should_initialize_standard_builtin(builtin)
+            {
+                self.init_builtin_constructor_object(
+                    builtin,
+                    TYPED_ARRAY_PROTOTYPE_GLOBAL_INDEX,
+                    function,
+                )?;
+            }
         }
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::NumberConstructor,
-            NUMBER_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::StringConstructor,
-            STRING_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::BooleanConstructor,
-            BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
-        self.init_builtin_constructor_object(
-            StandardBuiltinId::BigIntConstructor,
-            OBJECT_PROTOTYPE_GLOBAL_INDEX,
-            function,
-        )?;
+        for builtin in [
+            StandardBuiltinId::Float64ArrayConstructor,
+            StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Int32ArrayConstructor,
+            StandardBuiltinId::Int16ArrayConstructor,
+            StandardBuiltinId::Int8ArrayConstructor,
+            StandardBuiltinId::Uint32ArrayConstructor,
+            StandardBuiltinId::Uint16ArrayConstructor,
+            StandardBuiltinId::Uint8ArrayConstructor,
+            StandardBuiltinId::Uint8ClampedArrayConstructor,
+            StandardBuiltinId::BigInt64ArrayConstructor,
+            StandardBuiltinId::BigUint64ArrayConstructor,
+        ] {
+            if self
+                .runtime_bootstrap_plan
+                .should_initialize_standard_builtin(builtin)
+            {
+                self.repair_typed_array_constructor_graph(builtin, function)?;
+            }
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::NumberConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::NumberConstructor,
+                NUMBER_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::StringConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::StringConstructor,
+                STRING_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::BooleanConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::BooleanConstructor,
+                BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::BigIntConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::BigIntConstructor,
+                OBJECT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
         self.init_builtin_constructor_object(
             StandardBuiltinId::ErrorConstructor,
             ERROR_PROTOTYPE_GLOBAL_INDEX,
@@ -3904,19 +4225,39 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(object_constructor_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_constructor_tag_local));
-        self.emit_object_define_local_data(
+        self.emit_object_append_local_data_property_with_flags(
             object_prototype_local,
             "constructor",
             object_constructor_local,
             object_constructor_tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
         self.release_temp_local(object_constructor_tag_local);
         self.release_temp_local(object_constructor_local);
         self.release_temp_local(object_prototype_local);
-        self.init_reflect_object(function)?;
-        self.init_math_object(function)?;
-        self.init_json_object(function)?;
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.reflect_object
+        {
+            self.init_reflect_object(function)?;
+        }
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.math_object
+        {
+            self.init_math_object(function)?;
+        }
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.json_object
+        {
+            self.init_json_object(function)?;
+        }
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.atomics_object
+        {
+            self.init_atomics_object(function)?;
+        }
         Ok(())
     }
 
@@ -3933,7 +4274,17 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        let capacity = (self.script_global_bindings.len() as u64).max(MIN_HEAP_CAPACITY);
+        let script_global_bindings = self
+            .script_global_bindings
+            .clone()
+            .into_iter()
+            .map(|(name, kind)| ScriptGlobalBindingIr { name, kind })
+            .filter(|binding| {
+                self.runtime_bootstrap_plan
+                    .should_install_script_global_binding(binding.kind)
+            })
+            .collect::<Vec<_>>();
+        let capacity = (script_global_bindings.len() as u64).max(MIN_HEAP_CAPACITY);
 
         self.emit_heap_alloc_const(HEAP_HEADER_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
@@ -3960,13 +4311,28 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.store_i64_local_at_offset(
+            self.scratch_local,
+            HEAP_REALM_GLOBAL_OBJECT_OFFSET,
+            object_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            self.scratch_local,
+            HEAP_REALM_GLOBAL_THIS_OFFSET,
+            object_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            self.scratch_local,
+            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+            self.current_env_local,
+            function,
+        );
 
-        for binding in self
-            .script_global_bindings
-            .clone()
-            .into_iter()
-            .map(|(name, kind)| ScriptGlobalBindingIr { name, kind })
-        {
+        for binding in script_global_bindings {
             function.instruction(&Instruction::I64Const(self.strings.payload(&binding.name)));
             function.instruction(&Instruction::LocalSet(key_local));
             match binding.kind {
@@ -4034,6 +4400,12 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
                 }
+                ScriptGlobalBindingKind::AtomicsObject => {
+                    function.instruction(&Instruction::GlobalGet(ATOMICS_OBJECT_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                }
                 ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                     if let Some(global_index) = standard_builtin_constructor_global_index(builtin) {
                         function.instruction(&Instruction::GlobalGet(global_index));
@@ -4064,7 +4436,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(tag_local));
                 }
             }
-            self.emit_object_define_data_with_configurable(
+            self.emit_object_append_data_property_with_flags(
                 object_local,
                 key_local,
                 payload_local,

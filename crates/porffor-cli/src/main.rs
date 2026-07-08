@@ -247,6 +247,17 @@ fn real_main() -> Result<(), String> {
                 "wasm" => engine
                     .emit_wasm(&unit)
                     .map(|artifact| {
+                        if let Some(path) = std::env::var_os("PORFFOR_WASM_DUMP") {
+                            fs::write(&path, &artifact.bytes).unwrap_or_else(|err| {
+                                panic!("failed to write PORFFOR_WASM_DUMP artifact: {err}");
+                            });
+                        }
+                        if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                            eprintln!(
+                                "porffor wasm trace: artifact bytes: {}",
+                                artifact.bytes.len()
+                            );
+                        }
                         println!(
                             "built {:?} artifact: {}",
                             artifact.kind, artifact.description

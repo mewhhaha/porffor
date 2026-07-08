@@ -29,6 +29,13 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
+    BUILTIN_ATOMICS_ADD_FUNCTION_ID, BUILTIN_ATOMICS_AND_FUNCTION_ID,
+    BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID,
+    BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID, BUILTIN_ATOMICS_LOAD_FUNCTION_ID,
+    BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID, BUILTIN_ATOMICS_OR_FUNCTION_ID,
+    BUILTIN_ATOMICS_PAUSE_FUNCTION_ID, BUILTIN_ATOMICS_STORE_FUNCTION_ID,
+    BUILTIN_ATOMICS_SUB_FUNCTION_ID, BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID,
+    BUILTIN_ATOMICS_WAIT_FUNCTION_ID, BUILTIN_ATOMICS_XOR_FUNCTION_ID,
     BUILTIN_BIGINT64_ARRAY_FUNCTION_ID, BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID,
     BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID, BUILTIN_BIGINT_FUNCTION_ID,
     BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
@@ -100,6 +107,7 @@ use crate::{
     BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FROM_FUNCTION_ID,
+    BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FUNCTION_ID,
     BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID,
@@ -137,11 +145,12 @@ use crate::{
     BUILTIN_REFERENCE_ERROR_FUNCTION_ID, BUILTIN_REFLECT_APPLY_FUNCTION_ID,
     BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID, BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID,
     BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID, BUILTIN_REFLECT_GET_FUNCTION_ID,
-    BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID, BUILTIN_REFLECT_HAS_FUNCTION_ID,
-    BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID, BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID,
-    BUILTIN_REFLECT_SET_FUNCTION_ID, BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID,
-    BUILTIN_REGEXP_ESCAPE_FUNCTION_ID, BUILTIN_REGEXP_FUNCTION_ID,
-    BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID,
+    BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REFLECT_HAS_FUNCTION_ID,
+    BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID, BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID,
+    BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID, BUILTIN_REFLECT_SET_FUNCTION_ID,
+    BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REGEXP_ESCAPE_FUNCTION_ID,
+    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID,
@@ -290,11 +299,13 @@ pub enum StandardBuiltinId {
     ReflectConstruct,
     ReflectApply,
     ReflectGet,
+    ReflectGetPrototypeOf,
     ReflectGetOwnPropertyDescriptor,
     ReflectSet,
     ReflectHas,
     ReflectDefineProperty,
     ReflectDeleteProperty,
+    ReflectIsExtensible,
     ReflectPreventExtensions,
     ReflectSetPrototypeOf,
     ReflectOwnKeys,
@@ -355,6 +366,7 @@ pub enum StandardBuiltinId {
     IteratorPrototypeSymbolDispose,
     IteratorPrototypeToStringTagGetter,
     IteratorPrototypeToStringTagSetter,
+    IteratorFromWrapperNext,
     IteratorFromWrapperReturn,
     ArrayBufferConstructor,
     SharedArrayBufferConstructor,
@@ -461,6 +473,20 @@ pub enum StandardBuiltinId {
     JsonStringify,
     JsonRawJson,
     JsonIsRawJson,
+    AtomicsAdd,
+    AtomicsAnd,
+    AtomicsCompareExchange,
+    AtomicsExchange,
+    AtomicsLoad,
+    AtomicsNotify,
+    AtomicsOr,
+    AtomicsPause,
+    AtomicsStore,
+    AtomicsSub,
+    AtomicsWait,
+    AtomicsWaitAsync,
+    AtomicsXor,
+    AtomicsIsLockFree,
     Float64ArrayConstructor,
     Float32ArrayConstructor,
     Int32ArrayConstructor,
@@ -713,11 +739,13 @@ impl StandardBuiltinId {
             | Self::ReflectConstruct
             | Self::ReflectApply
             | Self::ReflectGet
+            | Self::ReflectGetPrototypeOf
             | Self::ReflectGetOwnPropertyDescriptor
             | Self::ReflectSet
             | Self::ReflectHas
             | Self::ReflectDefineProperty
             | Self::ReflectDeleteProperty
+            | Self::ReflectIsExtensible
             | Self::ReflectPreventExtensions
             | Self::ReflectSetPrototypeOf
             | Self::ReflectOwnKeys
@@ -776,6 +804,7 @@ impl StandardBuiltinId {
             | Self::IteratorPrototypeSymbolDispose
             | Self::IteratorPrototypeToStringTagGetter
             | Self::IteratorPrototypeToStringTagSetter
+            | Self::IteratorFromWrapperNext
             | Self::IteratorFromWrapperReturn
             | Self::ArrayBufferIsView
             | Self::NumberIsInteger
@@ -891,6 +920,20 @@ impl StandardBuiltinId {
             | Self::JsonStringify
             | Self::JsonRawJson
             | Self::JsonIsRawJson
+            | Self::AtomicsAdd
+            | Self::AtomicsAnd
+            | Self::AtomicsCompareExchange
+            | Self::AtomicsExchange
+            | Self::AtomicsLoad
+            | Self::AtomicsNotify
+            | Self::AtomicsOr
+            | Self::AtomicsPause
+            | Self::AtomicsStore
+            | Self::AtomicsSub
+            | Self::AtomicsWait
+            | Self::AtomicsWaitAsync
+            | Self::AtomicsXor
+            | Self::AtomicsIsLockFree
             | Self::MathAbs
             | Self::MathAcos
             | Self::MathAcosh
@@ -970,11 +1013,13 @@ impl StandardBuiltinId {
             Self::ReflectConstruct => "Reflect.construct",
             Self::ReflectApply => "Reflect.apply",
             Self::ReflectGet => "Reflect.get",
+            Self::ReflectGetPrototypeOf => "Reflect.getPrototypeOf",
             Self::ReflectGetOwnPropertyDescriptor => "Reflect.getOwnPropertyDescriptor",
             Self::ReflectSet => "Reflect.set",
             Self::ReflectHas => "Reflect.has",
             Self::ReflectDefineProperty => "Reflect.defineProperty",
             Self::ReflectDeleteProperty => "Reflect.deleteProperty",
+            Self::ReflectIsExtensible => "Reflect.isExtensible",
             Self::ReflectPreventExtensions => "Reflect.preventExtensions",
             Self::ReflectSetPrototypeOf => "Reflect.setPrototypeOf",
             Self::ReflectOwnKeys => "Reflect.ownKeys",
@@ -1039,6 +1084,7 @@ impl StandardBuiltinId {
             Self::IteratorPrototypeToStringTagSetter => {
                 "set Iterator.prototype[Symbol.toStringTag]"
             }
+            Self::IteratorFromWrapperNext => "%WrapForValidIteratorPrototype%.next",
             Self::IteratorFromWrapperReturn => "%WrapForValidIteratorPrototype%.return",
             Self::ArrayBufferConstructor => ARRAY_BUFFER_NAME,
             Self::SharedArrayBufferConstructor => SHARED_ARRAY_BUFFER_NAME,
@@ -1157,6 +1203,20 @@ impl StandardBuiltinId {
             Self::JsonStringify => "JSON.stringify",
             Self::JsonRawJson => "JSON.rawJSON",
             Self::JsonIsRawJson => "JSON.isRawJSON",
+            Self::AtomicsAdd => "Atomics.add",
+            Self::AtomicsAnd => "Atomics.and",
+            Self::AtomicsCompareExchange => "Atomics.compareExchange",
+            Self::AtomicsExchange => "Atomics.exchange",
+            Self::AtomicsLoad => "Atomics.load",
+            Self::AtomicsNotify => "Atomics.notify",
+            Self::AtomicsOr => "Atomics.or",
+            Self::AtomicsPause => "Atomics.pause",
+            Self::AtomicsStore => "Atomics.store",
+            Self::AtomicsSub => "Atomics.sub",
+            Self::AtomicsWait => "Atomics.wait",
+            Self::AtomicsWaitAsync => "Atomics.waitAsync",
+            Self::AtomicsXor => "Atomics.xor",
+            Self::AtomicsIsLockFree => "Atomics.isLockFree",
             Self::Float64ArrayConstructor => FLOAT64_ARRAY_NAME,
             Self::Float32ArrayConstructor => FLOAT32_ARRAY_NAME,
             Self::Int32ArrayConstructor => INT32_ARRAY_NAME,
@@ -1352,6 +1412,7 @@ impl StandardBuiltinId {
             Self::ReflectConstruct => BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID.to_string(),
             Self::ReflectApply => BUILTIN_REFLECT_APPLY_FUNCTION_ID.to_string(),
             Self::ReflectGet => BUILTIN_REFLECT_GET_FUNCTION_ID.to_string(),
+            Self::ReflectGetPrototypeOf => BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
             Self::ReflectGetOwnPropertyDescriptor => {
                 BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID.to_string()
             }
@@ -1359,6 +1420,7 @@ impl StandardBuiltinId {
             Self::ReflectHas => BUILTIN_REFLECT_HAS_FUNCTION_ID.to_string(),
             Self::ReflectDefineProperty => BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID.to_string(),
             Self::ReflectDeleteProperty => BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID.to_string(),
+            Self::ReflectIsExtensible => BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID.to_string(),
             Self::ReflectPreventExtensions => {
                 BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID.to_string()
             }
@@ -1454,6 +1516,9 @@ impl StandardBuiltinId {
             }
             Self::IteratorPrototypeToStringTagSetter => {
                 BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID.to_string()
+            }
+            Self::IteratorFromWrapperNext => {
+                BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID.to_string()
             }
             Self::IteratorFromWrapperReturn => {
                 BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID.to_string()
@@ -1719,6 +1784,22 @@ impl StandardBuiltinId {
             Self::JsonStringify => BUILTIN_JSON_STRINGIFY_FUNCTION_ID.to_string(),
             Self::JsonRawJson => BUILTIN_JSON_RAW_JSON_FUNCTION_ID.to_string(),
             Self::JsonIsRawJson => BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID.to_string(),
+            Self::AtomicsAdd => BUILTIN_ATOMICS_ADD_FUNCTION_ID.to_string(),
+            Self::AtomicsAnd => BUILTIN_ATOMICS_AND_FUNCTION_ID.to_string(),
+            Self::AtomicsCompareExchange => {
+                BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID.to_string()
+            }
+            Self::AtomicsExchange => BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID.to_string(),
+            Self::AtomicsLoad => BUILTIN_ATOMICS_LOAD_FUNCTION_ID.to_string(),
+            Self::AtomicsNotify => BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID.to_string(),
+            Self::AtomicsOr => BUILTIN_ATOMICS_OR_FUNCTION_ID.to_string(),
+            Self::AtomicsPause => BUILTIN_ATOMICS_PAUSE_FUNCTION_ID.to_string(),
+            Self::AtomicsStore => BUILTIN_ATOMICS_STORE_FUNCTION_ID.to_string(),
+            Self::AtomicsSub => BUILTIN_ATOMICS_SUB_FUNCTION_ID.to_string(),
+            Self::AtomicsWait => BUILTIN_ATOMICS_WAIT_FUNCTION_ID.to_string(),
+            Self::AtomicsWaitAsync => BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID.to_string(),
+            Self::AtomicsXor => BUILTIN_ATOMICS_XOR_FUNCTION_ID.to_string(),
+            Self::AtomicsIsLockFree => BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID.to_string(),
             Self::Float64ArrayConstructor => BUILTIN_FLOAT64_ARRAY_FUNCTION_ID.to_string(),
             Self::Float32ArrayConstructor => BUILTIN_FLOAT32_ARRAY_FUNCTION_ID.to_string(),
             Self::Int32ArrayConstructor => BUILTIN_INT32_ARRAY_FUNCTION_ID.to_string(),
@@ -1960,6 +2041,7 @@ impl StandardBuiltinId {
             BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID => Some(Self::ReflectConstruct),
             BUILTIN_REFLECT_APPLY_FUNCTION_ID => Some(Self::ReflectApply),
             BUILTIN_REFLECT_GET_FUNCTION_ID => Some(Self::ReflectGet),
+            BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ReflectGetPrototypeOf),
             BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID => {
                 Some(Self::ReflectGetOwnPropertyDescriptor)
             }
@@ -1967,6 +2049,7 @@ impl StandardBuiltinId {
             BUILTIN_REFLECT_HAS_FUNCTION_ID => Some(Self::ReflectHas),
             BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID => Some(Self::ReflectDefineProperty),
             BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID => Some(Self::ReflectDeleteProperty),
+            BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID => Some(Self::ReflectIsExtensible),
             BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID => Some(Self::ReflectPreventExtensions),
             BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ReflectSetPrototypeOf),
             BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID => Some(Self::ReflectOwnKeys),
@@ -2043,6 +2126,7 @@ impl StandardBuiltinId {
             BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID => {
                 Some(Self::IteratorPrototypeToStringTagSetter)
             }
+            BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID => Some(Self::IteratorFromWrapperNext),
             BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID => {
                 Some(Self::IteratorFromWrapperReturn)
             }
@@ -2285,6 +2369,20 @@ impl StandardBuiltinId {
             BUILTIN_JSON_STRINGIFY_FUNCTION_ID => Some(Self::JsonStringify),
             BUILTIN_JSON_RAW_JSON_FUNCTION_ID => Some(Self::JsonRawJson),
             BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID => Some(Self::JsonIsRawJson),
+            BUILTIN_ATOMICS_ADD_FUNCTION_ID => Some(Self::AtomicsAdd),
+            BUILTIN_ATOMICS_AND_FUNCTION_ID => Some(Self::AtomicsAnd),
+            BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID => Some(Self::AtomicsCompareExchange),
+            BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID => Some(Self::AtomicsExchange),
+            BUILTIN_ATOMICS_LOAD_FUNCTION_ID => Some(Self::AtomicsLoad),
+            BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID => Some(Self::AtomicsNotify),
+            BUILTIN_ATOMICS_OR_FUNCTION_ID => Some(Self::AtomicsOr),
+            BUILTIN_ATOMICS_PAUSE_FUNCTION_ID => Some(Self::AtomicsPause),
+            BUILTIN_ATOMICS_STORE_FUNCTION_ID => Some(Self::AtomicsStore),
+            BUILTIN_ATOMICS_SUB_FUNCTION_ID => Some(Self::AtomicsSub),
+            BUILTIN_ATOMICS_WAIT_FUNCTION_ID => Some(Self::AtomicsWait),
+            BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID => Some(Self::AtomicsWaitAsync),
+            BUILTIN_ATOMICS_XOR_FUNCTION_ID => Some(Self::AtomicsXor),
+            BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID => Some(Self::AtomicsIsLockFree),
             BUILTIN_FLOAT64_ARRAY_FUNCTION_ID => Some(Self::Float64ArrayConstructor),
             BUILTIN_FLOAT32_ARRAY_FUNCTION_ID => Some(Self::Float32ArrayConstructor),
             BUILTIN_INT32_ARRAY_FUNCTION_ID => Some(Self::Int32ArrayConstructor),
@@ -2519,11 +2617,13 @@ impl StandardBuiltinId {
             Self::ReflectConstruct,
             Self::ReflectApply,
             Self::ReflectGet,
+            Self::ReflectGetPrototypeOf,
             Self::ReflectGetOwnPropertyDescriptor,
             Self::ReflectSet,
             Self::ReflectHas,
             Self::ReflectDefineProperty,
             Self::ReflectDeleteProperty,
+            Self::ReflectIsExtensible,
             Self::ReflectPreventExtensions,
             Self::ReflectSetPrototypeOf,
             Self::ReflectOwnKeys,
@@ -2584,6 +2684,7 @@ impl StandardBuiltinId {
             Self::IteratorPrototypeSymbolDispose,
             Self::IteratorPrototypeToStringTagGetter,
             Self::IteratorPrototypeToStringTagSetter,
+            Self::IteratorFromWrapperNext,
             Self::IteratorFromWrapperReturn,
             Self::ArrayBufferConstructor,
             Self::SharedArrayBufferConstructor,
@@ -2690,6 +2791,20 @@ impl StandardBuiltinId {
             Self::JsonStringify,
             Self::JsonRawJson,
             Self::JsonIsRawJson,
+            Self::AtomicsAdd,
+            Self::AtomicsAnd,
+            Self::AtomicsCompareExchange,
+            Self::AtomicsExchange,
+            Self::AtomicsLoad,
+            Self::AtomicsNotify,
+            Self::AtomicsOr,
+            Self::AtomicsPause,
+            Self::AtomicsStore,
+            Self::AtomicsSub,
+            Self::AtomicsWait,
+            Self::AtomicsWaitAsync,
+            Self::AtomicsXor,
+            Self::AtomicsIsLockFree,
             Self::Float64ArrayConstructor,
             Self::Float32ArrayConstructor,
             Self::Int32ArrayConstructor,
@@ -2896,10 +3011,12 @@ impl StandardBuiltinId {
                 | Self::ReflectConstruct
                 | Self::ReflectApply
                 | Self::ReflectGet
+                | Self::ReflectGetPrototypeOf
                 | Self::ReflectSet
                 | Self::ReflectHas
                 | Self::ReflectDefineProperty
                 | Self::ReflectDeleteProperty
+                | Self::ReflectIsExtensible
                 | Self::ReflectPreventExtensions
                 | Self::ReflectSetPrototypeOf
                 | Self::ReflectOwnKeys
@@ -3056,11 +3173,13 @@ impl StandardBuiltinId {
             Self::ReflectConstruct => Some("construct"),
             Self::ReflectApply => Some("apply"),
             Self::ReflectGet => Some("get"),
+            Self::ReflectGetPrototypeOf => Some("getPrototypeOf"),
             Self::ReflectGetOwnPropertyDescriptor => Some("getOwnPropertyDescriptor"),
             Self::ReflectSet => Some("set"),
             Self::ReflectHas => Some("has"),
             Self::ReflectDefineProperty => Some("defineProperty"),
             Self::ReflectDeleteProperty => Some("deleteProperty"),
+            Self::ReflectIsExtensible => Some("isExtensible"),
             Self::ReflectPreventExtensions => Some("preventExtensions"),
             Self::ReflectSetPrototypeOf => Some("setPrototypeOf"),
             Self::ReflectOwnKeys => Some("ownKeys"),
@@ -3121,6 +3240,7 @@ impl StandardBuiltinId {
             Self::IteratorPrototypeSymbolDispose => Some("[Symbol.dispose]"),
             Self::IteratorPrototypeToStringTagGetter => Some("get [Symbol.toStringTag]"),
             Self::IteratorPrototypeToStringTagSetter => Some("set [Symbol.toStringTag]"),
+            Self::IteratorFromWrapperNext => Some("next"),
             Self::IteratorFromWrapperReturn => Some("return"),
             Self::ArrayBufferConstructor => Some(ARRAY_BUFFER_NAME),
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
@@ -3149,6 +3269,20 @@ impl StandardBuiltinId {
             Self::JsonStringify => Some("stringify"),
             Self::JsonRawJson => Some("rawJSON"),
             Self::JsonIsRawJson => Some("isRawJSON"),
+            Self::AtomicsAdd => Some("add"),
+            Self::AtomicsAnd => Some("and"),
+            Self::AtomicsCompareExchange => Some("compareExchange"),
+            Self::AtomicsExchange => Some("exchange"),
+            Self::AtomicsLoad => Some("load"),
+            Self::AtomicsNotify => Some("notify"),
+            Self::AtomicsOr => Some("or"),
+            Self::AtomicsPause => Some("pause"),
+            Self::AtomicsStore => Some("store"),
+            Self::AtomicsSub => Some("sub"),
+            Self::AtomicsWait => Some("wait"),
+            Self::AtomicsWaitAsync => Some("waitAsync"),
+            Self::AtomicsXor => Some("xor"),
+            Self::AtomicsIsLockFree => Some("isLockFree"),
             Self::TypedArrayPrototypeBufferGetter => Some("get buffer"),
             Self::TypedArrayPrototypeByteLengthGetter => Some("get byteLength"),
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),

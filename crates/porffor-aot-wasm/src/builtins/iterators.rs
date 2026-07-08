@@ -11,11 +11,22 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+        let prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_load_function_defining_realm_array_iterator_prototype(
+            self.current_env_local,
+            prototype_local,
             function,
-        )?;
+        );
+        function.instruction(&Instruction::End);
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(
             object_local,
@@ -41,6 +52,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
+        self.release_temp_local(prototype_local);
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -55,11 +67,13 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        let prototype_local = self.reserve_temp_local();
+        self.emit_load_function_defining_realm_object_prototype(
+            self.current_env_local,
+            prototype_local,
             function,
-        )?;
+        );
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(
             object_local,
@@ -73,6 +87,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
+        self.release_temp_local(prototype_local);
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -90,16 +105,22 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
         let string_tag_local = self.reserve_temp_local();
         let index_payload_local = self.reserve_temp_local();
         let index_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
 
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.emit_load_function_defining_realm_array_iterator_prototype(
+            self.current_env_local,
+            prototype_local,
             function,
-        )?;
+        );
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(
             object_local,
@@ -163,6 +184,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(index_tag_local);
         self.release_temp_local(index_payload_local);
         self.release_temp_local(string_tag_local);
+        self.release_temp_local(prototype_local);
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -225,8 +247,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(slot_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator next called on incompatible receiver",
             payload_local,
             tag_local,
@@ -268,8 +289,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(slot_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator next called on incompatible receiver",
             payload_local,
             tag_local,
@@ -294,8 +314,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(slot_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator next called on incompatible receiver",
             payload_local,
             tag_local,
@@ -320,8 +339,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(slot_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator next called on incompatible receiver",
             payload_local,
             tag_local,
@@ -346,8 +364,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(slot_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator next called on incompatible receiver",
             payload_local,
             tag_local,
@@ -426,8 +443,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "RegExp String Iterator exec returned non-object",
             payload_local,
             tag_local,

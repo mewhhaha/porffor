@@ -427,6 +427,84 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_throw_current_function_realm_error(
+        &mut self,
+        name: &str,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prototype_local = self.reserve_temp_local();
+        let expected_parent_local = self.reserve_temp_local();
+        let actual_parent_local = self.reserve_temp_local();
+        let prototype_offset = error_realm_prototype_offset(name);
+
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::Else);
+        if let Some(offset) = prototype_offset {
+            self.load_i64_to_local_from_offset(
+                self.current_env_local,
+                offset,
+                prototype_local,
+                function,
+            );
+        } else {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(prototype_local));
+        }
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(error_prototype_global_index(name)));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::End);
+        if name != ERROR_NAME {
+            self.load_i64_to_local_from_offset(
+                self.current_env_local,
+                HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,
+                expected_parent_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(expected_parent_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::GlobalGet(ERROR_PROTOTYPE_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalSet(expected_parent_local));
+            function.instruction(&Instruction::End);
+            self.load_i64_to_local_from_offset(
+                prototype_local,
+                HEAP_PROTOTYPE_OFFSET,
+                actual_parent_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(actual_parent_local));
+            function.instruction(&Instruction::LocalGet(expected_parent_local));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::GlobalGet(error_prototype_global_index(name)));
+            function.instruction(&Instruction::LocalSet(prototype_local));
+            function.instruction(&Instruction::End);
+        }
+        self.emit_throw_runtime_error_with_prototype_local(
+            name,
+            message,
+            prototype_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(actual_parent_local);
+        self.release_temp_local(expected_parent_local);
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_throw_current_function_realm_type_error(
         &mut self,
         message: &str,
@@ -434,43 +512,29 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let prototype_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
+        self.emit_throw_current_function_realm_error(
             TYPE_ERROR_NAME,
             message,
             payload_local,
             tag_local,
             function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::End);
-        self.emit_throw_runtime_error_with_prototype_local(
-            TYPE_ERROR_NAME,
+        )
+    }
+
+    pub(crate) fn emit_throw_current_function_realm_range_error(
+        &mut self,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_throw_current_function_realm_error(
+            RANGE_ERROR_NAME,
             message,
-            prototype_local,
             payload_local,
             tag_local,
             function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(prototype_local);
-        Ok(())
+        )
     }
 
     pub(crate) fn emit_throw_runtime_error_with_prototype_local(

@@ -166,10 +166,7 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
                 &lowered_source
             }
             Err(message) => {
-                program.diagnostics.push(IrDiagnostic {
-                    kind: IrDiagnosticKind::Unsupported,
-                    message,
-                });
+                program.diagnostics.push(IrDiagnostic::unsupported(message));
                 program
                     .stages
                     .push(LoweringStage::UnsupportedFeaturesRecorded);
@@ -233,7 +230,13 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
             } else {
                 IrDiagnosticKind::Lowering
             };
-            program.diagnostics.push(IrDiagnostic { kind, message });
+            program.diagnostics.push(match kind {
+                IrDiagnosticKind::Unsupported => IrDiagnostic::unsupported(message),
+                IrDiagnosticKind::Lowering => IrDiagnostic::lowering(message),
+                IrDiagnosticKind::EarlyError => {
+                    unreachable!("reparse does not produce early errors")
+                }
+            });
         }
     }
 
@@ -2490,6 +2493,13 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "getPrototypeOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectGetPrototypeOf.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "getOwnPropertyDescriptor".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id(),
@@ -2521,6 +2531,13 @@ impl<'a> ScriptLowerer<'a> {
             "deleteProperty".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::ReflectDeleteProperty.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "isExtensible".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::ReflectIsExtensible.function_id(),
                 false,
             )),
         );
@@ -2643,6 +2660,118 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    fn atomics_object_value_info() -> ValueInfo {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info(ATOMICS_NAME)),
+        );
+        properties.insert(
+            "add".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsAdd.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "and".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsAnd.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "compareExchange".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsCompareExchange.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "exchange".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsExchange.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "isLockFree".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsIsLockFree.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "load".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsLoad.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "notify".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsNotify.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "or".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsOr.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "pause".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsPause.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "store".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsStore.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "sub".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsSub.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "wait".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsWait.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "waitAsync".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsWaitAsync.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "xor".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::AtomicsXor.function_id(),
+                false,
+            )),
+        );
+        Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))))
+    }
+
     fn standard_builtin_signature(
         &self,
         builtin: StandardBuiltinId,
@@ -2739,6 +2868,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
             | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
             | StandardBuiltinId::JsonIsRawJson
+            | StandardBuiltinId::AtomicsIsLockFree
             | StandardBuiltinId::StringPrototypeEndsWith
             | StandardBuiltinId::StringPrototypeIncludes
             | StandardBuiltinId::StringPrototypeStartsWith
@@ -2748,18 +2878,70 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::StringPrototypeIndexOf
+            StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsXor => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number).union(KindSet::from_kind(ValueKind::BigInt)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AtomicsNotify
+            | StandardBuiltinId::StringPrototypeIndexOf
             | StandardBuiltinId::StringPrototypeLastIndexOf => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::AtomicsWait => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AtomicsPause => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::StringPrototypeMatchAll
-            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll => (
+            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+            | StandardBuiltinId::AtomicsWaitAsync => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
-                Some(Self::array_iterator_instance_shape()),
+                if builtin == StandardBuiltinId::AtomicsWaitAsync {
+                    Some(Box::new(HeapShape::Object(ObjectShape {
+                        prototype: Some(Box::new(Self::empty_object_shape())),
+                        properties: BTreeMap::from([
+                            (
+                                "async".to_string(),
+                                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
+                            ),
+                            (
+                                "value".to_string(),
+                                ObjectShapeProperty::Data(ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::from_kind(ValueKind::String)
+                                        .union(KindSet::from_kind(ValueKind::Object)),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                }),
+                            ),
+                        ]),
+                        private_brands: BTreeSet::new(),
+                        boxed_primitive: None,
+                    })))
+                } else {
+                    Some(Self::array_iterator_instance_shape())
+                },
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::JsonStringify => (
@@ -2841,6 +3023,12 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ReflectGetPrototypeOf => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Null)),
+                Some(Box::new(Self::empty_object_shape())),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ReflectSet => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
@@ -2860,6 +3048,12 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ReflectDeleteProperty => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ReflectIsExtensible => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,
@@ -3312,6 +3506,12 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
                 None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorFromWrapperNext => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Box::new(Self::empty_object_shape())),
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IteratorFromWrapperReturn => (
@@ -4001,6 +4201,15 @@ impl<'a> ScriptLowerer<'a> {
                     JSON_NAME.to_string(),
                     GlobalPropertyInfo {
                         value_info: Self::json_object_value_info(),
+                        proven_present: true,
+                        configurable: true,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
+                properties.insert(
+                    ATOMICS_NAME.to_string(),
+                    GlobalPropertyInfo {
+                        value_info: Self::atomics_object_value_info(),
                         proven_present: true,
                         configurable: true,
                         source: GlobalPropertySource::Builtin,
@@ -5312,6 +5521,10 @@ impl<'a> ScriptLowerer<'a> {
         bindings.push(ScriptGlobalBindingIr {
             name: JSON_NAME.to_string(),
             kind: ScriptGlobalBindingKind::JsonObject,
+        });
+        bindings.push(ScriptGlobalBindingIr {
+            name: ATOMICS_NAME.to_string(),
+            kind: ScriptGlobalBindingKind::AtomicsObject,
         });
         bindings.extend(
             StandardBuiltinId::all_globals()
@@ -6720,6 +6933,33 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(target),
                 self.infer_expr_throw_info(index),
             ),
+            ExprIr::SpecOperation {
+                operation,
+                operands,
+            } => {
+                let mut info = None;
+                for operand in operands {
+                    info =
+                        self.merge_optional_value_info(info, self.infer_expr_throw_info(operand));
+                }
+                if *operation == SpecOperationIr::HasProperty {
+                    if let Some(target) = operands.first() {
+                        let object_like = KindSet::from_kind(ValueKind::Object)
+                            .union(KindSet::from_kind(ValueKind::Array))
+                            .union(KindSet::from_kind(ValueKind::Arguments))
+                            .union(KindSet::from_kind(ValueKind::Function));
+                        if !target.possible_kinds.is_subset_of(object_like) {
+                            info = self.merge_optional_value_info(
+                                info,
+                                Some(Self::standard_error_instance_info(
+                                    StandardBuiltinId::TypeErrorConstructor,
+                                )),
+                            );
+                        }
+                    }
+                }
+                info
+            }
             ExprIr::DeleteIdentifier { .. } | ExprIr::DeleteGlobalProperty { .. } => None,
             ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
                 self.merge_optional_value_info(
@@ -8666,24 +8906,22 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_bigint_literal<T: std::fmt::Display>(&mut self, value: &T, negate: bool) -> TypedExpr {
         let text = value.to_string();
-        let Some(bits) = Self::parse_bigint_literal_bits(&text, negate) else {
-            return self.unsupported_expr("bigint literal outside 64-bit DataView slice");
+        let Some(value) = Self::parse_bigint_literal(&text, negate) else {
+            return self.unsupported_expr("invalid BigInt literal");
         };
-        TypedExpr::from_info(ValueInfo::new(ValueKind::BigInt), ExprIr::BigInt(bits))
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::BigInt),
+            ExprIr::BigInt(BigIntLiteralIr::from_bigint(value)),
+        )
     }
 
-    fn parse_bigint_literal_bits(text: &str, negate: bool) -> Option<u64> {
+    fn parse_bigint_literal(text: &str, negate: bool) -> Option<BigInt> {
         if text.starts_with('-') {
             return None;
         }
         let unsigned = text.parse::<BigUint>().ok()?;
-        let low_bits_mask = (BigUint::one() << 64_u32) - BigUint::one();
-        let unsigned = (unsigned & low_bits_mask).to_u64()?;
-        Some(if negate {
-            unsigned.wrapping_neg()
-        } else {
-            unsigned
-        })
+        let value = BigInt::from_biguint(Sign::Plus, unsigned);
+        Some(if negate { -value } else { value })
     }
 
     fn lower_identifier_name(&mut self, name: String, allow_with: bool) -> TypedExpr {
@@ -8855,13 +9093,7 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_with_scoped_identifier_read(&mut self, name: String, object: TypedExpr) -> TypedExpr {
         let key =
             TypedExpr::from_info(Self::string_value_info(&name), ExprIr::String(name.clone()));
-        let has_expr = TypedExpr::from_info(
-            Self::boolean_value_info(),
-            ExprIr::In {
-                lhs: Box::new(key),
-                rhs: Box::new(object.clone()),
-            },
-        );
+        let has_expr = TypedExpr::spec_has_property(object.clone(), key);
         let with_value = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -11214,6 +11446,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 return TypedExpr::undefined();
             }
+            if name == IS_CONSTRUCTOR_NAME && args.len() == 1 && !self.has_scope_binding(&name) {
+                return TypedExpr::spec_is_constructor(self.lower_expression(&args[0]));
+            }
             if name == NUMBER_NAME {
                 if let Some(value) = self.static_to_number_arg(args.first()) {
                     for arg in args {
@@ -11224,6 +11459,13 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::Number(value.to_bits()),
                     );
                 }
+                if args.len() == 1 && self.expression_cannot_be_kind(&args[0], ValueKind::BigInt) {
+                    return TypedExpr::spec_to_number(self.lower_expression(&args[0]));
+                }
+            }
+            if name == STRING_NAME && args.len() == 1 && self.expression_cannot_be_symbol(&args[0])
+            {
+                return TypedExpr::spec_to_string(self.lower_expression(&args[0]));
             }
             if name == BOOLEAN_NAME {
                 if let Some(value) = self.static_to_boolean_arg(args.first()) {
@@ -11263,6 +11505,11 @@ impl<'a> ScriptLowerer<'a> {
                 let field_name = self.interner.resolve_expect(field.sym()).to_string();
                 if let Expression::Identifier(target) = access.target() {
                     let target_name = self.interner.resolve_expect(target.sym()).to_string();
+                    if target_name == OBJECT_NAME && field_name == "is" && args.len() == 2 {
+                        let lhs = self.lower_expression(&args[0]);
+                        let rhs = self.lower_expression(&args[1]);
+                        return TypedExpr::spec_same_value(lhs, rhs);
+                    }
                     let static_builtin = match (target_name.as_str(), field_name.as_str()) {
                         (OBJECT_NAME, "keys") => Some(StandardBuiltinId::ObjectKeys),
                         (OBJECT_NAME, "values") => Some(StandardBuiltinId::ObjectValues),
@@ -11518,36 +11765,6 @@ impl<'a> ScriptLowerer<'a> {
                             ValueInfo::new(ValueKind::Boolean),
                             ExprIr::Boolean(value),
                         );
-                    }
-                }
-            }
-            if let Expression::Identifier(identifier) = access.target() {
-                let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                if target_name == "floatArrayConstructors" {
-                    if let PropertyAccessField::Const(field) = access.field() {
-                        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                        if field_name == "concat" && args.len() == 1 {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            let elements = [
-                                StandardBuiltinId::Float64ArrayConstructor,
-                                StandardBuiltinId::Float32ArrayConstructor,
-                                StandardBuiltinId::Int32ArrayConstructor,
-                                StandardBuiltinId::Int16ArrayConstructor,
-                                StandardBuiltinId::Int8ArrayConstructor,
-                                StandardBuiltinId::Uint32ArrayConstructor,
-                                StandardBuiltinId::Uint16ArrayConstructor,
-                                StandardBuiltinId::Uint8ArrayConstructor,
-                                StandardBuiltinId::Uint8ClampedArrayConstructor,
-                                StandardBuiltinId::BigInt64ArrayConstructor,
-                                StandardBuiltinId::BigUint64ArrayConstructor,
-                            ]
-                            .into_iter()
-                            .map(|builtin| self.function_value_expr(builtin.function_id()))
-                            .collect::<Vec<_>>();
-                            return Self::array_literal_from_lowered(elements);
-                        }
                     }
                 }
             }
@@ -12326,6 +12543,9 @@ impl<'a> ScriptLowerer<'a> {
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
+                                    "toString" => {
+                                        Some(StandardBuiltinId::TypedArrayPrototypeToString)
+                                    }
                                     "toLocaleString" => {
                                         Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
                                     }
@@ -12425,14 +12645,6 @@ impl<'a> ScriptLowerer<'a> {
                                     "bind" => Some(StandardBuiltinId::FunctionPrototypeBind),
                                     "toString" => {
                                         Some(StandardBuiltinId::FunctionPrototypeToString)
-                                    }
-                        "from"
-                                        if Self::is_typed_array_constructor_target(&receiver) =>
-                                    {
-                                        Some(StandardBuiltinId::TypedArrayFrom)
-                                    }
-                                    "of" if Self::is_typed_array_constructor_target(&receiver) => {
-                                        Some(StandardBuiltinId::TypedArrayOf)
                                     }
                                     "push"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
@@ -12760,6 +12972,9 @@ impl<'a> ScriptLowerer<'a> {
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
+                                    "toString" => {
+                                        Some(StandardBuiltinId::TypedArrayPrototypeToString)
+                                    }
                                     "toLocaleString" => {
                                         Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
                                     }
@@ -12872,6 +13087,7 @@ impl<'a> ScriptLowerer<'a> {
                         | StandardBuiltinId::ArrayPrototypeEntries
                         | StandardBuiltinId::ArrayPrototypeValues
                         | StandardBuiltinId::ArrayPrototypeConcat
+                        | StandardBuiltinId::TypedArrayPrototypeToString
                         | StandardBuiltinId::ArrayPrototypeToLocaleString
                         | StandardBuiltinId::ArrayPrototypeFlat
                         | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -12971,6 +13187,9 @@ impl<'a> ScriptLowerer<'a> {
                             }
                             StandardBuiltinId::ArrayPrototypeConcat => {
                                 ("concat", self.array_concat_result_info(&receiver, &args))
+                            }
+                            StandardBuiltinId::TypedArrayPrototypeToString => {
+                                ("toString", ValueInfo::new(ValueKind::String))
                             }
                             StandardBuiltinId::ArrayPrototypeToLocaleString => {
                                 ("toLocaleString", ValueInfo::new(ValueKind::String))
@@ -15845,25 +16064,6 @@ impl<'a> ScriptLowerer<'a> {
                                 function_targets: BTreeSet::new(),
                             });
                         }
-                        if target.kind == ValueKind::Function && (key == "length" || key == "name")
-                        {
-                            let value = if key == "length" {
-                                ValueInfo::new(ValueKind::Number)
-                            } else {
-                                ValueInfo::new(ValueKind::String)
-                            };
-                            return Some(ValueInfo {
-                                kind: ValueKind::Object,
-                                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                heap_shape: Some(Self::property_descriptor_shape(vec![
-                                    ("value", value),
-                                    ("writable", Self::boolean_value_info()),
-                                    ("enumerable", Self::boolean_value_info()),
-                                    ("configurable", Self::boolean_value_info()),
-                                ])),
-                                function_targets: BTreeSet::new(),
-                            });
-                        }
                         if let Some(property) = self.read_own_object_shape_property(target, key) {
                             let fields = match property {
                                 ObjectShapeProperty::Data(value) => vec![
@@ -16041,6 +16241,13 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ReflectGetPrototypeOf => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Object)
+                    .union(KindSet::from_kind(ValueKind::Null)),
+                heap_shape: Some(Box::new(Self::empty_object_shape())),
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ReflectGetOwnPropertyDescriptor => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object)
@@ -16052,6 +16259,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ReflectSet
             | StandardBuiltinId::ReflectDefineProperty
             | StandardBuiltinId::ReflectDeleteProperty
+            | StandardBuiltinId::ReflectIsExtensible
             | StandardBuiltinId::ReflectPreventExtensions
             | StandardBuiltinId::ReflectSetPrototypeOf => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::ReflectOwnKeys => {
@@ -16410,6 +16618,9 @@ impl<'a> ScriptLowerer<'a> {
                     StandardBuiltinId::IteratorPrototypeToStringTagSetter,
                 ))
             }
+            StandardBuiltinId::IteratorFromWrapperNext => Some(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorFromWrapperNext,
+            )),
             StandardBuiltinId::IteratorFromWrapperReturn => Some(
                 Self::standard_builtin_value_info(StandardBuiltinId::IteratorFromWrapperReturn),
             ),
@@ -16739,9 +16950,50 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::DatePrototypeToUtcString => Some(ValueInfo::new(ValueKind::String)),
-            StandardBuiltinId::ObjectHasOwn | StandardBuiltinId::JsonIsRawJson => {
-                Some(ValueInfo::new(ValueKind::Boolean))
-            }
+            StandardBuiltinId::AtomicsNotify => Some(ValueInfo::new(ValueKind::Number)),
+            StandardBuiltinId::AtomicsWait => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::AtomicsPause => Some(ValueInfo::new(ValueKind::Undefined)),
+            StandardBuiltinId::AtomicsWaitAsync => Some(Self::value_info_from_shape(Some(
+                Box::new(HeapShape::Object(ObjectShape {
+                    prototype: Some(Box::new(Self::empty_object_shape())),
+                    properties: BTreeMap::from([
+                        (
+                            "async".to_string(),
+                            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
+                        ),
+                        (
+                            "value".to_string(),
+                            ObjectShapeProperty::Data(ValueInfo {
+                                kind: ValueKind::Dynamic,
+                                possible_kinds: KindSet::from_kind(ValueKind::String)
+                                    .union(KindSet::from_kind(ValueKind::Object)),
+                                heap_shape: None,
+                                function_targets: BTreeSet::new(),
+                            }),
+                        ),
+                    ]),
+                    private_brands: BTreeSet::new(),
+                    boxed_primitive: None,
+                })),
+            ))),
+            StandardBuiltinId::ObjectHasOwn
+            | StandardBuiltinId::JsonIsRawJson
+            | StandardBuiltinId::AtomicsIsLockFree => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsXor => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ObjectGetOwnPropertyNames
             | StandardBuiltinId::ObjectGetOwnPropertySymbols => Some(Self::value_info_from_shape(
                 Some(Box::new(HeapShape::Array(ArrayShape::default()))),
@@ -17553,6 +17805,15 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_object_literal(&mut self, object: &ObjectLiteral) -> TypedExpr {
+        if self.object_literal_has_duplicate_proto_setter(object) {
+            self.diagnostics.push(IrDiagnostic::early_error(
+                "E_OBJECT_DUPLICATE_PROTO",
+                "SyntaxError",
+                "early error: duplicate __proto__ prototype setter in object literal",
+                None,
+            ));
+        }
+
         let mut properties = Vec::with_capacity(object.properties().len());
         let mut shape = ObjectShape::default();
         for property in object.properties() {
@@ -17739,6 +18000,22 @@ impl<'a> ScriptLowerer<'a> {
             },
             ExprIr::ObjectLiteral(properties),
         )
+    }
+
+    fn object_literal_has_duplicate_proto_setter(&self, object: &ObjectLiteral) -> bool {
+        let mut proto_setters = 0usize;
+        for property in object.properties() {
+            let PropertyDefinition::Property(PropertyName::Literal(name), _) = property else {
+                continue;
+            };
+            if self.interner.resolve_expect(name.sym()).to_string() == "__proto__" {
+                proto_setters += 1;
+                if proto_setters > 1 {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn lower_regexp_literal(&mut self, regexp: &RegExpLiteral) -> TypedExpr {
@@ -18228,6 +18505,17 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
+    fn spec_get_v_operand_from_property_key(key: &PropertyKeyIr) -> Option<TypedExpr> {
+        match key {
+            PropertyKeyIr::StaticString(name) => Some(TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String(name.clone()),
+            )),
+            PropertyKeyIr::StringExpr(expr) => Some((**expr).clone()),
+            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => None,
+        }
+    }
+
     fn is_typed_array_value(&self, target: &TypedExpr) -> bool {
         self.read_object_shape_property(target, TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT)
             .is_some()
@@ -18414,14 +18702,8 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
-            if name == "from" && Self::is_typed_array_constructor_target(&target) {
-                return self.function_value_expr(StandardBuiltinId::TypedArrayFrom.function_id());
-            }
             if name == "of" && self.is_builtin_reference_expr(&target, ARRAY_NAME) {
                 return self.function_value_expr(StandardBuiltinId::ArrayOf.function_id());
-            }
-            if name == "of" && Self::is_typed_array_constructor_target(&target) {
-                return self.function_value_expr(StandardBuiltinId::TypedArrayOf.function_id());
             }
             if name == "toString"
                 && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
@@ -18505,6 +18787,9 @@ impl<'a> ScriptLowerer<'a> {
             },
         };
         self.mark_host_builtins_from_info(&info);
+        if let Some(key_operand) = Self::spec_get_v_operand_from_property_key(&key) {
+            return TypedExpr::spec_get_v_with_info(info, target, key_operand);
+        }
         TypedExpr::from_info(
             info,
             ExprIr::PropertyRead {
@@ -19080,10 +19365,40 @@ impl<'a> ScriptLowerer<'a> {
                     if let AssignTarget::Access(access) = lhs {
                         if let PropertyAccess::Simple(simple_access) = access {
                             if matches!(simple_access.target(), Expression::Identifier(_)) {
-                                let read = self.lower_property_access(access);
-                                let read_info = read.value_info();
-                                let ExprIr::PropertyRead { target, key } = read.expr else {
-                                    return self.unsupported_expr("property assignment target");
+                                let target =
+                                    Box::new(self.lower_property_target(simple_access.target()));
+                                let key = match simple_access.field() {
+                                    PropertyAccessField::Const(name) => {
+                                        let key_name =
+                                            self.interner.resolve_expect(name.sym()).to_string();
+                                        if target.kind == ValueKind::Array && key_name == "length" {
+                                            PropertyKeyIr::ArrayLength
+                                        } else {
+                                            PropertyKeyIr::StaticString(key_name)
+                                        }
+                                    }
+                                    PropertyAccessField::Expr(_) => {
+                                        return self.unsupported_expr("property assignment target");
+                                    }
+                                };
+                                let read_info = match &key {
+                                    PropertyKeyIr::StaticString(key_name) => self
+                                        .read_object_shape(&target, key_name)
+                                        .unwrap_or(ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        }),
+                                    PropertyKeyIr::ArrayLength => ValueInfo::new(ValueKind::Number),
+                                    PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        }
+                                    }
                                 };
                                 let rhs = self.lower_expression(rhs);
                                 let lhs_value = TypedExpr::from_info(
@@ -20410,12 +20725,6 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::Number(value.to_bits()),
                     );
                 }
-                if !lowered_target
-                    .possible_kinds
-                    .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
-                {
-                    return self.unsupported_expr("coercive unary plus");
-                }
                 TypedExpr::from_info(
                     ValueInfo {
                         kind: ValueKind::Number,
@@ -20433,15 +20742,8 @@ impl<'a> ScriptLowerer<'a> {
                 if let ExprIr::BigInt(bits) = &lowered_target.expr {
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::BigInt),
-                        ExprIr::BigInt((*bits).wrapping_neg()),
+                        ExprIr::BigInt(bits.negated()),
                     );
-                }
-                if lowered_target.possible_kinds.contains(ValueKind::BigInt)
-                    || !lowered_target
-                        .possible_kinds
-                        .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
-                {
-                    return self.unsupported_expr("coercive unary minus");
                 }
                 TypedExpr::from_info(
                     ValueInfo {
@@ -20565,7 +20867,7 @@ impl<'a> ScriptLowerer<'a> {
                 if let (ExprIr::BigInt(lhs), ExprIr::BigInt(rhs)) = (&lhs.expr, &rhs.expr) {
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::BigInt),
-                        ExprIr::BigInt(lhs.wrapping_add(*rhs)),
+                        ExprIr::BigInt(lhs.added(rhs)),
                     );
                 }
                 let lhs_primitive = self.to_primitive_info(&lhs, ToPrimitiveHint::Default);
@@ -20859,13 +21161,12 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 if let (ExprIr::BigInt(lhs), ExprIr::BigInt(rhs)) = (&lhs.expr, &rhs.expr) {
-                    let rhs_signed = *rhs as i64;
-                    if rhs_signed >= 0 {
-                        let exponent = rhs_signed as u64;
-                        if let Ok(exponent) = u32::try_from(exponent) {
+                    let rhs_value = rhs.to_bigint();
+                    if rhs_value.sign() != Sign::Minus {
+                        if let Some(exponent) = rhs_value.to_u32() {
                             return TypedExpr::from_info(
                                 ValueInfo::new(ValueKind::BigInt),
-                                ExprIr::BigInt(lhs.wrapping_pow(exponent)),
+                                ExprIr::BigInt(lhs.pow_u32(exponent)),
                             );
                         }
                     }
@@ -21077,47 +21378,32 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             RelationalOp::StrictEqual | RelationalOp::StrictNotEqual => {
-                let op = match relational {
-                    RelationalOp::StrictEqual => EqualityBinaryOp::StrictEqual,
-                    RelationalOp::StrictNotEqual => EqualityBinaryOp::StrictNotEqual,
-                    _ => unreachable!(),
-                };
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Boolean,
-                        possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::StrictEquality {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
+                let equality = TypedExpr::spec_strict_equality_comparison(lhs, rhs);
+                if matches!(relational, RelationalOp::StrictNotEqual) {
+                    TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Boolean),
+                        ExprIr::LogicalNot {
+                            expr: Box::new(equality),
+                        },
+                    )
+                } else {
+                    equality
+                }
             }
             RelationalOp::Equal | RelationalOp::NotEqual => {
-                let op = match relational {
-                    RelationalOp::Equal => EqualityBinaryOp::LooseEqual,
-                    RelationalOp::NotEqual => EqualityBinaryOp::LooseNotEqual,
-                    _ => unreachable!(),
-                };
-                TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::LooseEquality {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
+                let equality = TypedExpr::spec_is_loosely_equal(lhs, rhs);
+                if matches!(relational, RelationalOp::NotEqual) {
+                    TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Boolean),
+                        ExprIr::LogicalNot {
+                            expr: Box::new(equality),
+                        },
+                    )
+                } else {
+                    equality
+                }
             }
-            RelationalOp::In => TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::In {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                },
-            ),
+            RelationalOp::In => TypedExpr::spec_has_property(rhs, lhs),
             RelationalOp::InstanceOf => {
                 if !rhs.possible_kinds.contains(ValueKind::Function) {
                     return self.unsupported_expr("unsupported comparison operator");
@@ -21466,6 +21752,31 @@ impl<'a> ScriptLowerer<'a> {
         match arg {
             None => Some(false),
             Some(arg) => self.static_to_boolean_expr(arg),
+        }
+    }
+
+    fn expression_cannot_be_symbol(&self, expr: &Expression) -> bool {
+        self.expression_cannot_be_kind(expr, ValueKind::Symbol)
+    }
+
+    fn expression_cannot_be_kind(&self, expr: &Expression, excluded: ValueKind) -> bool {
+        let expr = Self::unwrap_parenthesized_expr(expr);
+        match expr {
+            Expression::Literal(literal) => match excluded {
+                ValueKind::BigInt => !matches!(literal.kind(), LiteralKind::BigInt(_)),
+                _ => true,
+            },
+            Expression::Identifier(identifier) => {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                match name.as_str() {
+                    "undefined" | "NaN" | "Infinity" => true,
+                    _ => !self
+                        .capture_value_info(&self.current_owner_id, &name)
+                        .possible_kinds
+                        .contains(excluded),
+                }
+            }
+            _ => false,
         }
     }
 
@@ -24664,20 +24975,24 @@ impl<'a> ScriptLowerer<'a> {
         right: &Option<Box<HeapShape>>,
     ) -> Option<Box<HeapShape>> {
         match kind {
-            ValueKind::Object | ValueKind::Array if left == right => left.clone(),
-            ValueKind::Object | ValueKind::Array => None,
+            ValueKind::Object | ValueKind::Array | ValueKind::Function if left == right => {
+                left.clone()
+            }
+            ValueKind::Object | ValueKind::Array | ValueKind::Function => None,
             _ => None,
         }
     }
 
     fn merge_value_infos(&self, left: ValueInfo, right: ValueInfo) -> ValueInfo {
         if left.kind == ValueKind::Function && right.kind == ValueKind::Function {
+            let heap_shape =
+                self.merge_heap_shapes(ValueKind::Function, &left.heap_shape, &right.heap_shape);
             let mut function_targets = left.function_targets;
             function_targets.extend(right.function_targets);
             return ValueInfo {
                 kind: ValueKind::Function,
                 possible_kinds: KindSet::from_kind(ValueKind::Function),
-                heap_shape: None,
+                heap_shape,
                 function_targets,
             };
         }
@@ -24767,10 +25082,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn unsupported_with_message(&mut self, message: String) {
-        self.diagnostics.push(IrDiagnostic {
-            kind: IrDiagnosticKind::Unsupported,
-            message,
-        });
+        self.diagnostics.push(IrDiagnostic::unsupported(message));
     }
 }
 

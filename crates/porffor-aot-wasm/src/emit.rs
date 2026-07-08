@@ -1,5 +1,12 @@
 use std::borrow::Cow;
 
+use crate::functions::{
+    emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
+};
+use crate::objects::{
+    emit_object_append_accessor_property_helper_function,
+    emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
+};
 use porffor_ir::{HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind};
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection,
@@ -114,6 +121,13 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) throw_handler_stack: Vec<usize>,
     pub(crate) finally_stack: Vec<usize>,
     pub(crate) stub_standard_builtin_body: bool,
+    pub(crate) runtime_bootstrap_plan: RuntimeBootstrapPlan,
+    pub(crate) heap_alloc_function_index: Option<u32>,
+    pub(crate) object_append_data_property_function_index: Option<u32>,
+    pub(crate) object_append_accessor_property_function_index: Option<u32>,
+    pub(crate) function_object_alloc_function_index: Option<u32>,
+    pub(crate) plain_object_alloc_function_index: Option<u32>,
+    pub(crate) array_alloc_function_index: Option<u32>,
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
@@ -132,23 +146,70 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 
 fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
     let uses_heap = true;
-    let host_builtins = all_host_builtins();
-    let uses_host_print = host_builtins.contains(&HostBuiltinId::Print);
+    let uses_shared_memory = script_references_memory_atomics(script);
+    let compiled_host_builtins = script.host_builtins.clone();
+    let stubbed_host_builtins = all_host_builtins()
+        .iter()
+        .copied()
+        .filter(|builtin| !compiled_host_builtins.contains(builtin))
+        .collect::<Vec<_>>();
+    let uses_host_print = compiled_host_builtins.contains(&HostBuiltinId::Print);
     let imported_function_count = u32::from(uses_host_print);
-    let standard_builtins = StandardBuiltinId::all_functions();
+    let mut compiled_standard_builtins = Vec::new();
+    let mut stubbed_standard_builtins = Vec::new();
+    for builtin in StandardBuiltinId::all_functions() {
+        if should_stub_standard_builtin(script, *builtin) {
+            stubbed_standard_builtins.push(*builtin);
+        } else {
+            compiled_standard_builtins.push(*builtin);
+        }
+    }
+    let runtime_bootstrap_plan =
+        RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
+    let has_shared_stub =
+        !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
     let function_metas = build_function_metas(
         script.functions.as_slice(),
-        standard_builtins,
-        host_builtins,
+        &compiled_standard_builtins,
+        &stubbed_standard_builtins,
+        &compiled_host_builtins,
+        &stubbed_host_builtins,
         imported_function_count,
     );
+    let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool = StringPool::collect(script, &function_metas);
     let uses_function_table = true;
-    let mut main_builder =
-        FunctionBuilder::new_main(script, &string_pool, &function_metas, uses_heap);
+    let callable_function_count = script.functions.len()
+        + emitted_standard_builtins.len()
+        + usize::from(has_shared_stub)
+        + compiled_host_builtins.len();
+    let heap_alloc_function_index =
+        uses_heap.then_some(imported_function_count + 1 + callable_function_count as u32);
+    let object_append_data_property_function_index =
+        heap_alloc_function_index.map(|heap_alloc_function_index| heap_alloc_function_index + 1);
+    let object_append_accessor_property_function_index = object_append_data_property_function_index
+        .map(|append_function_index| append_function_index + 1);
+    let function_object_alloc_function_index = object_append_accessor_property_function_index
+        .map(|append_function_index| append_function_index + 1);
+    let plain_object_alloc_function_index = function_object_alloc_function_index
+        .map(|function_object_alloc_function_index| function_object_alloc_function_index + 1);
+    let array_alloc_function_index = plain_object_alloc_function_index
+        .map(|plain_object_alloc_function_index| plain_object_alloc_function_index + 1);
+    let mut main_builder = FunctionBuilder::new_main(
+        script,
+        &string_pool,
+        &function_metas,
+        uses_heap,
+        runtime_bootstrap_plan.clone(),
+        heap_alloc_function_index,
+        object_append_data_property_function_index,
+        object_append_accessor_property_function_index,
+        function_object_alloc_function_index,
+        plain_object_alloc_function_index,
+        array_alloc_function_index,
+    );
     let main_function = main_builder.compile()?;
-    let mut compiled_functions =
-        Vec::with_capacity(script.functions.len() + standard_builtins.len() + host_builtins.len());
+    let mut compiled_functions = Vec::with_capacity(callable_function_count);
     for function in &script.functions {
         let mut builder = FunctionBuilder::new_function(
             function,
@@ -156,22 +217,66 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
             &string_pool,
             &function_metas,
             uses_heap,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         );
         compiled_functions.push(builder.compile()?);
     }
-    for builtin in standard_builtins {
+    for builtin in &emitted_standard_builtins {
         let mut builder = FunctionBuilder::new_standard_builtin(
             *builtin,
             &string_pool,
             &function_metas,
             uses_heap,
-            should_stub_standard_builtin(script, *builtin),
+            false,
+            runtime_bootstrap_plan.clone(),
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         );
         compiled_functions.push(builder.compile_builtin()?);
     }
-    for builtin in host_builtins {
-        let mut builder =
-            FunctionBuilder::new_host_builtin(*builtin, &string_pool, &function_metas, uses_heap);
+    if has_shared_stub {
+        let stub_builtin = stubbed_standard_builtins
+            .first()
+            .copied()
+            .unwrap_or(StandardBuiltinId::FunctionConstructor);
+        let mut builder = FunctionBuilder::new_standard_builtin(
+            stub_builtin,
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            true,
+            runtime_bootstrap_plan.clone(),
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+        );
+        compiled_functions.push(builder.compile_builtin()?);
+    }
+    for builtin in &compiled_host_builtins {
+        let mut builder = FunctionBuilder::new_host_builtin(
+            *builtin,
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+        );
         compiled_functions.push(builder.compile_builtin()?);
     }
 
@@ -183,18 +288,67 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
             [ValType::I64, ValType::I64, ValType::I64, ValType::I64],
         );
     }
+    types.ty().function([ValType::I64], [ValType::I64]);
+    types.ty().function(
+        [
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ],
+        [],
+    );
+    types.ty().function(
+        [
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ],
+        [],
+    );
+    types.ty().function(
+        [
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ],
+        [ValType::I64],
+    );
+    types
+        .ty()
+        .function([ValType::I64, ValType::I64], [ValType::I64]);
+    types
+        .ty()
+        .function([ValType::I64], [ValType::I64, ValType::I64]);
     if uses_host_print {
         types.ty().function([ValType::I32, ValType::I32], []);
     }
 
-    let callable_function_count =
-        script.functions.len() + standard_builtins.len() + host_builtins.len();
     let main_wasm_index = imported_function_count;
 
     let mut functions = FunctionSection::new();
     functions.function(0);
     for _ in 0..callable_function_count {
         functions.function(JS_FUNCTION_TYPE_INDEX);
+    }
+    if uses_heap {
+        functions.function(HEAP_ALLOC_TYPE_INDEX);
+        functions.function(OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX);
+        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
+        functions.function(FUNCTION_OBJECT_ALLOC_TYPE_INDEX);
+        functions.function(PLAIN_OBJECT_ALLOC_TYPE_INDEX);
+        functions.function(ARRAY_ALLOC_TYPE_INDEX);
     }
 
     let mut exports = ExportSection::new();
@@ -282,7 +436,7 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..8 {
+        for _ in 0..10 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -298,6 +452,26 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
     code.function(&main_function);
     for function in &compiled_functions {
         code.function(function);
+    }
+    if uses_heap {
+        code.function(&emit_heap_alloc_helper_function());
+        code.function(&emit_object_append_data_property_helper_function(
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
+        ));
+        code.function(&emit_object_append_accessor_property_helper_function(
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
+        ));
+        code.function(&emit_function_object_alloc_helper_function(
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
+            object_append_data_property_function_index
+                .expect("object append helper index must exist when heap is enabled"),
+        ));
+        code.function(&emit_plain_object_alloc_helper_function(
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
+        ));
+        code.function(&emit_array_alloc_helper_function(
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
+        ));
     }
 
     let mut module = Module::new();
@@ -330,6 +504,41 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         format!("static result kind: {}", script.result_kind().as_str()),
         format!("locals: {}", main_builder.local_count()),
         format!("internal functions: {}", callable_function_count),
+        format!(
+            "runtime helper functions: {}",
+            if uses_heap { 6 } else { 0 }
+        ),
+        format!(
+            "standard builtin bodies: {} real, {} shared-stubbed",
+            emitted_standard_builtins.len(),
+            stubbed_standard_builtins.len()
+        ),
+        format!(
+            "runtime bootstrap: {} standard roots, full globals={}",
+            runtime_bootstrap_plan.standard_roots.len(),
+            runtime_bootstrap_plan.full_standard_globals
+        ),
+        format!(
+            "standard builtin real names: {}",
+            emitted_standard_builtins
+                .iter()
+                .map(|builtin| builtin.debug_name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        format!(
+            "host builtin bodies: {} real, {} shared-stubbed",
+            compiled_host_builtins.len(),
+            stubbed_host_builtins.len()
+        ),
+        format!(
+            "host builtin real names: {}",
+            compiled_host_builtins
+                .iter()
+                .map(|builtin| builtin.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         format!("global registry slots: {}", GLOBAL_INDEX_REGISTRY.len()),
         format!("completion kind slots: {}", COMPLETION_KIND_REGISTRY.len()),
         format!("export global: {RESULT_TAG_EXPORT}"),
@@ -347,16 +556,21 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
 
     if !string_pool.bytes.is_empty() || uses_heap {
         let mut memories = MemorySection::new();
+        let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
         memories.memory(MemoryType {
-            minimum: initial_memory_pages(string_pool.bytes.len(), uses_heap),
-            maximum: None,
+            minimum: initial_pages,
+            maximum: uses_shared_memory.then_some(65_536),
             memory64: false,
-            shared: false,
+            shared: uses_shared_memory,
             page_size_log2: None,
         });
         module.section(&memories);
         exports.export("memory", ExportKind::Memory, 0);
-        debug_dump.push("memory: exported linear memory".to_string());
+        if uses_shared_memory {
+            debug_dump.push("memory: exported shared linear memory".to_string());
+        } else {
+            debug_dump.push("memory: exported linear memory".to_string());
+        }
 
         let mut data = DataSection::new();
         data.active(
@@ -423,6 +637,13 @@ impl<'a> FunctionBuilder<'a> {
         strings: &'a StringPool,
         functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
         uses_heap: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
     ) -> Self {
         Self::new(
             &script.body,
@@ -443,6 +664,13 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             ReturnAbi::MainExport,
             false,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         )
     }
 
@@ -452,6 +680,12 @@ impl<'a> FunctionBuilder<'a> {
         strings: &'a StringPool,
         functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
         uses_heap: bool,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
     ) -> Self {
         Self::new(
             &function.body,
@@ -472,6 +706,13 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             ReturnAbi::MultiValue,
             function.is_derived_constructor,
+            RuntimeBootstrapPlan::default(),
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         )
     }
 
@@ -480,6 +721,12 @@ impl<'a> FunctionBuilder<'a> {
         strings: &'a StringPool,
         functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
         uses_heap: bool,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
     ) -> Self {
         let function_id = builtin.function_id();
         Self::new(
@@ -497,6 +744,13 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             ReturnAbi::MultiValue,
             false,
+            RuntimeBootstrapPlan::default(),
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         )
     }
 
@@ -506,6 +760,13 @@ impl<'a> FunctionBuilder<'a> {
         functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
         uses_heap: bool,
         stub_body: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
     ) -> Self {
         let mut builder = Self::new(
             &EMPTY_BLOCK,
@@ -522,6 +783,13 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             ReturnAbi::MultiValue,
             false,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         );
         builder.stub_standard_builtin_body = stub_body;
         builder
@@ -542,6 +810,13 @@ impl<'a> FunctionBuilder<'a> {
         uses_heap: bool,
         return_abi: ReturnAbi,
         is_derived_constructor: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
     ) -> Self {
         let hoisted_vars = collect_hoisted_vars_block_root(body);
         let self_binding_local_count = usize::from(self_binding_name.is_some());
@@ -604,6 +879,13 @@ impl<'a> FunctionBuilder<'a> {
             throw_handler_stack: Vec::new(),
             finally_stack: Vec::new(),
             stub_standard_builtin_body: false,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
         }
     }
 
@@ -651,6 +933,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.push_scope();
         self.ensure_heap_ptr_after_static_data(&mut function);
+        self.init_current_realm(&mut function)?;
         self.init_current_env(&mut function)?;
         self.init_runtime_roots(&mut function)?;
         self.init_script_global_object(&mut function)?;
@@ -743,6 +1026,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
     }
 
+    fn init_current_realm(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        if !self.is_main() || !self.uses_heap {
+            return Ok(());
+        }
+        let realm_local = self.reserve_temp_local();
+        self.emit_alloc_realm_record(1, 1, realm_local, function)?;
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
+        self.release_temp_local(realm_local);
+        Ok(())
+    }
+
     fn compile_builtin(&mut self) -> Result<Function, EmitError> {
         let Some(function_id) = self.function_id.clone() else {
             return Err(EmitError::unsupported(
@@ -759,7 +1054,10 @@ impl<'a> FunctionBuilder<'a> {
             if self.stub_standard_builtin_body {
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
-                    "standard builtin body is not emitted unless referenced directly",
+                    &format!(
+                        "standard builtin body is not emitted unless referenced directly: {}",
+                        builtin.debug_name()
+                    ),
                     self.result_local,
                     self.result_tag_local,
                     &mut function,
@@ -771,7 +1069,7 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             match HostBuiltinId::from_function_id(&function_id) {
                 Some(HostBuiltinId::Print) => self.compile_host_print_builtin(&mut function)?,
-                Some(HostBuiltinId::Gc) => self.compile_host_gc_builtin(&mut function),
+                Some(HostBuiltinId::Gc) => self.compile_host_gc_builtin(&mut function)?,
                 Some(HostBuiltinId::AssertThrows) => {
                     self.compile_host_assert_throws_builtin(&mut function)?
                 }

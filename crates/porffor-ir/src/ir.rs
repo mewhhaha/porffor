@@ -1,12 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use num_bigint::{BigInt, BigUint, Sign};
+use num_traits::{One, ToPrimitive, Zero};
 use porffor_front::ParseGoal;
 
 use crate::{
     ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
-    EqualityBinaryOp, HostBuiltinId, IrDiagnostic, IrDiagnosticKind, LogicalBinaryOp,
-    LoweringStage, NumericUpdateOp, RelationalBinaryOp, SpecOperationIr, StandardBuiltinId,
-    UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
+    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NumericUpdateOp, RelationalBinaryOp,
+    SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode,
+    GLOBAL_THIS_NAME,
 };
 
 pub type FunctionId = String;
@@ -44,6 +47,72 @@ pub enum ValueKind {
     Dynamic,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BigIntLiteralIr {
+    pub decimal: String,
+    pub low_bits: u64,
+    pub requires_arbitrary_precision_storage: bool,
+}
+
+impl BigIntLiteralIr {
+    pub fn from_bigint(value: BigInt) -> Self {
+        let decimal = value.to_string();
+        let low_bits = Self::low_bits(&value);
+        let requires_arbitrary_precision_storage = value.bits() > 63;
+        Self {
+            decimal,
+            low_bits,
+            requires_arbitrary_precision_storage,
+        }
+    }
+
+    pub fn from_i64(value: i64) -> Self {
+        Self::from_bigint(BigInt::from(value))
+    }
+
+    pub fn from_u64_payload(bits: u64) -> Self {
+        Self {
+            decimal: bits.to_string(),
+            low_bits: bits,
+            requires_arbitrary_precision_storage: bits > i64::MAX as u64,
+        }
+    }
+
+    pub fn to_bigint(&self) -> BigInt {
+        self.decimal
+            .parse::<BigInt>()
+            .expect("BigIntLiteralIr decimal should parse")
+    }
+
+    pub fn wrapping_payload(&self) -> u64 {
+        self.low_bits
+    }
+
+    pub fn negated(&self) -> Self {
+        Self::from_bigint(-self.to_bigint())
+    }
+
+    pub fn added(&self, rhs: &Self) -> Self {
+        Self::from_bigint(self.to_bigint() + rhs.to_bigint())
+    }
+
+    pub fn pow_u32(&self, exponent: u32) -> Self {
+        Self::from_bigint(self.to_bigint().pow(exponent))
+    }
+
+    fn low_bits(value: &BigInt) -> u64 {
+        let (_, magnitude) = value.to_bytes_le();
+        let magnitude = BigUint::from_bytes_le(&magnitude);
+        let low_bits_mask = (BigUint::one() << 64_u32) - BigUint::one();
+        let low_bits = (magnitude & low_bits_mask).to_u64().unwrap_or(0);
+        if value.sign() == Sign::Minus && !value.is_zero() {
+            low_bits.wrapping_neg()
+        } else {
+            low_bits
+        }
+    }
+}
+
 impl ValueKind {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -59,6 +128,22 @@ impl ValueKind {
             Self::Arguments => "arguments",
             Self::BigInt => "bigint",
             Self::Dynamic => "dynamic",
+        }
+    }
+
+    pub const fn known_ecmascript_type(self) -> Option<EcmaLanguageType> {
+        match self {
+            Self::Undefined => Some(EcmaLanguageType::Undefined),
+            Self::Null => Some(EcmaLanguageType::Null),
+            Self::Boolean => Some(EcmaLanguageType::Boolean),
+            Self::Number => Some(EcmaLanguageType::Number),
+            Self::String => Some(EcmaLanguageType::String),
+            Self::Symbol => Some(EcmaLanguageType::Symbol),
+            Self::BigInt => Some(EcmaLanguageType::BigInt),
+            Self::Object | Self::Array | Self::Function | Self::Arguments => {
+                Some(EcmaLanguageType::Object)
+            }
+            Self::Dynamic => None,
         }
     }
 
@@ -476,12 +561,368 @@ impl TypedExpr {
         }
     }
 
+    pub fn spec_is_callable(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::IsCallable,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_is_constructor(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::IsConstructor,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_is_property_key(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::IsPropertyKey,
+                operands: vec![argument],
+            },
+        )
+    }
+
     pub fn spec_to_boolean(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Boolean),
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::ToBoolean,
                 operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_primitive(argument: TypedExpr, hint: ToPrimitiveHint) -> Self {
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::PRIMITIVE_ONLY,
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToPrimitive(hint),
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_numeric(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToNumeric,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_number(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToNumber,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_bigint(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::BigInt),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToBigInt,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_string(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToString,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_object(argument: TypedExpr) -> Self {
+        let possible_kinds = KindSet::from_kind(ValueKind::Object)
+            .union(KindSet::from_kind(ValueKind::Array))
+            .union(KindSet::from_kind(ValueKind::Function))
+            .union(KindSet::from_kind(ValueKind::Arguments));
+        Self::from_info(
+            ValueInfo {
+                kind: possible_kinds.as_value_kind(),
+                possible_kinds,
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToObject,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_property_key(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Symbol)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToPropertyKey,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_integer_or_infinity(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToIntegerOrInfinity,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_length(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToLength,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_to_index(argument: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToIndex,
+                operands: vec![argument],
+            },
+        )
+    }
+
+    pub fn spec_same_value(lhs: TypedExpr, rhs: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::SameValue,
+                operands: vec![lhs, rhs],
+            },
+        )
+    }
+
+    pub fn spec_same_value_zero(lhs: TypedExpr, rhs: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::SameValueZero,
+                operands: vec![lhs, rhs],
+            },
+        )
+    }
+
+    pub fn spec_strict_equality_comparison(lhs: TypedExpr, rhs: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::StrictEqualityComparison,
+                operands: vec![lhs, rhs],
+            },
+        )
+    }
+
+    pub fn spec_is_loosely_equal(lhs: TypedExpr, rhs: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::IsLooselyEqual,
+                operands: vec![lhs, rhs],
+            },
+        )
+    }
+
+    pub fn spec_get_v(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::spec_get_v_with_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            target,
+            property_key,
+        )
+    }
+
+    pub fn spec_get(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::spec_get_with_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            target,
+            property_key,
+        )
+    }
+
+    pub fn spec_get_with_info(info: ValueInfo, target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::from_info(
+            info,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::Get,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_get_v_with_info(
+        info: ValueInfo,
+        target: TypedExpr,
+        property_key: TypedExpr,
+    ) -> Self {
+        Self::from_info(
+            info,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_has_property(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::HasProperty,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_has_own_property(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::HasOwnProperty,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_set(target: TypedExpr, property_key: TypedExpr, value: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::Set,
+                operands: vec![target, property_key, value],
+            },
+        )
+    }
+
+    pub fn spec_delete_property_or_throw(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::DeletePropertyOrThrow,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_get_method(target: TypedExpr, property_key: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Undefined)
+                    .union(KindSet::from_kind(ValueKind::Function)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetMethod,
+                operands: vec![target, property_key],
+            },
+        )
+    }
+
+    pub fn spec_call(callee: TypedExpr, this_arg: TypedExpr, args: Vec<TypedExpr>) -> Self {
+        let mut operands = Vec::with_capacity(args.len() + 2);
+        operands.push(callee);
+        operands.push(this_arg);
+        operands.extend(args);
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::Call,
+                operands,
+            },
+        )
+    }
+
+    pub fn spec_construct(callee: TypedExpr, args: Vec<TypedExpr>) -> Self {
+        let mut operands = Vec::with_capacity(args.len() + 1);
+        operands.push(callee);
+        operands.extend(args);
+        Self::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Object)
+                    .union(KindSet::from_kind(ValueKind::Array))
+                    .union(KindSet::from_kind(ValueKind::Function))
+                    .union(KindSet::from_kind(ValueKind::Arguments)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::Construct,
+                operands,
+            },
+        )
+    }
+
+    pub fn spec_create_data_property_or_throw(
+        target: TypedExpr,
+        property_key: TypedExpr,
+        value: TypedExpr,
+    ) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Undefined),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::CreateDataPropertyOrThrow,
+                operands: vec![target, property_key, value],
             },
         )
     }
@@ -494,7 +935,7 @@ pub enum ExprIr {
     Null,
     Boolean(bool),
     Number(u64),
-    BigInt(u64),
+    BigInt(BigIntLiteralIr),
     Symbol,
     String(String),
     FunctionValue(FunctionId),
@@ -923,6 +1364,22 @@ pub enum StatementIr {
     },
 }
 
+impl StatementIr {
+    pub fn abrupt_completion_record(&self) -> Option<CompletionRecordIr<TypedExpr>> {
+        match self {
+            Self::Throw(value) => Some(CompletionRecordIr::throw(value.clone())),
+            Self::Return(value) => Some(CompletionRecordIr::return_(value.clone())),
+            Self::Break { label } => Some(CompletionRecordIr::break_(None, label.clone())),
+            Self::Continue { label } => Some(CompletionRecordIr::continue_(None, label.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn is_abrupt_completion_statement(&self) -> bool {
+        self.abrupt_completion_record().is_some()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockIr {
     pub statements: Vec<StatementIr>,
@@ -940,6 +1397,7 @@ pub enum ScriptGlobalBindingKind {
     ReflectObject,
     MathObject,
     JsonObject,
+    AtomicsObject,
     BuiltinFunction(StandardBuiltinId),
     HostFunction(HostBuiltinId),
 }
@@ -1010,10 +1468,12 @@ pub(crate) fn summarize_block(block: &BlockIr) -> IrBlockSummary {
 impl ProgramIr {
     pub fn is_wasm_supported(&self) -> bool {
         self.script.is_some()
-            && self
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.kind != IrDiagnosticKind::Unsupported)
+            && self.diagnostics.iter().all(|diagnostic| {
+                !matches!(
+                    diagnostic.kind,
+                    IrDiagnosticKind::Unsupported | IrDiagnosticKind::EarlyError
+                )
+            })
     }
 
     pub fn ir_summary(&self) -> String {
@@ -1626,6 +2086,49 @@ impl IrSummaryCounts {
             }
             ExprIr::SpecOperation { operands, .. } => {
                 self.spec_operations += 1;
+                if let ExprIr::SpecOperation { operation, .. } = &expr.expr {
+                    match operation {
+                        SpecOperationIr::Get | SpecOperationIr::GetV => {
+                            self.property_reads += 1;
+                            if matches!(operands.get(1).map(|operand| &operand.expr), Some(ExprIr::String(name)) if name == "prototype")
+                            {
+                                self.prototype_reads += 1;
+                            }
+                        }
+                        SpecOperationIr::GetMethod => {
+                            self.property_reads += 1;
+                        }
+                        SpecOperationIr::CreateDataPropertyOrThrow => {
+                            self.property_writes += 1;
+                        }
+                        SpecOperationIr::Set => {
+                            self.property_writes += 1;
+                        }
+                        SpecOperationIr::DeletePropertyOrThrow => {
+                            self.deletes += 1;
+                        }
+                        SpecOperationIr::Call => {
+                            self.calls += 1;
+                            self.indirect_calls += 1;
+                        }
+                        SpecOperationIr::Construct => {
+                            self.constructs += 1;
+                            self.indirect_calls += 1;
+                        }
+                        SpecOperationIr::IsLooselyEqual => {
+                            self.loose_equalities += 1;
+                            if let [lhs, rhs] = operands.as_slice() {
+                                if !lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                                    || !rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+                                {
+                                    self.heap_loose_equalities += 1;
+                                    self.heap_coercions += 1;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 for operand in operands {
                     self.visit_expr(operand);
                 }
@@ -1908,6 +2411,7 @@ pub(crate) fn read_heap_shape_property(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CompletionKindIr;
 
     #[test]
     fn value_tags_round_trip_for_runtime_tags() {
@@ -1931,6 +2435,176 @@ mod tests {
     }
 
     #[test]
+    fn operations_value_kind_classifies_known_ecmascript_type() {
+        assert_eq!(
+            ValueKind::Undefined.known_ecmascript_type(),
+            Some(EcmaLanguageType::Undefined)
+        );
+        assert_eq!(
+            ValueKind::Null.known_ecmascript_type(),
+            Some(EcmaLanguageType::Null)
+        );
+        assert_eq!(
+            ValueKind::Boolean.known_ecmascript_type(),
+            Some(EcmaLanguageType::Boolean)
+        );
+        assert_eq!(
+            ValueKind::String.known_ecmascript_type(),
+            Some(EcmaLanguageType::String)
+        );
+        assert_eq!(
+            ValueKind::Symbol.known_ecmascript_type(),
+            Some(EcmaLanguageType::Symbol)
+        );
+        assert_eq!(
+            ValueKind::Number.known_ecmascript_type(),
+            Some(EcmaLanguageType::Number)
+        );
+        assert_eq!(
+            ValueKind::BigInt.known_ecmascript_type(),
+            Some(EcmaLanguageType::BigInt)
+        );
+
+        for kind in [
+            ValueKind::Object,
+            ValueKind::Array,
+            ValueKind::Function,
+            ValueKind::Arguments,
+        ] {
+            assert_eq!(kind.known_ecmascript_type(), Some(EcmaLanguageType::Object));
+        }
+        assert_eq!(ValueKind::Dynamic.known_ecmascript_type(), None);
+    }
+
+    #[test]
+    fn operations_statement_throw_completion_record_preserves_value() {
+        let value = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("boom".into()),
+        );
+        let statement = StatementIr::Throw(value.clone());
+        let completion = statement
+            .abrupt_completion_record()
+            .expect("throw should produce an abrupt completion record");
+
+        assert!(statement.is_abrupt_completion_statement());
+        assert_eq!(completion.kind(), CompletionKindIr::Throw);
+        assert!(completion.is_abrupt());
+        assert_eq!(completion.value(), Some(&value));
+        assert_eq!(completion.target(), None);
+    }
+
+    #[test]
+    fn operations_statement_return_completion_record_preserves_value() {
+        let value = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(7.0f64.to_bits()),
+        );
+        let statement = StatementIr::Return(value.clone());
+        let completion = statement
+            .abrupt_completion_record()
+            .expect("return should produce an abrupt completion record");
+
+        assert!(statement.is_abrupt_completion_statement());
+        assert_eq!(completion.kind(), CompletionKindIr::Return);
+        assert!(completion.is_abrupt());
+        assert_eq!(completion.value(), Some(&value));
+        assert_eq!(completion.target(), None);
+    }
+
+    #[test]
+    fn operations_statement_break_continue_completion_record_preserves_target() {
+        let break_statement = StatementIr::Break {
+            label: Some("outer".into()),
+        };
+        let continue_statement = StatementIr::Continue {
+            label: Some("loop".into()),
+        };
+        let empty_statement = StatementIr::Empty;
+
+        let break_completion = break_statement
+            .abrupt_completion_record()
+            .expect("break should produce an abrupt completion record");
+        let continue_completion = continue_statement
+            .abrupt_completion_record()
+            .expect("continue should produce an abrupt completion record");
+
+        assert_eq!(break_completion.kind(), CompletionKindIr::Break);
+        assert!(break_completion.is_abrupt());
+        assert_eq!(break_completion.value(), None);
+        assert_eq!(break_completion.target(), Some("outer"));
+        assert_eq!(continue_completion.kind(), CompletionKindIr::Continue);
+        assert!(continue_completion.is_abrupt());
+        assert_eq!(continue_completion.value(), None);
+        assert_eq!(continue_completion.target(), Some("loop"));
+        assert!(!empty_statement.is_abrupt_completion_statement());
+        assert_eq!(empty_statement.abrupt_completion_record(), None);
+    }
+
+    #[test]
+    fn operations_spec_is_callable_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Function),
+            ExprIr::FunctionValue("callable".to_string()),
+        );
+        let expr = TypedExpr::spec_is_callable(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::IsCallable);
+        assert_eq!(operation.name(), "IsCallable");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_is_constructor_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Function),
+            ExprIr::FunctionValue("ctor".to_string()),
+        );
+        let expr = TypedExpr::spec_is_constructor(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::IsConstructor);
+        assert_eq!(operation.name(), "IsConstructor");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_is_property_key_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol);
+        let expr = TypedExpr::spec_is_property_key(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::IsPropertyKey);
+        assert_eq!(operation.name(), "IsPropertyKey");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
     fn operations_spec_to_boolean_expr_records_operation_and_operand() {
         let operand = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1950,6 +2624,593 @@ mod tests {
         assert_eq!(operation, SpecOperationIr::ToBoolean);
         assert_eq!(operation.name(), "ToBoolean");
         assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_primitive_expr_records_hint_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let expr = TypedExpr::spec_to_primitive(operand.clone(), ToPrimitiveHint::String);
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert_eq!(expr.possible_kinds, KindSet::PRIMITIVE_ONLY);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(
+            operation,
+            SpecOperationIr::ToPrimitive(ToPrimitiveHint::String)
+        );
+        assert_eq!(operation.name(), "ToPrimitive");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_number_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("1".to_string()),
+        );
+        let expr = TypedExpr::spec_to_number(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Number);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Number));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToNumber);
+        assert_eq!(operation.name(), "ToNumber");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_numeric_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::BigInt),
+            ExprIr::BigInt(BigIntLiteralIr::from_i64(1)),
+        );
+        let expr = TypedExpr::spec_to_numeric(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert_eq!(
+            expr.possible_kinds,
+            KindSet::from_kind(ValueKind::Number).union(KindSet::from_kind(ValueKind::BigInt))
+        );
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToNumeric);
+        assert_eq!(operation.name(), "ToNumeric");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_bigint_expr_records_operation_and_operand() {
+        let operand =
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Boolean), ExprIr::Boolean(true));
+        let expr = TypedExpr::spec_to_bigint(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::BigInt);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToBigInt);
+        assert_eq!(operation.name(), "ToBigInt");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_string_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_to_string(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::String);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::String));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToString);
+        assert_eq!(operation.name(), "ToString");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_object_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("boxed".to_string()),
+        );
+        let expr = TypedExpr::spec_to_object(operand.clone());
+        let object_like = KindSet::from_kind(ValueKind::Object)
+            .union(KindSet::from_kind(ValueKind::Array))
+            .union(KindSet::from_kind(ValueKind::Function))
+            .union(KindSet::from_kind(ValueKind::Arguments));
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert_eq!(expr.possible_kinds, object_like);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToObject);
+        assert_eq!(operation.name(), "ToObject");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_property_key_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_to_property_key(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert_eq!(
+            expr.possible_kinds,
+            KindSet::from_kind(ValueKind::String).union(KindSet::from_kind(ValueKind::Symbol))
+        );
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToPropertyKey);
+        assert_eq!(operation.name(), "ToPropertyKey");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_integer_or_infinity_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("-3.7".to_string()),
+        );
+        let expr = TypedExpr::spec_to_integer_or_infinity(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Number);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Number));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToIntegerOrInfinity);
+        assert_eq!(operation.name(), "ToIntegerOrInfinity");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_length_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("3".to_string()),
+        );
+        let expr = TypedExpr::spec_to_length(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Number);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Number));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToLength);
+        assert_eq!(operation.name(), "ToLength");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_to_index_expr_records_operation_and_operand() {
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("3".to_string()),
+        );
+        let expr = TypedExpr::spec_to_index(operand.clone());
+
+        assert_eq!(expr.kind, ValueKind::Number);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Number));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::ToIndex);
+        assert_eq!(operation.name(), "ToIndex");
+        assert_eq!(operands, vec![operand]);
+    }
+
+    #[test]
+    fn operations_spec_strict_equality_expr_records_operands() {
+        let lhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(1));
+        let rhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(1));
+        let expr = TypedExpr::spec_strict_equality_comparison(lhs.clone(), rhs.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::StrictEqualityComparison);
+        assert_eq!(operation.name(), "StrictEqualityComparison");
+        assert_eq!(operands, vec![lhs, rhs]);
+    }
+
+    #[test]
+    fn operations_spec_is_loosely_equal_expr_records_operands() {
+        let lhs = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("1".to_string()),
+        );
+        let rhs = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_is_loosely_equal(lhs.clone(), rhs.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::IsLooselyEqual);
+        assert_eq!(operation.name(), "IsLooselyEqual");
+        assert_eq!(operands, vec![lhs, rhs]);
+    }
+
+    #[test]
+    fn operations_spec_same_value_expr_records_operands() {
+        let lhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(1));
+        let rhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(1));
+        let expr = TypedExpr::spec_same_value(lhs.clone(), rhs.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::SameValue);
+        assert_eq!(operation.name(), "SameValue");
+        assert_eq!(operands, vec![lhs, rhs]);
+    }
+
+    #[test]
+    fn operations_spec_same_value_zero_expr_records_operands() {
+        let lhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(0));
+        let rhs = TypedExpr::from_info(ValueInfo::new(ValueKind::Number), ExprIr::Number(0));
+        let expr = TypedExpr::spec_same_value_zero(lhs.clone(), rhs.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::SameValueZero);
+        assert_eq!(operation.name(), "SameValueZero");
+        assert_eq!(operands, vec![lhs, rhs]);
+    }
+
+    #[test]
+    fn operations_spec_get_v_expr_records_target_and_key_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_get_v(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::GetV);
+        assert_eq!(operation.name(), "GetV");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_get_expr_records_target_and_key_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_get(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::Get);
+        assert_eq!(operation.name(), "Get");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_has_property_expr_records_target_and_key_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_has_property(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::Boolean));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::HasProperty);
+        assert_eq!(operation.name(), "HasProperty");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_create_data_property_or_throw_expr_records_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let value = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(42.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_create_data_property_or_throw(
+            target.clone(),
+            key.clone(),
+            value.clone(),
+        );
+
+        assert_eq!(expr.kind, ValueKind::Undefined);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::CreateDataPropertyOrThrow);
+        assert_eq!(operation.name(), "CreateDataPropertyOrThrow");
+        assert_eq!(operands, vec![target, key, value]);
+    }
+
+    #[test]
+    fn operations_spec_set_expr_records_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let value = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(42.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_set(target.clone(), key.clone(), value.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::Set);
+        assert_eq!(operation.name(), "Set");
+        assert_eq!(operands, vec![target, key, value]);
+    }
+
+    #[test]
+    fn operations_spec_delete_property_or_throw_expr_records_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_delete_property_or_throw(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::DeletePropertyOrThrow);
+        assert_eq!(operation.name(), "DeletePropertyOrThrow");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_has_own_property_expr_records_target_and_key_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_has_own_property(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Boolean);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::HasOwnProperty);
+        assert_eq!(operation.name(), "HasOwnProperty");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_get_method_expr_records_target_and_key_operands() {
+        let target = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+        );
+        let key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String("answer".to_string()),
+        );
+        let expr = TypedExpr::spec_get_method(target.clone(), key.clone());
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert_eq!(
+            expr.possible_kinds,
+            KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Function))
+        );
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::GetMethod);
+        assert_eq!(operation.name(), "GetMethod");
+        assert_eq!(operands, vec![target, key]);
+    }
+
+    #[test]
+    fn operations_spec_call_expr_records_callee_this_and_args() {
+        let callee = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Function),
+            ExprIr::FunctionValue(StandardBuiltinId::MathMax.function_id()),
+        );
+        let this_arg =
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Undefined), ExprIr::Undefined);
+        let arg = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_call(callee.clone(), this_arg.clone(), vec![arg.clone()]);
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::Call);
+        assert_eq!(operation.name(), "Call");
+        assert_eq!(operands, vec![callee, this_arg, arg]);
+    }
+
+    #[test]
+    fn operations_spec_construct_expr_records_callee_and_args() {
+        let callee = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Function),
+            ExprIr::FunctionValue(StandardBuiltinId::ArrayConstructor.function_id()),
+        );
+        let arg = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0f64.to_bits()),
+        );
+        let expr = TypedExpr::spec_construct(callee.clone(), vec![arg.clone()]);
+
+        assert_eq!(expr.kind, ValueKind::Dynamic);
+        assert!(expr.possible_kinds.contains(ValueKind::Array));
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = expr.expr
+        else {
+            panic!("expected spec operation expression");
+        };
+        assert_eq!(operation, SpecOperationIr::Construct);
+        assert_eq!(operation.name(), "Construct");
+        assert_eq!(operands, vec![callee, arg]);
     }
 
     #[test]

@@ -1,9 +1,11 @@
-pub(crate) const COMPLETION_KIND_NORMAL: i64 = 0;
-pub(crate) const COMPLETION_KIND_THROW: i64 = 1;
-pub(crate) const COMPLETION_KIND_RETURN: i64 = 2;
-pub(crate) const COMPLETION_KIND_BREAK: i64 = 3;
-pub(crate) const COMPLETION_KIND_CONTINUE: i64 = 4;
-pub(crate) const COMPLETION_KIND_EMPTY: i64 = 5;
+use porffor_ir::CompletionKindIr;
+
+pub(crate) const COMPLETION_KIND_NORMAL: i64 = CompletionKindIr::Normal.abi_code();
+pub(crate) const COMPLETION_KIND_THROW: i64 = CompletionKindIr::Throw.abi_code();
+pub(crate) const COMPLETION_KIND_RETURN: i64 = CompletionKindIr::Return.abi_code();
+pub(crate) const COMPLETION_KIND_BREAK: i64 = CompletionKindIr::Break.abi_code();
+pub(crate) const COMPLETION_KIND_CONTINUE: i64 = CompletionKindIr::Continue.abi_code();
+pub(crate) const COMPLETION_KIND_EMPTY: i64 = CompletionKindIr::Empty.abi_code();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CompletionKindSlot {
@@ -41,6 +43,7 @@ pub(crate) const COMPLETION_KIND_REGISTRY: &[CompletionKindSlot] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use porffor_ir::COMPLETION_ABI_SLOTS;
 
     #[test]
     fn operations_completion_kind_registry_is_stable_and_dense() {
@@ -63,5 +66,17 @@ mod tests {
             names,
             vec!["normal", "throw", "return", "break", "continue", "empty"]
         );
+    }
+
+    #[test]
+    fn operations_completion_kind_registry_matches_ir_abi() {
+        assert_eq!(COMPLETION_KIND_REGISTRY.len(), COMPLETION_ABI_SLOTS.len());
+        for (backend, ir) in COMPLETION_KIND_REGISTRY
+            .iter()
+            .zip(COMPLETION_ABI_SLOTS.iter())
+        {
+            assert_eq!(backend.name, ir.name);
+            assert_eq!(backend.value, ir.code);
+        }
     }
 }

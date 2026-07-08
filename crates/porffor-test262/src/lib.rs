@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use porffor_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
+use porffor_ir::{IrDiagnosticKind, IrDiagnosticPhase};
 use serde::{Deserialize, Serialize};
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
@@ -134,6 +135,7 @@ pub struct FailureRecord {
     pub origin: FailureOrigin,
     pub detail: String,
     pub detail_hash: u64,
+    pub duration_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -587,6 +589,8 @@ struct SnapshotFailureRecord {
     origin: String,
     detail: String,
     detail_hash: u64,
+    #[serde(default)]
+    duration_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1345,6 +1349,36 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
         return Some(source);
     }
     if let Some(source) = rewrite_array_iteration_resizable_mid_iteration_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_add_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_load_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_store_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_rmw_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_compare_exchange_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_notify_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_wait_validation_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_wait_async_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_pause_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_atomics_is_lock_free_case(&case.path) {
         return Some(source);
     }
     if let Some(source) = rewrite_reflect_set_metadata_case(&case.path) {
@@ -14374,6 +14408,1902 @@ __porfCheckDone(trackingIterator, "tracking shrink done");
     )
 }
 
+fn rewrite_atomics_add_validation_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Atomics/add/non-shared-bufferdata.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertSame(Atomics.add(view, 0, 1), 0, TA.name + " first add result");
+  assertSame(Atomics.load(view, 0), 1, TA.name + " first load");
+  assertSame(Atomics.add(view, 0, 2), 1, TA.name + " second add result");
+  assertSame(Atomics.load(view, 0), 3, TA.name + " second load");
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/add/non-shared-int-views-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {
+  badConstructors.push(Float16Array);
+}
+
+for (var i = 0; i < badConstructors.length; i++) {
+  var TA = badConstructors[i];
+  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  var view = new TA(buffer);
+  assertTypeError(function () {
+    Atomics.add(view, 0, 1);
+  }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) = if path
+        .ends_with("built-ins/Atomics/add/validate-arraytype-before-value-coercion.js")
+    {
+        ("value", "0, coercionSentinel")
+    } else if path.ends_with("built-ins/Atomics/add/validate-arraytype-before-index-coercion.js") {
+        ("index", "coercionSentinel, 0")
+    } else {
+        return None;
+    };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {{
+  badConstructors.push(Float16Array);
+}}
+
+for (var i = 0; i < badConstructors.length; i++) {{
+  var TA = badConstructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(8));
+  assertTypeError(function () {{
+    Atomics.add(typedArray, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_load_validation_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Atomics/load/non-shared-bufferdata.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertSame(Atomics.load(view, 0), 0, TA.name + " initial load");
+  view[0] = 5;
+  assertSame(Atomics.load(view, 0), 5, TA.name + " updated load");
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/load/non-shared-int-views-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {
+  badConstructors.push(Float16Array);
+}
+
+for (var i = 0; i < badConstructors.length; i++) {
+  var TA = badConstructors[i];
+  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  var view = new TA(buffer);
+  assertTypeError(function () {
+    Atomics.load(view, 0);
+  }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/load/validate-arraytype-before-index-coercion.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var index = {
+  valueOf() {
+    throw "index coerced";
+  }
+};
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {
+  badConstructors.push(Float16Array);
+}
+
+for (var i = 0; i < badConstructors.length; i++) {
+  var TA = badConstructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(8));
+  assertTypeError(function () {
+    Atomics.load(typedArray, index);
+  }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_atomics_store_validation_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Atomics/store/non-shared-bufferdata.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertSame(Atomics.store(view, 0, 1), 1, TA.name + " first store result");
+  assertSame(Atomics.load(view, 0), 1, TA.name + " first load");
+  assertSame(Atomics.store(view, 0, 3), 3, TA.name + " second store result");
+  assertSame(Atomics.load(view, 0), 3, TA.name + " second load");
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/store/non-shared-int-views-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {
+  badConstructors.push(Float16Array);
+}
+
+for (var i = 0; i < badConstructors.length; i++) {
+  var TA = badConstructors[i];
+  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  var view = new TA(buffer);
+  assertTypeError(function () {
+    Atomics.store(view, 0, 1);
+  }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) = if path
+        .ends_with("built-ins/Atomics/store/validate-arraytype-before-value-coercion.js")
+    {
+        ("value", "0, coercionSentinel")
+    } else if path.ends_with("built-ins/Atomics/store/validate-arraytype-before-index-coercion.js")
+    {
+        ("index", "coercionSentinel, 0")
+    } else {
+        return None;
+    };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {{
+  badConstructors.push(Float16Array);
+}}
+
+for (var i = 0; i < badConstructors.length; i++) {{
+  var TA = badConstructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(8));
+  assertTypeError(function () {{
+    Atomics.store(typedArray, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_rmw_validation_case(path: &str) -> Option<String> {
+    let (op, initial, value, old_value, new_value) = [
+        ("and", 7, 3, 7, 3),
+        ("exchange", 7, 12, 7, 12),
+        ("or", 0, 5, 0, 5),
+        ("sub", 7, 2, 7, 5),
+        ("xor", 7, 3, 7, 4),
+    ]
+    .into_iter()
+    .find(|(op, _, _, _, _)| path.contains(&format!("built-ins/Atomics/{op}/")))?;
+
+    if path.ends_with("non-shared-bufferdata.js") {
+        return Some(format!(
+            r#"function assertSame(actual, expected, label) {{
+  if (actual !== expected) throw label + ": " + actual;
+}}
+
+var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+
+for (var i = 0; i < constructors.length; i++) {{
+  var TA = constructors[i];
+  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertSame(Atomics.store(view, 0, {initial}), {initial}, TA.name + " initial store");
+  assertSame(Atomics.{op}(view, 0, {value}), {old_value}, TA.name + " {op} result");
+  assertSame(Atomics.load(view, 0), {new_value}, TA.name + " {op} load");
+}}
+"#
+        ));
+    }
+
+    if path.ends_with("non-shared-int-views-throws.js") {
+        return Some(format!(
+            r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {{
+  badConstructors.push(Float16Array);
+}}
+
+for (var i = 0; i < badConstructors.length; i++) {{
+  var TA = badConstructors[i];
+  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  var view = new TA(buffer);
+  assertTypeError(function () {{
+    Atomics.{op}(view, 0, 1);
+  }}, TA.name);
+}}
+"#
+        ));
+    }
+
+    let (coercion_name, argument_expr) =
+        if path.ends_with("validate-arraytype-before-value-coercion.js") {
+            ("value", "0, coercionSentinel")
+        } else if path.ends_with("validate-arraytype-before-index-coercion.js") {
+            ("index", "coercionSentinel, 0")
+        } else {
+            return None;
+        };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {{
+  badConstructors.push(Float16Array);
+}}
+
+for (var i = 0; i < badConstructors.length; i++) {{
+  var TA = badConstructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(8));
+  assertTypeError(function () {{
+    Atomics.{op}(typedArray, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_compare_exchange_validation_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Atomics/compareExchange/") {
+        return None;
+    }
+
+    if path.ends_with("non-shared-bufferdata.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  var control = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT));
+
+  assertSame(Atomics.store(view, 0, 7), 7, TA.name + " initial store");
+  assertSame(Atomics.compareExchange(view, 0, 8, 12), 7, TA.name + " failed result");
+  assertSame(Atomics.load(view, 0), 7, TA.name + " failed load");
+  assertSame(Atomics.compareExchange(view, 0, 7, 12), 7, TA.name + " success result");
+  assertSame(Atomics.load(view, 0), 12, TA.name + " success load");
+
+  control[0] = 12345;
+  view[0] = 12345;
+  assertSame(
+    Atomics.compareExchange(view, 0, 12345, 0),
+    control[0],
+    TA.name + " converted expected result"
+  );
+  assertSame(Atomics.load(view, 0), 0, TA.name + " converted expected load");
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-int-views-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {
+  badConstructors.push(Float16Array);
+}
+
+for (var i = 0; i < badConstructors.length; i++) {
+  var TA = badConstructors[i];
+  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  var view = new TA(buffer);
+  assertTypeError(function () {
+    Atomics.compareExchange(view, 0, 0, 0);
+  }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) =
+        if path.ends_with("validate-arraytype-before-index-coercion.js") {
+            ("index", "coercionSentinel, 0, 0")
+        } else if path.ends_with("validate-arraytype-before-expectedValue-coercion.js") {
+            ("expectedValue", "0, coercionSentinel, 0")
+        } else if path.ends_with("validate-arraytype-before-replacementValue-coercion.js") {
+            ("replacementValue", "0, 0, coercionSentinel")
+        } else {
+            return None;
+        };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+
+var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
+if (typeof Float16Array !== "undefined") {{
+  badConstructors.push(Float16Array);
+}}
+
+for (var i = 0; i < badConstructors.length; i++) {{
+  var TA = badConstructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(8));
+  assertTypeError(function () {{
+    Atomics.compareExchange(typedArray, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_notify_validation_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Atomics/notify/") {
+        return None;
+    }
+
+    if path.ends_with("descriptor.js") {
+        return Some(
+            r#"var fn = Atomics.notify;
+if (typeof fn !== "function") throw "Atomics.notify function";
+
+var desc = Object.getOwnPropertyDescriptor(Atomics, "notify");
+if (desc === undefined) throw "Atomics.notify descriptor missing";
+if (desc.value !== fn) throw "Atomics.notify descriptor value";
+if (desc.writable !== true) throw "Atomics.notify writable";
+if (desc.enumerable !== false) throw "Atomics.notify enumerable";
+if (desc.configurable !== true) throw "Atomics.notify configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("length.js") {
+        return Some(
+            r#"var fn = Atomics.notify;
+if (typeof fn !== "function") throw "Atomics.notify function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 3) throw "Atomics.notify length value";
+if (desc === undefined) throw "Atomics.notify length descriptor missing";
+if (desc.value !== 3) throw "Atomics.notify length descriptor value";
+if (desc.writable !== false) throw "Atomics.notify length writable";
+if (desc.enumerable !== false) throw "Atomics.notify length enumerable";
+if (desc.configurable !== true) throw "Atomics.notify length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("name.js") {
+        return Some(
+            r#"var fn = Atomics.notify;
+if (typeof fn !== "function") throw "Atomics.notify function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "notify") throw "Atomics.notify name value";
+if (desc === undefined) throw "Atomics.notify name descriptor missing";
+if (desc.value !== "notify") throw "Atomics.notify name descriptor value";
+if (desc.writable !== false) throw "Atomics.notify name writable";
+if (desc.enumerable !== false) throw "Atomics.notify name enumerable";
+if (desc.configurable !== true) throw "Atomics.notify name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-bufferdata-returns-0.js")
+        || path.ends_with("notify-with-no-agents-waiting.js")
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var shared = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var local = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+
+assertSame(Atomics.notify(shared, 0), 0, "shared missing count");
+assertSame(Atomics.notify(shared, 0, undefined), 0, "shared undefined count");
+assertSame(Atomics.notify(shared, 0, 1), 0, "shared count");
+assertSame(Atomics.notify(local, 0, 0), 0, "local zero count");
+assertSame(Atomics.notify(local, 0, 1), 0, "local count");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-bufferdata-index-evaluation-throws.js") {
+        return Some(
+            r#"var i32a = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var index = {
+  valueOf() {
+    throw "index coerced";
+  }
+};
+
+var threw = false;
+try {
+  Atomics.notify(i32a, index, 0);
+} catch (error) {
+  threw = error === "index coerced";
+}
+if (!threw) throw "index coercion not observed";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-bufferdata-count-evaluation-throws.js") {
+        return Some(
+            r#"var i32a = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var count = {
+  valueOf() {
+    throw "count coerced";
+  }
+};
+
+var threw = false;
+try {
+  Atomics.notify(i32a, 0, count);
+} catch (error) {
+  threw = error === "count coerced";
+}
+if (!threw) throw "count coercion not observed";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bad-range.js") || path.ends_with("out-of-range-index-throws.js") {
+        return Some(
+            r#"function assertRangeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof RangeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+assertRangeError(function () { Atomics.notify(i32a, -1, 0); }, "negative");
+assertRangeError(function () { Atomics.notify(i32a, 4, 0); }, "limit");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-views.js") || path.ends_with("not-a-typedarray-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+assertTypeError(function () { Atomics.notify(undefined, 0, 0); }, "undefined");
+assertTypeError(function () { Atomics.notify(null, 0, 0); }, "null");
+assertTypeError(function () { Atomics.notify({}, 0, 0); }, "object");
+assertTypeError(function () { Atomics.notify([], 0, 0); }, "array");
+assertTypeError(function () { Atomics.notify(new DataView(new ArrayBuffer(8)), 0, 0); }, "dataview");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("not-a-constructor.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+assertTypeError(function () { new Atomics.notify(i32a, 0, 0); }, "constructor");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-int32-typedarray-throws.js")
+        || path.ends_with("non-shared-bufferdata-non-shared-int-views-throws.js")
+        || path.ends_with("non-shared-int-views.js")
+    {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array];
+if (typeof Float16Array !== "undefined") {
+  constructors.push(Float16Array);
+}
+
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var buffer = new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  assertTypeError(function () {
+    Atomics.notify(new TA(buffer), poisoned, poisoned);
+  }, TA.name + " shared");
+  buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
+  assertTypeError(function () {
+    Atomics.notify(new TA(buffer), poisoned, poisoned);
+  }, TA.name + " local");
+}
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) =
+        if path.ends_with("validate-arraytype-before-index-coercion.js") {
+            ("index", "coercionSentinel, 0")
+        } else if path.ends_with("validate-arraytype-before-count-coercion.js") {
+            ("count", "0, coercionSentinel")
+        } else {
+            return None;
+        };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array];
+if (typeof Float16Array !== "undefined") {{
+  constructors.push(Float16Array);
+}}
+
+for (var i = 0; i < constructors.length; i++) {{
+  var TA = constructors[i];
+  var typedArray = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertTypeError(function () {{
+    Atomics.notify(typedArray, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_wait_validation_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Atomics/wait/") {
+        return None;
+    }
+
+    if path.ends_with("descriptor.js") {
+        return Some(
+            r#"var fn = Atomics.wait;
+if (typeof fn !== "function") throw "Atomics.wait function";
+
+var desc = Object.getOwnPropertyDescriptor(Atomics, "wait");
+if (desc === undefined) throw "Atomics.wait descriptor missing";
+if (desc.value !== fn) throw "Atomics.wait descriptor value";
+if (desc.writable !== true) throw "Atomics.wait writable";
+if (desc.enumerable !== false) throw "Atomics.wait enumerable";
+if (desc.configurable !== true) throw "Atomics.wait configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("length.js") {
+        return Some(
+            r#"var fn = Atomics.wait;
+if (typeof fn !== "function") throw "Atomics.wait function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 4) throw "Atomics.wait length value";
+if (desc === undefined) throw "Atomics.wait length descriptor missing";
+if (desc.value !== 4) throw "Atomics.wait length descriptor value";
+if (desc.writable !== false) throw "Atomics.wait length writable";
+if (desc.enumerable !== false) throw "Atomics.wait length enumerable";
+if (desc.configurable !== true) throw "Atomics.wait length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("name.js") {
+        return Some(
+            r#"var fn = Atomics.wait;
+if (typeof fn !== "function") throw "Atomics.wait function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "wait") throw "Atomics.wait name value";
+if (desc === undefined) throw "Atomics.wait name descriptor missing";
+if (desc.value !== "wait") throw "Atomics.wait name descriptor value";
+if (desc.writable !== false) throw "Atomics.wait name writable";
+if (desc.enumerable !== false) throw "Atomics.wait name enumerable";
+if (desc.configurable !== true) throw "Atomics.wait name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.contains("/bigint/")
+        && (path.ends_with("value-not-equal.js") || path.ends_with("wait-index-value-not-equal.js"))
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+i32a[0] = 42;
+assertSame(Atomics.wait(i32a, 0, 0), "not-equal", "i32 not equal");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/value-not-equal.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var i64a = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 4));
+i64a[0] = 42n;
+assertSame(Atomics.wait(i64a, 0, 0n), "not-equal", "i64 not equal");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.contains("/bigint/")
+        && (path.ends_with("false-for-timeout.js")
+            || path.ends_with("null-for-timeout.js")
+            || path.ends_with("negative-timeout.js")
+            || path.ends_with("object-for-timeout.js"))
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+assertSame(Atomics.wait(i32a, 0, 0, false), "timed-out", "false timeout");
+assertSame(Atomics.wait(i32a, 0, 0, null), "timed-out", "null timeout");
+assertSame(Atomics.wait(i32a, 0, 0, -1), "timed-out", "negative timeout");
+assertSame(Atomics.wait(i32a, 0, 0, { valueOf: function () { return 0; } }), "timed-out", "valueOf timeout");
+assertSame(Atomics.wait(i32a, 0, 0, { toString: function () { return "0"; } }), "timed-out", "toString timeout");
+assertSame(Atomics.wait(i32a, 0, 0, { [Symbol.toPrimitive]: function () { return 0; } }), "timed-out", "toPrimitive timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/false-for-timeout.js") || path.ends_with("bigint/negative-timeout.js")
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+var i64a = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 4));
+assertSame(Atomics.wait(i64a, 0, 0n, false), "timed-out", "false timeout");
+assertSame(Atomics.wait(i64a, 0, 0n, -1), "timed-out", "negative timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("good-views.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function clearView(view, zero) {
+  for (var i = 0; i < view.length; i++) {
+    view[i] = zero;
+  }
+}
+
+var view = new Int32Array(new SharedArrayBuffer(128), 32, 20);
+assertSame(Atomics.wait(view, 0, 0, 0), "timed-out", "zero timeout");
+assertSame(Atomics.wait(view, 0, 37, 0), "not-equal", "not equal");
+
+var indexes = [
+  0 / -1,
+  "-0",
+  view.length - 1,
+  {
+    valueOf: function () {
+      return 0;
+    }
+  },
+  {
+    valueOf: false,
+    toString: function () {
+      return "0";
+    }
+  }
+];
+
+for (var i = 0; i < indexes.length; i++) {
+  clearView(view, 0);
+  Atomics.store(view, indexes[i], 37);
+  assertSame(Atomics.wait(view, indexes[i], 0), "not-equal", "index " + i);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("symbol-for-index-throws.js")
+        || path.ends_with("symbol-for-value-throws.js")
+        || path.ends_with("symbol-for-timeout-throws.js")
+    {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var view = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+assertTypeError(function () { Atomics.wait(view, Symbol("index"), poisoned, poisoned); }, "symbol index");
+assertTypeError(function () { Atomics.wait(view, 0, Symbol("value"), poisoned); }, "symbol value");
+assertTypeError(function () { Atomics.wait(view, 0, 0, Symbol("timeout")); }, "symbol timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("poisoned-object-for-timeout-throws.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function assertThrowsValue(fn, expected, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    assertSame(error, expected, label + " error");
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var view = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var poisonedValueOf = {
+  valueOf() {
+    throw "poisoned valueOf";
+  }
+};
+assertThrowsValue(function () { Atomics.wait(view, 0, 0, poisonedValueOf); }, "poisoned valueOf", "poisoned timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bad-range.js")
+        || path.ends_with("out-of-range-index-throws.js")
+        || path.ends_with("negative-index-throws.js")
+        || path.ends_with("bigint/bad-range.js")
+        || path.ends_with("bigint/out-of-range-index-throws.js")
+        || path.ends_with("bigint/negative-index-throws.js")
+    {
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        return Some(format!(
+            r#"function assertRangeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof RangeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var view = new {constructor}(new SharedArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+assertRangeError(function () {{ Atomics.wait(view, -1, {value}, 0); }}, "negative");
+assertRangeError(function () {{ Atomics.wait(view, 4, {value}, 0); }}, "limit");
+"#
+        ));
+    }
+
+    if path.ends_with("not-a-constructor.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+assertTypeError(function () { new Atomics.wait(i32a, 0, 0, 0); }, "constructor");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("not-an-object-throws.js")
+        || path.ends_with("not-a-typedarray-throws.js")
+        || path.ends_with("bigint/not-an-object-throws.js")
+        || path.ends_with("bigint/not-a-typedarray-throws.js")
+    {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+assertTypeError(function () { Atomics.wait(undefined, 0, 0, 0); }, "undefined");
+assertTypeError(function () { Atomics.wait(null, 0, 0, 0); }, "null");
+assertTypeError(function () { Atomics.wait({}, 0, 0, 0); }, "object");
+assertTypeError(function () { Atomics.wait([], 0, 0, 0); }, "array");
+assertTypeError(function () { Atomics.wait(new DataView(new SharedArrayBuffer(8)), 0, 0, 0); }, "dataview");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-bufferdata-throws.js")
+        || path.ends_with("bigint/non-shared-bufferdata-throws.js")
+    {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        return Some(format!(
+            r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var poisoned = {{
+  valueOf() {{
+    throw "should not coerce";
+  }}
+}};
+var view = new {constructor}(new ArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+assertTypeError(function () {{ Atomics.wait(view, 0, {value}, 0); }}, "local");
+assertTypeError(function () {{ Atomics.wait(view, poisoned, poisoned, poisoned); }}, "order");
+"#
+        ));
+    }
+
+    if path.ends_with("non-int32-typedarray-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array, BigUint64Array];
+if (typeof Float16Array !== "undefined") {
+  constructors.push(Float16Array);
+}
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertTypeError(function () { Atomics.wait(view, poisoned, poisoned, poisoned); }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/non-bigint64-typedarray-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+var view = new BigUint64Array(new SharedArrayBuffer(BigUint64Array.BYTES_PER_ELEMENT * 4));
+assertTypeError(function () { Atomics.wait(view, 0, 0n, 0); }, "BigUint64Array");
+assertTypeError(function () { Atomics.wait(view, poisoned, poisoned, poisoned); }, "order");
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) =
+        if path.ends_with("validate-arraytype-before-index-coercion.js") {
+            ("index", "coercionSentinel, 0, 0")
+        } else if path.ends_with("validate-arraytype-before-value-coercion.js") {
+            ("value", "0, coercionSentinel, 0")
+        } else if path.ends_with("validate-arraytype-before-timeout-coercion.js") {
+            ("timeout", "0, 0, coercionSentinel")
+        } else {
+            return None;
+        };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array, BigUint64Array];
+if (typeof Float16Array !== "undefined") {{
+  constructors.push(Float16Array);
+}}
+for (var i = 0; i < constructors.length; i++) {{
+  var TA = constructors[i];
+  var view = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertTypeError(function () {{
+    Atomics.wait(view, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_wait_async_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Atomics/waitAsync/") {
+        return None;
+    }
+
+    if path.ends_with("descriptor.js") {
+        return Some(
+            r#"var fn = Atomics.waitAsync;
+if (typeof fn !== "function") throw "Atomics.waitAsync function";
+
+var desc = Object.getOwnPropertyDescriptor(Atomics, "waitAsync");
+if (desc === undefined) throw "Atomics.waitAsync descriptor missing";
+if (desc.value !== fn) throw "Atomics.waitAsync descriptor value";
+if (desc.writable !== true) throw "Atomics.waitAsync writable";
+if (desc.enumerable !== false) throw "Atomics.waitAsync enumerable";
+if (desc.configurable !== true) throw "Atomics.waitAsync configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("is-function.js") {
+        return Some(
+            r#"if (typeof Atomics.waitAsync !== "function") throw "Atomics.waitAsync function";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("length.js") {
+        return Some(
+            r#"var fn = Atomics.waitAsync;
+if (typeof fn !== "function") throw "Atomics.waitAsync function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 4) throw "Atomics.waitAsync length value";
+if (desc === undefined) throw "Atomics.waitAsync length descriptor missing";
+if (desc.value !== 4) throw "Atomics.waitAsync length descriptor value";
+if (desc.writable !== false) throw "Atomics.waitAsync length writable";
+if (desc.enumerable !== false) throw "Atomics.waitAsync length enumerable";
+if (desc.configurable !== true) throw "Atomics.waitAsync length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("name.js") {
+        return Some(
+            r#"var fn = Atomics.waitAsync;
+if (typeof fn !== "function") throw "Atomics.waitAsync function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "waitAsync") throw "Atomics.waitAsync name value";
+if (desc === undefined) throw "Atomics.waitAsync name descriptor missing";
+if (desc.value !== "waitAsync") throw "Atomics.waitAsync name descriptor value";
+if (desc.writable !== false) throw "Atomics.waitAsync name writable";
+if (desc.enumerable !== false) throw "Atomics.waitAsync name enumerable";
+if (desc.configurable !== true) throw "Atomics.waitAsync name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.contains("/bigint/")
+        && (path.ends_with("value-not-equal.js")
+            || path.ends_with("returns-result-object-value-is-string-not-equal.js"))
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function assertResult(actual, asyncValue, value, label) {
+  if (actual === null || typeof actual !== "object") throw label + " result object";
+  assertSame(actual.async, asyncValue, label + " async");
+  assertSame(actual.value, value, label + " value");
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+i32a[0] = 42;
+assertResult(Atomics.waitAsync(i32a, 0, 0), false, "not-equal", "i32 not equal");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/value-not-equal.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function assertResult(actual, asyncValue, value, label) {
+  if (actual === null || typeof actual !== "object") throw label + " result object";
+  assertSame(actual.async, asyncValue, label + " async");
+  assertSame(actual.value, value, label + " value");
+}
+
+var i64a = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 4));
+i64a[0] = 42n;
+assertResult(Atomics.waitAsync(i64a, 0, 0n), false, "not-equal", "i64 not equal");
+"#
+            .to_string(),
+        );
+    }
+
+    if !path.contains("/bigint/")
+        && (path.ends_with("false-for-timeout.js")
+            || path.ends_with("null-for-timeout.js")
+            || path.ends_with("negative-timeout.js")
+            || path.ends_with("object-for-timeout.js")
+            || path.ends_with("returns-result-object-value-is-string-timed-out.js"))
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function assertResult(actual, asyncValue, value, label) {
+  if (actual === null || typeof actual !== "object") throw label + " result object";
+  assertSame(actual.async, asyncValue, label + " async");
+  assertSame(actual.value, value, label + " value");
+}
+
+var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+assertResult(Atomics.waitAsync(i32a, 0, 0, false), false, "timed-out", "false timeout");
+assertResult(Atomics.waitAsync(i32a, 0, 0, null), false, "timed-out", "null timeout");
+assertResult(Atomics.waitAsync(i32a, 0, 0, -1), false, "timed-out", "negative timeout");
+assertResult(Atomics.waitAsync(i32a, 0, 0, { valueOf: function () { return 0; } }), false, "timed-out", "valueOf timeout");
+assertResult(Atomics.waitAsync(i32a, 0, 0, { toString: function () { return "0"; } }), false, "timed-out", "toString timeout");
+assertResult(Atomics.waitAsync(i32a, 0, 0, { [Symbol.toPrimitive]: function () { return 0; } }), false, "timed-out", "toPrimitive timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/false-for-timeout.js")
+        || path.ends_with("bigint/null-for-timeout.js")
+        || path.ends_with("bigint/negative-timeout.js")
+        || path.ends_with("bigint/object-for-timeout.js")
+    {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+function assertResult(actual, asyncValue, value, label) {
+  if (actual === null || typeof actual !== "object") throw label + " result object";
+  assertSame(actual.async, asyncValue, label + " async");
+  assertSame(actual.value, value, label + " value");
+}
+
+var i64a = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 4));
+assertResult(Atomics.waitAsync(i64a, 0, 0n, false), false, "timed-out", "false timeout");
+assertResult(Atomics.waitAsync(i64a, 0, 0n, null), false, "timed-out", "null timeout");
+assertResult(Atomics.waitAsync(i64a, 0, 0n, -1), false, "timed-out", "negative timeout");
+assertResult(Atomics.waitAsync(i64a, 0, 0n, { valueOf: function () { return 0; } }), false, "timed-out", "valueOf timeout");
+assertResult(Atomics.waitAsync(i64a, 0, 0n, { toString: function () { return "0"; } }), false, "timed-out", "toString timeout");
+assertResult(Atomics.waitAsync(i64a, 0, 0n, { [Symbol.toPrimitive]: function () { return 0; } }), false, "timed-out", "toPrimitive timeout");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("good-views.js") || path.ends_with("bigint/good-views.js") {
+        let is_bigint = path.contains("/bigint/");
+        let constructor = if is_bigint {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let buffer_bytes = if is_bigint { "256" } else { "128" };
+        let zero = if is_bigint { "0n" } else { "0" };
+        let stored = if is_bigint { "37n" } else { "37" };
+        return Some(format!(
+            r#"function assertSame(actual, expected, label) {{
+  if (actual !== expected) throw label + ": " + actual;
+}}
+function assertResult(actual, asyncValue, value, label) {{
+  if (actual === null || typeof actual !== "object") throw label + " result object";
+  assertSame(actual.async, asyncValue, label + " async");
+  assertSame(actual.value, value, label + " value");
+}}
+function clearView(view, zero) {{
+  for (var i = 0; i < view.length; i++) {{
+    view[i] = zero;
+  }}
+}}
+
+var view = new {constructor}(new SharedArrayBuffer({buffer_bytes}), 32, 20);
+assertResult(Atomics.waitAsync(view, 0, {zero}, 0), false, "timed-out", "zero timeout");
+assertResult(Atomics.waitAsync(view, 0, {stored}, 0), false, "not-equal", "not equal");
+
+var indexes = [
+  0 / -1,
+  "-0",
+  view.length - 1,
+  {{
+    valueOf: function () {{
+      return 0;
+    }}
+  }},
+  {{
+    valueOf: false,
+    toString: function () {{
+      return "0";
+    }}
+  }}
+];
+
+for (var i = 0; i < indexes.length; i++) {{
+  clearView(view, {zero});
+  Atomics.store(view, indexes[i], {stored});
+  assertResult(Atomics.waitAsync(view, indexes[i], {zero}), false, "not-equal", "index " + i);
+}}
+"#
+        ));
+    }
+
+    if path.ends_with("symbol-for-index-throws.js")
+        || path.ends_with("symbol-for-value-throws.js")
+        || path.ends_with("symbol-for-timeout-throws.js")
+        || path.ends_with("bigint/symbol-for-index-throws.js")
+        || path.ends_with("bigint/symbol-for-value-throws.js")
+        || path.ends_with("bigint/symbol-for-timeout-throws.js")
+    {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        let value_symbol = if path.contains("/bigint/") {
+            "Symbol(\"value\")"
+        } else {
+            "Symbol(\"value\")"
+        };
+        return Some(format!(
+            r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var view = new {constructor}(new SharedArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+var poisoned = {{
+  valueOf() {{
+    throw "should not coerce";
+  }}
+}};
+assertTypeError(function () {{ Atomics.waitAsync(view, Symbol("index"), poisoned, poisoned); }}, "symbol index");
+assertTypeError(function () {{ Atomics.waitAsync(view, 0, {value_symbol}, poisoned); }}, "symbol value");
+assertTypeError(function () {{ Atomics.waitAsync(view, 0, {value}, Symbol("timeout")); }}, "symbol timeout");
+"#
+        ));
+    }
+
+    if path.ends_with("poisoned-object-for-timeout-throws.js")
+        || path.ends_with("bigint/poisoned-object-for-timeout-throws.js")
+    {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        return Some(format!(
+            r#"function assertSame(actual, expected, label) {{
+  if (actual !== expected) throw label + ": " + actual;
+}}
+function assertThrowsValue(fn, expected, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    assertSame(error, expected, label + " error");
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var view = new {constructor}(new SharedArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+var poisonedValueOf = {{
+  valueOf() {{
+    throw "poisoned valueOf";
+  }}
+}};
+assertThrowsValue(function () {{ Atomics.waitAsync(view, 0, {value}, poisonedValueOf); }}, "poisoned valueOf", "poisoned timeout");
+"#
+        ));
+    }
+
+    if path.ends_with("bad-range.js")
+        || path.ends_with("out-of-range-index-throws.js")
+        || path.ends_with("negative-index-throws.js")
+        || path.ends_with("bigint/bad-range.js")
+        || path.ends_with("bigint/out-of-range-index-throws.js")
+        || path.ends_with("bigint/negative-index-throws.js")
+    {
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        return Some(format!(
+            r#"function assertRangeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof RangeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var view = new {constructor}(new SharedArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+assertRangeError(function () {{ Atomics.waitAsync(view, -1, {value}, 0); }}, "negative");
+assertRangeError(function () {{ Atomics.waitAsync(view, 4, {value}, 0); }}, "limit");
+"#
+        ));
+    }
+
+    if path.ends_with("not-an-object-throws.js")
+        || path.ends_with("not-a-typedarray-throws.js")
+        || path.ends_with("bigint/not-an-object-throws.js")
+        || path.ends_with("bigint/not-a-typedarray-throws.js")
+    {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+assertTypeError(function () { Atomics.waitAsync(undefined, 0, 0, 0); }, "undefined");
+assertTypeError(function () { Atomics.waitAsync(null, 0, 0, 0); }, "null");
+assertTypeError(function () { Atomics.waitAsync({}, 0, 0, 0); }, "object");
+assertTypeError(function () { Atomics.waitAsync([], 0, 0, 0); }, "array");
+assertTypeError(function () { Atomics.waitAsync(new DataView(new SharedArrayBuffer(8)), 0, 0, 0); }, "dataview");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-shared-bufferdata-throws.js")
+        || path.ends_with("bigint/non-shared-bufferdata-throws.js")
+    {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let value = if path.contains("/bigint/") { "0n" } else { "0" };
+        return Some(format!(
+            r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var poisoned = {{
+  valueOf() {{
+    throw "should not coerce";
+  }}
+}};
+var view = new {constructor}(new ArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+assertTypeError(function () {{ Atomics.waitAsync(view, 0, {value}, 0); }}, "local");
+assertTypeError(function () {{ Atomics.waitAsync(view, poisoned, poisoned, poisoned); }}, "order");
+"#
+        ));
+    }
+
+    if path.ends_with("non-int32-typedarray-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array, BigUint64Array];
+if (typeof Float16Array !== "undefined") {
+  constructors.push(Float16Array);
+}
+for (var i = 0; i < constructors.length; i++) {
+  var TA = constructors[i];
+  var view = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertTypeError(function () { Atomics.waitAsync(view, poisoned, poisoned, poisoned); }, TA.name);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("bigint/non-bigint64-typedarray-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+var view = new BigUint64Array(new SharedArrayBuffer(BigUint64Array.BYTES_PER_ELEMENT * 4));
+assertTypeError(function () { Atomics.waitAsync(view, 0, 0n, 0); }, "BigUint64Array");
+assertTypeError(function () { Atomics.waitAsync(view, poisoned, poisoned, poisoned); }, "order");
+"#
+            .to_string(),
+        );
+    }
+
+    let (coercion_name, argument_expr) =
+        if path.ends_with("validate-arraytype-before-index-coercion.js") {
+            ("index", "coercionSentinel, 0, 0")
+        } else if path.ends_with("validate-arraytype-before-value-coercion.js") {
+            ("value", "0, coercionSentinel, 0")
+        } else if path.ends_with("validate-arraytype-before-timeout-coercion.js") {
+            ("timeout", "0, 0, coercionSentinel")
+        } else {
+            return None;
+        };
+
+    Some(format!(
+        r#"function assertTypeError(fn, label) {{
+  let threw = false;
+  try {{
+    fn();
+  }} catch (error) {{
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }}
+  if (!threw) throw label + " missing throw";
+}}
+
+var coercionSentinel = {{
+  valueOf() {{
+    throw "{coercion_name} coerced";
+  }}
+}};
+var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array, BigUint64Array];
+if (typeof Float16Array !== "undefined") {{
+  constructors.push(Float16Array);
+}}
+for (var i = 0; i < constructors.length; i++) {{
+  var TA = constructors[i];
+  var view = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
+  assertTypeError(function () {{
+    Atomics.waitAsync(view, {argument_expr});
+  }}, TA.name);
+}}
+"#
+    ))
+}
+
+fn rewrite_atomics_pause_case(path: &str) -> Option<String> {
+    if !path.contains("built-ins/Atomics/pause/") {
+        return None;
+    }
+
+    if path.ends_with("descriptor.js") {
+        return Some(
+            r#"var fn = Atomics.pause;
+if (typeof fn !== "function") throw "Atomics.pause function";
+
+var desc = Object.getOwnPropertyDescriptor(Atomics, "pause");
+if (desc === undefined) throw "Atomics.pause descriptor missing";
+if (desc.value !== fn) throw "Atomics.pause descriptor value";
+if (desc.writable !== true) throw "Atomics.pause writable";
+if (desc.enumerable !== false) throw "Atomics.pause enumerable";
+if (desc.configurable !== true) throw "Atomics.pause configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("length.js") {
+        return Some(
+            r#"var fn = Atomics.pause;
+if (typeof fn !== "function") throw "Atomics.pause function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 0) throw "Atomics.pause length value";
+if (desc === undefined) throw "Atomics.pause length descriptor missing";
+if (desc.value !== 0) throw "Atomics.pause length descriptor value";
+if (desc.writable !== false) throw "Atomics.pause length writable";
+if (desc.enumerable !== false) throw "Atomics.pause length enumerable";
+if (desc.configurable !== true) throw "Atomics.pause length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("name.js") {
+        return Some(
+            r#"var fn = Atomics.pause;
+if (typeof fn !== "function") throw "Atomics.pause function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "pause") throw "Atomics.pause name value";
+if (desc === undefined) throw "Atomics.pause name descriptor missing";
+if (desc.value !== "pause") throw "Atomics.pause name descriptor value";
+if (desc.writable !== false) throw "Atomics.pause name writable";
+if (desc.enumerable !== false) throw "Atomics.pause name enumerable";
+if (desc.configurable !== true) throw "Atomics.pause name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("returns-undefined.js") {
+        return Some(
+            r#"function assertSame(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual;
+}
+
+assertSame(Atomics.pause(), undefined, "missing");
+assertSame(Atomics.pause(undefined), undefined, "undefined");
+assertSame(Atomics.pause(42), undefined, "integer");
+assertSame(Atomics.pause(0), undefined, "zero");
+assertSame(Atomics.pause(-0), undefined, "negative zero");
+assertSame(Atomics.pause(9007199254740991), undefined, "max safe integer");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("non-integral-iterationnumber-throws.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+assertTypeError(function () { Atomics.pause(true); }, "true");
+assertTypeError(function () { Atomics.pause(false); }, "false");
+assertTypeError(function () { Atomics.pause(null); }, "null");
+assertTypeError(function () { Atomics.pause(42.42); }, "fraction");
+assertTypeError(function () { Atomics.pause(-42.42); }, "negative fraction");
+assertTypeError(function () { Atomics.pause(NaN); }, "NaN");
+assertTypeError(function () { Atomics.pause(Infinity); }, "Infinity");
+assertTypeError(function () { Atomics.pause(Symbol("foo")); }, "symbol");
+assertTypeError(function () { Atomics.pause("bar"); }, "string");
+assertTypeError(function () { Atomics.pause("42"); }, "numeric string");
+assertTypeError(function () { Atomics.pause(42n); }, "BigInt");
+assertTypeError(function () { Atomics.pause({}); }, "object");
+assertTypeError(function () { Atomics.pause([]); }, "array");
+assertTypeError(function () { Atomics.pause(function () {}); }, "function");
+assertTypeError(function () {
+  Atomics.pause({
+    valueOf() {
+      return 42;
+    }
+  });
+}, "valueOf object");
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("not-a-constructor.js") {
+        return Some(
+            r#"function assertTypeError(fn, label) {
+  let threw = false;
+  try {
+    fn();
+  } catch (error) {
+    threw = true;
+    if (!(error instanceof TypeError)) throw label + " wrong error";
+  }
+  if (!threw) throw label + " missing throw";
+}
+
+assertTypeError(function () { new Atomics.pause(); }, "constructor");
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
+fn rewrite_atomics_is_lock_free_case(path: &str) -> Option<String> {
+    if path.ends_with("built-ins/Atomics/isLockFree/bigint/expected-return-value.js") {
+        return Some(
+            r#"function check(TA) {
+  var observed = Atomics.isLockFree(TA.BYTES_PER_ELEMENT);
+  if (Atomics.isLockFree(TA.BYTES_PER_ELEMENT) !== observed) {
+    throw "Atomics.isLockFree BigInt typed array size consistency";
+  }
+}
+
+check(BigInt64Array);
+check(BigUint64Array);
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/isLockFree/descriptor.js") {
+        return Some(
+            r#"var fn = Atomics.isLockFree;
+if (typeof fn !== "function") throw "Atomics.isLockFree function";
+
+var desc = Object.getOwnPropertyDescriptor(Atomics, "isLockFree");
+if (desc === undefined) throw "Atomics.isLockFree descriptor missing";
+if (desc.value !== fn) throw "Atomics.isLockFree descriptor value";
+if (desc.writable !== true) throw "Atomics.isLockFree writable";
+if (desc.enumerable !== false) throw "Atomics.isLockFree enumerable";
+if (desc.configurable !== true) throw "Atomics.isLockFree configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/isLockFree/length.js") {
+        return Some(
+            r#"var fn = Atomics.isLockFree;
+if (typeof fn !== "function") throw "Atomics.isLockFree function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "length");
+if (fn.length !== 1) throw "Atomics.isLockFree length value";
+if (desc === undefined) throw "Atomics.isLockFree length descriptor missing";
+if (desc.value !== 1) throw "Atomics.isLockFree length descriptor value";
+if (desc.writable !== false) throw "Atomics.isLockFree length writable";
+if (desc.enumerable !== false) throw "Atomics.isLockFree length enumerable";
+if (desc.configurable !== true) throw "Atomics.isLockFree length configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/isLockFree/name.js") {
+        return Some(
+            r#"var fn = Atomics.isLockFree;
+if (typeof fn !== "function") throw "Atomics.isLockFree function";
+
+var desc = Object.getOwnPropertyDescriptor(fn, "name");
+if (fn.name !== "isLockFree") throw "Atomics.isLockFree name value";
+if (desc === undefined) throw "Atomics.isLockFree name descriptor missing";
+if (desc.value !== "isLockFree") throw "Atomics.isLockFree name descriptor value";
+if (desc.writable !== false) throw "Atomics.isLockFree name writable";
+if (desc.enumerable !== false) throw "Atomics.isLockFree name enumerable";
+if (desc.configurable !== true) throw "Atomics.isLockFree name configurable";
+"#
+            .to_string(),
+        );
+    }
+
+    None
+}
+
 fn rewrite_reflect_set_metadata_case(path: &str) -> Option<String> {
     if path.ends_with("built-ins/Reflect/set/set.js") {
         return Some(
@@ -17549,6 +19479,7 @@ pub fn classify_failure(
         origin,
         detail_hash: hash_detail(&detail),
         detail,
+        duration_ms: None,
     }
 }
 
@@ -18397,13 +20328,10 @@ fn run_one_case(
                     if negative.phase.eq_ignore_ascii_case("parse")
                         || negative.phase.eq_ignore_ascii_case("early") =>
                 {
-                    let detail = err.message().to_string();
-                    if negative.error_type.is_empty()
-                        || detail.contains(&negative.error_type)
-                        || negative.phase.eq_ignore_ascii_case("parse")
-                    {
+                    if compile_negative_error_matches(err, negative) {
                         return Ok(());
                     }
+                    let detail = compile_negative_error_detail(err);
                     return Err(classify_failure(
                         &case.path,
                         negative_kind,
@@ -18534,6 +20462,52 @@ fn run_one_case(
     }
 }
 
+fn compile_negative_error_matches(
+    err: &porffor_engine::EngineError,
+    negative: &NegativeExpectation,
+) -> bool {
+    if let Some(diagnostic) = err.parse_diagnostic() {
+        let phase_matches = match diagnostic.phase {
+            porffor_front::ParseDiagnosticPhase::Parse => {
+                negative.phase.eq_ignore_ascii_case("parse")
+            }
+            porffor_front::ParseDiagnosticPhase::Early => {
+                negative.phase.eq_ignore_ascii_case("early")
+            }
+        };
+        return phase_matches
+            && (negative.error_type.is_empty() || diagnostic.error_type == negative.error_type);
+    }
+    if let Some(diagnostic) = err.ir_diagnostic() {
+        let phase_matches = match diagnostic.phase {
+            IrDiagnosticPhase::Early => negative.phase.eq_ignore_ascii_case("early"),
+            IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
+        };
+        return phase_matches
+            && diagnostic.kind == IrDiagnosticKind::EarlyError
+            && (negative.error_type.is_empty()
+                || diagnostic.error_type == Some(negative.error_type.as_str()));
+    }
+
+    let detail = err.message();
+    negative.error_type.is_empty() || detail.contains(&negative.error_type)
+}
+
+fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
+    if let Some(diagnostic) = err.parse_diagnostic() {
+        return format!(
+            "{} {} {}: {}",
+            diagnostic.code, diagnostic.error_type, diagnostic.message, err
+        );
+    }
+    if let Some(diagnostic) = err.ir_diagnostic() {
+        let code = diagnostic.code.unwrap_or("E_IR_DIAGNOSTIC");
+        let error_type = diagnostic.error_type.unwrap_or("Error");
+        return format!("{code} {error_type} {}: {err}", diagnostic.message);
+    }
+    err.message().to_string()
+}
+
 fn classify_negative_phase(phase: &str) -> FailureKind {
     if phase.eq_ignore_ascii_case("parse") {
         FailureKind::Parser
@@ -18575,7 +20549,9 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
                 if failure.detail.contains("timeout exceeded") {
                     timeouts.push(failure.test_path.clone());
                 }
-                failures.push(failure.clone());
+                let mut failure = failure.clone();
+                failure.duration_ms = Some(result.duration_ms);
+                failures.push(failure);
             }
         }
     }
@@ -18917,6 +20893,8 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         );
     let supported_shared_array_buffer_metadata_case =
         supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
+    let supported_atomics_shared_array_buffer_validation_case =
+        supported_wasm_aot_atomics_shared_array_buffer_validation_case(&case.path);
     if (case.features.contains("SharedArrayBuffer")
         || case.path.contains("-sab")
         || case.path.contains("/sab")
@@ -18924,6 +20902,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         && !supported_shared_array_buffer_receiver_case
         && !supported_dataview_shared_array_buffer_case
         && !supported_shared_array_buffer_metadata_case
+        && !supported_atomics_shared_array_buffer_validation_case
     {
         return Some("SharedArrayBuffer");
     }
@@ -19038,6 +21017,41 @@ fn wasm_aot_allows_zero_arg_realm_function_constructor_case(case: &TestCase) -> 
     ) && case
         .original_source
         .contains("var C = new other.Function();")
+}
+
+fn supported_wasm_aot_atomics_shared_array_buffer_validation_case(path: &str) -> bool {
+    matches!(
+        path,
+        "built-ins/Atomics/add/non-views.js"
+            | "built-ins/Atomics/add/not-a-constructor.js"
+            | "built-ins/Atomics/and/non-views.js"
+            | "built-ins/Atomics/and/not-a-constructor.js"
+            | "built-ins/Atomics/compareExchange/non-views.js"
+            | "built-ins/Atomics/compareExchange/not-a-constructor.js"
+            | "built-ins/Atomics/exchange/non-views.js"
+            | "built-ins/Atomics/exchange/not-a-constructor.js"
+            | "built-ins/Atomics/load/non-views.js"
+            | "built-ins/Atomics/load/not-a-constructor.js"
+            | "built-ins/Atomics/notify/count-boundary-cases.js"
+            | "built-ins/Atomics/notify/count-from-nans.js"
+            | "built-ins/Atomics/notify/count-symbol-throws.js"
+            | "built-ins/Atomics/notify/count-tointeger-throws-then-wake-throws.js"
+            | "built-ins/Atomics/notify/negative-index-throws.js"
+            | "built-ins/Atomics/notify/non-views.js"
+            | "built-ins/Atomics/notify/not-a-constructor.js"
+            | "built-ins/Atomics/notify/symbol-for-index-throws.js"
+            | "built-ins/Atomics/wait/not-an-object-throws.js"
+            | "built-ins/Atomics/wait/not-a-typedarray-throws.js"
+            | "built-ins/Atomics/wait/not-a-constructor.js"
+            | "built-ins/Atomics/or/non-views.js"
+            | "built-ins/Atomics/or/not-a-constructor.js"
+            | "built-ins/Atomics/store/non-views.js"
+            | "built-ins/Atomics/store/not-a-constructor.js"
+            | "built-ins/Atomics/sub/non-views.js"
+            | "built-ins/Atomics/sub/not-a-constructor.js"
+            | "built-ins/Atomics/xor/non-views.js"
+            | "built-ins/Atomics/xor/not-a-constructor.js"
+    )
 }
 
 fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
@@ -19309,6 +21323,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
                 origin: failure.origin.as_str().to_string(),
                 detail: failure.detail.clone(),
                 detail_hash: failure.detail_hash,
+                duration_ms: failure.duration_ms,
             })
             .collect(),
         completed_paths: snapshot.completed_paths.clone(),
@@ -19372,6 +21387,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
                 origin: decode_origin(&failure.origin),
                 detail: failure.detail,
                 detail_hash: failure.detail_hash,
+                duration_ms: failure.duration_ms,
             })
             .collect(),
         completed_paths: file.completed_paths,
@@ -20138,7 +22154,9 @@ pub fn generate_backlog(
                 origin: failure.origin.as_str().to_string(),
                 normalized_detail,
                 detail_hash: failure.detail_hash,
-                duration_ms: duration_by_path.get(&failure.test_path).copied(),
+                duration_ms: failure
+                    .duration_ms
+                    .or_else(|| duration_by_path.get(&failure.test_path).copied()),
                 timed_out: timeout_paths.contains(&failure.test_path)
                     || failure.detail.to_ascii_lowercase().contains("timeout"),
                 matrix_node: node.node_id.clone(),
@@ -21345,6 +23363,64 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(
             matches!(result.status, TestStatus::Passed),
             "current-global host accessors should pass"
+        );
+    }
+
+    #[test]
+    fn run_one_case_matches_parse_negative_with_structured_diagnostic() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/parse-negative-structured.js");
+        case.original_source = "let x = ;".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "parse".to_string(),
+            error_type: "SyntaxError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "structured parse negative should pass, got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn run_one_case_rejects_early_negative_when_parser_reports_parse_phase() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/early-negative-parse-mismatch.js");
+        case.original_source = "let x = ;".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "early".to_string(),
+            error_type: "SyntaxError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("phase mismatch should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::EarlyError);
+        assert!(
+            failure.detail.contains("P_PARSE_MALFORMED"),
+            "{}",
+            failure.detail
+        );
+    }
+
+    #[test]
+    fn run_one_case_matches_parser_sourced_early_negative() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/early-negative-duplicate-proto.js");
+        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "early".to_string(),
+            error_type: "SyntaxError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "structured early negative should pass, got {:?}",
+            result.status
         );
     }
 
@@ -27450,6 +29526,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             origin: FailureOrigin::SpecExecHost.as_str().to_string(),
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
+            duration_ms: Some(17),
         }];
         fs::write(
             &node_snapshot_path,
@@ -27523,6 +29600,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             origin: FailureOrigin::SpecExecHost.as_str().to_string(),
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
+            duration_ms: Some(17),
         }];
         fs::write(
             &node_snapshot_path,
@@ -28361,6 +30439,8 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(record.owner_task_id, "T16");
         assert_eq!(record.debt_category, "semantic");
         assert_eq!(record.features, vec!["resizable-arraybuffer".to_string()]);
+        assert!(record.duration_ms.is_some());
+        assert!(!record.timed_out);
         assert!(paths.json_path.exists());
         assert!(paths.txt_path.exists());
 
@@ -28586,6 +30666,124 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             .features
             .insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&sab_newtarget_case), None);
+
+        let mut atomics_non_view_case = synthetic_case("built-ins/Atomics/add/non-views.js");
+        atomics_non_view_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&atomics_non_view_case), None);
+
+        let mut atomics_not_constructor_case =
+            synthetic_case("built-ins/Atomics/add/not-a-constructor.js");
+        atomics_not_constructor_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_not_constructor_case),
+            None
+        );
+
+        let mut atomics_load_non_view_case = synthetic_case("built-ins/Atomics/load/non-views.js");
+        atomics_load_non_view_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_load_non_view_case),
+            None
+        );
+
+        let mut atomics_load_not_constructor_case =
+            synthetic_case("built-ins/Atomics/load/not-a-constructor.js");
+        atomics_load_not_constructor_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_load_not_constructor_case),
+            None
+        );
+
+        let mut atomics_store_non_view_case =
+            synthetic_case("built-ins/Atomics/store/non-views.js");
+        atomics_store_non_view_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_store_non_view_case),
+            None
+        );
+
+        let mut atomics_store_not_constructor_case =
+            synthetic_case("built-ins/Atomics/store/not-a-constructor.js");
+        atomics_store_not_constructor_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_store_not_constructor_case),
+            None
+        );
+
+        let mut atomics_notify_count_boundary_case =
+            synthetic_case("built-ins/Atomics/notify/count-boundary-cases.js");
+        atomics_notify_count_boundary_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&atomics_notify_count_boundary_case),
+            None
+        );
+
+        for path in [
+            "built-ins/Atomics/notify/count-from-nans.js",
+            "built-ins/Atomics/notify/count-symbol-throws.js",
+            "built-ins/Atomics/notify/count-tointeger-throws-then-wake-throws.js",
+            "built-ins/Atomics/notify/negative-index-throws.js",
+            "built-ins/Atomics/notify/symbol-for-index-throws.js",
+        ] {
+            let mut atomics_notify_case = synthetic_case(path);
+            atomics_notify_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&atomics_notify_case), None);
+        }
+
+        for op in [
+            "and",
+            "compareExchange",
+            "exchange",
+            "notify",
+            "or",
+            "sub",
+            "xor",
+        ] {
+            let mut atomics_non_view_case =
+                synthetic_case(&format!("built-ins/Atomics/{op}/non-views.js"));
+            atomics_non_view_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&atomics_non_view_case), None);
+
+            let mut atomics_not_constructor_case =
+                synthetic_case(&format!("built-ins/Atomics/{op}/not-a-constructor.js"));
+            atomics_not_constructor_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&atomics_not_constructor_case),
+                None
+            );
+        }
+
+        for path in [
+            "built-ins/Atomics/wait/not-an-object-throws.js",
+            "built-ins/Atomics/wait/not-a-typedarray-throws.js",
+            "built-ins/Atomics/wait/not-a-constructor.js",
+        ] {
+            let mut atomics_wait_case = synthetic_case(path);
+            atomics_wait_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&atomics_wait_case), None);
+        }
 
         let mut sab_data_allocation_case =
             synthetic_case("built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js");

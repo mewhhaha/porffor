@@ -280,6 +280,9 @@ impl<'a> FunctionBuilder<'a> {
         let getter_payload_local = self.reserve_temp_local();
         let getter_tag_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(receiver_tag_local));
@@ -295,6 +298,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            array_local,
+            HEAP_PROTOTYPE_OFFSET,
+            prototype_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         if fallback_to_array_constructor {
             function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
             function.instruction(&Instruction::LocalSet(payload_local));
@@ -306,6 +318,22 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
         }
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(prototype_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            prototype_payload_local,
+            prototype_tag_local,
+            array_local,
+            receiver_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
         function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
@@ -359,11 +387,66 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(key_local);
+        self.release_temp_local(prototype_tag_local);
+        self.release_temp_local(prototype_payload_local);
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(getter_tag_local);
         self.release_temp_local(getter_payload_local);
         self.release_temp_local(descriptor_kind_local);
         Ok(())
+    }
+
+    pub(crate) fn emit_mark_skip_species_for_cross_realm_array_constructor(
+        &mut self,
+        constructor_payload_local: u32,
+        constructor_table_index_local: u32,
+        skip_species_local: u32,
+        array_constructor_table_index: i64,
+        function: &mut Function,
+    ) {
+        let constructor_realm_local = self.reserve_temp_local();
+        let current_function_realm_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(constructor_table_index_local));
+        function.instruction(&Instruction::I64Const(array_constructor_table_index));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            constructor_payload_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            constructor_realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(constructor_payload_local));
+        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(skip_species_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            current_function_realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(constructor_realm_local));
+        function.instruction(&Instruction::LocalGet(current_function_realm_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(skip_species_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(current_function_realm_local);
+        self.release_temp_local(constructor_realm_local);
     }
 
     pub(crate) fn compile_array_literal_payload(
@@ -5301,6 +5384,15 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let array_constructor_table_index = self
+            .functions
+            .get(&StandardBuiltinId::ArrayConstructor.function_id())
+            .map(|meta| meta.table_index as i64)
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Array`",
+                )
+            })?;
         let this_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(
                 "unsupported in porffor wasm-aot first slice: missing Array.prototype.flat receiver",
@@ -5338,6 +5430,8 @@ impl<'a> FunctionBuilder<'a> {
         let prototype_local = self.reserve_temp_local();
         let constructor_payload_local = self.reserve_temp_local();
         let constructor_tag_local = self.reserve_temp_local();
+        let constructor_table_index_local = self.reserve_temp_local();
+        let skip_species_local = self.reserve_temp_local();
         let species_payload_local = self.reserve_temp_local();
         let species_tag_local = self.reserve_temp_local();
         let has_property_local = self.reserve_temp_local();
@@ -5355,8 +5449,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flat called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -5373,8 +5466,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flat called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -5391,6 +5483,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(species_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(species_tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(skip_species_local));
 
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64Eqz);
@@ -5520,6 +5614,27 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(constructor_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            constructor_payload_local,
+            HEAP_FUNCTION_TABLE_INDEX_OFFSET,
+            constructor_table_index_local,
+            function,
+        );
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(skip_species_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("Symbol.species"),
         ));
@@ -5555,6 +5670,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -6188,6 +6304,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(has_property_local);
         self.release_temp_local(species_tag_local);
         self.release_temp_local(species_payload_local);
+        self.release_temp_local(skip_species_local);
+        self.release_temp_local(constructor_table_index_local);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor_payload_local);
         self.release_temp_local(prototype_local);
@@ -6864,6 +6982,8 @@ impl<'a> FunctionBuilder<'a> {
         let number_tag_local = self.reserve_temp_local();
         let constructor_payload_local = self.reserve_temp_local();
         let constructor_tag_local = self.reserve_temp_local();
+        let constructor_table_index_local = self.reserve_temp_local();
+        let skip_species_local = self.reserve_temp_local();
         let species_payload_local = self.reserve_temp_local();
         let species_tag_local = self.reserve_temp_local();
         let item_index_local = self.reserve_temp_local();
@@ -6904,8 +7024,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.concat called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -6922,8 +7041,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.concat called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -6940,6 +7058,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(species_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(species_tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(skip_species_local));
 
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
@@ -7013,8 +7133,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.concat constructor is not object",
             self.result_local,
             self.result_tag_local,
@@ -7029,23 +7148,20 @@ impl<'a> FunctionBuilder<'a> {
         self.load_i64_to_local_from_offset(
             constructor_payload_local,
             HEAP_FUNCTION_TABLE_INDEX_OFFSET,
-            self.scratch_local,
+            constructor_table_index_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(array_constructor_table_index));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(skip_species_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(constructor_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(constructor_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -7077,14 +7193,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.concat constructor is not object",
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -7493,6 +7609,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(item_index_local);
         self.release_temp_local(species_tag_local);
         self.release_temp_local(species_payload_local);
+        self.release_temp_local(skip_species_local);
+        self.release_temp_local(constructor_table_index_local);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor_payload_local);
         self.release_temp_local(number_tag_local);
@@ -7506,6 +7624,15 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let array_constructor_table_index = self
+            .functions
+            .get(&StandardBuiltinId::ArrayConstructor.function_id())
+            .map(|meta| meta.table_index as i64)
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Array`",
+                )
+            })?;
         let this_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(
                 "unsupported in porffor wasm-aot first slice: missing Array.prototype.flatMap receiver",
@@ -7545,6 +7672,8 @@ impl<'a> FunctionBuilder<'a> {
         let number_tag_local = self.reserve_temp_local();
         let constructor_payload_local = self.reserve_temp_local();
         let constructor_tag_local = self.reserve_temp_local();
+        let constructor_table_index_local = self.reserve_temp_local();
+        let skip_species_local = self.reserve_temp_local();
         let species_payload_local = self.reserve_temp_local();
         let species_tag_local = self.reserve_temp_local();
         let typed_receiver_local = self.reserve_temp_local();
@@ -7568,8 +7697,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flatMap called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -7586,8 +7714,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flatMap called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -7604,12 +7731,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(species_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(species_tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(skip_species_local));
 
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flatMap mapper is not callable",
             self.result_local,
             self.result_tag_local,
@@ -7624,8 +7752,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.flatMap mapper is not callable",
             self.result_local,
             self.result_tag_local,
@@ -7727,6 +7854,27 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(constructor_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            constructor_payload_local,
+            HEAP_FUNCTION_TABLE_INDEX_OFFSET,
+            constructor_table_index_local,
+            function,
+        );
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(skip_species_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("Symbol.species"),
         ));
@@ -7762,6 +7910,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -8609,6 +8758,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_receiver_local);
         self.release_temp_local(species_tag_local);
         self.release_temp_local(species_payload_local);
+        self.release_temp_local(skip_species_local);
+        self.release_temp_local(constructor_table_index_local);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor_payload_local);
         self.release_temp_local(number_tag_local);
@@ -8861,8 +9012,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.map called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -8879,8 +9029,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.map called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -8917,8 +9066,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.map mapper is not callable",
             self.result_local,
             self.result_tag_local,
@@ -8941,8 +9089,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.map mapper is not callable",
             self.result_local,
             self.result_tag_local,
@@ -9111,17 +9258,13 @@ impl<'a> FunctionBuilder<'a> {
             constructor_table_index_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(constructor_table_index_local));
-        function.instruction(&Instruction::I64Const(array_constructor_table_index));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(skip_species_local));
-        function.instruction(&Instruction::End);
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(skip_species_local));
         function.instruction(&Instruction::I64Eqz);
@@ -10101,8 +10244,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.every called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -10119,8 +10261,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.every called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -10157,8 +10298,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.every callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -10181,8 +10321,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.every callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -10353,17 +10492,13 @@ impl<'a> FunctionBuilder<'a> {
             constructor_table_index_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(constructor_table_index_local));
-        function.instruction(&Instruction::I64Const(array_constructor_table_index));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(skip_species_local));
-        function.instruction(&Instruction::End);
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(skip_species_local));
         function.instruction(&Instruction::I64Eqz);
@@ -11144,8 +11279,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.some called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -11162,8 +11296,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.some called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -11200,8 +11333,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.some callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -11224,8 +11356,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.some callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -11396,17 +11527,13 @@ impl<'a> FunctionBuilder<'a> {
             constructor_table_index_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(constructor_table_index_local));
-        function.instruction(&Instruction::I64Const(array_constructor_table_index));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(skip_species_local));
-        function.instruction(&Instruction::End);
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(skip_species_local));
         function.instruction(&Instruction::I64Eqz);
@@ -12186,8 +12313,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.filter called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -12204,8 +12330,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.filter called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -12242,8 +12367,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.filter callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -12266,8 +12390,7 @@ impl<'a> FunctionBuilder<'a> {
             object_length_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.filter callback is not callable",
             self.result_local,
             self.result_tag_local,
@@ -12436,17 +12559,13 @@ impl<'a> FunctionBuilder<'a> {
             constructor_table_index_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(constructor_table_index_local));
-        function.instruction(&Instruction::I64Const(array_constructor_table_index));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::GlobalGet(ARRAY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(skip_species_local));
-        function.instruction(&Instruction::End);
+        self.emit_mark_skip_species_for_cross_realm_array_constructor(
+            constructor_payload_local,
+            constructor_table_index_local,
+            skip_species_local,
+            array_constructor_table_index,
+            function,
+        );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(skip_species_local));
         function.instruction(&Instruction::I64Eqz);
@@ -16450,8 +16569,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             nullish_message,
             self.result_local,
             self.result_tag_local,
@@ -16468,8 +16586,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             nullish_message,
             self.result_local,
             self.result_tag_local,
@@ -16600,8 +16717,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             predicate_not_callable_message,
             self.result_local,
             self.result_tag_local,
@@ -16616,8 +16732,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             predicate_not_callable_message,
             self.result_local,
             self.result_tag_local,
@@ -16888,8 +17003,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             message,
             payload_local,
             tag_local,
@@ -17289,8 +17403,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_throw_current_function_realm_type_error(
                 "TypedArray.prototype.toLocaleString requires TypedArray",
                 self.result_local,
                 self.result_tag_local,
@@ -17299,8 +17412,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::Else);
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_throw_current_function_realm_type_error(
                 "TypedArray.prototype.toLocaleString requires TypedArray",
                 self.result_local,
                 self.result_tag_local,
@@ -17312,8 +17424,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Array.prototype.toLocaleString called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -18578,6 +18689,15 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(array_alloc_function_index) = self.array_alloc_function_index {
+            let buffer_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(len_local));
+            function.instruction(&Instruction::Call(array_alloc_function_index));
+            function.instruction(&Instruction::LocalSet(buffer_local));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            self.release_temp_local(buffer_local);
+            return Ok(());
+        }
         let array_local = self.reserve_temp_local();
         let buffer_local = self.reserve_temp_local();
         let cap_local = self.reserve_temp_local();

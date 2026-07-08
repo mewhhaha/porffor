@@ -1,8 +1,15 @@
-use porffor_front::{parse, ParseGoal, ParseOptions, SourceUnit};
-use porffor_ir::{lower, ProgramIr, ValueKind};
+use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
+use porffor_ir::{lower, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
+#[cfg(test)]
 use wasmi::{
-    core::Trap, Caller, Engine as WasmiEngine, Extern, Linker, Module as WasmiModule, Store,
-    Value as WasmiValue,
+    core::Trap as WasmiTrap, Caller as WasmiCaller, Engine as WasmiEngine, Linker as WasmiLinker,
+    Module as WasmiModule,
+};
+use wasmi::{Store as WasmiStore, Value as WasmiValue};
+use wasmtime::{
+    Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
+    Extern as WasmtimeExtern, Linker as WasmtimeLinker, Module as WasmtimeModule, OptLevel,
+    RegallocAlgorithm, Store as WasmtimeStore, Val as WasmtimeVal,
 };
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
@@ -13,7 +20,13 @@ const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
 #[cfg(test)]
 const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
-pub use porffor_runtime::{HostHooks, NullHostHooks, Realm, RealmBuilder};
+pub use porffor_runtime::{
+    AgentId, GlobalEnvironmentId, HostHooks, IntrinsicDescriptor, IntrinsicFunctionMetadata,
+    IntrinsicId, IntrinsicKind, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor,
+    IntrinsicPropertyKey, IntrinsicPropertyValue, IntrinsicRole, NullHostHooks, Realm,
+    RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId, RealmObjectKind,
+    INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArtifactKind {
@@ -96,17 +109,45 @@ pub struct InspectionReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineError {
     message: String,
+    parse_diagnostic: Option<ParseDiagnostic>,
+    ir_diagnostic: Option<IrDiagnostic>,
 }
 
 impl EngineError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            parse_diagnostic: None,
+            ir_diagnostic: None,
+        }
+    }
+
+    fn from_parse_error(err: porffor_front::ParseError) -> Self {
+        Self {
+            message: err.to_string(),
+            parse_diagnostic: Some(err.diagnostic().clone()),
+            ir_diagnostic: None,
+        }
+    }
+
+    fn from_ir_diagnostic(diagnostic: IrDiagnostic) -> Self {
+        Self {
+            message: diagnostic.message.clone(),
+            parse_diagnostic: None,
+            ir_diagnostic: Some(diagnostic),
         }
     }
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn parse_diagnostic(&self) -> Option<&ParseDiagnostic> {
+        self.parse_diagnostic.as_ref()
+    }
+
+    pub fn ir_diagnostic(&self) -> Option<&IrDiagnostic> {
+        self.ir_diagnostic.as_ref()
     }
 }
 
@@ -270,8 +311,15 @@ impl Engine {
                 filename: options.filename,
             },
         )
-        .map_err(|err| EngineError::new(err.to_string()))?;
+        .map_err(EngineError::from_parse_error)?;
         let ir = lower(&source);
+        if let Some(diagnostic) = ir
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
+        {
+            return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
+        }
         Ok(CompilationUnit { source, ir })
     }
 
@@ -344,68 +392,109 @@ impl Engine {
     }
 
     fn run_with_wasm_aot(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
+        let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
+        let trace_start = std::time::Instant::now();
+        let trace_phase = |phase: &str| {
+            if trace_wasm {
+                eprintln!(
+                    "porffor wasm trace: {phase} after {:?}",
+                    trace_start.elapsed()
+                );
+            }
+        };
+
         let artifact = porffor_aot_wasm::emit(&unit.ir).map_err(|err| {
             EngineError::new(format!(
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
             ))
         })?;
+        if trace_wasm {
+            eprintln!(
+                "porffor wasm trace: artifact bytes: {}",
+                artifact.bytes.len()
+            );
+            eprintln!(
+                "porffor wasm trace: artifact debug:\n{}",
+                artifact.debug_dump
+            );
+        }
+        trace_phase("emit");
 
-        let engine = WasmiEngine::default();
-        let module = WasmiModule::new(&engine, &artifact.bytes[..])
-            .map_err(|err| EngineError::new(format!("wasmi module validation failed: {err}")))?;
-        let mut store = Store::new(
+        let mut config = WasmtimeConfig::new();
+        config.cranelift_opt_level(OptLevel::None);
+        config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
+        config.max_wasm_stack(8 * 1024 * 1024);
+        config.wasm_threads(true);
+        config.wasm_function_references(true);
+        config.wasm_gc(true);
+        config.wasm_exceptions(true);
+        let engine = WasmtimeEngine::new(&config)
+            .map_err(|err| EngineError::new(format!("wasmtime engine setup failed: {err}")))?;
+        trace_phase("engine");
+        let module = WasmtimeModule::new(&engine, &artifact.bytes[..])
+            .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err}")))?;
+        trace_phase("module");
+        let mut store = WasmtimeStore::new(
             &engine,
             WasmHostState {
                 realm: self.realm.clone(),
             },
         );
-        let mut linker = Linker::new(&engine);
+        let mut linker = WasmtimeLinker::new(&engine);
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_PRINT_LINE_UTF8,
-                |caller: Caller<'_, WasmHostState>, ptr: i32, len: i32| -> Result<(), Trap> {
-                    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
-                        return Err(Trap::new(
-                            "wasmi host import failed: missing exported memory",
+                |mut caller: WasmtimeCaller<'_, WasmHostState>,
+                 ptr: i32,
+                 len: i32|
+                 -> wasmtime::Result<()> {
+                    let Some(WasmtimeExtern::Memory(memory)) = caller.get_export("memory") else {
+                        return Err(wasmtime::Error::msg(
+                            "wasmtime host import failed: missing exported memory",
                         ));
                     };
                     let ptr = usize::try_from(ptr).map_err(|_| {
-                        Trap::new("wasmi host import failed: negative utf-8 pointer")
+                        wasmtime::Error::msg("wasmtime host import failed: negative utf-8 pointer")
                     })?;
                     let len = usize::try_from(len).map_err(|_| {
-                        Trap::new("wasmi host import failed: negative utf-8 length")
+                        wasmtime::Error::msg("wasmtime host import failed: negative utf-8 length")
                     })?;
                     let mut bytes = vec![0; len];
                     memory.read(&caller, ptr, &mut bytes).map_err(|err| {
-                        Trap::new(format!(
-                            "wasmi host import failed: unable to read memory: {err}"
+                        wasmtime::Error::msg(format!(
+                            "wasmtime host import failed: unable to read memory: {err}"
                         ))
                     })?;
                     let text = String::from_utf8(bytes).map_err(|err| {
-                        Trap::new(format!("wasmi host import failed: invalid utf-8: {err}"))
+                        wasmtime::Error::msg(format!(
+                            "wasmtime host import failed: invalid utf-8: {err}"
+                        ))
                     })?;
                     caller.data().realm.host_hooks().print_line(&text);
                     Ok(())
                 },
             )
-            .map_err(|err| EngineError::new(format!("wasmi linker setup failed: {err}")))?;
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        trace_phase("linker");
         let instance = linker
             .instantiate(&mut store, &module)
-            .and_then(|pre| pre.start(&mut store))
-            .map_err(|err| EngineError::new(format!("wasmi instantiate failed: {err}")))?;
+            .map_err(|err| EngineError::new(format!("wasmtime instantiate failed: {err}")))?;
+        trace_phase("instantiate");
         let main = instance
-            .get_typed_func::<(), i64>(&store, "main")
-            .map_err(|err| EngineError::new(format!("wasmi export lookup failed: {err}")))?;
+            .get_typed_func::<(), i64>(&mut store, "main")
+            .map_err(|err| EngineError::new(format!("wasmtime export lookup failed: {err}")))?;
+        trace_phase("lookup main");
         let payload = main
             .call(&mut store, ())
-            .map_err(|err| EngineError::new(format!("wasmi execution trapped: {err}")))?;
+            .map_err(|err| EngineError::new(format!("wasmtime execution trapped: {err:?}")))?;
+        trace_phase("call main");
         let result_kind = instance
-            .get_global(&store, WASM_RESULT_TAG_EXPORT)
-            .ok_or_else(|| EngineError::new("wasmi export lookup failed: missing result_tag"))?
-            .get(&store);
-        let WasmiValue::I32(result_tag) = result_kind else {
+            .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
+            .ok_or_else(|| EngineError::new("wasmtime export lookup failed: missing result_tag"))?
+            .get(&mut store);
+        let WasmtimeVal::I32(result_tag) = result_kind else {
             return Err(EngineError::new(
                 "wasm result_tag export had unexpected type",
             ));
@@ -413,30 +502,33 @@ impl Engine {
         let result_kind = ValueKind::from_tag(result_tag)
             .ok_or_else(|| EngineError::new(format!("unknown wasm result tag: {result_tag}")))?;
         let completion = instance
-            .get_global(&store, WASM_COMPLETION_KIND_EXPORT)
-            .ok_or_else(|| EngineError::new("wasmi export lookup failed: missing completion_kind"))?
-            .get(&store);
-        let WasmiValue::I32(completion_kind) = completion else {
+            .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
+            .ok_or_else(|| {
+                EngineError::new("wasmtime export lookup failed: missing completion_kind")
+            })?
+            .get(&mut store);
+        let WasmtimeVal::I32(completion_kind) = completion else {
             return Err(EngineError::new(
                 "wasm completion_kind export had unexpected type",
             ));
         };
-        let note = render_wasm_completion(
+        let note = render_wasmtime_completion(
             result_kind,
             payload,
-            instance.get_memory(&store, "memory"),
-            &store,
+            instance.get_memory(&mut store, "memory"),
+            &mut store,
         )?;
         if completion_kind != 0 {
             let error_name = if matches!(
                 result_kind,
                 ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
             ) {
-                read_wasm_string_payload_global(
+                let memory = instance.get_memory(&mut store, "memory");
+                read_wasmtime_string_payload_global(
                     &instance,
-                    &store,
+                    &mut store,
                     WASM_THROW_ERROR_NAME_EXPORT,
-                    instance.get_memory(&store, "memory"),
+                    memory,
                 )?
             } else {
                 None
@@ -457,7 +549,7 @@ impl Engine {
 
 fn read_wasm_string_payload_global(
     instance: &wasmi::Instance,
-    store: &Store<WasmHostState>,
+    store: &WasmiStore<WasmHostState>,
     global_name: &str,
     memory: Option<wasmi::Memory>,
 ) -> Result<Option<String>, EngineError> {
@@ -488,11 +580,44 @@ fn read_wasm_string_payload_global(
         .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
 }
 
+fn read_wasmtime_string_payload_global(
+    instance: &wasmtime::Instance,
+    store: &mut WasmtimeStore<WasmHostState>,
+    global_name: &str,
+    memory: Option<wasmtime::Memory>,
+) -> Result<Option<String>, EngineError> {
+    let Some(global) = instance.get_global(&mut *store, global_name) else {
+        return Ok(None);
+    };
+    let WasmtimeVal::I64(payload) = global.get(&mut *store) else {
+        return Err(EngineError::new(format!(
+            "wasm {global_name} export had unexpected type"
+        )));
+    };
+    if payload == 0 {
+        return Ok(None);
+    }
+    let memory = memory.ok_or_else(|| {
+        EngineError::new(format!(
+            "wasm {global_name} string needs exported memory, but none exists"
+        ))
+    })?;
+    let offset = ((payload as u64) >> 32) as usize;
+    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+    let mut bytes = vec![0; len];
+    memory
+        .read(&mut *store, offset, &mut bytes)
+        .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}")))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
+}
+
 fn render_wasm_completion(
     kind: ValueKind,
     payload: i64,
     memory: Option<wasmi::Memory>,
-    store: &Store<WasmHostState>,
+    store: &WasmiStore<WasmHostState>,
 ) -> Result<String, EngineError> {
     let rendered = match kind {
         ValueKind::Undefined => "undefined".to_string(),
@@ -514,6 +639,55 @@ fn render_wasm_completion(
             let mut bytes = vec![0; len];
             memory
                 .read(store, offset, &mut bytes)
+                .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}")))?;
+            String::from_utf8(bytes).map_err(|err| {
+                EngineError::new(format!("wasm string result is not utf-8: {err}"))
+            })?
+        }
+        ValueKind::Object => format!("handle@{}", payload as u64),
+        ValueKind::Array => format!("handle@{}", payload as u64),
+        ValueKind::Function => format!("handle@{}", payload as u64),
+        ValueKind::Arguments => format!("handle@{}", payload as u64),
+        ValueKind::Symbol => format!("symbol@{}", payload as u64),
+        ValueKind::BigInt => format!("{}n", payload),
+        ValueKind::Dynamic => {
+            return Err(EngineError::new(
+                "wasm completion used dynamic tag; expected concrete runtime tag",
+            ));
+        }
+    };
+    Ok(format!(
+        "wasm-aot completion: {}({rendered})",
+        kind.as_str()
+    ))
+}
+
+fn render_wasmtime_completion(
+    kind: ValueKind,
+    payload: i64,
+    memory: Option<wasmtime::Memory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<String, EngineError> {
+    let rendered = match kind {
+        ValueKind::Undefined => "undefined".to_string(),
+        ValueKind::Null => "null".to_string(),
+        ValueKind::Boolean => {
+            if payload == 0 {
+                "false".to_string()
+            } else {
+                "true".to_string()
+            }
+        }
+        ValueKind::Number => format!("{}", f64::from_bits(payload as u64)),
+        ValueKind::String => {
+            let offset = ((payload as u64) >> 32) as usize;
+            let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+            let memory = memory.ok_or_else(|| {
+                EngineError::new("wasm string result needs exported memory, but none exists")
+            })?;
+            let mut bytes = vec![0; len];
+            memory
+                .read(&mut *store, offset, &mut bytes)
                 .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}")))?;
             String::from_utf8(bytes).map_err(|err| {
                 EngineError::new(format!("wasm string result is not utf-8: {err}"))
@@ -587,20 +761,21 @@ mod tests {
         let wasmi_engine = WasmiEngine::default();
         let module =
             WasmiModule::new(&wasmi_engine, &artifact.bytes[..]).expect("module should validate");
-        let mut store = Store::new(
+        let mut store = WasmiStore::new(
             &wasmi_engine,
             WasmHostState {
                 realm: engine.realm.clone(),
             },
         );
-        let mut linker = Linker::new(&wasmi_engine);
+        let mut linker = WasmiLinker::new(&wasmi_engine);
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_PRINT_LINE_UTF8,
-                |_caller: Caller<'_, WasmHostState>, _ptr: i32, _len: i32| -> Result<(), Trap> {
-                    Ok(())
-                },
+                |_caller: WasmiCaller<'_, WasmHostState>,
+                 _ptr: i32,
+                 _len: i32|
+                 -> Result<(), WasmiTrap> { Ok(()) },
             )
             .expect("host print import should link");
         let instance = linker
@@ -819,6 +994,52 @@ mod tests {
             .compile_module("export {};", CompileOptions::default())
             .expect("module compile stub should succeed");
         assert_eq!(unit.source.goal, ParseGoal::Module);
+    }
+
+    #[test]
+    fn compile_script_preserves_structured_parse_diagnostic() {
+        let err = engine()
+            .compile_script("let x = ;", CompileOptions::default())
+            .expect_err("malformed script should fail during parse");
+        let diagnostic = err
+            .parse_diagnostic()
+            .expect("engine error should retain parse diagnostic");
+        assert_eq!(
+            diagnostic.kind,
+            porffor_front::ParseDiagnosticKind::MalformedJavaScript
+        );
+        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Parse);
+        assert_eq!(diagnostic.error_type, "SyntaxError");
+        assert_eq!(diagnostic.code, "P_PARSE_MALFORMED");
+        assert!(diagnostic.span.is_some());
+    }
+
+    #[test]
+    fn engine_error_preserves_structured_ir_early_error_diagnostic() {
+        let source_diagnostic =
+            IrDiagnostic::early_error("E_TEST_EARLY", "SyntaxError", "early error: test", None);
+        let err = EngineError::from_ir_diagnostic(source_diagnostic.clone());
+
+        assert_eq!(err.message(), source_diagnostic.message);
+        assert_eq!(err.ir_diagnostic(), Some(&source_diagnostic));
+        assert!(err.parse_diagnostic().is_none());
+    }
+
+    #[test]
+    fn compile_script_reports_front_end_early_error_diagnostic() {
+        let err = engine()
+            .compile_script(
+                "({ __proto__: null, __proto__: {} });",
+                CompileOptions::default(),
+            )
+            .expect_err("duplicate __proto__ prototype setters should be early error");
+        let diagnostic = err
+            .parse_diagnostic()
+            .expect("engine error should retain front-end diagnostic");
+        assert_eq!(diagnostic.code, "E_OBJECT_DUPLICATE_PROTO");
+        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Early);
+        assert_eq!(diagnostic.error_type, "SyntaxError");
+        assert!(err.ir_diagnostic().is_none());
     }
 
     #[test]
@@ -2244,7 +2465,2863 @@ let p = new OProxy({ attr: 7 }, {});
             )
             .expect("synthetic realm should expose Proxy constructor");
         assert!(
-            outcome.note.contains("string(function:true:true)"),
+            outcome.note.contains("string(function:false:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_iterator_constructor_call_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let C = other.Iterator;
+let iteratorPrototype = C.prototype;
+let constructorDesc = Object.getOwnPropertyDescriptor(iteratorPrototype, "constructor");
+let mainConstructorDesc = Object.getOwnPropertyDescriptor(Iterator.prototype, "constructor");
+let tagDesc = Object.getOwnPropertyDescriptor(iteratorPrototype, Symbol.toStringTag);
+let mainTagDesc = Object.getOwnPropertyDescriptor(Iterator.prototype, Symbol.toStringTag);
+let helperNames = [
+  "toArray", "forEach", "every", "some", "find", "reduce",
+  "map", "filter", "flatMap", "take", "drop"
+];
+let callbackNames = [
+  "forEach", "every", "some", "find", "reduce", "map", "filter", "flatMap"
+];
+let helperResults = [];
+let nullishThrowResults = [];
+let callbackThrowResults = [];
+let rangeThrowResults = [];
+let nextMethodThrowResults = [];
+let nextResultThrowResults = [];
+let lazyNextResultThrowResults = [];
+let lazyReturnThrowResults = [];
+let iteratorFromThrowResults = [];
+let iteratorFromNextSuccess = "none";
+let reduceEmptyThrow = "none";
+let thrown = "none";
+let toArrayThrow = "none";
+let disposeThrow = "none";
+for (let i = 0; i < helperNames.length; i++) {
+  let name = helperNames[i];
+  helperResults.push(
+    name + ":" +
+    (typeof iteratorPrototype[name]) + ":" +
+    (iteratorPrototype[name] === Iterator.prototype[name])
+  );
+}
+for (let i = 0; i < helperNames.length; i++) {
+  let name = helperNames[i];
+  try {
+    iteratorPrototype[name].call(null, function() { return true; });
+  } catch (error) {
+    nullishThrowResults.push(
+      name + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+for (let i = 0; i < callbackNames.length; i++) {
+  let name = callbackNames[i];
+  try {
+    iteratorPrototype[name].call(iteratorPrototype, null);
+  } catch (error) {
+    callbackThrowResults.push(
+      name + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+for (let i = 0; i < 2; i++) {
+  let name = i === 0 ? "take" : "drop";
+  try {
+    iteratorPrototype[name].call(iteratorPrototype);
+  } catch (error) {
+    rangeThrowResults.push(
+      name + ":" +
+      (Object.getPrototypeOf(error) === other.RangeError.prototype) + ":" +
+      (error instanceof other.RangeError) + ":" +
+      (error instanceof RangeError)
+    );
+  }
+}
+for (let i = 0; i < 6; i++) {
+  let name = helperNames[i];
+  try {
+    if (name === "toArray") {
+      iteratorPrototype[name].call({ next: null });
+    } else {
+      iteratorPrototype[name].call({ next: null }, function() { return true; });
+    }
+  } catch (error) {
+    nextMethodThrowResults.push(
+      name + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+for (let i = 0; i < 6; i++) {
+  let name = helperNames[i];
+  try {
+    if (name === "toArray") {
+      iteratorPrototype[name].call({ next: function() { return 1; } });
+    } else {
+      iteratorPrototype[name].call({ next: function() { return 1; } }, function() { return true; });
+    }
+  } catch (error) {
+    nextResultThrowResults.push(
+      name + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+try {
+  iteratorPrototype.reduce.call({ next: function() { return { done: true }; } }, function(a, b) { return a; });
+} catch (error) {
+  reduceEmptyThrow = [
+    Object.getPrototypeOf(error) === other.TypeError.prototype,
+    error instanceof other.TypeError,
+    error instanceof TypeError
+  ].join(":");
+}
+let lazyNextChecks = [
+  ["map", iteratorPrototype.map.call({ next: function() { return 1; } }, function(value) { return value; })],
+  ["filter", iteratorPrototype.filter.call({ next: function() { return 1; } }, function(value) { return true; })],
+  ["flatMap", iteratorPrototype.flatMap.call({ next: function() { return 1; } }, function(value) { return [value]; })],
+  ["take", iteratorPrototype.take.call({ next: function() { return 1; } }, 1)],
+  ["drop", iteratorPrototype.drop.call({ next: function() { return 1; } }, 0)]
+];
+for (let i = 0; i < lazyNextChecks.length; i++) {
+  try {
+    lazyNextChecks[i][1].next();
+  } catch (error) {
+    lazyNextResultThrowResults.push(
+      lazyNextChecks[i][0] + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+for (let i = 0; i < lazyNextChecks.length; i++) {
+  try {
+    lazyNextChecks[i][1].return.call({});
+  } catch (error) {
+    lazyReturnThrowResults.push(
+      lazyNextChecks[i][0] + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+function recordIteratorFromThrow(label, thunk) {
+  try {
+    thunk();
+  } catch (error) {
+    iteratorFromThrowResults.push(
+      label + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+recordIteratorFromThrow("null", function() { C.from(null); });
+recordIteratorFromThrow("method", function() {
+  let value = {};
+  value[Symbol.iterator] = 1;
+  C.from(value);
+});
+recordIteratorFromThrow("methodResult", function() {
+  let value = {};
+  value[Symbol.iterator] = function() { return 1; };
+  C.from(value);
+});
+recordIteratorFromThrow("nextMethod", function() {
+  let value = { next: 1 };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next();
+});
+recordIteratorFromThrow("nextResult", function() {
+  let value = { next: function() { return 1; } };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next();
+});
+recordIteratorFromThrow("nextReceiver", function() {
+  let value = { next: function() { return { done: true }; } };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next.call({});
+});
+recordIteratorFromThrow("returnMethod", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: 1
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return();
+});
+recordIteratorFromThrow("returnResult", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: function() { return 1; }
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return();
+});
+recordIteratorFromThrow("returnReceiver", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: function() { return { done: true }; }
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return.call({});
+});
+{
+  let nextThis = "unset";
+  let result = { done: false, value: 42 };
+  let value = {
+    next: function() {
+      nextThis = this === value;
+      return result;
+    }
+  };
+  value[Symbol.iterator] = function() { return this; };
+  let wrapper = C.from(value);
+  let nextResult = wrapper.next();
+  iteratorFromNextSuccess = [
+    nextThis,
+    nextResult === result,
+    typeof wrapper.next
+  ].join(":");
+}
+try {
+  C();
+} catch (error) {
+  thrown = [
+    Object.getPrototypeOf(error) === other.TypeError.prototype,
+    error instanceof other.TypeError,
+    error instanceof TypeError
+  ].join(":");
+}
+try {
+  iteratorPrototype.toArray.call(null);
+} catch (error) {
+  toArrayThrow = [
+    Object.getPrototypeOf(error) === other.TypeError.prototype,
+    error instanceof other.TypeError,
+    error instanceof TypeError
+  ].join(":");
+}
+try {
+  iteratorPrototype[Symbol.dispose].call({ return: 1 });
+} catch (error) {
+  disposeThrow = [
+    Object.getPrototypeOf(error) === other.TypeError.prototype,
+    error instanceof other.TypeError,
+    error instanceof TypeError
+  ].join(":");
+}
+[
+  typeof C,
+  C === Iterator,
+  C.prototype === Iterator.prototype,
+  Object.getPrototypeOf(C) === other.Function.prototype,
+  Object.getPrototypeOf(iteratorPrototype) === other.Object.prototype,
+  typeof iteratorPrototype[Symbol.iterator],
+  iteratorPrototype[Symbol.iterator] === Iterator.prototype[Symbol.iterator],
+  iteratorPrototype[Symbol.iterator]() === iteratorPrototype,
+  thrown,
+  typeof iteratorPrototype.toArray,
+  iteratorPrototype.toArray === Iterator.prototype.toArray,
+  toArrayThrow,
+  typeof C.from,
+  C.from === Iterator.from,
+  iteratorPrototype.constructor === C,
+  typeof constructorDesc.get,
+  typeof constructorDesc.set,
+  constructorDesc.get === mainConstructorDesc.get,
+  constructorDesc.set === mainConstructorDesc.set,
+  typeof iteratorPrototype[Symbol.dispose],
+  iteratorPrototype[Symbol.dispose] === Iterator.prototype[Symbol.dispose],
+  iteratorPrototype[Symbol.toStringTag],
+  typeof tagDesc.get,
+  typeof tagDesc.set,
+  tagDesc.get === mainTagDesc.get,
+  tagDesc.set === mainTagDesc.set,
+  disposeThrow,
+  nullishThrowResults.join(","),
+  callbackThrowResults.join(","),
+  rangeThrowResults.join(","),
+  nextMethodThrowResults.join(","),
+  nextResultThrowResults.join(","),
+  lazyNextResultThrowResults.join(","),
+  lazyReturnThrowResults.join(","),
+  iteratorFromThrowResults.join(","),
+  iteratorFromNextSuccess,
+  reduceEmptyThrow,
+  helperResults.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm Iterator constructor call should throw in defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(function|false|false|true|true|function|false|true|true:true:false|function|false|true:true:false|function|false|true|function|function|false|false|function|false|Iterator|function|function|false|false|true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false|take:true:true:false,drop:true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|null:true:true:false,method:true:true:false,methodResult:true:true:false,nextMethod:true:true:false,nextResult:true:true:false,nextReceiver:true:true:false,returnMethod:true:true:false,returnResult:true:true:false,returnReceiver:true:true:false|true:true:function|true:true:false|toArray:function:false,forEach:function:false,every:function:false,some:function:false,find:function:false,reduce:function:false,map:function:false,filter:function:false,flatMap:function:false,take:function:false,drop:function:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_object_and_array_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let array = new other.Array();
+let object = new other.Object();
+object.own = 1;
+[
+  other.Object === Object,
+  other.Array === Array,
+  other.Function.prototype === Function.prototype,
+  Object.getPrototypeOf(other.Object) === other.Function.prototype,
+  Object.getPrototypeOf(other.Array) === other.Function.prototype,
+  other.Object.prototype === Object.prototype,
+  other.Array.prototype === Array.prototype,
+  Object.getPrototypeOf(other.Array.prototype) === other.Object.prototype,
+  Object.getPrototypeOf(array) === other.Array.prototype,
+  typeof other.Object.prototype.hasOwnProperty,
+  typeof other.Object.prototype.propertyIsEnumerable,
+  typeof other.Object.prototype.isPrototypeOf,
+  typeof other.Object.prototype.toString,
+  typeof other.Object.prototype.toLocaleString,
+  typeof other.Object.prototype.valueOf,
+  other.Object.prototype.hasOwnProperty === Object.prototype.hasOwnProperty,
+  other.Object.prototype.propertyIsEnumerable === Object.prototype.propertyIsEnumerable,
+  other.Object.prototype.isPrototypeOf === Object.prototype.isPrototypeOf,
+  other.Object.prototype.toString === Object.prototype.toString,
+  other.Object.prototype.toLocaleString === Object.prototype.toLocaleString,
+  other.Object.prototype.valueOf === Object.prototype.valueOf,
+  other.Object.prototype.hasOwnProperty.call(object, "own"),
+  other.Object.prototype.propertyIsEnumerable.call(object, "own"),
+  other.Object.prototype.isPrototypeOf.call(other.Object.prototype, object),
+  other.Object.prototype.toString.call(object),
+  other.Object.prototype.toLocaleString.call(object),
+  other.Object.prototype.valueOf.call(object) === object
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local Object/Array prototypes");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|false|true|true|false|false|true|true|function|function|function|function|function|function|false|false|false|false|false|false|true|true|true|[object Object]|[object Object]|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_function_constructor_and_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+function add(a, b) { return this.base + a + b; }
+let receiver = { base: 10 };
+let bound = other.Function.prototype.bind.call(add, receiver, 2);
+[
+  other.Function === Function,
+  other.Function.prototype === Function.prototype,
+  Object.getPrototypeOf(other.Function) === other.Function.prototype,
+  Object.getPrototypeOf(other.Function.prototype) === other.Object.prototype,
+  other.Function.prototype.constructor === other.Function,
+  typeof other.Function.prototype.call,
+  typeof other.Function.prototype.apply,
+  typeof other.Function.prototype.bind,
+  typeof other.Function.prototype.toString,
+  other.Function.prototype.call === Function.prototype.call,
+  other.Function.prototype.apply === Function.prototype.apply,
+  other.Function.prototype.bind === Function.prototype.bind,
+  other.Function.prototype.toString === Function.prototype.toString,
+  other.Function.prototype.call.call(add, receiver, 1, 2),
+  other.Function.prototype.apply.call(add, receiver, [3, 4]),
+  bound(3)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local Function constructor and prototype");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|true|true|true|function|function|function|function|false|false|false|false|13|17|15)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_array_iterator_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let otherIter = other.Array.prototype.values.call(new other.Array(1));
+let thisIter = Array.prototype.values.call([]);
+let otherArrayIteratorPrototype = Object.getPrototypeOf(otherIter);
+let thisArrayIteratorPrototype = Object.getPrototypeOf(thisIter);
+let otherIteratorPrototype = Object.getPrototypeOf(otherArrayIteratorPrototype);
+let thisIteratorPrototype = Object.getPrototypeOf(thisArrayIteratorPrototype);
+[
+  otherArrayIteratorPrototype === thisArrayIteratorPrototype,
+  otherIteratorPrototype === thisIteratorPrototype,
+  Object.getPrototypeOf(otherIteratorPrototype) === other.Object.prototype,
+  typeof otherIter.next,
+  otherArrayIteratorPrototype.next === thisArrayIteratorPrototype.next,
+  otherArrayIteratorPrototype[Symbol.iterator] === thisArrayIteratorPrototype[Symbol.iterator],
+  otherIter[Symbol.iterator]() === otherIter
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use a realm-local Array Iterator prototype graph");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|true|function|false|false|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_species_create_uses_receiver_realm_constructor() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let array = new other.Array(2);
+array[0] = 41;
+array[1] = 7;
+let mapped = other.Array.prototype.map.call(array, function(value) { return value + 1; });
+let filtered = other.Array.prototype.filter.call(array, function(value) { return value > 10; });
+[
+  array.constructor === other.Array,
+  other.Array.prototype.constructor === other.Array,
+  other.Array[Symbol.species] === other.Array,
+  Object.getPrototypeOf(mapped) === other.Array.prototype,
+  Object.getPrototypeOf(mapped) === Array.prototype,
+  mapped.constructor === other.Array,
+  mapped.length,
+  mapped[0],
+  mapped[1],
+  Object.getPrototypeOf(filtered) === other.Array.prototype,
+  Object.getPrototypeOf(filtered) === Array.prototype,
+  filtered.constructor === other.Array,
+  filtered.length,
+  filtered[0]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("ArraySpeciesCreate should allocate with the receiver realm constructor");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|true|true|true|false|true|2|42|8|true|false|true|1|41)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_array_mutator_and_locale_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let array = new other.Array(2);
+array[0] = 1;
+array[1] = 2;
+let pushedLength = other.Array.prototype.push.call(array, 3);
+let popped = other.Array.prototype.pop.call(array);
+[
+  typeof other.Array.prototype.toLocaleString,
+  typeof other.Array.prototype.push,
+  typeof other.Array.prototype.pop,
+  other.Array.prototype.toLocaleString === Array.prototype.toLocaleString,
+  other.Array.prototype.push === Array.prototype.push,
+  other.Array.prototype.pop === Array.prototype.pop,
+  other.Array.prototype.toLocaleString.call(array),
+  pushedLength,
+  popped,
+  array.length,
+  array[0],
+  array[1],
+  Object.getPrototypeOf(array) === other.Array.prototype
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should expose Array prototype mutator and locale methods");
+        assert!(
+            outcome.note.contains(
+                "string(function|function|function|false|false|false|1,2|3|3|2|1|2|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_allocates_distinct_global_and_intrinsics_per_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let first = __porfCreateRealm();
+let second = __porfCreateRealm();
+[
+  first === second,
+  first.global === second.global,
+  first.global.Object === second.global.Object,
+  first.global.Object.prototype === second.global.Object.prototype,
+  Object.getPrototypeOf(first.global.Object) === Object.getPrototypeOf(second.global.Object)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("each synthetic realm should allocate a distinct global and intrinsic graph");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|false|false|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_typed_array_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let otherTypedArrayPrototype = Object.getPrototypeOf(other.Uint8Array.prototype);
+let thisTypedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+let view = new other.Uint8Array(2);
+[
+  other.Uint8Array === Uint8Array,
+  other.Uint8Array.prototype === Uint8Array.prototype,
+  otherTypedArrayPrototype === thisTypedArrayPrototype,
+  Object.getPrototypeOf(otherTypedArrayPrototype) === other.Object.prototype,
+  Object.getPrototypeOf(view) === other.Uint8Array.prototype,
+  Object.getPrototypeOf(other.Uint8Array) === Object.getPrototypeOf(Uint8Array)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local typed array prototypes");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|false|true|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_typed_array_constructor_family() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let names = [
+  "Int8Array", "Uint8Array", "Uint8ClampedArray",
+  "Int16Array", "Uint16Array", "Int32Array", "Uint32Array",
+  "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"
+];
+let otherTypedArrayPrototype = Object.getPrototypeOf(other.Uint8Array.prototype);
+let ok = true;
+
+for (let i = 0; i < names.length; i++) {
+  let name = names[i];
+  let C = other[name];
+  let ThisC = globalThis[name];
+  let view = new C(1);
+  ok =
+    ok &&
+    C !== ThisC &&
+    C.prototype !== ThisC.prototype &&
+    Object.getPrototypeOf(C.prototype) === otherTypedArrayPrototype &&
+    Object.getPrototypeOf(view) === C.prototype &&
+    view instanceof C &&
+    !(view instanceof ThisC);
+}
+
+ok;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local typed array constructor family");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_array_buffer_and_data_view_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let buffer = new other.ArrayBuffer(8);
+let view = new other.DataView(buffer);
+[
+  other.ArrayBuffer === ArrayBuffer,
+  other.ArrayBuffer.prototype === ArrayBuffer.prototype,
+  Object.getPrototypeOf(other.ArrayBuffer) === other.Function.prototype,
+  Object.getPrototypeOf(other.ArrayBuffer.prototype) === other.Object.prototype,
+  other.ArrayBuffer.prototype.constructor === other.ArrayBuffer,
+  Object.getPrototypeOf(buffer) === other.ArrayBuffer.prototype,
+  buffer instanceof other.ArrayBuffer,
+  buffer instanceof ArrayBuffer,
+  other.DataView === DataView,
+  other.DataView.prototype === DataView.prototype,
+  Object.getPrototypeOf(other.DataView) === other.Function.prototype,
+  Object.getPrototypeOf(other.DataView.prototype) === other.Object.prototype,
+  other.DataView.prototype.constructor === other.DataView,
+  Object.getPrototypeOf(view) === other.DataView.prototype,
+  view instanceof other.DataView,
+  view instanceof DataView,
+  other.ArrayBuffer.isView === ArrayBuffer.isView,
+  typeof other.ArrayBuffer.isView,
+  other.ArrayBuffer.isView(view),
+  other.ArrayBuffer.isView(new other.Uint8Array(buffer)),
+  other.ArrayBuffer.isView(buffer),
+  other.ArrayBuffer.isView({})
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local ArrayBuffer and DataView prototypes");
+        assert!(
+            outcome.note.contains(
+                "string(false|false|true|true|true|true|true|false|false|false|true|true|true|true|true|false|false|function|true|true|false|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_bigint_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+[
+  other.BigInt.prototype === BigInt.prototype,
+  Object.getPrototypeOf(other.BigInt.prototype) === other.Object.prototype,
+  other.BigInt.prototype.constructor === other.BigInt
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local BigInt prototype");
+        assert!(
+            outcome.note.contains("string(false|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_bigint_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+[
+  other.BigInt.asIntN === BigInt.asIntN,
+  typeof other.BigInt.asIntN,
+  typeof other.BigInt.asUintN,
+  other.BigInt.asIntN(4, 15n).toString(),
+  other.BigInt.asUintN(4, -1n).toString()
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm BigInt constructor should expose static methods");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|function|function|-1|15)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_number_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+[
+  other.Number.isInteger === Number.isInteger,
+  typeof other.Number.isInteger,
+  typeof other.Number.isSafeInteger,
+  typeof other.Number.isFinite,
+  typeof other.Number.isNaN,
+  typeof other.Number.parseInt,
+  typeof other.Number.parseFloat,
+  other.Number.isInteger(1),
+  other.Number.isInteger(1.5),
+  other.Number.isSafeInteger(9007199254740991),
+  other.Number.isSafeInteger(9007199254740992),
+  other.Number.isFinite(3),
+  other.Number.isFinite(Infinity),
+  other.Number.isNaN(NaN),
+  other.Number.isNaN("NaN"),
+  other.Number.parseInt("ff", 16),
+  other.Number.parseFloat("1.25x"),
+  typeof other.parseInt,
+  typeof other.parseFloat,
+  other.parseInt("10", 2),
+  other.parseFloat("1.5e1"),
+  other.Number.MAX_SAFE_INTEGER,
+  other.Number.MIN_SAFE_INTEGER,
+  other.Number.POSITIVE_INFINITY === Infinity,
+  other.Number.NEGATIVE_INFINITY === -Infinity,
+  other.Number.EPSILON > 0 && other.Number.EPSILON < 1,
+  other.Number.MIN_VALUE > 0,
+  other.Number.MAX_VALUE > 1,
+  other.Number.NaN === other.Number.NaN,
+  Object.getOwnPropertyDescriptor(other.Number, "MAX_SAFE_INTEGER").writable,
+  Object.getOwnPropertyDescriptor(other.Number, "MAX_SAFE_INTEGER").enumerable,
+  Object.getOwnPropertyDescriptor(other.Number, "MAX_SAFE_INTEGER").configurable
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Number constructor should expose static methods");
+        assert!(
+            outcome.note.contains(
+                "string(false|function|function|function|function|function|function|true|false|true|false|true|false|true|false|255|1.25|function|function|2|15|9007199254740991|-9007199254740991|true|true|true|true|true|false|false|false|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_date_constructor_and_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let date = new other.Date(0);
+let thisDate = new Date(0);
+let setResult = date.setUTCFullYear(2001, 1, 3);
+[
+  other.Date === Date,
+  other.Date.prototype === Date.prototype,
+  Object.getPrototypeOf(other.Date.prototype) === other.Object.prototype,
+  Object.getPrototypeOf(date) === other.Date.prototype,
+  typeof other.Date.now,
+  typeof other.Date.UTC,
+  typeof other.Date.prototype.setUTCFullYear,
+  typeof other.Date.prototype.toUTCString,
+  other.Date.prototype.toGMTString === other.Date.prototype.toUTCString,
+  other.Date.now(),
+  other.Date.UTC(1970, 0, 1),
+  date.getTime(),
+  date.getUTCFullYear(),
+  setResult === date.getTime(),
+  Date.prototype.getTime.call(date),
+  other.Date.prototype.getTime.call(thisDate),
+  other.Date.prototype.getUTCFullYear.call(thisDate)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local Date constructor and prototype");
+        assert!(
+            outcome.note.contains(
+                "string(false|false|true|true|function|function|function|function|true|0|0|981158400000|2001|true|981158400000|0|1970)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_error_constructors_and_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let names = [
+  "Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError",
+  "TypeError", "URIError", "AggregateError", "SuppressedError"
+];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let name = names[i];
+  let C = other[name];
+  let error =
+    name === "AggregateError" ? new C([], "m") :
+    name === "SuppressedError" ? new C("e", "s", "m") :
+    new C("m");
+  let expectedParent =
+    name === "Error" ? other.Object.prototype : other.Error.prototype;
+  let expectedConstructorParent =
+    name === "Error" ? other.Function.prototype : other.Error;
+
+  results.push(
+    name + "=" +
+    (C === globalThis[name]) + ":" +
+    (C.prototype === globalThis[name].prototype) + ":" +
+    (Object.getPrototypeOf(C) === expectedConstructorParent) + ":" +
+    (C.prototype.constructor === C) + ":" +
+    (Object.getPrototypeOf(C.prototype) === expectedParent) + ":" +
+    (Object.getPrototypeOf(error) === C.prototype) + ":" +
+    (error instanceof C) + ":" +
+    (error instanceof other.Error) + ":" +
+    (error instanceof Error)
+  );
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local error constructors and prototypes");
+        assert!(
+            outcome.note.contains(
+                "string(Error=false:false:true:true:true:true:true:true:false,EvalError=false:false:true:true:true:true:true:true:false,RangeError=false:false:true:true:true:true:true:true:false,ReferenceError=false:false:true:true:true:true:true:true:false,SyntaxError=false:false:true:true:true:true:true:true:false,TypeError=false:false:true:true:true:true:true:true:false,URIError=false:false:true:true:true:true:true:true:false,AggregateError=false:false:true:true:true:true:true:true:false,SuppressedError=false:false:true:true:true:true:true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_error_prototype_to_string() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let otherError = new other.Error("m");
+let thisError = new Error("m");
+let object = new other.Object();
+object.name = "OtherName";
+object.message = "OtherMessage";
+[
+  other.Error.prototype.toString === Error.prototype.toString,
+  typeof other.Error.prototype.toString,
+  other.Error.prototype.toString.call(otherError),
+  other.Error.prototype.toString.call(thisError),
+  Error.prototype.toString.call(otherError),
+  other.Error.prototype.toString.call(object)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local Error.prototype.toString");
+        assert!(
+            outcome.note.contains(
+                "string(false|function|Error: m|Error: m|Error: m|OtherName: OtherMessage)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_error_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let error = new other.Error("m");
+let typeError = new other.TypeError("m");
+[
+  other.Error.isError === Error.isError,
+  typeof other.Error.isError,
+  other.Error.isError(error),
+  other.Error.isError(typeError),
+  other.Error.isError(new Error("m")),
+  other.Error.isError({}),
+  other.Error.isError("m")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Error constructor should expose static methods");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|function|true|true|true|false|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_error_constructor_fallback_uses_new_target_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let originalOtherErrorPrototype = other.Error.prototype;
+other.Error.prototype = 7;
+let error = Reflect.construct(Error, ["m"], other.Error);
+let proxyError = Reflect.construct(Error, ["m"], new Proxy(other.Error, {}));
+[
+  Object.getPrototypeOf(error) === originalOtherErrorPrototype,
+  Object.getPrototypeOf(error) === Error.prototype,
+  Object.getPrototypeOf(error) === other.Error.prototype,
+  Object.getPrototypeOf(proxyError) === originalOtherErrorPrototype,
+  Object.getPrototypeOf(proxyError) === Error.prototype
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm Error construction should fall back to newTarget realm intrinsic");
+        assert!(
+            outcome.note.contains("string(true|false|false|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_revoked_proxy_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let OProxy = other.global.Proxy;
+let proxyObj = OProxy.revocable(function() {}, {});
+let proxy = proxyObj.proxy;
+proxyObj.revoke();
+let sameRealm = (new TypeError("same")) instanceof TypeError;
+
+try {
+  proxy();
+  "missing";
+} catch (error) {
+  sameRealm + ":" +
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("revoked cross-realm proxy call should throw in proxy function realm");
+        assert!(
+            outcome.note.contains("string(true:true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_borrowed_and_bound_builtin_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.String.prototype.toString;
+let bound = method.bind(null);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call(null);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm builtins should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_flat_methods_use_receiver_realm_species() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let array = new other.Array(1);
+let nested = new other.Array(1);
+nested[0] = 5;
+array[0] = nested;
+let flat = other.Array.prototype.flat.call(array);
+let flatMapped = other.Array.prototype.flatMap.call(array, function(value) { return value; });
+[
+  typeof other.Array.prototype.flat,
+  Object.getPrototypeOf(flat) === other.Array.prototype,
+  Object.getPrototypeOf(flat) === Array.prototype,
+  flat.constructor === other.Array,
+  flat.length,
+  flat[0],
+  typeof other.Array.prototype.flatMap,
+  Object.getPrototypeOf(flatMapped) === other.Array.prototype,
+  Object.getPrototypeOf(flatMapped) === Array.prototype,
+  flatMapped.constructor === other.Array,
+  flatMapped.length,
+  flatMapped[0]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm flat/flatMap should use receiver realm species constructors");
+        assert!(
+            outcome
+                .note
+                .contains("string(function|true|false|true|1|5|function|true|false|true|1|5)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_flat_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let results = [];
+let flat = other.global.Array.prototype.flat;
+let flatMap = other.global.Array.prototype.flatMap;
+let boundFlat = flat.bind(null);
+let boundFlatMapNullish = flatMap.bind(null, function(value) { return value; });
+let boundFlatMapBadMapper = flatMap.bind([], null);
+let calls = [
+  function() { return flat.call(null); },
+  function() { return boundFlat(); },
+  function() { return flatMap.call(null, function(value) { return value; }); },
+  function() { return boundFlatMapNullish(); },
+  function() { return flatMap.call([], null); },
+  function() { return boundFlatMapBadMapper(); }
+];
+for (let i = 0; i < calls.length; i++) {
+  try {
+    calls[i]();
+    results.push("missing");
+  } catch (error) {
+    results.push(
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+results.join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm flat/flatMap throws should use the defining realm TypeError");
+        assert!(
+            outcome.note.contains(
+                "string(true:true:false|true:true:false|true:true:false|true:true:false|true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_concat_uses_receiver_realm_species() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let array = new other.Array(1);
+array[0] = 3;
+let result = other.Array.prototype.concat.call(array, 4);
+[
+  typeof other.Array.prototype.concat,
+  Object.getPrototypeOf(result) === other.Array.prototype,
+  Object.getPrototypeOf(result) === Array.prototype,
+  result.constructor === other.Array,
+  result.length,
+  result[0],
+  result[1]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm concat should use receiver realm species constructors");
+        assert!(
+            outcome
+                .note
+                .contains("string(function|true|false|true|2|3|4)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_concat_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let concat = other.global.Array.prototype.concat;
+let boundNullish = concat.bind(null);
+let calls = [
+  function() { return concat.call(null); },
+  function() { return boundNullish(); }
+];
+let results = [];
+for (let i = 0; i < calls.length; i++) {
+  try {
+    calls[i]();
+    results.push("missing");
+  } catch (error) {
+    results.push(
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+results.join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm concat throws should use the defining realm TypeError");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_array_static_methods_with_receiver_realm_results() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let otherArray = new other.Array(1);
+otherArray[0] = 9;
+let fromResult = other.Array.from([1, 2]);
+let ofResult = other.Array.of(3, 4);
+[
+  typeof other.Array.from,
+  typeof other.Array.of,
+  typeof other.Array.isArray,
+  other.Array.isArray(otherArray),
+  Array.isArray(otherArray),
+  Object.getPrototypeOf(fromResult) === other.Array.prototype,
+  Object.getPrototypeOf(fromResult) === Array.prototype,
+  fromResult.constructor === other.Array,
+  fromResult.length,
+  fromResult[0],
+  fromResult[1],
+  Object.getPrototypeOf(ofResult) === other.Array.prototype,
+  Object.getPrototypeOf(ofResult) === Array.prototype,
+  ofResult.constructor === other.Array,
+  ofResult.length,
+  ofResult[0],
+  ofResult[1]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Array statics should use the receiver realm constructor");
+        assert!(
+            outcome.note.contains(
+                "string(function|function|function|true|true|true|false|true|2|1|2|true|false|true|2|3|4)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_object_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let proto = new other.Object();
+other.Object.defineProperty(proto, "inherited", { value: 1, enumerable: true });
+let object = other.Object.create(proto);
+other.Object.defineProperty(object, "own", { value: 2, enumerable: true });
+let replacement = new other.Object();
+let setResult = other.Object.setPrototypeOf(object, replacement);
+let desc = other.Object.getOwnPropertyDescriptor(object, "own");
+let keys = other.Object.keys(object);
+[
+  typeof other.Object.create,
+  typeof other.Object.getPrototypeOf,
+  typeof other.Object.setPrototypeOf,
+  typeof other.Object.defineProperty,
+  typeof other.Object.getOwnPropertyDescriptor,
+  typeof other.Object.keys,
+  other.Object.getPrototypeOf(proto) === other.Object.prototype,
+  Object.getPrototypeOf(proto) === Object.prototype,
+  setResult === object,
+  other.Object.getPrototypeOf(object) === replacement,
+  other.Object.getPrototypeOf(replacement) === other.Object.prototype,
+  desc.value,
+  desc.enumerable,
+  desc.configurable,
+  keys.length,
+  keys[0]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Object statics should operate on the other realm graph");
+        assert!(
+            outcome.note.contains(
+                "string(function|function|function|function|function|function|true|false|true|true|true|2|true|false|1|own)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_object_integrity_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let object = new other.Object();
+let defined = other.Object.defineProperties(object, {
+  a: { value: 1, enumerable: true },
+  hidden: { value: 2 }
+});
+let extensibleBefore = other.Object.isExtensible(object);
+let prevented = other.Object.preventExtensions(object);
+let extensibleAfter = other.Object.isExtensible(object);
+let frozenTarget = new other.Object();
+other.Object.defineProperty(frozenTarget, "value", { value: 3, writable: true, configurable: true });
+let frozen = other.Object.freeze(frozenTarget);
+[
+  typeof other.Object.defineProperties,
+  typeof other.Object.hasOwn,
+  typeof other.Object.is,
+  typeof other.Object.freeze,
+  typeof other.Object.isFrozen,
+  typeof other.Object.isSealed,
+  typeof other.Object.isExtensible,
+  typeof other.Object.preventExtensions,
+  defined === object,
+  other.Object.hasOwn(object, "a"),
+  other.Object.hasOwn(object, "hidden"),
+  other.Object.hasOwn(object, "missing"),
+  other.Object.is(NaN, NaN),
+  other.Object.is(0, -0),
+  extensibleBefore,
+  prevented === object,
+  extensibleAfter,
+  frozen === frozenTarget,
+  other.Object.isFrozen(frozenTarget),
+  other.Object.isSealed(frozenTarget),
+  other.Object.isExtensible(frozenTarget)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Object integrity statics should operate on objects");
+        assert!(
+            outcome.note.contains(
+                "string(function|function|function|function|function|function|function|function|true|true|true|false|true|false|true|true|false|true|true|true|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_object_property_list_static_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let symbol = Symbol("s");
+let object = new other.Object();
+other.Object.defineProperty(object, "a", { value: 1, enumerable: true });
+other.Object.defineProperty(object, "hidden", { value: 2 });
+other.Object.defineProperty(object, symbol, { value: 3, enumerable: true });
+let names = other.Object.getOwnPropertyNames(object);
+let symbols = other.Object.getOwnPropertySymbols(object);
+let values = other.Object.values(object);
+[
+  typeof other.Object.getOwnPropertyNames,
+  typeof other.Object.getOwnPropertySymbols,
+  typeof other.Object.values,
+  names.length,
+  names[0],
+  names[1],
+  symbols.length,
+  symbols[0] === symbol,
+  values.length,
+  values[0],
+  values[1]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Object property-list statics should operate on objects");
+        assert!(
+            outcome
+                .note
+                .contains("string(function|function|function|2|a|hidden|1|true|2|1|3)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_reflect_object_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let object = new other.Object();
+let proto = new other.Object();
+let constructed = other.Reflect.construct(other.Object, []);
+let defineResult = other.Reflect.defineProperty(object, "a", { value: 1, enumerable: true, configurable: true });
+let setResult = other.Reflect.set(object, "b", 2);
+let getResult = other.Reflect.get(object, "a");
+let hasResult = other.Reflect.has(object, "b");
+let desc = other.Reflect.getOwnPropertyDescriptor(object, "a");
+let setProtoResult = other.Reflect.setPrototypeOf(object, proto);
+let reflectedProto = other.Reflect.getPrototypeOf(object);
+let keys = other.Reflect.ownKeys(object);
+let deleteResult = other.Reflect.deleteProperty(object, "a");
+let beforePreventExtensible = other.Reflect.isExtensible(object);
+let preventResult = other.Reflect.preventExtensions(object);
+[
+  typeof other.Reflect,
+  Object.getPrototypeOf(other.Reflect) === other.Object.prototype,
+  typeof other.Reflect.construct,
+  typeof other.Reflect.apply,
+  typeof other.Reflect.get,
+  typeof other.Reflect.getPrototypeOf,
+  typeof other.Reflect.getOwnPropertyDescriptor,
+  typeof other.Reflect.set,
+  typeof other.Reflect.has,
+  typeof other.Reflect.defineProperty,
+  typeof other.Reflect.deleteProperty,
+  typeof other.Reflect.isExtensible,
+  typeof other.Reflect.preventExtensions,
+  typeof other.Reflect.setPrototypeOf,
+  typeof other.Reflect.ownKeys,
+  Object.getPrototypeOf(constructed) === other.Object.prototype,
+  defineResult,
+  setResult,
+  getResult,
+  hasResult,
+  desc.value,
+  desc.enumerable,
+  setProtoResult,
+  reflectedProto === proto,
+  Object.getPrototypeOf(object) === proto,
+  keys.length,
+  keys[0],
+  keys[1],
+  deleteResult,
+  other.Reflect.has(object, "a"),
+  beforePreventExtensible,
+  preventResult,
+  Object.isExtensible(object),
+  other.Reflect.isExtensible(object)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Reflect object should expose object meta operations");
+        assert!(
+            outcome.note.contains(
+                "string(object|true|function|function|function|function|function|function|function|function|function|function|function|function|function|true|true|true|1|true|1|true|true|true|true|2|a|b|true|false|true|true|false|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_global_function_properties() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let infinityDesc = Object.getOwnPropertyDescriptor(other, "Infinity");
+let nanDesc = Object.getOwnPropertyDescriptor(other, "NaN");
+let undefinedDesc = Object.getOwnPropertyDescriptor(other, "undefined");
+let globalThisDesc = Object.getOwnPropertyDescriptor(other, "globalThis");
+let evalThrow = "missing";
+try {
+  other.eval("1 + 1");
+} catch (error) {
+  evalThrow =
+    (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+    (error instanceof other.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+[
+  other.Infinity === Infinity,
+  other.NaN === other.NaN,
+  other.undefined === undefined,
+  other.globalThis === other,
+  other.globalThis === globalThis,
+  infinityDesc.writable,
+  infinityDesc.enumerable,
+  infinityDesc.configurable,
+  nanDesc.writable,
+  nanDesc.enumerable,
+  nanDesc.configurable,
+  undefinedDesc.writable,
+  undefinedDesc.enumerable,
+  undefinedDesc.configurable,
+  globalThisDesc.writable,
+  globalThisDesc.enumerable,
+  globalThisDesc.configurable,
+  other.eval === eval,
+  typeof other.eval,
+  other.eval(7),
+  evalThrow,
+  other.isFinite === isFinite,
+  other.isNaN === isNaN,
+  other.escape === escape,
+  other.unescape === unescape,
+  typeof other.isFinite,
+  typeof other.isNaN,
+  typeof other.escape,
+  typeof other.unescape,
+  other.isFinite("3"),
+  other.isFinite("x"),
+  other.isNaN("x"),
+  other.isNaN("3"),
+  other.unescape(other.escape("a b")) === "a b"
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm global object should expose global function properties");
+        assert!(
+            outcome.note.contains(
+                "string(true|false|true|true|false|false|false|false|false|false|false|false|false|false|true|false|true|false|function|7|true:true:false|false|false|false|false|function|function|function|function|true|false|true|false|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_math_object_methods_and_constants() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+[
+  other.Math === Math,
+  Object.getPrototypeOf(other.Math) === other.Object.prototype,
+  Object.prototype.toString.call(other.Math),
+  typeof other.Math.max,
+  typeof other.Math.pow,
+  other.Math.max(1, 7, 3),
+  other.Math.pow(2, 5),
+  other.Math.trunc(3.9),
+  other.Math.PI > 3 && other.Math.PI < 4
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Math object should expose Math operations");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|true|[object Math]|function|function|7|32|3|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_exposes_json_object_methods() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let raw = other.JSON.rawJSON("1");
+[
+  other.JSON === JSON,
+  Object.getPrototypeOf(other.JSON) === other.Object.prototype,
+  Object.prototype.toString.call(other.JSON),
+  typeof other.JSON.parse,
+  typeof other.JSON.stringify,
+  typeof other.JSON.rawJSON,
+  typeof other.JSON.isRawJSON,
+  other.JSON.parse("2"),
+  other.JSON.stringify({ a: 1 }),
+  other.JSON.isRawJSON(raw),
+  other.JSON.isRawJSON({})
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm JSON object should expose JSON operations");
+        assert!(
+            outcome.note.contains(
+                "string(false|true|[object JSON]|function|function|function|function|2|{\"a\":1}|true|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_stored_builtin_retains_defining_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.String.prototype.toString;
+let holder = { method: method };
+let array = [method];
+let results = [];
+
+for (let i = 0; i < 2; i++) {
+  let stored = i === 0 ? holder.method : array[0];
+  try {
+    stored.call(null);
+    results.push("missing");
+  } catch (error) {
+    results.push(
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+
+results.join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("stored cross-realm builtins should retain their defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_proxy_wrapped_builtin_throws_defining_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.String.prototype.toString;
+let localProxy = new Proxy(method, {});
+let otherProxy = new other.global.Proxy(method, {});
+let localResult = "missing";
+let otherResult = "missing";
+
+try {
+  localProxy.call(null);
+} catch (error) {
+  localResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  otherProxy.call(null);
+} catch (error) {
+  otherResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+localResult + "|" + otherResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("proxy-wrapped cross-realm builtin should throw in target defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_regexp_escape_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let escape = other.global.RegExp.escape;
+let bound = escape.bind(null);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  escape(1);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound(1);
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm RegExp.escape should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_regexp_constructor_and_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+[
+  other.RegExp === RegExp,
+  other.RegExp.prototype === RegExp.prototype,
+  Object.getPrototypeOf(other.RegExp) === other.Function.prototype,
+  Object.getPrototypeOf(other.RegExp.prototype) === other.Object.prototype,
+  other.RegExp.prototype.constructor === other.RegExp,
+  typeof other.RegExp.escape,
+  other.RegExp.escape === RegExp.escape
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local RegExp constructor and prototype");
+        assert!(
+            outcome
+                .note
+                .contains("string(false|false|true|true|true|function|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_regexp_match_all_iterator_uses_defining_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let regexp = new other.global.RegExp("a", "g");
+let iterator = other.global.String.prototype.matchAll.call("a", regexp);
+let arrayIteratorPrototype =
+  Object.getPrototypeOf(other.global.Array.prototype.values.call(new other.global.Array()));
+let iteratorPrototype = Object.getPrototypeOf(iterator);
+let next = iteratorPrototype.next;
+let direct = "missing";
+
+try {
+  next.call({});
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+let nextResult = next.call(iterator);
+[
+  iteratorPrototype === arrayIteratorPrototype,
+  iteratorPrototype === Object.getPrototypeOf(Array.prototype.values.call([])),
+  direct,
+  Object.getPrototypeOf(nextResult) === other.global.Object.prototype,
+  Object.getPrototypeOf(nextResult) === Object.prototype
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm RegExp matchAll iterator should use defining realm intrinsics");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|false|true:true:false|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_date_get_time_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Date.prototype.getTime;
+let bound = method.bind({});
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call({});
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Date.prototype.getTime should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_bigint_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["toString", "toLocaleString", "valueOf"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.BigInt.prototype[names[i]];
+  let bound = method.bind(null);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm BigInt methods should throw in defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(toString=true:true:false|true:true:false,toLocaleString=true:true:false|true:true:false,valueOf=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_number_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["toString", "toLocaleString", "valueOf"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Number.prototype[names[i]];
+  let bound = method.bind(null);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Number methods should throw in defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(toString=true:true:false|true:true:false,toLocaleString=true:true:false|true:true:false,valueOf=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_boolean_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["toString", "valueOf"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Boolean.prototype[names[i]];
+  let bound = method.bind(null);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Boolean methods should throw in defining realm",
+            );
+        assert!(
+            outcome.note.contains(
+                "string(toString=true:true:false|true:true:false,valueOf=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_boolean_constructor_and_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let value = new other.Boolean(true);
+let thisValue = new Boolean(true);
+[
+  other.Boolean === Boolean,
+  other.Boolean.prototype === Boolean.prototype,
+  Object.getPrototypeOf(other.Boolean) === other.Function.prototype,
+  Object.getPrototypeOf(other.Boolean.prototype) === other.Object.prototype,
+  other.Boolean.prototype.constructor === other.Boolean,
+  Object.getPrototypeOf(value) === other.Boolean.prototype,
+  value instanceof other.Boolean,
+  value instanceof Boolean,
+  typeof other.Boolean.prototype.toString,
+  typeof other.Boolean.prototype.valueOf,
+  other.Boolean.prototype.toString.call(thisValue),
+  other.Boolean.prototype.valueOf.call(thisValue)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local Boolean constructor and prototype");
+        assert!(
+            outcome.note.contains(
+                "string(false|false|true|true|true|true|true|false|function|function|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_function_to_string_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Function.prototype.toString;
+let bound = method.bind({});
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call({});
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Function.prototype.toString should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_error_to_string_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Error.prototype.toString;
+let bound = method.bind(null);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call(null);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Error.prototype.toString should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_object_value_of_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Object.prototype.valueOf;
+let bound = method.bind(null);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call(null);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Object.prototype.valueOf should throw in defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_at_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Array.prototype.at;
+let bound = method.bind(null, 0);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call(null, 0);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array.prototype.at should throw in defining realm",
+            );
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_includes_throws_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let method = other.global.Array.prototype.includes;
+let bound = method.bind(null, 1);
+let direct = "missing";
+let boundResult = "missing";
+
+try {
+  method.call(null, 1);
+} catch (error) {
+  direct =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+try {
+  bound();
+} catch (error) {
+  boundResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+direct + "|" + boundResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array.prototype.includes should throw in defining realm",
+            );
+        assert!(
+            outcome
+                .note
+                .contains("string(true:true:false|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_mutator_and_locale_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["toLocaleString", "pop", "push"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Array.prototype[names[i]];
+  let bound = method.bind(null, 1);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null, 1);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array mutator/locale methods should throw in defining realm",
+            );
+        assert!(
+            outcome.note.contains(
+                "string(toLocaleString=true:true:false|true:true:false,pop=true:true:false|true:true:false,push=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_helper_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["indexOf", "lastIndexOf", "forEach"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Array.prototype[names[i]];
+  let bound = method.bind(null, 1);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null, 1);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm Array helper methods should throw in defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(indexOf=true:true:false|true:true:false,lastIndexOf=true:true:false|true:true:false,forEach=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_find_like_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["find", "findIndex", "findLast", "findLastIndex"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Array.prototype[names[i]];
+  let boundNullish = method.bind(null, function() { return true; });
+  let boundBadPredicate = method.bind([], null);
+  let directNullish = "missing";
+  let boundNullishResult = "missing";
+  let directBadPredicate = "missing";
+  let boundBadPredicateResult = "missing";
+
+  try {
+    method.call(null, function() { return true; });
+  } catch (error) {
+    directNullish =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    boundNullish();
+  } catch (error) {
+    boundNullishResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    method.call([], null);
+  } catch (error) {
+    directBadPredicate =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    boundBadPredicate();
+  } catch (error) {
+    boundBadPredicateResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(
+    names[i] + "=" +
+    directNullish + "|" +
+    boundNullishResult + "|" +
+    directBadPredicate + "|" +
+    boundBadPredicateResult
+  );
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array find-like methods should throw in defining realm",
+            );
+        assert!(
+            outcome.note.contains(
+                "string(find=true:true:false|true:true:false|true:true:false|true:true:false,findIndex=true:true:false|true:true:false|true:true:false|true:true:false,findLast=true:true:false|true:true:false|true:true:false|true:true:false,findLastIndex=true:true:false|true:true:false|true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_callback_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["map", "filter", "every", "some"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Array.prototype[names[i]];
+  let boundNullish = method.bind(null, function(value) { return value; });
+  let boundBadCallback = method.bind([], null);
+  let directNullish = "missing";
+  let boundNullishResult = "missing";
+  let directBadCallback = "missing";
+  let boundBadCallbackResult = "missing";
+
+  try {
+    method.call(null, function(value) { return value; });
+  } catch (error) {
+    directNullish =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    boundNullish();
+  } catch (error) {
+    boundNullishResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    method.call([], null);
+  } catch (error) {
+    directBadCallback =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    boundBadCallback();
+  } catch (error) {
+    boundBadCallbackResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(
+    names[i] + "=" +
+    directNullish + "|" +
+    boundNullishResult + "|" +
+    directBadCallback + "|" +
+    boundBadCallbackResult
+  );
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array callback methods should throw in defining realm",
+            );
+        assert!(
+            outcome.note.contains(
+                "string(map=true:true:false|true:true:false|true:true:false|true:true:false,filter=true:true:false|true:true:false|true:true:false|true:true:false,every=true:true:false|true:true:false|true:true:false|true:true:false,some=true:true:false|true:true:false|true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_array_iterator_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = ["keys", "entries", "values"];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.Array.prototype[names[i]];
+  let bound = method.bind(null);
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null);
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+{
+  let iterator = other.global.Array.prototype.values.call(new other.global.Array(1));
+  let method = Object.getPrototypeOf(iterator).next;
+  let bound = method.bind({});
+  let direct = "missing";
+  let boundResult = "missing";
+  let nextResult = "missing";
+
+  try {
+    method.call({});
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  nextResult = method.call(iterator);
+  results.push(
+    "next=" + direct + "|" + boundResult + "|" +
+    (Object.getPrototypeOf(nextResult) === other.global.Object.prototype) + ":" +
+    (Object.getPrototypeOf(nextResult) === Object.prototype)
+  );
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "borrowed and bound cross-realm Array iterator methods should throw in defining realm",
+            );
+        assert!(
+            outcome.note.contains(
+                "string(keys=true:true:false|true:true:false,entries=true:true:false|true:true:false,values=true:true:false|true:true:false,next=true:true:false|true:true:false|true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_string_methods_throw_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm();
+let names = [
+  "at", "charAt", "endsWith", "includes", "indexOf", "isWellFormed",
+  "match", "matchAll", "padEnd", "padStart", "repeat", "replace",
+  "replaceAll", "search", "slice", "split", "startsWith", "toUpperCase",
+  "toWellFormed", "trim", "trimEnd", "trimStart"
+];
+let results = [];
+
+for (let i = 0; i < names.length; i++) {
+  let method = other.global.String.prototype[names[i]];
+  let bound = method.bind(null, "x");
+  let direct = "missing";
+  let boundResult = "missing";
+
+  try {
+    method.call(null, "x");
+  } catch (error) {
+    direct =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  try {
+    bound();
+  } catch (error) {
+    boundResult =
+      (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
+
+  results.push(names[i] + "=" + direct + "|" + boundResult);
+}
+
+results.join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("borrowed and bound cross-realm String methods should throw in defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(at=true:true:false|true:true:false,charAt=true:true:false|true:true:false,endsWith=true:true:false|true:true:false,includes=true:true:false|true:true:false,indexOf=true:true:false|true:true:false,isWellFormed=true:true:false|true:true:false,match=true:true:false|true:true:false,matchAll=true:true:false|true:true:false,padEnd=true:true:false|true:true:false,padStart=true:true:false|true:true:false,repeat=true:true:false|true:true:false,replace=true:true:false|true:true:false,replaceAll=true:true:false|true:true:false,search=true:true:false|true:true:false,slice=true:true:false|true:true:false,split=true:true:false|true:true:false,startsWith=true:true:false|true:true:false,toUpperCase=true:true:false|true:true:false,toWellFormed=true:true:false|true:true:false,trim=true:true:false|true:true:false,trimEnd=true:true:false|true:true:false,trimStart=true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_uses_realm_local_string_constructor_and_prototype() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let value = new other.String("abc");
+let thisValue = new String("abc");
+[
+  other.String === String,
+  other.String.prototype === String.prototype,
+  Object.getPrototypeOf(other.String) === other.Function.prototype,
+  Object.getPrototypeOf(other.String.prototype) === other.Object.prototype,
+  other.String.prototype.constructor === other.String,
+  Object.getPrototypeOf(value) === other.String.prototype,
+  value instanceof other.String,
+  value instanceof String,
+  typeof other.String.prototype.toString,
+  typeof other.String.prototype.valueOf,
+  typeof other.String.prototype.charAt,
+  other.String.prototype.toString.call(thisValue),
+  other.String.prototype.valueOf.call(thisValue),
+  other.String.prototype.charAt.call(thisValue, 1)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm should use realm-local String constructor and prototype");
+        assert!(
+            outcome.note.contains(
+                "string(false|false|true|true|true|true|true|false|function|function|function|abc|abc|b)"
+            ),
             "note: {}",
             outcome.note
         );
