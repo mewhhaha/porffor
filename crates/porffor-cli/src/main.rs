@@ -2765,9 +2765,11 @@ mod tests {
         assert_eq!(parsed.filter.as_deref(), Some("language/expressions"));
         assert_eq!(parsed.config.timeout_ms, 50);
         assert!(parsed.config.case_runner_bin.is_some());
+        // wasm-aot is the harness default (tasks/25); spec-exec requires the
+        // explicit --execution-backend flag exercised by the test below.
         assert_eq!(
             parsed.run_config.execution_backend,
-            ExecutionBackend::SpecExec
+            ExecutionBackend::WasmAot
         );
     }
 
