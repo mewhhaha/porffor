@@ -30,7 +30,6 @@ pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xE3, 0x80, 0x80], // U+3000
     &[0xEF, 0xBB, 0xBF], // U+FEFF
 ];
-pub(crate) const JSON_STRINGIFY_RECURSION_DEPTH: u8 = 2;
 pub(crate) const ARRAY_ITERATOR_KIND_VALUES: u64 = 0;
 pub(crate) const ARRAY_ITERATOR_KIND_KEYS: u64 = 1;
 pub(crate) const ARRAY_ITERATOR_KIND_ENTRIES: u64 = 2;

@@ -187,6 +187,8 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
             compiled_standard_builtins.push(*builtin);
         }
     }
+    let uses_json_stringify =
+        compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     let runtime_bootstrap_plan =
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
     let has_shared_stub =
@@ -393,6 +395,23 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
             builder.compile_proxy_construct_helper()
         })
         .transpose()?;
+    let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_json_stringify_value_helper()
+        })
+        .transpose()?;
 
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I64]);
@@ -471,6 +490,10 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         // proxy call + construct dispatch helpers share the JS function type.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         functions.function(JS_FUNCTION_TYPE_INDEX);
+        // JSON.stringify value helper (only when JSON.stringify is compiled).
+        if uses_json_stringify {
+            functions.function(JS_FUNCTION_TYPE_INDEX);
+        }
     }
 
     let mut exports = ExportSection::new();
@@ -619,6 +642,11 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
                 .as_ref()
                 .expect("proxy-construct helper must exist when heap is enabled"),
         );
+        if let Some(json_stringify_value_helper_function) =
+            json_stringify_value_helper_function.as_ref()
+        {
+            code.function(json_stringify_value_helper_function);
+        }
     }
 
     let mut module = Module::new();
@@ -1103,6 +1131,14 @@ impl<'a> FunctionBuilder<'a> {
     /// Wasm function index of the shared proxy-aware construct-dispatch helper.
     pub(crate) fn proxy_construct_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index.map(|base| base + 10)
+    }
+
+    /// Wasm function index of the shared JSON.stringify value helper. Emitted
+    /// only when `JSON.stringify` is compiled, immediately after the proxy
+    /// construct helper (the last runtime helper), so its index never shifts the
+    /// preceding fixed-offset helpers.
+    pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 11)
     }
 
     pub(crate) fn local_count(&self) -> usize {

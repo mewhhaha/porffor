@@ -1500,9 +1500,8 @@ impl<'a> FunctionBuilder<'a> {
         replacer_tag_local: u32,
         gap_payload_local: u32,
         value_string_local: u32,
-        indent_level: u8,
-        depth: u8,
-        ancestor_payload_locals: &[u32],
+        indent_level_local: u32,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_json_omits_value_i32(value_tag_local, function);
@@ -1510,19 +1509,68 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("null")));
         function.instruction(&Instruction::LocalSet(value_string_local));
         function.instruction(&Instruction::Else);
-        self.emit_json_stringify_value_payload(
+        self.emit_json_stringify_value_call(
             value_payload_local,
             value_tag_local,
             replacer_payload_local,
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level,
-            depth,
-            ancestor_payload_locals,
+            indent_level_local,
+            seen_stack_local,
             function,
         )?;
         function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Emits a `call` to the shared JSON.stringify value helper (runtime
+    /// recursion) and surfaces its result. On a normal completion the serialized
+    /// string payload is written to `output_local`; on a throw completion the
+    /// thrown value is re-raised through the current completion.
+    pub(crate) fn emit_json_stringify_value_call(
+        &mut self,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        replacer_payload_local: u32,
+        replacer_tag_local: u32,
+        gap_payload_local: u32,
+        output_local: u32,
+        indent_level_local: u32,
+        seen_stack_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let helper_index = self.json_stringify_value_helper_function_index().ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in porffor wasm-aot first slice: JSON.stringify helper without heap",
+            )
+        })?;
+        let result_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::LocalGet(replacer_payload_local));
+        function.instruction(&Instruction::LocalGet(replacer_tag_local));
+        function.instruction(&Instruction::LocalGet(gap_payload_local));
+        function.instruction(&Instruction::LocalGet(indent_level_local));
+        function.instruction(&Instruction::LocalGet(seen_stack_local));
+        function.instruction(&Instruction::Call(helper_index));
+        function.instruction(&Instruction::LocalSet(self.completion_aux_local));
+        function.instruction(&Instruction::LocalSet(self.completion_local));
+        function.instruction(&Instruction::LocalSet(result_tag_local));
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(output_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(result_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(result_tag_local);
         Ok(())
     }
 
@@ -1937,16 +1985,31 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_json_indent_payload(
         &mut self,
         gap_payload_local: u32,
-        indent_level: u8,
+        indent_level_local: u32,
         output_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let counter_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload("")));
         function.instruction(&Instruction::LocalSet(output_local));
-        for _ in 0..indent_level {
-            self.emit_concat_string_payloads_local(output_local, gap_payload_local, function)?;
-            function.instruction(&Instruction::LocalSet(output_local));
-        }
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(counter_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(counter_local));
+        function.instruction(&Instruction::LocalGet(indent_level_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_concat_string_payloads_local(output_local, gap_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::LocalGet(counter_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(counter_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(counter_local);
         Ok(())
     }
 
@@ -1954,7 +2017,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         output_local: u32,
         gap_payload_local: u32,
-        indent_level: u8,
+        indent_level_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let token_local = self.reserve_temp_local();
@@ -1963,7 +2026,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(token_local));
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
-        self.emit_json_indent_payload(gap_payload_local, indent_level, token_local, function)?;
+        self.emit_json_indent_payload(gap_payload_local, indent_level_local, token_local, function)?;
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
 
@@ -1975,7 +2038,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         output_local: u32,
         gap_payload_local: u32,
-        indent_level: u8,
+        indent_level_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_json_gap_is_non_empty_i32(gap_payload_local, function);
@@ -1983,7 +2046,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -2010,21 +2073,56 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_json_throw_if_same_container(
+    /// Pushes `container_payload_local` onto the runtime cycle-detection stack
+    /// referenced by `parent_seen_local` (0 = empty), storing the new top-of-stack
+    /// node pointer into `dest_local`. Each node is a 16-byte heap record:
+    /// `[0]` = container payload, `[8]` = pointer to the parent node.
+    pub(crate) fn emit_json_push_seen_stack(
+        &mut self,
+        container_payload_local: u32,
+        parent_seen_local: u32,
+        dest_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_heap_alloc_const(16, function)?;
+        function.instruction(&Instruction::LocalSet(dest_local));
+        self.store_i64_local_at_offset(dest_local, 0, container_payload_local, function);
+        self.store_i64_local_at_offset(dest_local, 8, parent_seen_local, function);
+        Ok(())
+    }
+
+    /// Runtime cyclic-structure check. Walks the seen-stack linked list rooted at
+    /// `seen_stack_local` and throws a TypeError if the object/array value in
+    /// `value_payload_local` is already being serialized (identical heap payload).
+    pub(crate) fn emit_json_throw_if_in_seen_stack(
         &mut self,
         value_payload_local: u32,
         value_tag_local: u32,
-        container_payload_local: u32,
-        container_kind: ValueKind,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let node_local = self.reserve_temp_local();
+        let node_payload_local = self.reserve_temp_local();
+
         function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(container_kind.tag() as i64));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(seen_stack_local));
+        function.instruction(&Instruction::LocalSet(node_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(node_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        self.load_i64_to_local_from_offset(node_local, 0, node_payload_local, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalGet(container_payload_local));
+        function.instruction(&Instruction::LocalGet(node_payload_local));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
@@ -2035,48 +2133,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        Ok(())
-    }
+        self.load_i64_to_local_from_offset(node_local, 8, node_local, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
-    pub(crate) fn emit_json_throw_if_in_container_stack(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        container_payload_local: u32,
-        container_kind: ValueKind,
-        ancestor_payload_locals: &[u32],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_json_throw_if_same_container(
-            value_payload_local,
-            value_tag_local,
-            container_payload_local,
-            container_kind,
-            function,
-        )?;
-        for ancestor_payload_local in ancestor_payload_locals {
-            function.instruction(&Instruction::LocalGet(value_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(value_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::LocalGet(value_payload_local));
-            function.instruction(&Instruction::LocalGet(*ancestor_payload_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Converting circular structure to JSON",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
+        self.release_temp_local(node_payload_local);
+        self.release_temp_local(node_local);
         Ok(())
     }
 
@@ -2445,9 +2509,8 @@ impl<'a> FunctionBuilder<'a> {
         replacer_tag_local: u32,
         gap_payload_local: u32,
         output_local: u32,
-        indent_level: u8,
-        depth: u8,
-        ancestor_payload_locals: &[u32],
+        indent_level_local: u32,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let brand_local = self.reserve_temp_local();
@@ -2712,42 +2775,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if depth == 0 {
-            function.instruction(&Instruction::I64Const(self.strings.payload("[]")));
-            function.instruction(&Instruction::LocalSet(output_local));
-        } else {
-            self.emit_json_stringify_proxy_array_payload(
-                proxy_array_payload_local,
-                proxy_array_tag_local,
-                replacer_payload_local,
-                replacer_tag_local,
-                gap_payload_local,
-                output_local,
-                indent_level,
-                depth - 1,
-                ancestor_payload_locals,
-                function,
-            )?;
-        }
+        self.emit_json_stringify_proxy_array_payload(
+            proxy_array_payload_local,
+            proxy_array_tag_local,
+            replacer_payload_local,
+            replacer_tag_local,
+            gap_payload_local,
+            output_local,
+            indent_level_local,
+            seen_stack_local,
+            function,
+        )?;
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        if depth == 0 {
-            function.instruction(&Instruction::I64Const(self.strings.payload("{}")));
-            function.instruction(&Instruction::LocalSet(output_local));
-        } else {
-            self.emit_json_stringify_object_payload(
-                value_payload_local,
-                replacer_payload_local,
-                replacer_tag_local,
-                gap_payload_local,
-                output_local,
-                indent_level,
-                depth - 1,
-                ancestor_payload_locals,
-                function,
-            )?;
-        }
+        self.emit_json_stringify_object_payload(
+            value_payload_local,
+            replacer_payload_local,
+            replacer_tag_local,
+            gap_payload_local,
+            output_local,
+            indent_level_local,
+            seen_stack_local,
+            function,
+        )?;
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
@@ -2755,22 +2806,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if depth == 0 {
-            function.instruction(&Instruction::I64Const(self.strings.payload("[]")));
-            function.instruction(&Instruction::LocalSet(output_local));
-        } else {
-            self.emit_json_stringify_array_payload(
-                value_payload_local,
-                replacer_payload_local,
-                replacer_tag_local,
-                gap_payload_local,
-                output_local,
-                indent_level,
-                depth - 1,
-                ancestor_payload_locals,
-                function,
-            )?;
-        }
+        self.emit_json_stringify_array_payload(
+            value_payload_local,
+            replacer_payload_local,
+            replacer_tag_local,
+            gap_payload_local,
+            output_local,
+            indent_level_local,
+            seen_stack_local,
+            function,
+        )?;
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
@@ -2863,6 +2908,41 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Compiles the shared JSON.stringify value helper. The full SerializeJSON
+    /// value/object/array/proxy state machine is emitted once here and reached
+    /// with a plain `call`; nested values recurse through the same helper at
+    /// runtime (rather than the former compile-time unrolling) so the emitted
+    /// function stays far below Cranelift's per-function code-size limit.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
+    /// results). Params: 0=value payload, 1=value tag, 2=replacer payload,
+    /// 3=replacer tag, 4=gap payload, 5=indent level, 6=seen-stack pointer.
+    /// Results are the `(result, result_tag, completion, completion_aux)` tuple
+    /// where a normal completion carries the serialized string payload.
+    pub(crate) fn compile_json_stringify_value_helper(
+        &mut self,
+    ) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        let output_local = self.reserve_temp_local();
+        self.emit_json_stringify_value_payload(0, 1, 2, 3, 4, output_local, 5, 6, &mut function)?;
+        function.instruction(&Instruction::LocalGet(output_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.release_temp_local(output_local);
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
     pub(crate) fn emit_json_stringify_array_payload(
         &mut self,
         array_payload_local: u32,
@@ -2870,9 +2950,8 @@ impl<'a> FunctionBuilder<'a> {
         replacer_tag_local: u32,
         gap_payload_local: u32,
         output_local: u32,
-        indent_level: u8,
-        depth: u8,
-        ancestor_payload_locals: &[u32],
+        indent_level_local: u32,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let buffer_local = self.reserve_temp_local();
@@ -2887,8 +2966,18 @@ impl<'a> FunctionBuilder<'a> {
         let token_local = self.reserve_temp_local();
         let index_number_payload_local = self.reserve_temp_local();
         let array_tag_local = self.reserve_temp_local();
-        let mut nested_ancestor_payload_locals = ancestor_payload_locals.to_vec();
-        nested_ancestor_payload_locals.push(array_payload_local);
+        let child_indent_local = self.reserve_temp_local();
+        let nested_seen_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(indent_level_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(child_indent_local));
+        self.emit_json_push_seen_stack(
+            array_payload_local,
+            seen_stack_local,
+            nested_seen_local,
+            function,
+        )?;
 
         self.load_i64_to_local_from_offset(
             array_payload_local,
@@ -2920,7 +3009,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -2931,7 +3020,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -2972,12 +3061,10 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_json_throw_if_in_container_stack(
+        self.emit_json_throw_if_in_seen_stack(
             value_payload_local,
             value_tag_local,
-            array_payload_local,
-            ValueKind::Array,
-            ancestor_payload_locals,
+            nested_seen_local,
             function,
         )?;
         self.emit_json_array_element_string_payload(
@@ -2987,9 +3074,8 @@ impl<'a> FunctionBuilder<'a> {
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level.saturating_add(1),
-            depth,
-            &nested_ancestor_payload_locals,
+            child_indent_local,
+            nested_seen_local,
             function,
         )?;
         self.emit_concat_string_payloads_local(output_local, value_string_local, function)?;
@@ -3008,7 +3094,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3017,6 +3103,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
 
+        self.release_temp_local(nested_seen_local);
+        self.release_temp_local(child_indent_local);
         self.release_temp_local(array_tag_local);
         self.release_temp_local(index_number_payload_local);
         self.release_temp_local(token_local);
@@ -3040,9 +3128,8 @@ impl<'a> FunctionBuilder<'a> {
         replacer_tag_local: u32,
         gap_payload_local: u32,
         output_local: u32,
-        indent_level: u8,
-        depth: u8,
-        ancestor_payload_locals: &[u32],
+        indent_level_local: u32,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let len_local = self.reserve_temp_local();
@@ -3056,8 +3143,18 @@ impl<'a> FunctionBuilder<'a> {
         let key_tag_local = self.reserve_temp_local();
         let index_number_payload_local = self.reserve_temp_local();
         let token_local = self.reserve_temp_local();
-        let mut nested_ancestor_payload_locals = ancestor_payload_locals.to_vec();
-        nested_ancestor_payload_locals.push(array_payload_local);
+        let child_indent_local = self.reserve_temp_local();
+        let nested_seen_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(indent_level_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(child_indent_local));
+        self.emit_json_push_seen_stack(
+            array_payload_local,
+            seen_stack_local,
+            nested_seen_local,
+            function,
+        )?;
 
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(key_payload_local));
@@ -3103,7 +3200,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3114,7 +3211,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3156,12 +3253,10 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_json_throw_if_in_container_stack(
+        self.emit_json_throw_if_in_seen_stack(
             value_payload_local,
             value_tag_local,
-            array_payload_local,
-            ValueKind::Array,
-            ancestor_payload_locals,
+            nested_seen_local,
             function,
         )?;
         self.emit_json_array_element_string_payload(
@@ -3171,9 +3266,8 @@ impl<'a> FunctionBuilder<'a> {
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level.saturating_add(1),
-            depth,
-            &nested_ancestor_payload_locals,
+            child_indent_local,
+            nested_seen_local,
             function,
         )?;
         self.emit_concat_string_payloads_local(output_local, value_string_local, function)?;
@@ -3192,7 +3286,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3201,6 +3295,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
 
+        self.release_temp_local(nested_seen_local);
+        self.release_temp_local(child_indent_local);
         self.release_temp_local(token_local);
         self.release_temp_local(index_number_payload_local);
         self.release_temp_local(key_tag_local);
@@ -3222,9 +3318,8 @@ impl<'a> FunctionBuilder<'a> {
         replacer_tag_local: u32,
         gap_payload_local: u32,
         output_local: u32,
-        indent_level: u8,
-        depth: u8,
-        ancestor_payload_locals: &[u32],
+        indent_level_local: u32,
+        seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let buffer_local = self.reserve_temp_local();
@@ -3259,8 +3354,18 @@ impl<'a> FunctionBuilder<'a> {
         let previous_index_local = self.reserve_temp_local();
         let previous_key_payload_local = self.reserve_temp_local();
         let previous_key_tag_local = self.reserve_temp_local();
-        let mut nested_ancestor_payload_locals = ancestor_payload_locals.to_vec();
-        nested_ancestor_payload_locals.push(object_payload_local);
+        let child_indent_local = self.reserve_temp_local();
+        let nested_seen_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(indent_level_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(child_indent_local));
+        self.emit_json_push_seen_stack(
+            object_payload_local,
+            seen_stack_local,
+            nested_seen_local,
+            function,
+        )?;
 
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -3447,27 +3552,24 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_json_throw_if_in_container_stack(
+        self.emit_json_throw_if_in_seen_stack(
             value_payload_local,
             value_tag_local,
-            keys_arg_payload_local,
-            ValueKind::Object,
-            ancestor_payload_locals,
+            nested_seen_local,
             function,
         )?;
         self.emit_json_omits_value_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_json_stringify_value_payload(
+        self.emit_json_stringify_value_call(
             value_payload_local,
             value_tag_local,
             replacer_payload_local,
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level.saturating_add(1),
-            depth,
-            &nested_ancestor_payload_locals,
+            child_indent_local,
+            nested_seen_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(first_local));
@@ -3480,7 +3582,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3489,7 +3591,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3515,7 +3617,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3842,12 +3944,10 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_json_throw_if_in_container_stack(
+        self.emit_json_throw_if_in_seen_stack(
             value_payload_local,
             value_tag_local,
-            object_payload_local,
-            ValueKind::Object,
-            ancestor_payload_locals,
+            nested_seen_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -3862,16 +3962,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_json_stringify_value_payload(
+        self.emit_json_stringify_value_call(
             value_payload_local,
             value_tag_local,
             replacer_payload_local,
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level.saturating_add(1),
-            depth,
-            &nested_ancestor_payload_locals,
+            child_indent_local,
+            nested_seen_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(first_local));
@@ -3884,7 +3983,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3893,7 +3992,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3919,7 +4018,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -4027,27 +4126,24 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_json_throw_if_in_container_stack(
+        self.emit_json_throw_if_in_seen_stack(
             value_payload_local,
             value_tag_local,
-            object_payload_local,
-            ValueKind::Object,
-            ancestor_payload_locals,
+            nested_seen_local,
             function,
         )?;
         self.emit_json_omits_value_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_json_stringify_value_payload(
+        self.emit_json_stringify_value_call(
             value_payload_local,
             value_tag_local,
             replacer_payload_local,
             replacer_tag_local,
             gap_payload_local,
             value_string_local,
-            indent_level.saturating_add(1),
-            depth,
-            &nested_ancestor_payload_locals,
+            child_indent_local,
+            nested_seen_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(first_local));
@@ -4060,7 +4156,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -4069,7 +4165,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level.saturating_add(1),
+            child_indent_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -4096,7 +4192,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_json_append_optional_newline_indent(
             output_local,
             gap_payload_local,
-            indent_level,
+            indent_level_local,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -4108,6 +4204,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(nested_seen_local);
+        self.release_temp_local(child_indent_local);
         self.release_temp_local(previous_key_tag_local);
         self.release_temp_local(previous_key_payload_local);
         self.release_temp_local(previous_index_local);

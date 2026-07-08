@@ -11981,6 +11981,22 @@ impl<'a> ScriptLowerer<'a> {
                         let field_name = self.interner.resolve_expect(field.sym()).to_string();
                         let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                             || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+                        if field_name == "valueOf"
+                            && receiver
+                                .possible_kinds
+                                .is_subset_of(Self::object_like_kind_set())
+                            && self.read_object_shape(&receiver, "valueOf").is_none()
+                        {
+                            // Object.prototype.valueOf ( ) returns ToObject(this), which for an
+                            // already-object receiver is the receiver itself (same identity and
+                            // shape). Preserve the receiver's full type info instead of widening
+                            // to a generic empty object shape so chained calls (e.g. `.toString()`)
+                            // keep working on the precise shape.
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return receiver.clone();
+                        }
                         if field_name == "forEach"
                             || (matches!(
                                 field_name.as_str(),
@@ -15240,7 +15256,12 @@ impl<'a> ScriptLowerer<'a> {
             return TypedExpr::from_info(
                 ValueInfo {
                     kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
+                    // The Construct abstract operation always yields an Object (or throws);
+                    // it never produces a primitive, even when the constructor target isn't
+                    // statically resolved. Narrowing here (rather than `all_runtime_tags()`)
+                    // keeps downstream object-like reasoning (e.g. `.valueOf()`/`.toString()`
+                    // identity handling) sound for dynamically-typed `new` targets.
+                    possible_kinds: Self::object_like_kind_set(),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                 },
@@ -15278,7 +15299,8 @@ impl<'a> ScriptLowerer<'a> {
             return TypedExpr::from_info(
                 ValueInfo {
                     kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
+                    // See comment above: Construct always yields an object-like value.
+                    possible_kinds: Self::object_like_kind_set(),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                 },
@@ -15298,7 +15320,8 @@ impl<'a> ScriptLowerer<'a> {
             return TypedExpr::from_info(
                 ValueInfo {
                     kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
+                    // See comment above: Construct always yields an object-like value.
+                    possible_kinds: Self::object_like_kind_set(),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                 },
@@ -18718,10 +18741,24 @@ impl<'a> ScriptLowerer<'a> {
                     StandardBuiltinId::ObjectPrototypeToLocaleString.function_id(),
                 );
             }
-            if name == "valueOf" && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+            if name == "valueOf"
+                && (target
+                    .possible_kinds
+                    .is_subset_of(Self::object_like_kind_set())
+                    || self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype"))
             {
                 return self
                     .function_value_expr(StandardBuiltinId::ObjectPrototypeValueOf.function_id());
+            }
+            if name == "hasOwnProperty"
+                && (target
+                    .possible_kinds
+                    .is_subset_of(Self::object_like_kind_set())
+                    || self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype"))
+            {
+                return self.function_value_expr(
+                    StandardBuiltinId::ObjectPrototypeHasOwnProperty.function_id(),
+                );
             }
             if name == "isPrototypeOf"
                 && target

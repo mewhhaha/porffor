@@ -33479,18 +33479,25 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Br(1));
                 function.instruction(&Instruction::End);
-                self.emit_json_stringify_value_payload(
+                let root_indent_local = self.reserve_temp_local();
+                let root_seen_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(root_indent_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(root_seen_local));
+                self.emit_json_stringify_value_call(
                     value_payload_local,
                     value_tag_local,
                     replacer_payload_local,
                     replacer_tag_local,
                     gap_payload_local,
                     self.result_local,
-                    0,
-                    JSON_STRINGIFY_RECURSION_DEPTH,
-                    &[],
+                    root_indent_local,
+                    root_seen_local,
                     function,
                 )?;
+                self.release_temp_local(root_seen_local);
+                self.release_temp_local(root_indent_local);
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::End);
