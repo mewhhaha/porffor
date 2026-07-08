@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# T27: product/release builds of the library and CLI must link no JavaScript
+# interpreter/VM engine (AGENTS.md hard ban). porffor-spec-exec wraps the Boa
+# interpreter and exists only as a hidden, developer-only differential
+# oracle gated behind the `spec-exec-oracle` cargo feature. This script
+# proves that feature is off by default and that boa_engine does not appear
+# in the default dependency graph of porffor-engine or porffor-cli.
+set -euo pipefail
+
+failures=0
+
+fail() {
+  printf 'check-no-interpreter-in-product-graph: %s\n' "$*" >&2
+  failures=$((failures + 1))
+}
+
+check_no_boa_in_default_graph() {
+  package="$1"
+  count="$(cargo tree -p "$package" 2>/dev/null | grep -c boa_engine || true)"
+  if [ "$count" -ne 0 ]; then
+    fail "expected 0 boa_engine crates in the default dependency graph of $package, found $count"
+  fi
+}
+
+check_boa_present_with_oracle_feature() {
+  package="$1"
+  count="$(cargo tree -p "$package" --features spec-exec-oracle 2>/dev/null | grep -c boa_engine || true)"
+  if [ "$count" -eq 0 ]; then
+    fail "expected boa_engine to be reachable from $package with --features spec-exec-oracle (developer oracle build)"
+  fi
+}
+
+check_no_boa_in_default_graph porffor-engine
+check_no_boa_in_default_graph porffor-cli
+check_boa_present_with_oracle_feature porffor-engine
+check_boa_present_with_oracle_feature porffor-cli
+
+if [ "$failures" -ne 0 ]; then
+  exit 1
+fi
+
+printf 'check-no-interpreter-in-product-graph: ok\n'
