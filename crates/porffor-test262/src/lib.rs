@@ -24020,6 +24020,7 @@ function $DONE(error) {
         assert!(!harness.contains("leaving: function () {}"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_classifies_missing_host_capability_as_host_harness() {
         let preludes = top_level_host_preludes();
@@ -24100,6 +24101,7 @@ function $DONE(error) {
         }
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_exposes_current_global_host_accessors() {
         let preludes = top_level_host_preludes();
@@ -24201,6 +24203,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(materialized_text.contains("$DONE();"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn run_one_case_enforces_async_done_contract() {
         let preludes = async_done_preludes();
@@ -30187,6 +30190,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(second.completed_paths.len(), first.completed_paths.len());
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn baseline_report_groups_by_kind_and_subtree() {
         let config = fixture_config();
@@ -30202,6 +30206,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(report.buckets.iter().all(|bucket| bucket.total == 0));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_aggregates_fixture_suite() {
         let config = fixture_config();
@@ -30254,6 +30259,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(raw.contains("\"aggregate_entries\""));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_resume_reloads_completed_node_snapshot_summaries() {
         let config = fixture_config();
@@ -30960,6 +30966,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(resumed_snapshot.failures.len(), 1);
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn report_all_can_checkpoint_with_max_matrix_nodes() {
         let config = fixture_config();
@@ -31257,6 +31264,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(err.contains("invalid backlog ownership map line"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn compare_snapshots_reports_passes_regressions_hash_changes_and_pin_mismatch() {
         let config = tiny_failing_suite_config("snapshot-compare");
@@ -31365,11 +31373,13 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(err.contains("test262 revision"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_snapshot_name_resolution_finds_unique_compatible_aggregate() {
         let config = tiny_failing_suite_config("backlog-name-resolution");
         let published_run = RunConfig {
             snapshot_name: "published-elsewhere".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, published_run.clone()).expect("matrix should run");
@@ -31410,6 +31420,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         // be an explicit error listing the candidates, never a silent pick.
         let second_run = RunConfig {
             snapshot_name: "published-elsewhere-two".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, second_run).expect("second matrix should run");
@@ -31437,6 +31448,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(err.contains("missing aggregate snapshot"));
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_pin_equivalence_accepts_verified_legacy_commit_pin() {
         let config = fixture_config();
@@ -31456,6 +31468,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
 
         let run_config = RunConfig {
             snapshot_name: "legacy-pin".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
@@ -31524,11 +31537,13 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(report.mismatched, 1);
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_legacy_snapshot_version_migrates_outcomes_from_recorded_details() {
         let config = tiny_failing_suite_config("backlog-legacy-migration");
         let run_config = RunConfig {
             snapshot_name: "legacy-migrate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -31621,11 +31636,13 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(artifact.records[0].outcome, "Bug");
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_snapshot_pin_report_classifies_exact_and_mismatched_pins() {
         let config = tiny_failing_suite_config("backlog-pin-report");
         let run_config = RunConfig {
             snapshot_name: "pin-report".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -31657,6 +31674,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert_eq!(report.mismatched, 1);
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_comparison_catches_injected_regression() {
         let config = tiny_failing_suite_config("backlog-compare-regression");
@@ -31671,6 +31689,12 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
 
         let base_run = RunConfig {
             snapshot_name: "regression-base".to_string(),
+            // Oracle-backend fixture test: the base/candidate runs must use the
+            // same backend the comparison below loads (spec-exec), otherwise the
+            // aggregate snapshot is written under the wrong backend key. This is
+            // no longer implied by RunConfig::default() since the harness default
+            // flipped to wasm-aot (tasks/25).
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
@@ -31684,6 +31708,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         .expect("regressed probe should write");
         let candidate_run = RunConfig {
             snapshot_name: "regression-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
@@ -31702,16 +31727,19 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(comparison.added_passes.is_empty());
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     #[test]
     fn backlog_comparison_normalizes_unstable_detail_data() {
         let config = tiny_failing_suite_config("backlog-compare-normalize");
         let base_run = RunConfig {
             snapshot_name: "normalize-base".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
         let candidate_run = RunConfig {
             snapshot_name: "normalize-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
