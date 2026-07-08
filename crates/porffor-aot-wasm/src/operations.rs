@@ -106,6 +106,27 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(rhs_proto_tag_local));
         } else {
+            // InstanceofOperator step 1 / OrdinaryHasInstance step 1: the right-hand
+            // side must be an object (and, once we reach OrdinaryHasInstance, callable).
+            // A primitive right-hand side throws a TypeError about the `instanceof`
+            // operand here, rather than reading `prototype` off a non-object and
+            // surfacing an unrelated error message.
+            function.instruction(&Instruction::LocalGet(rhs_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.emit_is_heap_object_like_tag_i32(rhs_tag_local, function);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                "Right-hand side of 'instanceof' is not callable",
+                rhs_proto_payload_local,
+                rhs_proto_tag_local,
+                function,
+            )?;
+            self.emit_dispatch_current_completion(function)?;
+            function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(rhs_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::I64Eq);
@@ -1276,11 +1297,12 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
+                        // The throw is emitted directly in the match arm (no wrapping
+                        // manual `if` block), so dispatch the current completion through
+                        // the shared helper rather than a hand-rolled `Br` whose fixed
+                        // `+ 1` offset assumes an enclosing guard block and would skip
+                        // past the active catch handler, leaking the throw uncaught.
+                        self.emit_dispatch_current_completion(function)?;
                     }
                 }
                 self.emit_object_has_property_i32(
@@ -2450,6 +2472,35 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(primitive_result_local));
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
+                if *hook_name == "toString" {
+                    // OrdinaryToPrimitive: Get(O, "toString") for an ordinary object with
+                    // no own (or otherwise resolvable) `toString` still resolves to the
+                    // inherited Object.prototype.toString, whose call yields
+                    // "[object Object]". Reconstruct that default when the property read
+                    // surfaced no callable (undefined) and the receiver is an ordinary
+                    // object that inherits Object.prototype, so plain objects coerce to a
+                    // primitive instead of throwing.
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(hook_value_tag));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    self.emit_ordinary_object_default_to_string_applies_i32(
+                        object_local,
+                        object_tag_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload("[object Object]"),
+                    ));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(primitive_result_local));
+                    function.instruction(&Instruction::End);
+                }
                 function.instruction(&Instruction::End);
             }
             if !propagate_hook_throws {
@@ -2488,6 +2539,83 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.release_temp_local(boxed_kind_local);
         Ok(())
+    }
+
+    /// Pushes an i32 (1/0) indicating whether `object_local` is an ordinary object
+    /// (no exotic internal brand) whose prototype chain reaches `Object.prototype`.
+    /// When true, `OrdinaryToPrimitive`'s inherited `Object.prototype.toString`
+    /// default ("[object Object]") applies; when false (e.g. a null-prototype object
+    /// or an exotic such as an Error) the caller must fall back to throwing.
+    pub(crate) fn emit_ordinary_object_default_to_string_applies_i32(
+        &mut self,
+        object_local: u32,
+        object_tag_local: u32,
+        function: &mut Function,
+    ) {
+        let search_local = self.reserve_temp_local();
+        let search_tag_local = self.reserve_temp_local();
+        let next_proto_local = self.reserve_temp_local();
+        let next_proto_tag_local = self.reserve_temp_local();
+        let inherits_local = self.reserve_temp_local();
+        let brand_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(inherits_local));
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::LocalSet(search_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::LocalSet(search_tag_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        // Reached the end of the prototype chain (null) without Object.prototype.
+        function.instruction(&Instruction::LocalGet(search_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        // Found Object.prototype in the chain.
+        function.instruction(&Instruction::LocalGet(search_local));
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(inherits_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        self.emit_ordinary_get_prototype_of(
+            search_local,
+            search_tag_local,
+            next_proto_local,
+            next_proto_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(next_proto_local));
+        function.instruction(&Instruction::LocalSet(search_local));
+        function.instruction(&Instruction::LocalGet(next_proto_tag_local));
+        function.instruction(&Instruction::LocalSet(search_tag_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        // Only ordinary objects (internal brand 0) use the plain "[object Object]"
+        // default; exotics such as Error carry their own toString semantics.
+        self.load_i64_to_local_from_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(inherits_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+
+        self.release_temp_local(brand_local);
+        self.release_temp_local(inherits_local);
+        self.release_temp_local(next_proto_tag_local);
+        self.release_temp_local(next_proto_local);
+        self.release_temp_local(search_tag_local);
+        self.release_temp_local(search_local);
     }
 
     pub(crate) fn emit_is_primitive_tag_i32(&self, tag_local: u32, function: &mut Function) {

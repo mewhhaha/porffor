@@ -972,6 +972,7 @@ impl StringPool {
             "Cannot convert a Symbol value to a string",
             "BigInt is not a constructor",
             "right-hand side of `in` is not an object",
+            "Right-hand side of 'instanceof' is not callable",
             "must call super() before accessing `this`",
             "derived constructor must call super() before returning",
             "derived constructor may only return object or undefined",
