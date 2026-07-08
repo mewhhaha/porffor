@@ -2832,6 +2832,8 @@ mod tests {
 
     #[test]
     fn parse_test262_args_spec_exec_requires_explicit_flag() {
+        // wasm-aot is the harness default (tasks/25); spec-exec requires the
+        // explicit --execution-backend flag exercised here.
         let parsed =
             parse_test262_args(&["--execution-backend".to_string(), "spec-exec".to_string()])
                 .expect("explicit spec-exec backend should parse");

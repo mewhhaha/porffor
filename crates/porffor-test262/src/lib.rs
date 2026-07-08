@@ -168,10 +168,17 @@ impl Default for SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
             local_harness_path: root.join("harness.js"),
             snapshot_dir: root.join("snapshots"),
-            // Conformance buckets now include correctness-green but still slow
-            // wasm-aot paths, so the default timeout must not classify them as
-            // harness failures after they complete successfully.
-            timeout_ms: 240_000,
+            // Keep this bound strict: it exists to turn hangs and pathological
+            // Wasm-AOT stalls into a visible, bounded Timeout failure instead of
+            // an unbounded multi-minute process stall. A correctness-green but
+            // genuinely-this-slow case is itself performance debt (see
+            // tasks/25) and must not hide behind an inflated bound. A single
+            // fresh Engine/Wasmtime bootstrap plus compile in an unoptimized
+            // debug build costs roughly 15-30s even for a trivial script, so
+            // this floor keeps headroom above that legitimate cost while
+            // staying far tighter than the previous 240_000ms/500_000ms
+            // stalls.
+            timeout_ms: 60_000,
             worker_count: thread::available_parallelism()
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
@@ -277,7 +284,11 @@ impl Default for RunConfig {
             shard_count: 1,
             resume: false,
             snapshot_name: "latest".to_string(),
-            execution_backend: ExecutionBackend::SpecExec,
+            // wasm-aot is the only backend whose results count as conformance
+            // (AGENTS.md, tasks/25, tasks/27). spec-exec remains available as an
+            // explicit, developer-selected differential oracle, never a harness
+            // default.
+            execution_backend: ExecutionBackend::WasmAot,
             max_matrix_nodes: None,
         }
     }
@@ -20333,8 +20344,14 @@ fn run_case_entry(
     case: &TestCase,
     run_config: &RunConfig,
 ) -> TestResult {
-    let use_child_runner = config.case_runner_bin.is_some()
-        && (run_config.resume || run_config.filter.as_deref() == Some(case.path.as_str()));
+    // Real process-level timeout enforcement (kill + wait) only exists for the
+    // child-runner path in `run_one_case_in_child_process`. The in-process path
+    // below can only *measure* elapsed time after a call returns, so it cannot
+    // bound a genuine hang (an infinite loop never returns). Every case must
+    // therefore go through the child runner whenever one is configured, not
+    // only single-case/resume invocations, or a directory/full-suite run has
+    // no enforcement at all and a hanging case stalls the whole worker forever.
+    let use_child_runner = config.case_runner_bin.is_some();
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
             TestResult {
@@ -30137,6 +30154,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "fixture".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
@@ -30153,6 +30171,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "resume".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_full(&config, run_config.clone()).expect("first run should complete");
@@ -30173,6 +30192,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "baseline-report".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
@@ -30189,6 +30209,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             &config,
             RunConfig {
                 snapshot_name: "aggregate".to_string(),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -30208,6 +30229,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-resume".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone()).expect("first matrix run");
@@ -30237,6 +30259,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-refresh".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30312,6 +30335,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-low-ram".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30370,6 +30394,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-low-ram-repair".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30452,6 +30477,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-stale-nodes".to_string(),
             max_matrix_nodes: Some(4),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_top_level_matrix(&config, run_config.clone())
@@ -30517,6 +30543,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-ignore-checkpoint".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let nodes = build_run_matrix(&config).expect("matrix should build");
@@ -30609,6 +30636,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-recover".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30664,6 +30692,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-stale-fallback".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let nodes = build_run_matrix(&config).expect("matrix should build");
@@ -30719,6 +30748,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-ignore-checkpoint".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30764,6 +30794,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let run_config = RunConfig {
             snapshot_name: "aggregate-promote-checkpoint".to_string(),
             max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let first = run_top_level_matrix(&config, run_config.clone())
@@ -30937,6 +30968,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 snapshot_name: "aggregate-checkpoint".to_string(),
                 max_matrix_nodes: Some(1),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -30948,6 +30980,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 snapshot_name: "aggregate-checkpoint".to_string(),
                 resume: true,
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -31033,6 +31066,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             RunConfig {
                 resume: true,
                 snapshot_name: "stale-aggregate".to_string(),
+                execution_backend: ExecutionBackend::SpecExec,
                 ..RunConfig::default()
             },
         )
@@ -31045,6 +31079,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "verified-aggregate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary =
@@ -31066,6 +31101,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "stale-pinned".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
@@ -31098,6 +31134,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "incomplete-aggregate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("aggregate run should work");
@@ -31161,6 +31198,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = tiny_failing_suite_config("backlog-inventory");
         let run_config = RunConfig {
             snapshot_name: "backlog-inventory".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -31200,6 +31238,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = tiny_failing_suite_config("backlog-invalid-ownership-map");
         let run_config = RunConfig {
             snapshot_name: "backlog-invalid-ownership-map".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
@@ -31223,12 +31262,14 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = tiny_failing_suite_config("snapshot-compare");
         let base_run = RunConfig {
             snapshot_name: "snapshot-compare-base".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, base_run.clone()).expect("base matrix should run");
 
         let candidate_run = RunConfig {
             snapshot_name: "snapshot-compare-candidate".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, candidate_run.clone()).expect("candidate matrix should run");
@@ -31274,6 +31315,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
 
         let pass_run = RunConfig {
             snapshot_name: "snapshot-compare-pass".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         fs::write(
@@ -32389,6 +32431,7 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "versioned".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_full(&config, run_config).expect("run should complete");
