@@ -1636,7 +1636,6 @@ dependencies = [
  "porffor-front",
  "porffor-ir",
  "wasm-encoder 0.245.1",
- "wasmi",
  "wasmparser 0.245.1",
 ]
 

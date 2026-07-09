@@ -93,8 +93,7 @@ mod tests {
     use super::*;
     use porffor_front::{parse, ParseOptions};
     use porffor_ir::{lower, BigIntLiteralIr};
-    use wasmi::{Engine as WasmiEngine, Module as WasmiModule};
-    use wasmparser::{Operator, Parser, Payload};
+    use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
@@ -897,15 +896,30 @@ pick(true);"#,
         usize::from_str_radix(&hex, 16).ok()
     }
 
+    /// Validates with `wasmparser` directly (rather than an engine's own
+    /// validator) so the accepted proposal set can be pinned to match the
+    /// production wasmtime configuration (`porffor-engine`'s
+    /// `run_with_wasm_aot_inner`: threads, function-references, gc, and
+    /// exceptions all enabled) instead of an embedding engine's own default
+    /// feature set, which may lag behind (e.g. wasmi 0.31's validator
+    /// hardcodes `threads: false` with no way to opt in, so it rejects the
+    /// atomic rmw ops this compiler emits for `Atomics.*` even though
+    /// production wasmtime accepts them).
     fn expect_valid_module(artifact: &WasmArtifact, _script_function_count: usize) {
-        let engine = WasmiEngine::default();
-        WasmiModule::new(&engine, &artifact.bytes[..]).unwrap_or_else(|err| {
-            let message = err.to_string();
-            let context = validation_error_offset(&message)
-                .map(|offset| code_body_context(&artifact.bytes, offset))
-                .unwrap_or_else(|| "no validation offset found".to_string());
-            panic!("module should validate: {message}; {context}");
-        });
+        let features = WasmFeatures::default()
+            | WasmFeatures::THREADS
+            | WasmFeatures::FUNCTION_REFERENCES
+            | WasmFeatures::GC
+            | WasmFeatures::EXCEPTIONS;
+        Validator::new_with_features(features)
+            .validate_all(&artifact.bytes[..])
+            .unwrap_or_else(|err| {
+                let message = err.to_string();
+                let context = validation_error_offset(&message)
+                    .map(|offset| code_body_context(&artifact.bytes, offset))
+                    .unwrap_or_else(|| "no validation offset found".to_string());
+                panic!("module should validate: {message}; {context}");
+            });
     }
 
     #[test]

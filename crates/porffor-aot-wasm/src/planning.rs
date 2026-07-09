@@ -214,6 +214,40 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::ArrayBufferConstructor);
             }
+            StandardBuiltinId::NumberPrototypeToFixed
+            | StandardBuiltinId::NumberPrototypeToExponential
+            | StandardBuiltinId::NumberPrototypeToPrecision
+            | StandardBuiltinId::NumberPrototypeToString
+            | StandardBuiltinId::NumberPrototypeToLocaleString
+            | StandardBuiltinId::NumberPrototypeValueOf => {
+                // These bodies can be reached purely via dynamic property
+                // dispatch on a Number-typed value (no direct call-site
+                // FunctionId reference), so `should_stub_standard_builtin`
+                // alone isn't enough to guarantee the property gets installed:
+                // `Number.prototype`'s own-properties are only written by the
+                // `NumberConstructor` bootstrap block, which is separately
+                // gated on this same root set. Without forcing the
+                // constructor in here too, the method body compiles but its
+                // `Number.prototype` property is silently never defined, so
+                // the runtime property read at the call site resolves to
+                // `undefined` and traps instead of throwing/working.
+                self.standard_roots
+                    .insert(StandardBuiltinId::NumberConstructor);
+            }
+            StandardBuiltinId::BooleanPrototypeToString | StandardBuiltinId::BooleanPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::BooleanConstructor);
+            }
+            StandardBuiltinId::StringPrototypeToString | StandardBuiltinId::StringPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::StringConstructor);
+            }
+            StandardBuiltinId::BigIntPrototypeToString
+            | StandardBuiltinId::BigIntPrototypeToLocaleString
+            | StandardBuiltinId::BigIntPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::BigIntConstructor);
+            }
             StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
             | StandardBuiltinId::SharedArrayBufferPrototypeMaxByteLengthGetter
             | StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter
@@ -2023,6 +2057,36 @@ pub(crate) fn optimized_call_method_references_function(
     let PropertyKeyIr::StaticString(name) = key else {
         return false;
     };
+    if name == "toString" {
+        // Dynamically dispatched (receiver type not statically known to be a
+        // literal), so no single call site pins one FunctionId. Without these
+        // arms, `should_stub_standard_builtin` treats every primitive-wrapper
+        // `toString` as unreferenced whenever it's only reached via runtime
+        // property lookup (e.g. `computedNumber.toString(16)`), so the
+        // builtin body is stubbed AND its Number.prototype/String.prototype/
+        // etc. property is never installed, leaving the runtime property
+        // read to resolve to `undefined` and trap on the "callee must be a
+        // function" check instead of throwing.
+        return StandardBuiltinId::NumberPrototypeToString.function_id() == *target
+            || StandardBuiltinId::StringPrototypeToString.function_id() == *target
+            || StandardBuiltinId::BooleanPrototypeToString.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeToString.function_id() == *target;
+    }
+    if name == "valueOf" {
+        return StandardBuiltinId::NumberPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::StringPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::BooleanPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeValueOf.function_id() == *target;
+    }
+    if name == "toFixed" {
+        return StandardBuiltinId::NumberPrototypeToFixed.function_id() == *target;
+    }
+    if name == "toPrecision" {
+        return StandardBuiltinId::NumberPrototypeToPrecision.function_id() == *target;
+    }
+    if name == "toExponential" {
+        return StandardBuiltinId::NumberPrototypeToExponential.function_id() == *target;
+    }
     if name == "includes" {
         return StandardBuiltinId::ArrayPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target;
@@ -2088,9 +2152,13 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "slice" {
         return StandardBuiltinId::StringPrototypeSlice.function_id() == *target;
     }
+    if name == "toLocaleString" {
+        return StandardBuiltinId::ArrayPrototypeToLocaleString.function_id() == *target
+            || StandardBuiltinId::NumberPrototypeToLocaleString.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeToLocaleString.function_id() == *target;
+    }
     let builtin = match name.as_str() {
         "concat" => StandardBuiltinId::ArrayPrototypeConcat,
-        "toLocaleString" => StandardBuiltinId::ArrayPrototypeToLocaleString,
         "flat" => StandardBuiltinId::ArrayPrototypeFlat,
         "flatMap" => StandardBuiltinId::ArrayPrototypeFlatMap,
         "push" => StandardBuiltinId::ArrayPrototypePush,

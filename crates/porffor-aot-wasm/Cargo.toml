@@ -10,7 +10,6 @@ wasm-encoder = "0.245.1"
 
 [dev-dependencies]
 porffor-front = { path = "../porffor-front" }
-wasmi = "0.31.2"
 wasmparser = "0.245.1"
 
 [lib]
