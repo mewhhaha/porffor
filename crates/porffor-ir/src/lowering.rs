@@ -1815,6 +1815,22 @@ impl<'a> ScriptLowerer<'a> {
                         }),
                     );
                 }
+                StandardBuiltinId::SymbolConstructor => {
+                    object.properties.insert(
+                        "for".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::SymbolFor.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "keyFor".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::SymbolKeyFor.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::ObjectConstructor => {
                     object.properties.insert(
                         "create".to_string(),
@@ -3936,6 +3952,25 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Boolean),
                 None,
                 Self::boxed_primitive_instance_info(ValueInfo::new(ValueKind::Boolean)),
+            ),
+            StandardBuiltinId::SymbolConstructor => (
+                ValueKind::Symbol,
+                KindSet::from_kind(ValueKind::Symbol),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolFor => (
+                ValueKind::Symbol,
+                KindSet::from_kind(ValueKind::Symbol),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolKeyFor => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::BooleanPrototypeToString => (
                 ValueKind::String,
@@ -11572,45 +11607,6 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    if target_name == "Symbol" && field_name == "keyFor" && args.len() == 1 {
-                        let arg = self.lower_expression(&args[0]);
-                        let typeof_arg = TypedExpr::from_info(
-                            Self::string_value_info("symbol"),
-                            ExprIr::TypeOf {
-                                expr: Box::new(arg),
-                            },
-                        );
-                        let is_symbol = TypedExpr::from_info(
-                            Self::boolean_value_info(),
-                            ExprIr::StrictEquality {
-                                op: EqualityBinaryOp::StrictEqual,
-                                lhs: Box::new(typeof_arg),
-                                rhs: Box::new(TypedExpr::from_info(
-                                    Self::string_value_info("symbol"),
-                                    ExprIr::String("symbol".to_string()),
-                                )),
-                            },
-                        );
-                        return TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Undefined,
-                                possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            ExprIr::Conditional {
-                                condition: Box::new(is_symbol),
-                                then_expr: Box::new(TypedExpr::undefined()),
-                                else_expr: Box::new(TypedExpr::from_info(
-                                    ValueInfo::undefined(),
-                                    ExprIr::RuntimeThrow {
-                                        name: TYPE_ERROR_NAME,
-                                        message: "Symbol.keyFor argument must be a symbol",
-                                    },
-                                )),
-                            },
-                        );
-                    }
                     if target_name == "ASCII_IDENTIFIER" && field_name == "test" && args.len() == 1
                     {
                         self.lower_expression(&args[0]);
@@ -16948,6 +16944,15 @@ impl<'a> ScriptLowerer<'a> {
                     Some(ValueInfo::new(ValueKind::Boolean))
                 }
             }
+            StandardBuiltinId::SymbolConstructor => Some(ValueInfo::new(ValueKind::Symbol)),
+            StandardBuiltinId::SymbolFor => Some(ValueInfo::new(ValueKind::Symbol)),
+            StandardBuiltinId::SymbolKeyFor => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor

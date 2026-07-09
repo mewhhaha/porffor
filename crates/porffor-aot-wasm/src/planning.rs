@@ -238,6 +238,13 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::BooleanConstructor);
             }
+            StandardBuiltinId::SymbolFor | StandardBuiltinId::SymbolKeyFor => {
+                // `Symbol.for` / `Symbol.keyFor` live on the `Symbol`
+                // constructor object and share its runtime registry, which is
+                // only allocated by the `SymbolConstructor` bootstrap block.
+                self.standard_roots
+                    .insert(StandardBuiltinId::SymbolConstructor);
+            }
             StandardBuiltinId::StringPrototypeToString | StandardBuiltinId::StringPrototypeValueOf => {
                 self.standard_roots
                     .insert(StandardBuiltinId::StringConstructor);
@@ -2560,6 +2567,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
         StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => 1,
         StandardBuiltinId::ObjectPrototypeIsPrototypeOf => 1,
+        StandardBuiltinId::SymbolConstructor => 0,
+        StandardBuiltinId::SymbolFor => 1,
+        StandardBuiltinId::SymbolKeyFor => 1,
         StandardBuiltinId::ObjectPrototypeToString => 0,
         StandardBuiltinId::ObjectPrototypeToLocaleString => 0,
         StandardBuiltinId::ObjectPrototypeValueOf => 0,

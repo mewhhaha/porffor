@@ -582,7 +582,7 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..10 {
+        for _ in 0..13 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,

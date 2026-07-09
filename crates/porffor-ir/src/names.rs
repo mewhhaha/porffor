@@ -57,6 +57,7 @@ pub const REFLECT_NAME: &str = "Reflect";
 pub const NUMBER_NAME: &str = "Number";
 pub const STRING_NAME: &str = "String";
 pub const BOOLEAN_NAME: &str = "Boolean";
+pub const SYMBOL_NAME: &str = "Symbol";
 pub const ERROR_NAME: &str = "Error";
 pub const EVAL_ERROR_NAME: &str = "EvalError";
 pub const AGGREGATE_ERROR_NAME: &str = "AggregateError";
@@ -413,6 +414,9 @@ pub const BUILTIN_BIGINT_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
 pub const BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
     "$builtin.BigInt.prototype.toLocaleString";
 pub const BUILTIN_BIGINT_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str = "$builtin.BigInt.prototype.valueOf";
+pub const BUILTIN_SYMBOL_FUNCTION_ID: &str = "$builtin.Symbol";
+pub const BUILTIN_SYMBOL_FOR_FUNCTION_ID: &str = "$builtin.Symbol.for";
+pub const BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID: &str = "$builtin.Symbol.keyFor";
 pub const BUILTIN_NUMBER_FUNCTION_ID: &str = "$builtin.Number";
 pub const BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID: &str = "$builtin.Number.isInteger";
 pub const BUILTIN_STRING_FUNCTION_ID: &str = "$builtin.String";
