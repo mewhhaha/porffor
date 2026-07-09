@@ -3,6 +3,8 @@
 *.txt
 *.exe
 
+.claude
+
 node_modules
 package-lock.json
 bun.lock
