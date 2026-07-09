@@ -3,7 +3,7 @@ set -euo pipefail
 
 BACKEND="${1:-spec-exec}"
 SNAPSHOT_NAME="${2:-codex-published-real}"
-PORF_BIN="${PORF_BIN:-./target/debug/porf}"
+PORF_BIN="${PORF_BIN:-./target/release/porf}"
 SUITE_ROOT="${SUITE_ROOT:-test262/vendor/test262}"
 SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
@@ -12,7 +12,7 @@ README_PATH="${README_PATH:-}"
 
 if [[ ! -x "$PORF_BIN" ]]; then
   echo "missing executable: $PORF_BIN" >&2
-  echo "build first: cargo build -p porffor-cli" >&2
+  echo "build first: cargo build --release -p porffor-cli" >&2
   exit 1
 fi
 

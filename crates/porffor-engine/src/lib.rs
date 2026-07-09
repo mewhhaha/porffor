@@ -7,10 +7,13 @@ use wasmi::{
 };
 use wasmi::{Store as WasmiStore, Value as WasmiValue};
 use wasmtime::{
-    Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
-    Extern as WasmtimeExtern, Linker as WasmtimeLinker, Module as WasmtimeModule, OptLevel,
-    RegallocAlgorithm, Store as WasmtimeStore, Val as WasmtimeVal,
+    Cache as WasmtimeCache, Caller as WasmtimeCaller, Config as WasmtimeConfig,
+    Engine as WasmtimeEngine, Extern as WasmtimeExtern, Linker as WasmtimeLinker,
+    Module as WasmtimeModule, OptLevel, RegallocAlgorithm, Store as WasmtimeStore,
+    Val as WasmtimeVal,
 };
+
+use std::sync::OnceLock;
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -55,6 +58,40 @@ where
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     })
+}
+
+/// Wasmtime's on-disk Cranelift compilation cache, shared across every
+/// `wasmtime::Engine` this process builds. Each engine is built fresh per
+/// test (to keep configs isolated), but the cache is keyed on the wasm bytes
+/// plus compiler settings, so re-compiling the same emitted module (e.g. the
+/// shared test262 harness prelude, or repeated test262 resume/rerun
+/// invocations) hits the cache instead of re-running Cranelift. Compiler
+/// changes naturally change the wasm bytes or the cache key, so there is no
+/// staleness risk from caching.
+///
+/// Loaded once (`Cache::from_file(None)` uses the system default cache
+/// config/location, e.g. `$HOME/.cache/wasmtime` on Linux, creating it if
+/// needed). If that fails for any reason (e.g. an unwritable home directory
+/// in a sandboxed environment), caching is silently disabled and every test
+/// simply compiles uncached as before -- caching is a performance
+/// optimization, never a correctness requirement, so a failure here must not
+/// fail the run.
+fn wasmtime_compilation_cache() -> Option<WasmtimeCache> {
+    static CACHE: OnceLock<Option<WasmtimeCache>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| match WasmtimeCache::from_file(None) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                    eprintln!(
+                        "porffor wasm trace: wasmtime compilation cache unavailable, running \
+                         uncached: {err}"
+                    );
+                }
+                None
+            }
+        })
+        .clone()
 }
 
 pub use porffor_runtime::{
@@ -482,6 +519,7 @@ impl Engine {
         config.wasm_function_references(true);
         config.wasm_gc(true);
         config.wasm_exceptions(true);
+        config.cache(wasmtime_compilation_cache());
         let engine = WasmtimeEngine::new(&config)
             .map_err(|err| EngineError::new(format!("wasmtime engine setup failed: {err}")))?;
         trace_phase("engine");
