@@ -90,7 +90,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) owned_env_bindings: &'a [OwnedEnvBindingIr],
     pub(crate) captured_bindings: &'a [porffor_ir::CapturedBindingIr],
     pub(crate) strings: &'a StringPool,
-    pub(crate) functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+    pub(crate) functions: &'a FunctionMetaRegistry,
     pub(crate) function_id: Option<FunctionId>,
     pub(crate) function_flavor: FunctionFlavor,
     pub(crate) strict: bool,
@@ -168,9 +168,48 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 }
 
 fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
+    // Emission fixpoint over the builtin stub partitions (standard and host).
+    // The seed partitions come from the script text
+    // (`should_stub_standard_builtin`; host builtins the script references).
+    // Each pass records, via `FunctionMetaRegistry`, every builtin whose
+    // function value was materialized somewhere (its funcref-table slot became
+    // runtime-reachable) or whose body was direct-called. Any such builtin
+    // that was stubbed this pass is force-compiled on the next pass, so no
+    // reachable function value can ever resolve to the shared "not emitted"
+    // stub. The forced sets grow monotonically and are bounded by the builtin
+    // counts, so the loop terminates; in practice it converges in 2-4 passes.
+    let mut forced = ForcedBuiltins::default();
+    loop {
+        let (artifact, touched_stubbed) = emit_script_with_forced_builtins(script, &forced)?;
+        if touched_stubbed.standard.is_empty() && touched_stubbed.host.is_empty() {
+            return Ok(artifact);
+        }
+        forced.standard.extend(touched_stubbed.standard);
+        forced.host.extend(touched_stubbed.host);
+    }
+}
+
+/// Builtins whose real bodies must be emitted regardless of what the script
+/// text references, because a previous emission pass proved they are
+/// dynamically reachable (see `emit_script`).
+#[derive(Default)]
+struct ForcedBuiltins {
+    standard: BTreeSet<StandardBuiltinId>,
+    host: BTreeSet<HostBuiltinId>,
+}
+
+fn emit_script_with_forced_builtins(
+    script: &ScriptIr,
+    forced: &ForcedBuiltins,
+) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
     let uses_heap = true;
     let uses_shared_memory = script_references_memory_atomics(script);
-    let compiled_host_builtins = script.host_builtins.clone();
+    let mut compiled_host_builtins = script.host_builtins.clone();
+    for builtin in all_host_builtins() {
+        if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
+            compiled_host_builtins.push(*builtin);
+        }
+    }
     let stubbed_host_builtins = all_host_builtins()
         .iter()
         .copied()
@@ -181,7 +220,7 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
     let mut compiled_standard_builtins = Vec::new();
     let mut stubbed_standard_builtins = Vec::new();
     for builtin in StandardBuiltinId::all_functions() {
-        if should_stub_standard_builtin(script, *builtin) {
+        if !forced.standard.contains(builtin) && should_stub_standard_builtin(script, *builtin) {
             stubbed_standard_builtins.push(*builtin);
         } else {
             compiled_standard_builtins.push(*builtin);
@@ -193,16 +232,16 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
     let has_shared_stub =
         !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
-    let function_metas = build_function_metas(
+    let function_metas = FunctionMetaRegistry::new(build_function_metas(
         script.functions.as_slice(),
         &compiled_standard_builtins,
         &stubbed_standard_builtins,
         &compiled_host_builtins,
         &stubbed_host_builtins,
         imported_function_count,
-    );
+    ));
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
-    let string_pool = StringPool::collect(script, &function_metas);
+    let string_pool = StringPool::collect(script, function_metas.metas());
     let uses_function_table = true;
     let callable_function_count = script.functions.len()
         + emitted_standard_builtins.len()
@@ -800,18 +839,37 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         debug_dump.push("data segments: 0".to_string());
     }
 
-    Ok(WasmArtifact {
-        bytes: module.finish(),
-        invariant_note: "direct-js-to-wasm module",
-        debug_dump: debug_dump.join("\n"),
-    })
+    // Builtins codegen proved reachable (materialized or direct-called) while
+    // their body was stubbed this pass: the caller force-compiles these and
+    // re-emits (see `emit_script`).
+    let touched_stubbed = ForcedBuiltins {
+        standard: function_metas
+            .touched_standard_builtins()
+            .into_iter()
+            .filter(|builtin| stubbed_standard_builtins.contains(builtin))
+            .collect(),
+        host: function_metas
+            .touched_host_builtins()
+            .into_iter()
+            .filter(|builtin| stubbed_host_builtins.contains(builtin))
+            .collect(),
+    };
+
+    Ok((
+        WasmArtifact {
+            bytes: module.finish(),
+            invariant_note: "direct-js-to-wasm module",
+            debug_dump: debug_dump.join("\n"),
+        },
+        touched_stubbed,
+    ))
 }
 
 impl<'a> FunctionBuilder<'a> {
     fn new_main(
         script: &'a ScriptIr,
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
         heap_alloc_function_index: Option<u32>,
@@ -854,7 +912,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &'a FunctionIr,
         global_bindings: &'a [ScriptGlobalBindingIr],
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
         heap_alloc_function_index: Option<u32>,
@@ -896,7 +954,7 @@ impl<'a> FunctionBuilder<'a> {
     fn new_host_builtin(
         builtin: HostBuiltinId,
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         heap_alloc_function_index: Option<u32>,
         object_append_data_property_function_index: Option<u32>,
@@ -934,7 +992,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn new_runtime_operation_helper(
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
         heap_alloc_function_index: Option<u32>,
@@ -972,7 +1030,7 @@ impl<'a> FunctionBuilder<'a> {
     fn new_standard_builtin(
         builtin: StandardBuiltinId,
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         stub_body: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
@@ -1016,7 +1074,7 @@ impl<'a> FunctionBuilder<'a> {
         owned_env_bindings: &'a [OwnedEnvBindingIr],
         captured_bindings: &'a [porffor_ir::CapturedBindingIr],
         strings: &'a StringPool,
-        functions: &'a BTreeMap<FunctionId, WasmFunctionMeta>,
+        functions: &'a FunctionMetaRegistry,
         function_id: Option<FunctionId>,
         function_flavor: FunctionFlavor,
         strict: bool,

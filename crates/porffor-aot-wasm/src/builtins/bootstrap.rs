@@ -2325,6 +2325,89 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
+
+                // Symbol.prototype.toString / Symbol.prototype.valueOf:
+                // ordinary writable/non-enumerable/configurable methods.
+                function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                if let Some(to_string_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolPrototypeToString.function_id())
+                    .cloned()
+                {
+                    self.emit_object_define_function_data(
+                        prototype_object_local,
+                        "toString",
+                        &to_string_meta,
+                        function,
+                    )?;
+                }
+                if let Some(value_of_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolPrototypeValueOf.function_id())
+                    .cloned()
+                {
+                    self.emit_object_define_function_data(
+                        prototype_object_local,
+                        "valueOf",
+                        &value_of_meta,
+                        function,
+                    )?;
+                }
+
+                // Symbol.prototype.description: accessor (getter-only,
+                // non-enumerable, configurable) — Object.getOwnPropertyDescriptor
+                // must see a real getter function.
+                if let Some(description_getter_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolPrototypeDescriptionGetter.function_id())
+                    .cloned()
+                {
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload("description"),
+                    ));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_function_value_payload(&description_getter_meta, function)?;
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_accessor_property_with_flags(
+                        prototype_object_local,
+                        key_local,
+                        Some((payload_local, tag_local)),
+                        None,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
+
+                // Symbol.prototype[Symbol.toPrimitive]: non-writable,
+                // non-enumerable, configurable data property.
+                if let Some(to_primitive_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolPrototypeToPrimitive.function_id())
+                    .cloned()
+                {
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload("Symbol.toPrimitive"),
+                    ));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_function_value_payload(&to_primitive_meta, function)?;
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_data_property_with_flags(
+                        prototype_object_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        false,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
             }
             StandardBuiltinId::NumberConstructor => {
                 function.instruction(&Instruction::GlobalGet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
@@ -2853,7 +2936,11 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape
             | StandardBuiltinId::SymbolFor
-            | StandardBuiltinId::SymbolKeyFor => {}
+            | StandardBuiltinId::SymbolKeyFor
+            | StandardBuiltinId::SymbolPrototypeDescriptionGetter
+            | StandardBuiltinId::SymbolPrototypeToString
+            | StandardBuiltinId::SymbolPrototypeValueOf
+            | StandardBuiltinId::SymbolPrototypeToPrimitive => {}
         }
 
         self.release_temp_local(prototype_object_local);

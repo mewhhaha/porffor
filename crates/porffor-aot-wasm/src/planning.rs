@@ -4,6 +4,18 @@ use super::*;
 pub(crate) struct WasmFunctionMeta {
     pub(crate) name: String,
     pub(crate) to_string_value: String,
+    /// `Some` when this meta belongs to a standard builtin. Used to record
+    /// which builtins get their function values materialized (or their bodies
+    /// direct-called) during emission — see [`FunctionMetaRegistry`] — and for
+    /// precise meta-to-builtin reverse lookups.
+    pub(crate) standard_builtin: Option<StandardBuiltinId>,
+    /// `Some` when this meta belongs to a host builtin. Same role as
+    /// `standard_builtin`: host builtin bodies are stubbed unless the script
+    /// references them, but they can also be reached dynamically (installed on
+    /// a realm global by `__porfCreateRealm`, or direct-called from another
+    /// builtin's body like `JSON.parse` -> `parseFloat`), so materializations
+    /// and direct calls are recorded and force their real bodies.
+    pub(crate) host_builtin: Option<HostBuiltinId>,
     pub(crate) length: u64,
     pub(crate) length_name_configurable: bool,
     pub(crate) wasm_index: u32,
@@ -238,10 +250,20 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::BooleanConstructor);
             }
-            StandardBuiltinId::SymbolFor | StandardBuiltinId::SymbolKeyFor => {
+            StandardBuiltinId::SymbolFor
+            | StandardBuiltinId::SymbolKeyFor
+            | StandardBuiltinId::SymbolPrototypeDescriptionGetter
+            | StandardBuiltinId::SymbolPrototypeToString
+            | StandardBuiltinId::SymbolPrototypeValueOf
+            | StandardBuiltinId::SymbolPrototypeToPrimitive => {
                 // `Symbol.for` / `Symbol.keyFor` live on the `Symbol`
                 // constructor object and share its runtime registry, which is
                 // only allocated by the `SymbolConstructor` bootstrap block.
+                // The `Symbol.prototype` methods are likewise only installed
+                // as properties by that same bootstrap block, and (like
+                // `Number.prototype.valueOf`) their bodies can be reached
+                // purely via dynamic property dispatch on a Symbol-typed
+                // value with no direct call-site `FunctionId` reference.
                 self.standard_roots
                     .insert(StandardBuiltinId::SymbolConstructor);
             }
@@ -1053,6 +1075,21 @@ pub(crate) fn script_references_memory_atomics(script: &ScriptIr) -> bool {
     .any(|builtin| script_references_standard_builtin(script, builtin))
 }
 
+/// Seed stub decision from the script text alone.
+///
+/// This answers "does the script text force this builtin's body?" It is only
+/// the *seed* of the final compiled/stubbed partition: `emit_script` then runs
+/// emission to a fixpoint, promoting every stubbed builtin whose meta is
+/// actually looked up during codegen (function-value installs, funcref-table
+/// wiring, direct calls — see [`FunctionMetaRegistry`]) to a real body. So a
+/// builtin materialized by the bootstrap plan, by `createRealm`, or from
+/// inside another compiled builtin's body never needs a carve-out here.
+///
+/// The carve-outs that remain below are the ones the fixpoint cannot see
+/// because they add *roots* rather than bodies: values of some kind flow into
+/// a dynamic method dispatch (e.g. `JSON.stringify(x).split(...)`), so the
+/// method must be force-compiled here to make the bootstrap plan install it as
+/// a property in the first place.
 pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardBuiltinId) -> bool {
     if script_references_standard_builtin(script, builtin) {
         return false;
@@ -1084,9 +1121,6 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
                 StandardBuiltinId::RegExpPrototypeSymbolMatchAll,
             ))
     {
-        return false;
-    }
-    if script_uses_create_realm(script) && create_realm_exposes_standard_builtin(builtin) {
         return false;
     }
     if builtin == StandardBuiltinId::TypedArrayPrototypeLengthGetter
@@ -1330,276 +1364,6 @@ fn statement_uses_for_in_enumeration(statement: &StatementIr) -> bool {
                 || block_uses_for_in_enumeration(finally_block)
         }
     }
-}
-
-pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) -> bool {
-    matches!(
-        builtin,
-        StandardBuiltinId::FunctionConstructor
-            | StandardBuiltinId::FunctionPrototypeCall
-            | StandardBuiltinId::FunctionPrototypeApply
-            | StandardBuiltinId::FunctionPrototypeBind
-            | StandardBuiltinId::FunctionPrototypeToString
-            | StandardBuiltinId::EvalFunction
-            | StandardBuiltinId::IteratorConstructor
-            | StandardBuiltinId::IteratorFrom
-            | StandardBuiltinId::IteratorPrototypeToArray
-            | StandardBuiltinId::IteratorPrototypeForEach
-            | StandardBuiltinId::IteratorPrototypeEvery
-            | StandardBuiltinId::IteratorPrototypeSome
-            | StandardBuiltinId::IteratorPrototypeFind
-            | StandardBuiltinId::IteratorPrototypeReduce
-            | StandardBuiltinId::IteratorPrototypeMap
-            | StandardBuiltinId::IteratorPrototypeFilter
-            | StandardBuiltinId::IteratorPrototypeFlatMap
-            | StandardBuiltinId::IteratorPrototypeTake
-            | StandardBuiltinId::IteratorPrototypeDrop
-            | StandardBuiltinId::IteratorPrototypeConstructorGetter
-            | StandardBuiltinId::IteratorPrototypeConstructorSetter
-            | StandardBuiltinId::IteratorPrototypeSymbolDispose
-            | StandardBuiltinId::IteratorPrototypeToStringTagGetter
-            | StandardBuiltinId::IteratorPrototypeToStringTagSetter
-            | StandardBuiltinId::IteratorFromWrapperNext
-            | StandardBuiltinId::IteratorFromWrapperReturn
-            | StandardBuiltinId::ObjectConstructor
-            | StandardBuiltinId::ObjectCreate
-            | StandardBuiltinId::ObjectGetPrototypeOf
-            | StandardBuiltinId::ObjectSetPrototypeOf
-            | StandardBuiltinId::ObjectDefineProperty
-            | StandardBuiltinId::ObjectDefineProperties
-            | StandardBuiltinId::ObjectGetOwnPropertyDescriptor
-            | StandardBuiltinId::ObjectGetOwnPropertyNames
-            | StandardBuiltinId::ObjectGetOwnPropertySymbols
-            | StandardBuiltinId::ObjectKeys
-            | StandardBuiltinId::ObjectValues
-            | StandardBuiltinId::ObjectHasOwn
-            | StandardBuiltinId::ObjectIs
-            | StandardBuiltinId::ObjectIsSealed
-            | StandardBuiltinId::ObjectIsFrozen
-            | StandardBuiltinId::ObjectFreeze
-            | StandardBuiltinId::ObjectIsExtensible
-            | StandardBuiltinId::ObjectPreventExtensions
-            | StandardBuiltinId::ObjectPrototypeHasOwnProperty
-            | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
-            | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
-            | StandardBuiltinId::ObjectPrototypeToString
-            | StandardBuiltinId::ObjectPrototypeToLocaleString
-            | StandardBuiltinId::ObjectPrototypeValueOf
-            | StandardBuiltinId::ReflectConstruct
-            | StandardBuiltinId::ReflectApply
-            | StandardBuiltinId::ReflectGet
-            | StandardBuiltinId::ReflectGetPrototypeOf
-            | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
-            | StandardBuiltinId::ReflectSet
-            | StandardBuiltinId::ReflectHas
-            | StandardBuiltinId::ReflectDefineProperty
-            | StandardBuiltinId::ReflectDeleteProperty
-            | StandardBuiltinId::ReflectIsExtensible
-            | StandardBuiltinId::ReflectPreventExtensions
-            | StandardBuiltinId::ReflectSetPrototypeOf
-            | StandardBuiltinId::ReflectOwnKeys
-            | StandardBuiltinId::GlobalIsFinite
-            | StandardBuiltinId::GlobalIsNaN
-            | StandardBuiltinId::Escape
-            | StandardBuiltinId::Unescape
-            | StandardBuiltinId::ArrayConstructor
-            | StandardBuiltinId::ArrayFrom
-            | StandardBuiltinId::ArrayOf
-            | StandardBuiltinId::ArrayIsArray
-            | StandardBuiltinId::ArraySpeciesGetter
-            | StandardBuiltinId::ArrayPrototypeConcat
-            | StandardBuiltinId::ArrayPrototypeToLocaleString
-            | StandardBuiltinId::ArrayPrototypeAt
-            | StandardBuiltinId::ArrayPrototypeIncludes
-            | StandardBuiltinId::ArrayPrototypeIndexOf
-            | StandardBuiltinId::ArrayPrototypeLastIndexOf
-            | StandardBuiltinId::ArrayPrototypeFind
-            | StandardBuiltinId::ArrayPrototypeFindIndex
-            | StandardBuiltinId::ArrayPrototypeFindLast
-            | StandardBuiltinId::ArrayPrototypeFindLastIndex
-            | StandardBuiltinId::ArrayPrototypeForEach
-            | StandardBuiltinId::ArrayPrototypeEvery
-            | StandardBuiltinId::ArrayPrototypeSome
-            | StandardBuiltinId::ArrayPrototypeFilter
-            | StandardBuiltinId::ArrayPrototypeMap
-            | StandardBuiltinId::ArrayPrototypePop
-            | StandardBuiltinId::ArrayPrototypePush
-            | StandardBuiltinId::ArrayPrototypeFlat
-            | StandardBuiltinId::ArrayPrototypeFlatMap
-            | StandardBuiltinId::ArrayPrototypeKeys
-            | StandardBuiltinId::ArrayPrototypeEntries
-            | StandardBuiltinId::ArrayPrototypeValues
-            | StandardBuiltinId::ArrayIteratorNext
-            | StandardBuiltinId::ArrayIteratorIdentity
-            | StandardBuiltinId::NumberConstructor
-            | StandardBuiltinId::NumberIsInteger
-            | StandardBuiltinId::NumberIsSafeInteger
-            | StandardBuiltinId::NumberIsFinite
-            | StandardBuiltinId::NumberIsNaN
-            | StandardBuiltinId::NumberPrototypeToString
-            | StandardBuiltinId::NumberPrototypeToLocaleString
-            | StandardBuiltinId::NumberPrototypeValueOf
-            | StandardBuiltinId::StringConstructor
-            | StandardBuiltinId::StringPrototypeAt
-            | StandardBuiltinId::StringPrototypeCharAt
-            | StandardBuiltinId::StringPrototypeEndsWith
-            | StandardBuiltinId::StringPrototypeIncludes
-            | StandardBuiltinId::StringPrototypeIndexOf
-            | StandardBuiltinId::StringPrototypeIsWellFormed
-            | StandardBuiltinId::StringPrototypeMatch
-            | StandardBuiltinId::StringPrototypeMatchAll
-            | StandardBuiltinId::StringPrototypePadEnd
-            | StandardBuiltinId::StringPrototypePadStart
-            | StandardBuiltinId::StringPrototypeRepeat
-            | StandardBuiltinId::StringPrototypeReplace
-            | StandardBuiltinId::StringPrototypeReplaceAll
-            | StandardBuiltinId::StringPrototypeSearch
-            | StandardBuiltinId::StringPrototypeSlice
-            | StandardBuiltinId::StringPrototypeSplit
-            | StandardBuiltinId::StringPrototypeStartsWith
-            | StandardBuiltinId::StringPrototypeToString
-            | StandardBuiltinId::StringPrototypeToUpperCase
-            | StandardBuiltinId::StringPrototypeToWellFormed
-            | StandardBuiltinId::StringPrototypeTrim
-            | StandardBuiltinId::StringPrototypeTrimEnd
-            | StandardBuiltinId::StringPrototypeTrimStart
-            | StandardBuiltinId::StringPrototypeValueOf
-            | StandardBuiltinId::ArrayBufferConstructor
-            | StandardBuiltinId::ArrayBufferIsView
-            | StandardBuiltinId::DataViewConstructor
-            | StandardBuiltinId::Float64ArrayConstructor
-            | StandardBuiltinId::Float32ArrayConstructor
-            | StandardBuiltinId::Int32ArrayConstructor
-            | StandardBuiltinId::Int16ArrayConstructor
-            | StandardBuiltinId::Int8ArrayConstructor
-            | StandardBuiltinId::Uint32ArrayConstructor
-            | StandardBuiltinId::Uint16ArrayConstructor
-            | StandardBuiltinId::Uint8ArrayConstructor
-            | StandardBuiltinId::Uint8ClampedArrayConstructor
-            | StandardBuiltinId::BigInt64ArrayConstructor
-            | StandardBuiltinId::BigUint64ArrayConstructor
-            | StandardBuiltinId::AggregateErrorConstructor
-            | StandardBuiltinId::SuppressedErrorConstructor
-            | StandardBuiltinId::BigIntConstructor
-            | StandardBuiltinId::BigIntAsIntN
-            | StandardBuiltinId::BigIntAsUintN
-            | StandardBuiltinId::BigIntPrototypeToString
-            | StandardBuiltinId::BigIntPrototypeToLocaleString
-            | StandardBuiltinId::BigIntPrototypeValueOf
-            | StandardBuiltinId::BooleanConstructor
-            | StandardBuiltinId::BooleanPrototypeToString
-            | StandardBuiltinId::BooleanPrototypeValueOf
-            | StandardBuiltinId::ProxyConstructor
-            | StandardBuiltinId::ProxyRevocable
-            | StandardBuiltinId::ProxyRevoke
-            | StandardBuiltinId::BoundFunctionInvoker
-            | StandardBuiltinId::RegExpConstructor
-            | StandardBuiltinId::RegExpEscape
-            | StandardBuiltinId::DateConstructor
-            | StandardBuiltinId::DateNow
-            | StandardBuiltinId::DateUtc
-            | StandardBuiltinId::DatePrototypeGetTime
-            | StandardBuiltinId::DatePrototypeSetTime
-            | StandardBuiltinId::DatePrototypeValueOf
-            | StandardBuiltinId::DatePrototypeGetFullYear
-            | StandardBuiltinId::DatePrototypeGetUtcFullYear
-            | StandardBuiltinId::DatePrototypeGetMonth
-            | StandardBuiltinId::DatePrototypeGetUtcMonth
-            | StandardBuiltinId::DatePrototypeGetDate
-            | StandardBuiltinId::DatePrototypeGetUtcDate
-            | StandardBuiltinId::DatePrototypeGetDay
-            | StandardBuiltinId::DatePrototypeGetUtcDay
-            | StandardBuiltinId::DatePrototypeGetHours
-            | StandardBuiltinId::DatePrototypeGetUtcHours
-            | StandardBuiltinId::DatePrototypeGetMinutes
-            | StandardBuiltinId::DatePrototypeGetUtcMinutes
-            | StandardBuiltinId::DatePrototypeGetSeconds
-            | StandardBuiltinId::DatePrototypeGetUtcSeconds
-            | StandardBuiltinId::DatePrototypeGetMilliseconds
-            | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
-            | StandardBuiltinId::DatePrototypeGetTimezoneOffset
-            | StandardBuiltinId::DatePrototypeGetYear
-            | StandardBuiltinId::DatePrototypeSetYear
-            | StandardBuiltinId::DatePrototypeSetFullYear
-            | StandardBuiltinId::DatePrototypeSetUtcFullYear
-            | StandardBuiltinId::DatePrototypeSetMonth
-            | StandardBuiltinId::DatePrototypeSetUtcMonth
-            | StandardBuiltinId::DatePrototypeSetDate
-            | StandardBuiltinId::DatePrototypeSetUtcDate
-            | StandardBuiltinId::DatePrototypeSetHours
-            | StandardBuiltinId::DatePrototypeSetUtcHours
-            | StandardBuiltinId::DatePrototypeSetMinutes
-            | StandardBuiltinId::DatePrototypeSetUtcMinutes
-            | StandardBuiltinId::DatePrototypeSetSeconds
-            | StandardBuiltinId::DatePrototypeSetUtcSeconds
-            | StandardBuiltinId::DatePrototypeSetMilliseconds
-            | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
-            | StandardBuiltinId::DatePrototypeToUtcString
-            | StandardBuiltinId::MathAbs
-            | StandardBuiltinId::MathAcos
-            | StandardBuiltinId::MathAcosh
-            | StandardBuiltinId::MathAsin
-            | StandardBuiltinId::MathAsinh
-            | StandardBuiltinId::MathAtan
-            | StandardBuiltinId::MathAtan2
-            | StandardBuiltinId::MathAtanh
-            | StandardBuiltinId::MathCbrt
-            | StandardBuiltinId::MathCeil
-            | StandardBuiltinId::MathClz32
-            | StandardBuiltinId::MathCos
-            | StandardBuiltinId::MathCosh
-            | StandardBuiltinId::MathExp
-            | StandardBuiltinId::MathExpm1
-            | StandardBuiltinId::MathF16Round
-            | StandardBuiltinId::MathFloor
-            | StandardBuiltinId::MathFround
-            | StandardBuiltinId::MathHypot
-            | StandardBuiltinId::MathImul
-            | StandardBuiltinId::MathLog
-            | StandardBuiltinId::MathLog10
-            | StandardBuiltinId::MathLog1p
-            | StandardBuiltinId::MathLog2
-            | StandardBuiltinId::MathMax
-            | StandardBuiltinId::MathMin
-            | StandardBuiltinId::MathPow
-            | StandardBuiltinId::MathRandom
-            | StandardBuiltinId::MathRound
-            | StandardBuiltinId::MathSign
-            | StandardBuiltinId::MathSin
-            | StandardBuiltinId::MathSinh
-            | StandardBuiltinId::MathSqrt
-            | StandardBuiltinId::MathSumPrecise
-            | StandardBuiltinId::MathTan
-            | StandardBuiltinId::MathTanh
-            | StandardBuiltinId::MathTrunc
-            | StandardBuiltinId::JsonParse
-            | StandardBuiltinId::JsonStringify
-            | StandardBuiltinId::JsonRawJson
-            | StandardBuiltinId::JsonIsRawJson
-            | StandardBuiltinId::AtomicsAdd
-            | StandardBuiltinId::AtomicsAnd
-            | StandardBuiltinId::AtomicsCompareExchange
-            | StandardBuiltinId::AtomicsExchange
-            | StandardBuiltinId::AtomicsLoad
-            | StandardBuiltinId::AtomicsNotify
-            | StandardBuiltinId::AtomicsOr
-            | StandardBuiltinId::AtomicsPause
-            | StandardBuiltinId::AtomicsSub
-            | StandardBuiltinId::AtomicsStore
-            | StandardBuiltinId::AtomicsWait
-            | StandardBuiltinId::AtomicsWaitAsync
-            | StandardBuiltinId::AtomicsXor
-            | StandardBuiltinId::AtomicsIsLockFree
-            | StandardBuiltinId::ErrorConstructor
-            | StandardBuiltinId::ErrorIsError
-            | StandardBuiltinId::ErrorPrototypeToString
-            | StandardBuiltinId::EvalErrorConstructor
-            | StandardBuiltinId::RangeErrorConstructor
-            | StandardBuiltinId::ReferenceErrorConstructor
-            | StandardBuiltinId::SyntaxErrorConstructor
-            | StandardBuiltinId::TypeErrorConstructor
-            | StandardBuiltinId::URIErrorConstructor
-    )
 }
 
 pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> bool {
@@ -2379,6 +2143,91 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
     }
 }
 
+/// Function-meta lookup table that records which standard builtins the
+/// emission pass actually reaches.
+///
+/// Every path by which a module can reach a builtin's body at runtime goes
+/// through one of a few codegen choke points: materializing the builtin's
+/// function value (`emit_function_value_payload`, which writes its
+/// funcref-table index into a function object), allocating a bound function
+/// over it (`emit_alloc_bound_function_value`), or emitting a direct `call`
+/// into its body. Those choke points call [`Self::record_standard_builtin`],
+/// so after a full emission pass the recorded set is exactly the builtins the
+/// emitted module can invoke — with no per-builtin knowledge in planning.
+/// `emit_script` uses that set as a fixpoint: any *recorded* builtin whose
+/// body was stubbed this pass gets a real body next pass, so a funcref
+/// dispatch or property read can never land on the shared "standard builtin
+/// body is not emitted unless referenced directly" stub for a builtin the
+/// module actually materialized. New bootstrap arms and codegen-internal
+/// dispatches are covered automatically because they cannot expose a builtin
+/// without materializing its function value through those choke points.
+pub(crate) struct FunctionMetaRegistry {
+    metas: BTreeMap<FunctionId, WasmFunctionMeta>,
+    touched_standard_builtins: std::cell::RefCell<BTreeSet<StandardBuiltinId>>,
+    touched_host_builtins: std::cell::RefCell<BTreeSet<HostBuiltinId>>,
+}
+
+impl FunctionMetaRegistry {
+    pub(crate) fn new(metas: BTreeMap<FunctionId, WasmFunctionMeta>) -> Self {
+        Self {
+            metas,
+            touched_standard_builtins: std::cell::RefCell::new(BTreeSet::new()),
+            touched_host_builtins: std::cell::RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    pub(crate) fn get(&self, function_id: &str) -> Option<&WasmFunctionMeta> {
+        self.metas.get(function_id)
+    }
+
+    /// Record that emission materialized this builtin's function value or
+    /// emitted a direct call into its body, so its real body must be emitted.
+    /// Called from the low-level codegen choke points
+    /// (`emit_function_value_payload`, `emit_alloc_bound_function_value`,
+    /// direct-call emitters), not from plain meta lookups: a lookup alone
+    /// (e.g. to compare table indexes or to consult an install gate) does not
+    /// make the builtin reachable.
+    pub(crate) fn record_standard_builtin(&self, builtin: StandardBuiltinId) {
+        self.touched_standard_builtins.borrow_mut().insert(builtin);
+    }
+
+    /// Host-builtin counterpart of [`Self::record_standard_builtin`].
+    pub(crate) fn record_host_builtin(&self, builtin: HostBuiltinId) {
+        self.touched_host_builtins.borrow_mut().insert(builtin);
+    }
+
+    /// Record whichever builtin (standard or host) this meta belongs to.
+    /// Shared shorthand for the codegen choke points.
+    pub(crate) fn record_builtin_meta(&self, meta: &WasmFunctionMeta) {
+        if let Some(builtin) = meta.standard_builtin {
+            self.record_standard_builtin(builtin);
+        }
+        if let Some(builtin) = meta.host_builtin {
+            self.record_host_builtin(builtin);
+        }
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&FunctionId, &WasmFunctionMeta)> {
+        self.metas.iter()
+    }
+
+    pub(crate) fn values(&self) -> impl Iterator<Item = &WasmFunctionMeta> {
+        self.metas.values()
+    }
+
+    pub(crate) fn metas(&self) -> &BTreeMap<FunctionId, WasmFunctionMeta> {
+        &self.metas
+    }
+
+    pub(crate) fn touched_standard_builtins(&self) -> BTreeSet<StandardBuiltinId> {
+        self.touched_standard_builtins.borrow().clone()
+    }
+
+    pub(crate) fn touched_host_builtins(&self) -> BTreeSet<HostBuiltinId> {
+        self.touched_host_builtins.borrow().clone()
+    }
+}
+
 pub(crate) fn build_function_metas(
     functions: &[FunctionIr],
     compiled_standard_builtins: &[StandardBuiltinId],
@@ -2395,6 +2244,8 @@ pub(crate) fn build_function_metas(
             WasmFunctionMeta {
                 name: function.name.clone(),
                 to_string_value: function.to_string_representation.materialize(),
+                standard_builtin: None,
+                host_builtin: None,
                 length: function_length(&function.params),
                 length_name_configurable: true,
                 wasm_index: imported_function_count + 1 + callable_index,
@@ -2434,6 +2285,8 @@ pub(crate) fn build_function_metas(
                         CallableToStringRepresentation::NativeAnonymous.materialize()
                     }),
             },
+            standard_builtin: Some(builtin),
+            host_builtin: None,
             length: standard_builtin_length(builtin),
             length_name_configurable: !matches!(builtin, StandardBuiltinId::ThrowTypeError),
             wasm_index: imported_function_count + 1 + callable_index,
@@ -2453,6 +2306,8 @@ pub(crate) fn build_function_metas(
         name: builtin.as_str().to_string(),
         to_string_value: CallableToStringRepresentation::NativeNamed(builtin.as_str().to_string())
             .materialize(),
+        standard_builtin: None,
+        host_builtin: Some(builtin),
         length: host_builtin_length(builtin),
         length_name_configurable: true,
         wasm_index: imported_function_count + 1 + callable_index,
@@ -2570,6 +2425,10 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::SymbolConstructor => 0,
         StandardBuiltinId::SymbolFor => 1,
         StandardBuiltinId::SymbolKeyFor => 1,
+        StandardBuiltinId::SymbolPrototypeDescriptionGetter => 0,
+        StandardBuiltinId::SymbolPrototypeToString => 0,
+        StandardBuiltinId::SymbolPrototypeValueOf => 0,
+        StandardBuiltinId::SymbolPrototypeToPrimitive => 1,
         StandardBuiltinId::ObjectPrototypeToString => 0,
         StandardBuiltinId::ObjectPrototypeToLocaleString => 0,
         StandardBuiltinId::ObjectPrototypeValueOf => 0,

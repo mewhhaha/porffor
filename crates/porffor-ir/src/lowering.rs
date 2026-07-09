@@ -1586,6 +1586,32 @@ impl<'a> ScriptLowerer<'a> {
                     ObjectShapeProperty::Data(Self::standard_builtin_value_info(builtin)),
                 );
             }
+        } else if kind == BoxedPrimitiveKind::Symbol {
+            for builtin in [
+                StandardBuiltinId::SymbolPrototypeToString,
+                StandardBuiltinId::SymbolPrototypeValueOf,
+            ] {
+                properties.insert(
+                    builtin.native_function_name().unwrap().to_string(),
+                    ObjectShapeProperty::Data(Self::standard_builtin_value_info(builtin)),
+                );
+            }
+            properties.insert(
+                "Symbol.toPrimitive".to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::SymbolPrototypeToPrimitive,
+                )),
+            );
+            properties.insert(
+                "description".to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: StandardBuiltinId::SymbolPrototypeDescriptionGetter
+                            .function_id(),
+                    }),
+                    setter: None,
+                },
+            );
         }
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
@@ -3969,6 +3995,26 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolPrototypeDescriptionGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolPrototypeToString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolPrototypeValueOf
+            | StandardBuiltinId::SymbolPrototypeToPrimitive => (
+                ValueKind::Symbol,
+                KindSet::from_kind(ValueKind::Symbol),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -12526,6 +12572,63 @@ impl<'a> ScriptLowerer<'a> {
                                     .unsupported_expr("indirect call: dynamic bigint property");
                             }
                         }
+                        ValueKind::Symbol => {
+                            if let PropertyAccessField::Const(field) = access.field() {
+                                let field_name =
+                                    self.interner.resolve_expect(field.sym()).to_string();
+                                let builtin = match field_name.as_str() {
+                                    "toString" => Some(StandardBuiltinId::SymbolPrototypeToString),
+                                    "valueOf" => Some(StandardBuiltinId::SymbolPrototypeValueOf),
+                                    _ => None,
+                                };
+                                if let Some(builtin) = builtin {
+                                    TypedExpr::from_info(
+                                        Self::standard_builtin_value_info(builtin),
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(receiver.clone()),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                        },
+                                    )
+                                } else {
+                                    // Anything else (e.g. `hasOwnProperty`,
+                                    // `constructor`) is inherited from
+                                    // `Object.prototype` via
+                                    // `Symbol.prototype`'s own
+                                    // `[[Prototype]]`; resolve it through the
+                                    // generic runtime prototype-chain lookup
+                                    // rather than hardcoding every name.
+                                    self.lower_object_property_key(
+                                        receiver.clone(),
+                                        access.field(),
+                                    )
+                                }
+                            } else if let PropertyAccessField::Expr(expr) = access.field() {
+                                if let Some(symbol_key) = self.try_static_string_key(expr) {
+                                    if symbol_key == "Symbol.toPrimitive" {
+                                        TypedExpr::from_info(
+                                            Self::standard_builtin_value_info(
+                                                StandardBuiltinId::SymbolPrototypeToPrimitive,
+                                            ),
+                                            ExprIr::PropertyRead {
+                                                target: Box::new(receiver.clone()),
+                                                key: PropertyKeyIr::StaticString(symbol_key),
+                                            },
+                                        )
+                                    } else {
+                                        return self.unsupported_expr(
+                                            "indirect call: dynamic symbol property",
+                                        );
+                                    }
+                                } else {
+                                    return self.unsupported_expr(
+                                        "indirect call: dynamic symbol property",
+                                    );
+                                }
+                            } else {
+                                return self
+                                    .unsupported_expr("indirect call: dynamic symbol property");
+                            }
+                        }
                         ValueKind::Array => {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
@@ -16953,6 +17056,18 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::SymbolPrototypeDescriptionGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::SymbolPrototypeToString => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::SymbolPrototypeValueOf
+            | StandardBuiltinId::SymbolPrototypeToPrimitive => {
+                Some(ValueInfo::new(ValueKind::Symbol))
+            }
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
@@ -18338,8 +18453,61 @@ impl<'a> ScriptLowerer<'a> {
                                         key: PropertyKeyIr::StaticString(field_name),
                                     },
                                 )
+                            } else if field_name == "constructor" {
+                                TypedExpr::from_info(
+                                    Self::function_value_info_with_constructable(
+                                        StandardBuiltinId::SymbolConstructor.function_id(),
+                                        false,
+                                    ),
+                                    ExprIr::PropertyRead {
+                                        target: Box::new(target),
+                                        key: PropertyKeyIr::StaticString(field_name),
+                                    },
+                                )
                             } else {
-                                self.unsupported_expr("property access on symbol target")
+                                let builtin = match field_name.as_str() {
+                                    "toString" => Some(StandardBuiltinId::SymbolPrototypeToString),
+                                    "valueOf" => Some(StandardBuiltinId::SymbolPrototypeValueOf),
+                                    _ => None,
+                                };
+                                if let Some(builtin) = builtin {
+                                    TypedExpr::from_info(
+                                        Self::standard_builtin_value_info(builtin),
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(target),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                        },
+                                    )
+                                } else {
+                                    // Anything else is inherited from
+                                    // `Object.prototype` via
+                                    // `Symbol.prototype`'s own
+                                    // `[[Prototype]]`; resolve it through the
+                                    // generic runtime prototype-chain lookup.
+                                    self.lower_object_property_key(target, access.field())
+                                }
+                            }
+                        } else if let PropertyAccessField::Expr(expr) = access.field() {
+                            if let Some(symbol_key) = self.try_static_string_key(expr) {
+                                if symbol_key == "Symbol.toPrimitive" {
+                                    TypedExpr::from_info(
+                                        Self::standard_builtin_value_info(
+                                            StandardBuiltinId::SymbolPrototypeToPrimitive,
+                                        ),
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(target),
+                                            key: PropertyKeyIr::StaticString(symbol_key),
+                                        },
+                                    )
+                                } else {
+                                    // Auto-boxing: any other computed key is
+                                    // resolved against `Symbol.prototype` by
+                                    // the generic runtime lookup (typically
+                                    // yielding `undefined`).
+                                    self.lower_object_property_key(target, access.field())
+                                }
+                            } else {
+                                self.lower_object_property_key(target, access.field())
                             }
                         } else {
                             self.unsupported_expr("dynamic property access on symbol target")
@@ -20687,6 +20855,26 @@ impl<'a> ScriptLowerer<'a> {
                                 value: Box::new(value),
                             },
                         )
+                    }
+                    ValueKind::Symbol => {
+                        // PutValue on a primitive base: OrdinarySet's final
+                        // `Type(Receiver) is not Object` check makes [[Set]]
+                        // fail without throwing; PutValue itself only
+                        // throws when running in strict mode. Either way
+                        // there is no real mutation: evaluate `rhs` (for its
+                        // side effects/value) and drop the write.
+                        let value = self.lower_expression(rhs);
+                        if self.is_current_owner_strict() {
+                            TypedExpr::from_info(
+                                value.value_info(),
+                                ExprIr::RuntimeThrow {
+                                    name: TYPE_ERROR_NAME,
+                                    message: "Cannot create property on symbol",
+                                },
+                            )
+                        } else {
+                            value
+                        }
                     }
                     _ => self.unsupported_expr("property access on non-object target"),
                 }

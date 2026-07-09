@@ -2278,11 +2278,17 @@ impl<'a> FunctionBuilder<'a> {
             boxed_kind_local,
             function,
         );
+        // Note: `BOXED_PRIMITIVE_KIND_SYMBOL` is deliberately excluded from
+        // this fast path (unlike Number/String/Boolean/BigInt wrappers).
+        // Symbol wrapper ToPrimitive must consult `[Symbol.toPrimitive]` /
+        // `toString` / `valueOf` dynamically so that redefining or deleting
+        // `Symbol.prototype[Symbol.toPrimitive]` is observable (see
+        // Symbol.prototype/Symbol.toPrimitive/*-ordinary-toprimitive.js).
         function.instruction(&Instruction::LocalGet(boxed_kind_local));
         function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_NONE as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::LocalGet(boxed_kind_local));
-        function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_SYMBOL as i64));
+        function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_BIGINT as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -2818,7 +2824,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             (
                 ValueKind::Symbol,
-                OBJECT_PROTOTYPE_GLOBAL_INDEX,
+                SYMBOL_PROTOTYPE_GLOBAL_INDEX,
                 BOXED_PRIMITIVE_KIND_SYMBOL,
             ),
         ] {
