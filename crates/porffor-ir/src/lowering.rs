@@ -2179,6 +2179,24 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                 }
+                StandardBuiltinId::ProxyConstructor => {
+                    // Proxy.revocable is only reachable through this static shape entry
+                    // (there is no `Proxy.prototype` object to hang it off of, unlike the
+                    // Error family above). Without a `function_targets` entry here,
+                    // `Proxy.revocable(...)` compiles as a fully dynamic property
+                    // read + indirect call and never surfaces a reference to the
+                    // `ProxyRevocable` builtin anywhere in the IR, so the reachability
+                    // scan (`script_references_standard_builtin`) treats it as unused and
+                    // stubs it out — leaving the real `Proxy.revocable` property missing
+                    // at runtime even though the script calls it directly.
+                    object.properties.insert(
+                        "revocable".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::ProxyRevocable.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::FunctionPrototypeCall
                 | StandardBuiltinId::FunctionPrototypeApply
                 | StandardBuiltinId::FunctionPrototypeBind

@@ -1091,6 +1091,37 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
+    if builtin == StandardBuiltinId::ObjectKeys
+        && (script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+            || script_references_standard_builtin(script, StandardBuiltinId::JsonParse))
+    {
+        // The runtime-recursive JSON.stringify / JSON.parse helpers reach
+        // Object.keys dynamically (own-key enumeration, both as a direct call
+        // and through a funcref-table dispatch). It is never referenced in the
+        // script text, so force its body to be emitted here rather than letting
+        // the dispatch land on the shared stub.
+        return false;
+    }
+    if matches!(
+        builtin,
+        StandardBuiltinId::StringPrototypeToString
+            | StandardBuiltinId::StringPrototypeValueOf
+            | StandardBuiltinId::NumberPrototypeToString
+            | StandardBuiltinId::NumberPrototypeValueOf
+            | StandardBuiltinId::BooleanPrototypeToString
+            | StandardBuiltinId::BooleanPrototypeValueOf
+            | StandardBuiltinId::BigIntPrototypeToString
+            | StandardBuiltinId::BigIntPrototypeValueOf
+    ) && script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+    {
+        // JSON.stringify coerces primitive-wrapper objects (String/Number/
+        // Boolean/BigInt exotic objects, and String/Number `space` arguments)
+        // to primitives by dynamically reading and invoking their `toString` /
+        // `valueOf` methods, which resolve to these prototype builtins. They are
+        // never statically referenced, so materialize them alongside the helper
+        // instead of letting the dynamic dispatch hit the shared stub.
+        return false;
+    }
     if builtin == StandardBuiltinId::ReflectSet
         && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
@@ -1099,6 +1130,32 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if builtin == StandardBuiltinId::StringPrototypeStartsWith
         && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
+        return false;
+    }
+    if builtin == StandardBuiltinId::ProxyRevoke
+        && script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable)
+    {
+        // `Proxy.revocable`'s implementation synthesizes a bound function whose
+        // target is `[[ProxyRevoke]]` directly in codegen (not through a typed
+        // IR call), so the revoke half of the pair never shows up as a
+        // reachable `function_targets` reference on its own. Without this,
+        // `should_stub_standard_builtin` sees no reference to `ProxyRevoke` and
+        // stubs its body, so invoking the returned `revoke()` function lands on
+        // the shared "not emitted" stub instead of actually revoking the proxy.
+        return false;
+    }
+    if builtin == StandardBuiltinId::BoundFunctionInvoker
+        && (script_references_standard_builtin(script, StandardBuiltinId::FunctionPrototypeBind)
+            || script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable))
+    {
+        // `[[BoundFunctionInvoke]]` is the shared dispatch body every bound
+        // function's table slot points to. It is wired in directly via codegen
+        // (`emit_alloc_bound_function_value`) whenever `Function.prototype.bind`
+        // or `Proxy.revocable` (which synthesizes its own bound `revoke`
+        // function) runs, never through a typed IR call, so the reachability
+        // scan never sees it referenced and stubs it out — leaving every bound
+        // function call land on the shared "not emitted" stub instead of the
+        // real invoker.
         return false;
     }
 
@@ -1279,6 +1336,8 @@ pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) 
             | StandardBuiltinId::BooleanPrototypeValueOf
             | StandardBuiltinId::ProxyConstructor
             | StandardBuiltinId::ProxyRevocable
+            | StandardBuiltinId::ProxyRevoke
+            | StandardBuiltinId::BoundFunctionInvoker
             | StandardBuiltinId::RegExpConstructor
             | StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::DateConstructor

@@ -1462,14 +1462,37 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_indirect_call_from_locals(
-            replacer_payload_local,
-            replacer_tag_local,
-            Some((this_payload_local, this_tag_local)),
+        // Invoke the replacer, leaving any throw completion in place rather than
+        // returning `self.result_local` directly: the thrown value lands in
+        // `value_payload_local`/`value_tag_local`, so it must be moved into the
+        // result slot before the helper returns. Using the auto-returning call
+        // variant here would surface a stale `result_local` and drop the actual
+        // error object (see replacer-function-abrupt.js).
+        let argc_local = self.reserve_temp_local();
+        let argv_local = self.reserve_temp_local();
+        self.emit_pre_evaluated_arg_vector(
             &[
                 (key_payload_local, key_tag_local),
                 (value_payload_local, value_tag_local),
             ],
+            argc_local,
+            argv_local,
+            function,
+        )?;
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
+            replacer_payload_local,
+            replacer_tag_local,
+            this_payload_local,
+            this_tag_local,
+            argc_local,
+            argv_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.release_temp_local(argv_local);
+        self.release_temp_local(argc_local);
+        self.emit_propagate_throw_from_locals_if_needed(
             value_payload_local,
             value_tag_local,
             function,

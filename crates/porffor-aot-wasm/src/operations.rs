@@ -2480,6 +2480,14 @@ impl<'a> FunctionBuilder<'a> {
                     // surfaced no callable (undefined) and the receiver is an ordinary
                     // object that inherits Object.prototype, so plain objects coerce to a
                     // primitive instead of throwing.
+                    //
+                    // This must NOT apply when the object (or its chain) has a real
+                    // `toString` property whose value happens to be `undefined` (e.g. an
+                    // own `toString: undefined` shadowing the inherited default) — that
+                    // case legitimately yields "no callable here", falls through to the
+                    // next hook without a default, and can end in a TypeError. Use
+                    // HasProperty to distinguish "genuinely absent" (apply the default)
+                    // from "present but non-callable" (do not).
                     function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(hook_value_tag));
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -2490,6 +2498,18 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     );
                     function.instruction(&Instruction::I32And);
+                    let has_tostring_local = self.reserve_temp_local();
+                    self.emit_object_has_property_i32(
+                        object_local,
+                        object_tag_local,
+                        key_local,
+                        has_tostring_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(has_tostring_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::I32And);
+                    self.release_temp_local(has_tostring_local);
                     function.instruction(&Instruction::If(BlockType::Empty));
                     function.instruction(&Instruction::I64Const(
                         self.strings.payload("[object Object]"),
