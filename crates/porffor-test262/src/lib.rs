@@ -20394,13 +20394,24 @@ fn run_case_entry(
     case: &TestCase,
     run_config: &RunConfig,
 ) -> TestResult {
-    // Real process-level timeout enforcement (kill + wait) only exists for the
-    // child-runner path in `run_one_case_in_child_process`. The in-process path
-    // below can only *measure* elapsed time after a call returns, so it cannot
-    // bound a genuine hang (an infinite loop never returns). Every case must
-    // therefore go through the child runner whenever one is configured, not
-    // only single-case/resume invocations, or a directory/full-suite run has
-    // no enforcement at all and a hanging case stalls the whole worker forever.
+    // In-process execution is the default (`config.case_runner_bin` is only
+    // `Some` when the CLI is invoked with `PORFFOR_TEST262_FORCE_CASE_RUNNER`
+    // set, e.g. for crash repro). This used to be unsafe for a
+    // directory/full-suite run: the in-process path could only *measure*
+    // elapsed time after a call returned, so it could not bound a genuine
+    // hang (an infinite loop never returns), and a hanging case would stall
+    // the whole worker forever. That is no longer true for
+    // `ExecutionBackend::WasmAot`: `run_one_case` passes `config.timeout_ms`
+    // into `RunOptions::timeout_ms`, and `porffor_engine::run_with_wasm_aot_inner`
+    // enforces it in-process via wasmtime epoch interruption, so a hanging
+    // Wasm-AOT module traps out on its own on a bounded schedule. The one
+    // remaining gap is `ExecutionBackend::SpecExec` (the developer-only Boa
+    // differential oracle, never the product/conformance default backend):
+    // it has no epoch-interruption-equivalent bound, so a hang there still
+    // stalls its worker. When that matters, force the child runner via
+    // `PORFFOR_TEST262_FORCE_CASE_RUNNER=1`, which restores real
+    // process-level timeout enforcement (kill + wait) in
+    // `run_one_case_in_child_process` for every backend.
     let use_child_runner = config.case_runner_bin.is_some();
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
@@ -20532,6 +20543,12 @@ fn run_one_case(
             },
             test_path: Some(case.source_path.display().to_string()),
             can_block: case.flags.contains("CanBlockIsTrue"),
+            // Bounds Wasm-AOT execution in-process via wasmtime epoch
+            // interruption (see `run_with_wasm_aot_inner` in
+            // porffor-engine); this is what lets `run_case_entry` default to
+            // running cases in-process instead of always paying a
+            // child-process spawn per case.
+            timeout_ms: Some(timeout_ms),
         };
 
         let run_result = if execution_backend == ExecutionBackend::WasmAot {
