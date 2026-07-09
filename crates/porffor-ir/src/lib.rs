@@ -617,15 +617,20 @@ mod tests {
     }
 
     #[test]
-    fn lowers_symbol_key_for_without_global_symbol_object() {
+    fn lowers_symbol_key_for_through_real_method() {
+        // `Symbol.keyFor` now resolves through the real `Symbol` constructor
+        // object's own `keyFor` method (backed by a runtime registry) rather
+        // than a compile-time fold, so the call dispatches indirectly and its
+        // result is typed `String | undefined`.
         let program = lower_script("Symbol.keyFor(Symbol.iterator);");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
         let StatementIr::Expression(expr) = &script.body.statements[0] else {
             panic!("expected expression statement");
         };
-        assert_eq!(expr.kind, ValueKind::Undefined);
-        assert!(matches!(expr.expr, ExprIr::Conditional { .. }));
+        assert!(matches!(expr.expr, ExprIr::CallIndirect { .. }));
+        assert!(expr.possible_kinds.contains(ValueKind::String));
+        assert!(expr.possible_kinds.contains(ValueKind::Undefined));
     }
 
     #[test]

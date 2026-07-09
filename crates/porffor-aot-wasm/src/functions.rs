@@ -3531,9 +3531,9 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "value is not callable",
@@ -3541,7 +3541,13 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            propagate_throw_extra_depth.unwrap_or(0),
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_load_function_object_fields(

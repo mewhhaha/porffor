@@ -30434,6 +30434,204 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
+            StandardBuiltinId::SymbolConstructor => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                let handle_local = self.reserve_temp_local();
+
+                // `Symbol` throws a TypeError when invoked via `new`.
+                function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Symbol is not a constructor",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                self.emit_heap_alloc_const(HEAP_SYMBOL_RECORD_SIZE, function)?;
+                function.instruction(&Instruction::LocalSet(handle_local));
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.store_i64_const_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                    function,
+                );
+                function.instruction(&Instruction::Else);
+                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
+                function.instruction(&Instruction::LocalSet(arg_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(arg_tag_local));
+                self.store_i64_local_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                    arg_tag_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                    arg_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(handle_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(handle_local);
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
+            }
+            StandardBuiltinId::SymbolFor => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let reg_payload_local = self.reserve_temp_local();
+                let reg_tag_local = self.reserve_temp_local();
+                let found_payload_local = self.reserve_temp_local();
+                let found_tag_local = self.reserve_temp_local();
+                let handle_local = self.reserve_temp_local();
+
+                // key = ? ToString(description). Throws for symbol arguments and
+                // propagates abrupt completions from user `toString`/`valueOf`.
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
+                function.instruction(&Instruction::LocalSet(key_local));
+
+                function.instruction(&Instruction::GlobalGet(SYMBOL_REGISTRY_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(reg_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(reg_tag_local));
+                self.emit_object_read(
+                    reg_payload_local,
+                    reg_tag_local,
+                    reg_payload_local,
+                    reg_tag_local,
+                    key_local,
+                    found_payload_local,
+                    found_tag_local,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::LocalGet(found_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(found_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Else);
+                // Create a new registered symbol whose [[Description]] and
+                // registry key are both the requested string.
+                self.emit_heap_alloc_const(HEAP_SYMBOL_RECORD_SIZE, function)?;
+                function.instruction(&Instruction::LocalSet(handle_local));
+                self.store_i64_const_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                    ValueKind::String.tag() as u64,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                    key_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    handle_local,
+                    HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
+                    key_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::LocalSet(found_tag_local));
+                self.emit_object_write(
+                    reg_payload_local,
+                    reg_tag_local,
+                    key_local,
+                    handle_local,
+                    found_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(handle_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(handle_local);
+                self.release_temp_local(found_tag_local);
+                self.release_temp_local(found_payload_local);
+                self.release_temp_local(reg_tag_local);
+                self.release_temp_local(reg_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
+            }
+            StandardBuiltinId::SymbolKeyFor => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Symbol.keyFor argument must be a symbol",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                // Only heap `Symbol()` records (small handle, high 32 bits zero)
+                // carry a registry key. Well-known symbols are interned string
+                // payloads (non-zero high bits) and are never registered.
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::LocalGet(arg_payload_local));
+                function.instruction(&Instruction::I64Const(32));
+                function.instruction(&Instruction::I64ShrU);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    arg_payload_local,
+                    HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
+                    key_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(key_local);
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
+            }
             StandardBuiltinId::NumberConstructor
             | StandardBuiltinId::StringConstructor
             | StandardBuiltinId::BooleanConstructor => {

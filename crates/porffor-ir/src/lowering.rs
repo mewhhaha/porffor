@@ -1815,6 +1815,22 @@ impl<'a> ScriptLowerer<'a> {
                         }),
                     );
                 }
+                StandardBuiltinId::SymbolConstructor => {
+                    object.properties.insert(
+                        "for".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::SymbolFor.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "keyFor".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::SymbolKeyFor.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::ObjectConstructor => {
                     object.properties.insert(
                         "create".to_string(),
@@ -2177,6 +2193,24 @@ impl<'a> ScriptLowerer<'a> {
                         ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
                             Self::standard_error_prototype_shape(builtin),
                         ))),
+                    );
+                }
+                StandardBuiltinId::ProxyConstructor => {
+                    // Proxy.revocable is only reachable through this static shape entry
+                    // (there is no `Proxy.prototype` object to hang it off of, unlike the
+                    // Error family above). Without a `function_targets` entry here,
+                    // `Proxy.revocable(...)` compiles as a fully dynamic property
+                    // read + indirect call and never surfaces a reference to the
+                    // `ProxyRevocable` builtin anywhere in the IR, so the reachability
+                    // scan (`script_references_standard_builtin`) treats it as unused and
+                    // stubs it out — leaving the real `Proxy.revocable` property missing
+                    // at runtime even though the script calls it directly.
+                    object.properties.insert(
+                        "revocable".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::ProxyRevocable.function_id(),
+                            false,
+                        )),
                     );
                 }
                 StandardBuiltinId::FunctionPrototypeCall
@@ -3918,6 +3952,25 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Boolean),
                 None,
                 Self::boxed_primitive_instance_info(ValueInfo::new(ValueKind::Boolean)),
+            ),
+            StandardBuiltinId::SymbolConstructor => (
+                ValueKind::Symbol,
+                KindSet::from_kind(ValueKind::Symbol),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolFor => (
+                ValueKind::Symbol,
+                KindSet::from_kind(ValueKind::Symbol),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::SymbolKeyFor => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::BooleanPrototypeToString => (
                 ValueKind::String,
@@ -6848,7 +6901,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
-            | ExprIr::Symbol
+            | ExprIr::Symbol { .. }
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::This
@@ -11493,10 +11546,29 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             if name == "Symbol" {
-                for arg in args {
+                // `Symbol(description)`: if description is undefined, the
+                // `[[Description]]` is undefined; otherwise it is
+                // `? ToString(description)` (spec 20.4.1.1). Only the first
+                // argument participates; any extra arguments are still
+                // evaluated for their side effects.
+                let description = match args.first() {
+                    None => None,
+                    Some(arg) => {
+                        let lowered = self.lower_expression(arg);
+                        if lowered.kind == ValueKind::Undefined {
+                            None
+                        } else {
+                            Some(Box::new(TypedExpr::spec_to_string(lowered)))
+                        }
+                    }
+                };
+                for arg in args.iter().skip(1) {
                     self.lower_expression(arg);
                 }
-                return TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol);
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Symbol),
+                    ExprIr::Symbol { description },
+                );
             }
         }
 
@@ -11532,45 +11604,6 @@ impl<'a> ScriptLowerer<'a> {
                                     },
                                 ))),
                                 args,
-                            },
-                        );
-                    }
-                    if target_name == "Symbol" && field_name == "keyFor" && args.len() == 1 {
-                        let arg = self.lower_expression(&args[0]);
-                        let typeof_arg = TypedExpr::from_info(
-                            Self::string_value_info("symbol"),
-                            ExprIr::TypeOf {
-                                expr: Box::new(arg),
-                            },
-                        );
-                        let is_symbol = TypedExpr::from_info(
-                            Self::boolean_value_info(),
-                            ExprIr::StrictEquality {
-                                op: EqualityBinaryOp::StrictEqual,
-                                lhs: Box::new(typeof_arg),
-                                rhs: Box::new(TypedExpr::from_info(
-                                    Self::string_value_info("symbol"),
-                                    ExprIr::String("symbol".to_string()),
-                                )),
-                            },
-                        );
-                        return TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Undefined,
-                                possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            ExprIr::Conditional {
-                                condition: Box::new(is_symbol),
-                                then_expr: Box::new(TypedExpr::undefined()),
-                                else_expr: Box::new(TypedExpr::from_info(
-                                    ValueInfo::undefined(),
-                                    ExprIr::RuntimeThrow {
-                                        name: TYPE_ERROR_NAME,
-                                        message: "Symbol.keyFor argument must be a symbol",
-                                    },
-                                )),
                             },
                         );
                     }
@@ -15771,6 +15804,57 @@ impl<'a> ScriptLowerer<'a> {
             .union(KindSet::from_kind(ValueKind::Arguments))
     }
 
+    /// Object-like kinds whose default `toString`/`toLocaleString` is
+    /// `Object.prototype`'s, *purely by virtue of their `ValueKind`* — i.e.
+    /// excluding `Array` and `Function`, which always override `toString`
+    /// (`Array.prototype.toString`, `Function.prototype.toString`) regardless
+    /// of what heap-shape tracking knows. This is narrower than
+    /// `object_like_kind_set()` on purpose: it is only safe to resolve a
+    /// dynamically-retrieved `toString`/`toLocaleString` straight to the
+    /// `Object.prototype` builtin when the receiver's kind can't itself be
+    /// one of those overriding kinds. Values that are `ValueKind::Object` but
+    /// represent a built-in exotic object with its own override (`Error`,
+    /// `Date`, `RegExp`, boxed primitives, or a user `class` with its own
+    /// method) are still guarded separately via `read_object_shape`, which
+    /// walks the tracked prototype chain for an existing override.
+    fn plain_object_kind_set() -> KindSet {
+        KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Arguments))
+    }
+
+    /// Whether it is statically safe to resolve a dynamically-retrieved
+    /// `toString`/`toLocaleString` property read straight to the matching
+    /// `Object.prototype` builtin, for a receiver that isn't a literal
+    /// `Object.prototype` reference.
+    ///
+    /// Three conditions must all hold:
+    /// - `target.possible_kinds` rules out `Array`/`Function`, which always
+    ///   override `toString`/`toLocaleString` regardless of shape tracking.
+    /// - `target.heap_shape` is *positively tracked* (`Some`) — an object
+    ///   literal, `Object.create` result, etc.
+    /// - `read_object_shape(target, name)` finds no override anywhere in
+    ///   that tracked prototype chain (rules out Error/boxed-primitive/
+    ///   user-defined overrides).
+    ///
+    /// `heap_shape.is_some()` alone is not enough: the *default* `this` info
+    /// used for a function whose call sites the lowering pass can't trace
+    /// (e.g. a standalone function assigned to `BigInt.prototype.toJSON` and
+    /// invoked only via the JSON.stringify runtime's own dynamic dispatch)
+    /// falls back to `global_this_info()`, which is `ValueKind::Object` with
+    /// a *populated* heap shape (all visible global bindings) even though
+    /// the receiver's real value is unrelated to any tracked object shape.
+    /// So `this` (and only `this` — an aliased/copied `this` value continues
+    /// to carry the same untrustworthy info) is excluded outright.
+    fn dynamic_object_prototype_method_resolution_is_safe(
+        &self,
+        target: &TypedExpr,
+        name: &str,
+    ) -> bool {
+        !matches!(target.expr, ExprIr::This)
+            && target.possible_kinds.is_subset_of(Self::plain_object_kind_set())
+            && target.heap_shape.is_some()
+            && self.read_object_shape(target, name).is_none()
+    }
+
     fn value_info_from_shape(shape: Option<Box<HeapShape>>) -> ValueInfo {
         ValueInfo {
             kind: ValueKind::Object,
@@ -16860,6 +16944,15 @@ impl<'a> ScriptLowerer<'a> {
                     Some(ValueInfo::new(ValueKind::Boolean))
                 }
             }
+            StandardBuiltinId::SymbolConstructor => Some(ValueInfo::new(ValueKind::Symbol)),
+            StandardBuiltinId::SymbolFor => Some(ValueInfo::new(ValueKind::Symbol)),
+            StandardBuiltinId::SymbolKeyFor => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ErrorConstructor
             | StandardBuiltinId::EvalErrorConstructor
             | StandardBuiltinId::AggregateErrorConstructor
@@ -18729,14 +18822,24 @@ impl<'a> ScriptLowerer<'a> {
                 return self.function_value_expr(StandardBuiltinId::ArrayOf.function_id());
             }
             if name == "toString"
-                && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                    || self.dynamic_object_prototype_method_resolution_is_safe(&target, "toString"))
             {
                 return self
                     .function_value_expr(StandardBuiltinId::ObjectPrototypeToString.function_id());
             }
             if name == "toLocaleString"
-                && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                    || self.dynamic_object_prototype_method_resolution_is_safe(
+                        &target,
+                        "toLocaleString",
+                    ))
             {
+                // Same reasoning as `toString`; `toLocaleString` is overridden
+                // by the same set of built-in exotic objects (via
+                // `Object.prototype.toLocaleString` calling `this.toString()`,
+                // but several prototypes — Array, Number, Date — define their
+                // own `toLocaleString` directly).
                 return self.function_value_expr(
                     StandardBuiltinId::ObjectPrototypeToLocaleString.function_id(),
                 );

@@ -83,6 +83,9 @@ pub(crate) const REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_GLOBAL_INDEX: u32 = 71;
 pub(crate) const ARRAY_TYPED_ARRAY_TO_STRING_GLOBAL_INDEX: u32 = 72;
 pub(crate) const CURRENT_REALM_GLOBAL_INDEX: u32 = 73;
 pub(crate) const ATOMICS_OBJECT_GLOBAL_INDEX: u32 = 74;
+pub(crate) const SYMBOL_CONSTRUCTOR_GLOBAL_INDEX: u32 = 75;
+pub(crate) const SYMBOL_PROTOTYPE_GLOBAL_INDEX: u32 = 76;
+pub(crate) const SYMBOL_REGISTRY_GLOBAL_INDEX: u32 = 77;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -402,6 +405,18 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Atomics",
         index: ATOMICS_OBJECT_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Symbol",
+        index: SYMBOL_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Symbol.prototype",
+        index: SYMBOL_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[SymbolRegistry]]",
+        index: SYMBOL_REGISTRY_GLOBAL_INDEX,
+    },
 ];
 
 pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Option<u32> {
@@ -445,6 +460,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::NumberConstructor => Some(NUMBER_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::StringConstructor => Some(STRING_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::BooleanConstructor => Some(BOOLEAN_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::SymbolConstructor => Some(SYMBOL_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::ErrorConstructor => Some(ERROR_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::EvalErrorConstructor => Some(EVAL_ERROR_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::RangeErrorConstructor => Some(RANGE_ERROR_CONSTRUCTOR_GLOBAL_INDEX),
@@ -771,7 +787,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::AtomicsXor
         | StandardBuiltinId::AtomicsIsLockFree
         | StandardBuiltinId::Escape
-        | StandardBuiltinId::Unescape => None,
+        | StandardBuiltinId::Unescape
+        | StandardBuiltinId::SymbolFor
+        | StandardBuiltinId::SymbolKeyFor => None,
     }
 }
 
@@ -995,6 +1013,7 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::NumberConstructor => Some(NUMBER_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::StringConstructor => Some(STRING_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::BooleanConstructor => Some(BOOLEAN_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::SymbolConstructor => Some(SYMBOL_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ErrorConstructor => Some(ERROR_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::EvalErrorConstructor => Some(EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {

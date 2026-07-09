@@ -2711,7 +2711,22 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
         }
     }
 
-    if std::env::var_os("PORFFOR_TEST262_DISABLE_CASE_RUNNER").is_none() {
+    // In-process execution (wasmtime epoch interruption bounds Wasm-AOT
+    // hangs; see porffor-engine's `run_with_wasm_aot_inner` and
+    // `porffor_test262::run_case_entry`) is the default: it skips the
+    // per-test process re-exec + prelude reload + fresh wasmtime `Engine`
+    // bootstrap that the child-runner path pays for every single case.
+    // `PORFFOR_TEST262_FORCE_CASE_RUNNER=1` restores the old always-spawn
+    // behavior (real OS-level kill-on-timeout for every backend, including
+    // the SpecExec oracle path which has no in-process timeout bound) for
+    // crash repro / bisecting a host-side panic or process abort.
+    //
+    // `PORFFOR_TEST262_DISABLE_CASE_RUNNER` is set by a spawned child on
+    // itself (see `DISABLE_CASE_RUNNER_ENV` in porffor-test262) so a forced
+    // child never tries to spawn a further grandchild.
+    if std::env::var_os("PORFFOR_TEST262_FORCE_CASE_RUNNER").is_some()
+        && std::env::var_os("PORFFOR_TEST262_DISABLE_CASE_RUNNER").is_none()
+    {
         config.case_runner_bin = std::env::current_exe().ok();
     }
 
@@ -2795,7 +2810,10 @@ mod tests {
         assert_eq!(parsed.run_config.shard_count, 4);
         assert_eq!(parsed.filter.as_deref(), Some("language/expressions"));
         assert_eq!(parsed.config.timeout_ms, 50);
-        assert!(parsed.config.case_runner_bin.is_some());
+        // Product default: in-process execution (wasmtime epoch interruption
+        // bounds Wasm-AOT hangs), not the child-process case runner. The
+        // child runner is opt-in via `PORFFOR_TEST262_FORCE_CASE_RUNNER=1`.
+        assert!(parsed.config.case_runner_bin.is_none());
         // Product default: `porf test262 ...` runs Wasm-AOT flag-free.
         assert_eq!(
             parsed.run_config.execution_backend,

@@ -936,7 +936,13 @@ pub enum ExprIr {
     Boolean(bool),
     Number(u64),
     BigInt(BigIntLiteralIr),
-    Symbol,
+    Symbol {
+        /// Description operand for `Symbol(desc)`. `None` for `Symbol()` /
+        /// `Symbol(undefined)` (spec `[[Description]]` = undefined). When
+        /// present, the operand has already been coerced via ToString during
+        /// lowering.
+        description: Option<Box<TypedExpr>>,
+    },
     String(String),
     FunctionValue(FunctionId),
     This,
@@ -2361,13 +2367,17 @@ impl IrSummaryCounts {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
+            ExprIr::Symbol { description } => {
+                if let Some(description) = description {
+                    self.visit_expr(description);
+                }
+            }
             ExprIr::Undefined
             | ExprIr::ArrayHole
             | ExprIr::Null
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
-            | ExprIr::Symbol
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::Identifier(_) => {
@@ -2587,7 +2597,10 @@ mod tests {
 
     #[test]
     fn operations_spec_is_property_key_expr_records_operation_and_operand() {
-        let operand = TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol);
+        let operand = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Symbol),
+            ExprIr::Symbol { description: None },
+        );
         let expr = TypedExpr::spec_is_property_key(operand.clone());
 
         assert_eq!(expr.kind, ValueKind::Boolean);

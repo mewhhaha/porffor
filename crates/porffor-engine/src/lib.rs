@@ -7,10 +7,14 @@ use wasmi::{
 };
 use wasmi::{Store as WasmiStore, Value as WasmiValue};
 use wasmtime::{
-    Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
-    Extern as WasmtimeExtern, Linker as WasmtimeLinker, Module as WasmtimeModule, OptLevel,
-    RegallocAlgorithm, Store as WasmtimeStore, Val as WasmtimeVal,
+    Cache as WasmtimeCache, Caller as WasmtimeCaller, Config as WasmtimeConfig,
+    Engine as WasmtimeEngine, Extern as WasmtimeExtern, Linker as WasmtimeLinker,
+    Module as WasmtimeModule, OptLevel, RegallocAlgorithm, Store as WasmtimeStore,
+    StoreLimits as WasmtimeStoreLimits, StoreLimitsBuilder as WasmtimeStoreLimitsBuilder,
+    Trap as WasmtimeTrap, Val as WasmtimeVal,
 };
+
+use std::sync::OnceLock;
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -55,6 +59,125 @@ where
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     })
+}
+
+/// Wasmtime's on-disk Cranelift compilation cache, shared across every
+/// `wasmtime::Engine` this process builds. Each engine is built fresh per
+/// test (to keep configs isolated), but the cache is keyed on the wasm bytes
+/// plus compiler settings, so re-compiling the same emitted module (e.g. the
+/// shared test262 harness prelude, or repeated test262 resume/rerun
+/// invocations) hits the cache instead of re-running Cranelift. Compiler
+/// changes naturally change the wasm bytes or the cache key, so there is no
+/// staleness risk from caching.
+///
+/// Loaded once (`Cache::from_file(None)` uses the system default cache
+/// config/location, e.g. `$HOME/.cache/wasmtime` on Linux, creating it if
+/// needed). If that fails for any reason (e.g. an unwritable home directory
+/// in a sandboxed environment), caching is silently disabled and every test
+/// simply compiles uncached as before -- caching is a performance
+/// optimization, never a correctness requirement, so a failure here must not
+/// fail the run.
+fn wasmtime_compilation_cache() -> Option<WasmtimeCache> {
+    static CACHE: OnceLock<Option<WasmtimeCache>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| match WasmtimeCache::from_file(None) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                    eprintln!(
+                        "porffor wasm trace: wasmtime compilation cache unavailable, running \
+                         uncached: {err}"
+                    );
+                }
+                None
+            }
+        })
+        .clone()
+}
+
+/// Wall-clock tick between `Engine::increment_epoch()` calls made by
+/// `ensure_wasm_epoch_ticker`. This is the granularity of Wasm-AOT execution
+/// timeouts: a requested timeout is rounded up to the nearest multiple of
+/// this duration. 100ms keeps the ticker thread cheap (a handful of wakeups
+/// per second, process-wide, not per test) while staying far tighter than
+/// the tens-of-seconds bounds test262 runs use in practice.
+const WASM_EPOCH_TICK_MS: u64 = 100;
+
+/// Generous per-store linear memory cap applied via `wasmtime::StoreLimits`.
+/// This exists only to stop a pathological Wasm-AOT module that both loops
+/// forever *and* keeps allocating (so epoch interruption alone would not
+/// bound its memory use before the interrupt is observed) from growing
+/// without bound and OOM-killing the whole in-process worker. 1GiB is far
+/// above what any legitimate test262 case needs, so this must never reject a
+/// conformant test.
+const WASM_STORE_MEMORY_CAP_BYTES: usize = 1024 * 1024 * 1024;
+
+/// The `wasmtime::Engine` used for every Wasm-AOT execution in this process.
+///
+/// Built once (not per test/run): every Wasm-AOT invocation in this codebase
+/// uses an identical `Config` (fixed opt level/regalloc/stack size/proposals
+/// plus the on-disk compilation cache and epoch interruption below), so
+/// there is no correctness reason to rebuild the `Engine` per call, and
+/// `wasmtime::Engine` is `Send + Sync` and cheap to `Clone` (it is
+/// internally reference-counted) specifically so it can be shared across
+/// threads/tests like this. Reusing the engine avoids paying Wasmtime's
+/// engine bootstrap cost (allocator/JIT setup) on every single test262 case;
+/// each test still gets its own fresh `Module`/`Store`/`Instance` below, so
+/// there is no state leakage between tests.
+fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
+    static ENGINE: OnceLock<Result<WasmtimeEngine, String>> = OnceLock::new();
+    ENGINE
+        .get_or_init(|| {
+            let mut config = WasmtimeConfig::new();
+            config.cranelift_opt_level(OptLevel::None);
+            config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
+            config.max_wasm_stack(8 * 1024 * 1024);
+            config.wasm_threads(true);
+            config.wasm_function_references(true);
+            config.wasm_gc(true);
+            config.wasm_exceptions(true);
+            config.cache(wasmtime_compilation_cache());
+            // Instruments emitted Wasm with epoch checks at loop back-edges
+            // and function entries. Combined with `ensure_wasm_epoch_ticker`
+            // and a per-store `set_epoch_deadline` below, this is what lets
+            // Wasm-AOT execution run in-process by default: a hanging/looping
+            // module traps out on its own instead of requiring a child
+            // process to `kill()` as the only way to bound a hang.
+            config.epoch_interruption(true);
+            WasmtimeEngine::new(&config)
+                .map_err(|err| format!("wasmtime engine setup failed: {err}"))
+        })
+        .clone()
+        .map_err(EngineError::new)
+}
+
+/// Starts, once per process, a background thread that increments the shared
+/// Wasm-AOT engine's epoch counter every `WASM_EPOCH_TICK_MS`. Every store
+/// created by `run_with_wasm_aot_inner` sets its epoch deadline in units of
+/// this tick (see `set_epoch_deadline`), so this thread is what actually
+/// makes a hanging/looping Wasm-AOT module trap out instead of stalling its
+/// worker forever. The thread runs for the lifetime of the process (there is
+/// exactly one, shared by every worker thread, not one per test).
+fn ensure_wasm_epoch_ticker(engine: &WasmtimeEngine) {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        let engine = engine.clone();
+        std::thread::Builder::new()
+            .name("porffor-wasm-epoch-ticker".to_string())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(WASM_EPOCH_TICK_MS));
+                engine.increment_epoch();
+            })
+            .expect("porffor wasm epoch ticker thread should spawn");
+    });
+}
+
+/// True if `err` (from a trapped `wasmtime` call) is specifically the
+/// epoch-interruption trap raised when a store's `set_epoch_deadline` bound
+/// was exceeded, as opposed to any other kind of wasm trap (unreachable,
+/// stack overflow, out-of-bounds access, ...).
+fn is_wasm_epoch_interrupt(err: &wasmtime::Error) -> bool {
+    err.downcast_ref::<WasmtimeTrap>() == Some(&WasmtimeTrap::Interrupt)
 }
 
 pub use porffor_runtime::{
@@ -128,6 +251,13 @@ pub struct RunOptions {
     pub module_root: Option<String>,
     pub test_path: Option<String>,
     pub can_block: bool,
+    /// Wall-clock bound for `ExecutionBackend::WasmAot` execution, enforced
+    /// in-process via wasmtime epoch interruption (see
+    /// `run_with_wasm_aot_inner`). `None` means "no caller-specified bound";
+    /// execution still runs under epoch interruption but with an
+    /// effectively-unbounded deadline, so it behaves as before this field
+    /// existed. Ignored by other backends.
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +342,7 @@ pub struct Engine {
 #[derive(Clone)]
 struct WasmHostState {
     realm: Realm,
+    limits: WasmtimeStoreLimits,
 }
 
 impl Engine {
@@ -384,7 +515,7 @@ impl Engine {
                 unit.source.goal,
                 run,
             ),
-            ExecutionBackend::WasmAot => self.run_with_wasm_aot(unit),
+            ExecutionBackend::WasmAot => self.run_with_wasm_aot(unit, run.timeout_ms),
         }
     }
 
@@ -440,11 +571,19 @@ impl Engine {
         ))
     }
 
-    fn run_with_wasm_aot(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
-        run_on_sized_stack(|| self.run_with_wasm_aot_inner(unit))
+    fn run_with_wasm_aot(
+        &self,
+        unit: &CompilationUnit,
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        run_on_sized_stack(|| self.run_with_wasm_aot_inner(unit, timeout_ms))
     }
 
-    fn run_with_wasm_aot_inner(&self, unit: &CompilationUnit) -> Result<RunOutcome, EngineError> {
+    fn run_with_wasm_aot_inner(
+        &self,
+        unit: &CompilationUnit,
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
         let trace_phase = |phase: &str| {
@@ -474,17 +613,9 @@ impl Engine {
         }
         trace_phase("emit");
 
-        let mut config = WasmtimeConfig::new();
-        config.cranelift_opt_level(OptLevel::None);
-        config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
-        config.max_wasm_stack(8 * 1024 * 1024);
-        config.wasm_threads(true);
-        config.wasm_function_references(true);
-        config.wasm_gc(true);
-        config.wasm_exceptions(true);
-        let engine = WasmtimeEngine::new(&config)
-            .map_err(|err| EngineError::new(format!("wasmtime engine setup failed: {err}")))?;
+        let engine = shared_wasm_engine()?;
         trace_phase("engine");
+        ensure_wasm_epoch_ticker(&engine);
         let module = WasmtimeModule::new(&engine, &artifact.bytes[..])
             .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err}")))?;
         trace_phase("module");
@@ -492,8 +623,24 @@ impl Engine {
             &engine,
             WasmHostState {
                 realm: self.realm.clone(),
+                limits: WasmtimeStoreLimitsBuilder::new()
+                    .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
+                    .build(),
             },
         );
+        store.limiter(|state| &mut state.limits);
+        // The engine has epoch interruption enabled process-wide (see
+        // `shared_wasm_engine`); every store must set an explicit deadline or
+        // it traps immediately (deadline defaults to epoch 0, which has
+        // already "elapsed"). Round the caller's timeout up to whole
+        // epoch-ticker ticks; with no caller-specified timeout, set a
+        // deadline so far in the future it is never practically reached, so
+        // behavior matches "no timeout" rather than "immediate trap".
+        let epoch_deadline_ticks = match timeout_ms {
+            Some(timeout_ms) => timeout_ms.div_ceil(WASM_EPOCH_TICK_MS).max(1),
+            None => u64::MAX / 2,
+        };
+        store.set_epoch_deadline(epoch_deadline_ticks);
         let mut linker = WasmtimeLinker::new(&engine);
         linker
             .func_wrap(
@@ -539,9 +686,24 @@ impl Engine {
             .get_typed_func::<(), i64>(&mut store, "main")
             .map_err(|err| EngineError::new(format!("wasmtime export lookup failed: {err}")))?;
         trace_phase("lookup main");
-        let payload = main
-            .call(&mut store, ())
-            .map_err(|err| EngineError::new(format!("wasmtime execution trapped: {err:?}")))?;
+        let payload = main.call(&mut store, ()).map_err(|err| {
+            if is_wasm_epoch_interrupt(&err) {
+                // Distinguish this from other traps with the same "timeout
+                // exceeded" phrasing the child-process/elapsed-time timeout
+                // path already uses (see
+                // `porffor_test262::run_one_case_in_child_process` and
+                // `run_one_case`), so both paths classify identically as
+                // timeouts downstream (FailureKind::Runtime,
+                // OutcomeKind timeout bucketing, `RunSummary::timeouts`).
+                EngineError::new(format!(
+                    "timeout exceeded after {}ms (wasm epoch interrupt, bound {}ms)",
+                    trace_start.elapsed().as_millis(),
+                    timeout_ms.unwrap_or(0)
+                ))
+            } else {
+                EngineError::new(format!("wasmtime execution trapped: {err:?}"))
+            }
+        })?;
         trace_phase("call main");
         let result_kind = instance
             .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
@@ -818,6 +980,9 @@ mod tests {
             &wasmi_engine,
             WasmHostState {
                 realm: engine.realm.clone(),
+                limits: WasmtimeStoreLimitsBuilder::new()
+                    .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
+                    .build(),
             },
         );
         let mut linker = WasmiLinker::new(&wasmi_engine);
@@ -1196,6 +1361,68 @@ mod tests {
             .expect("JSON.parse nested keyword validation should run");
         assert!(
             outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_wasm_aot_epoch_interruption_bounds_infinite_loop() {
+        // CRITICAL correctness check for the in-process default execution
+        // path (see `run_case_entry` in porffor-test262 and
+        // `run_with_wasm_aot_inner` above): a genuinely hanging Wasm-AOT
+        // module must trap out on its own on a bounded schedule instead of
+        // hanging this thread forever, since nothing else (no child process
+        // to kill) protects against it anymore.
+        let start = std::time::Instant::now();
+        let err = engine()
+            .run_script(
+                "while (true) {}",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(300),
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("an infinite loop must trap via epoch interruption, not hang");
+        let elapsed = start.elapsed();
+        assert!(
+            err.message().contains("timeout exceeded"),
+            "expected a timeout-classified error, got: {err}"
+        );
+        // Epoch ticks are WASM_EPOCH_TICK_MS (100ms) apart, so a 300ms bound
+        // should trip within a few ticks of that -- generous upper bound
+        // here to stay robust under a loaded CI/sandbox scheduler while
+        // still proving this is bounded, not "never returns".
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "epoch interruption should trap promptly, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn wasm_backend_wasm_aot_finishes_near_timeout_deadline_is_not_falsely_killed() {
+        // A case that legitimately finishes just under its deadline must
+        // still be reported as a success, not spuriously classified as a
+        // timeout because it happened to run close to the bound. Loop a
+        // bounded, deterministic amount of work rather than sleeping (Wasm
+        // has no sleep primitive here); this keeps the check fast while
+        // still exercising many epoch-check back-edges before returning
+        // normally, well inside a generous timeout bound.
+        let outcome = engine()
+            .run_script(
+                "var sum = 0; for (var i = 0; i < 200000; i++) { sum += i; } sum;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a legitimately-finishing case must not be falsely killed by the timeout");
+        assert!(
+            outcome.note.contains("number("),
             "note: {}",
             outcome.note
         );

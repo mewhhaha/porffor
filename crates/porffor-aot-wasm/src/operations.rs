@@ -2480,6 +2480,14 @@ impl<'a> FunctionBuilder<'a> {
                     // surfaced no callable (undefined) and the receiver is an ordinary
                     // object that inherits Object.prototype, so plain objects coerce to a
                     // primitive instead of throwing.
+                    //
+                    // This must NOT apply when the object (or its chain) has a real
+                    // `toString` property whose value happens to be `undefined` (e.g. an
+                    // own `toString: undefined` shadowing the inherited default) — that
+                    // case legitimately yields "no callable here", falls through to the
+                    // next hook without a default, and can end in a TypeError. Use
+                    // HasProperty to distinguish "genuinely absent" (apply the default)
+                    // from "present but non-callable" (do not).
                     function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(hook_value_tag));
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -2490,6 +2498,18 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     );
                     function.instruction(&Instruction::I32And);
+                    let has_tostring_local = self.reserve_temp_local();
+                    self.emit_object_has_property_i32(
+                        object_local,
+                        object_tag_local,
+                        key_local,
+                        has_tostring_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(has_tostring_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::I32And);
+                    self.release_temp_local(has_tostring_local);
                     function.instruction(&Instruction::If(BlockType::Empty));
                     function.instruction(&Instruction::I64Const(
                         self.strings.payload("[object Object]"),
@@ -7062,11 +7082,16 @@ impl<'a> FunctionBuilder<'a> {
         let output_local = self.reserve_temp_local();
         let sign_local = self.reserve_temp_local();
         let abs_local = self.reserve_temp_local();
+        let int_f_local = self.reserve_temp_local();
+        let frac_f_local = self.reserve_temp_local();
         let int_u_local = self.reserve_temp_local();
-        let digits_local = self.reserve_temp_local();
+        let fits_u64_local = self.reserve_temp_local();
+        let int_digits_local = self.reserve_temp_local();
+        let frac_digits_local = self.reserve_temp_local();
         let total_len_local = self.reserve_temp_local();
         let dst_offset_local = self.reserve_temp_local();
         let digit_start_local = self.reserve_temp_local();
+        let frac_start_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
@@ -7104,14 +7129,67 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(sign_local));
+
+        // int_f = trunc(abs); frac_f = abs - int_f (in [0, 1)).
         function.instruction(&Instruction::LocalGet(abs_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(int_f_local));
+        function.instruction(&Instruction::LocalGet(abs_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(int_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(frac_f_local));
+
+        // `i64.trunc_f64_u` traps outside [0, 2^64); values at or beyond that
+        // (e.g. 1e21) must not reach it, so branch to a bounded
+        // floating-point digit walk instead of trapping.
+        function.instruction(&Instruction::LocalGet(int_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(18446744073709551616.0)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(fits_u64_local));
+
+        function.instruction(&Instruction::LocalGet(fits_u64_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(int_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncF64U);
         function.instruction(&Instruction::LocalSet(int_u_local));
-        self.emit_count_radix_digits_u64(int_u_local, radix_local, digits_local, function);
+        self.emit_count_radix_digits_u64(int_u_local, radix_local, int_digits_local, function);
+        function.instruction(&Instruction::Else);
+        self.emit_count_radix_digits_f64_bounded(
+            int_f_local,
+            radix_local,
+            int_digits_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
+        self.emit_count_radix_fraction_digits(
+            frac_f_local,
+            radix_local,
+            frac_digits_local,
+            function,
+        );
+
         function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::LocalGet(int_digits_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(total_len_local));
         self.emit_heap_alloc_from_local(total_len_local, function)?;
@@ -7127,24 +7205,65 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(digit_start_local));
         function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(fits_u64_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_write_radix_u64(
             int_u_local,
             radix_local,
             digit_start_local,
-            digits_local,
+            int_digits_local,
             function,
         );
+        function.instruction(&Instruction::Else);
+        self.emit_write_radix_f64_bounded(
+            int_f_local,
+            radix_local,
+            digit_start_local,
+            int_digits_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(digit_start_local));
+        function.instruction(&Instruction::LocalGet(int_digits_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(frac_start_local));
+        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_ascii_byte_i64(frac_start_local, b'.', function);
+        function.instruction(&Instruction::LocalGet(frac_start_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(frac_start_local));
+        self.emit_write_radix_fraction_digits(
+            frac_f_local,
+            radix_local,
+            frac_start_local,
+            frac_digits_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
         self.emit_pack_string_payload(dst_offset_local, total_len_local, function);
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(output_local));
 
+        self.release_temp_local(frac_start_local);
         self.release_temp_local(digit_start_local);
         self.release_temp_local(dst_offset_local);
         self.release_temp_local(total_len_local);
-        self.release_temp_local(digits_local);
+        self.release_temp_local(frac_digits_local);
+        self.release_temp_local(int_digits_local);
+        self.release_temp_local(fits_u64_local);
         self.release_temp_local(int_u_local);
+        self.release_temp_local(frac_f_local);
+        self.release_temp_local(int_f_local);
         self.release_temp_local(abs_local);
         self.release_temp_local(sign_local);
         self.release_temp_local(output_local);
@@ -7718,6 +7837,370 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(digit_local);
         self.release_temp_local(pos_local);
         self.release_temp_local(index_local);
+        self.release_temp_local(temp_local);
+    }
+
+    // Bounded, floating-point-based counterparts of `emit_count_radix_digits_u64`
+    // / `emit_write_radix_u64` for integer magnitudes that do not fit in a u64
+    // (so `i64.trunc_f64_u` would trap). Digit extraction stays in the f64
+    // domain the whole time (never truncates the magnitude itself into an
+    // integer type), so it can never trap; only the final small remainder
+    // (always in `[0, radix)`) is ever truncated to i64. For power-of-two
+    // radixes (2, 8, 16, 32) every division/multiplication by the radix is
+    // exact in IEEE 754, so the produced digits are exact. For other radixes
+    // at magnitudes this large, digits beyond the double's ~53 bits of
+    // precision are not fully significant regardless of algorithm (the
+    // double itself does not carry that information); the loop is bounded so
+    // it always terminates instead of hanging or trapping.
+    const MAX_RADIX_BIG_INTEGER_DIGITS: i64 = 1100;
+    const MAX_RADIX_FRACTION_DIGITS: i64 = 1100;
+
+    pub(crate) fn emit_count_radix_digits_f64_bounded(
+        &mut self,
+        value_local: u32,
+        radix_local: u32,
+        digits_local: u32,
+        function: &mut Function,
+    ) {
+        let temp_local = self.reserve_temp_local();
+        let radix_f_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(radix_f_local));
+
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(digits_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Div);
+        function.instruction(&Instruction::F64Floor);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(digits_local));
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64Const(Self::MAX_RADIX_BIG_INTEGER_DIGITS));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(radix_f_local);
+        self.release_temp_local(temp_local);
+    }
+
+    pub(crate) fn emit_write_radix_f64_bounded(
+        &mut self,
+        value_local: u32,
+        radix_local: u32,
+        start_offset_local: u32,
+        digits_local: u32,
+        function: &mut Function,
+    ) {
+        let temp_local = self.reserve_temp_local();
+        let radix_f_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let pos_local = self.reserve_temp_local();
+        let quotient_local = self.reserve_temp_local();
+        let digit_local = self.reserve_temp_local();
+        let char_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(radix_f_local));
+
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::LocalGet(start_offset_local));
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(pos_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(pos_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(pos_local));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Div);
+        function.instruction(&Instruction::F64Floor);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(quotient_local));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(quotient_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::F64Sub);
+        // For non-power-of-two radixes at magnitudes far beyond exact double
+        // precision (e.g. Number.MAX_VALUE), `quotient * radix_f` is itself
+        // only accurate to ~1e-16 relative error, but `quotient` there can be
+        // ~1e300+, so the *absolute* error can be enormous — nowhere near
+        // "infinitesimally outside [0, radix_f)". `temp - quotient * radix_f`
+        // can land far negative or far positive. `i64.trunc_f64_u` traps on
+        // any input outside `[0, 2^64)`, so clamp both bounds defensively
+        // before truncating: never let floating-point noise crash the VM
+        // (the digit itself is already best-effort/inexact at this
+        // magnitude for non-power-of-two radixes; clamping just guarantees
+        // it stays a valid digit character instead of trapping).
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Max);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::F64Min);
+        function.instruction(&Instruction::I64TruncF64U);
+        function.instruction(&Instruction::LocalSet(digit_local));
+
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const(b'0' as i64));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(char_local));
+        function.instruction(&Instruction::LocalGet(pos_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(char_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+
+        function.instruction(&Instruction::LocalGet(quotient_local));
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(char_local);
+        self.release_temp_local(digit_local);
+        self.release_temp_local(quotient_local);
+        self.release_temp_local(pos_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(radix_f_local);
+        self.release_temp_local(temp_local);
+    }
+
+    // Counts/writes the fractional digits of the Number::toString(radix)
+    // representation. `frac_local` holds the f64 bit pattern of a value in
+    // `[0, 1)` (`abs - trunc(abs)`). Bounded the same way as the integer
+    // helpers above so a fraction that never exactly terminates in the
+    // requested radix (e.g. any non-power-of-two radix applied to a value
+    // whose exact binary fraction doesn't share the radix's prime factors)
+    // still produces a finite string instead of looping forever.
+    pub(crate) fn emit_count_radix_fraction_digits(
+        &mut self,
+        frac_local: u32,
+        radix_local: u32,
+        digits_local: u32,
+        function: &mut Function,
+    ) {
+        let temp_local = self.reserve_temp_local();
+        let radix_f_local = self.reserve_temp_local();
+        let digit_f_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(radix_f_local));
+
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(digits_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Le);
+        function.instruction(&Instruction::BrIf(1));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(temp_local));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Floor);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(digit_f_local));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(digit_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(temp_local));
+
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(digits_local));
+
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64Const(Self::MAX_RADIX_FRACTION_DIGITS));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::BrIf(1));
+
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(digit_f_local);
+        self.release_temp_local(radix_f_local);
+        self.release_temp_local(temp_local);
+    }
+
+    pub(crate) fn emit_write_radix_fraction_digits(
+        &mut self,
+        frac_local: u32,
+        radix_local: u32,
+        start_offset_local: u32,
+        digits_local: u32,
+        function: &mut Function,
+    ) {
+        let temp_local = self.reserve_temp_local();
+        let radix_f_local = self.reserve_temp_local();
+        let digit_f_local = self.reserve_temp_local();
+        let digit_local = self.reserve_temp_local();
+        let char_local = self.reserve_temp_local();
+        let pos_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(radix_f_local));
+
+        function.instruction(&Instruction::LocalGet(frac_local));
+        function.instruction(&Instruction::LocalSet(temp_local));
+        function.instruction(&Instruction::LocalGet(start_offset_local));
+        function.instruction(&Instruction::LocalSet(pos_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(temp_local));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Floor);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(digit_f_local));
+
+        function.instruction(&Instruction::LocalGet(digit_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64U);
+        function.instruction(&Instruction::LocalSet(digit_local));
+
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const(b'0' as i64));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(char_local));
+
+        function.instruction(&Instruction::LocalGet(pos_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(char_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+
+        function.instruction(&Instruction::LocalGet(temp_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(digit_f_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(temp_local));
+
+        function.instruction(&Instruction::LocalGet(pos_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(pos_local));
+
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(index_local);
+        self.release_temp_local(pos_local);
+        self.release_temp_local(char_local);
+        self.release_temp_local(digit_local);
+        self.release_temp_local(digit_f_local);
+        self.release_temp_local(radix_f_local);
         self.release_temp_local(temp_local);
     }
 

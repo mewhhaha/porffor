@@ -1,6 +1,7 @@
 use crate::{
     FunctionId, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
-    BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
+    BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, SYMBOL_NAME,
+    BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
     BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
@@ -600,6 +601,9 @@ pub enum StandardBuiltinId {
     BooleanConstructor,
     BooleanPrototypeToString,
     BooleanPrototypeValueOf,
+    SymbolConstructor,
+    SymbolFor,
+    SymbolKeyFor,
     ErrorConstructor,
     ErrorIsError,
     EvalErrorConstructor,
@@ -696,8 +700,11 @@ impl StandardBuiltinId {
             | Self::StringPrototypeIsWellFormed
             | Self::StringPrototypeToWellFormed
             | Self::BooleanPrototypeToString
-            | Self::BooleanPrototypeValueOf => None,
+            | Self::BooleanPrototypeValueOf
+            | Self::SymbolFor
+            | Self::SymbolKeyFor => None,
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
+            Self::SymbolConstructor => Some(SYMBOL_NAME),
             Self::ErrorConstructor => Some(ERROR_NAME),
             Self::EvalErrorConstructor => Some(EVAL_ERROR_NAME),
             Self::RangeErrorConstructor => Some(RANGE_ERROR_NAME),
@@ -1328,6 +1335,9 @@ impl StandardBuiltinId {
             Self::StringPrototypeIsWellFormed => "String.prototype.isWellFormed",
             Self::StringPrototypeToWellFormed => "String.prototype.toWellFormed",
             Self::BooleanConstructor => BOOLEAN_NAME,
+            Self::SymbolConstructor => SYMBOL_NAME,
+            Self::SymbolFor => "Symbol.for",
+            Self::SymbolKeyFor => "Symbol.keyFor",
             Self::BooleanPrototypeToString => "Boolean.prototype.toString",
             Self::BooleanPrototypeValueOf => "Boolean.prototype.valueOf",
             Self::ErrorConstructor => ERROR_NAME,
@@ -1967,6 +1977,9 @@ impl StandardBuiltinId {
                 BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID.to_string()
             }
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
+            Self::SymbolConstructor => BUILTIN_SYMBOL_FUNCTION_ID.to_string(),
+            Self::SymbolFor => BUILTIN_SYMBOL_FOR_FUNCTION_ID.to_string(),
+            Self::SymbolKeyFor => BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID.to_string(),
             Self::BooleanPrototypeToString => "$builtin.Boolean.prototype.toString".to_string(),
             Self::BooleanPrototypeValueOf => "$builtin.Boolean.prototype.valueOf".to_string(),
             Self::ErrorConstructor => BUILTIN_ERROR_FUNCTION_ID.to_string(),
@@ -2512,6 +2525,9 @@ impl StandardBuiltinId {
                 Some(Self::StringPrototypeToWellFormed)
             }
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
+            BUILTIN_SYMBOL_FUNCTION_ID => Some(Self::SymbolConstructor),
+            BUILTIN_SYMBOL_FOR_FUNCTION_ID => Some(Self::SymbolFor),
+            BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID => Some(Self::SymbolKeyFor),
             "$builtin.Boolean.prototype.toString" => Some(Self::BooleanPrototypeToString),
             "$builtin.Boolean.prototype.valueOf" => Some(Self::BooleanPrototypeValueOf),
             BUILTIN_ERROR_FUNCTION_ID => Some(Self::ErrorConstructor),
@@ -2565,6 +2581,7 @@ impl StandardBuiltinId {
             Self::GlobalIsNaN,
             Self::StringConstructor,
             Self::BooleanConstructor,
+            Self::SymbolConstructor,
             Self::ErrorConstructor,
             Self::EvalErrorConstructor,
             Self::AggregateErrorConstructor,
@@ -2918,6 +2935,9 @@ impl StandardBuiltinId {
             Self::BooleanConstructor,
             Self::BooleanPrototypeToString,
             Self::BooleanPrototypeValueOf,
+            Self::SymbolConstructor,
+            Self::SymbolFor,
+            Self::SymbolKeyFor,
             Self::ErrorConstructor,
             Self::ErrorIsError,
             Self::EvalErrorConstructor,
@@ -3033,6 +3053,8 @@ impl StandardBuiltinId {
                 | Self::NumberIsSafeInteger
                 | Self::NumberIsFinite
                 | Self::NumberIsNaN
+                | Self::SymbolFor
+                | Self::SymbolKeyFor
                 | Self::MathAbs
                 | Self::MathAcos
                 | Self::MathAcosh
@@ -3472,6 +3494,9 @@ impl StandardBuiltinId {
             Self::StringPrototypeIsWellFormed => Some("isWellFormed"),
             Self::StringPrototypeToWellFormed => Some("toWellFormed"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
+            Self::SymbolConstructor => Some(SYMBOL_NAME),
+            Self::SymbolFor => Some("for"),
+            Self::SymbolKeyFor => Some("keyFor"),
             Self::BooleanPrototypeToString => Some("toString"),
             Self::BooleanPrototypeValueOf => Some("valueOf"),
             Self::ErrorConstructor => Some(ERROR_NAME),

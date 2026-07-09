@@ -30,8 +30,55 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::I64Const(value.wrapping_payload() as i64));
             }
-            ExprIr::Symbol => {
-                self.emit_heap_alloc_const(8, function)?;
+            ExprIr::Symbol { description } => {
+                // Allocate a symbol record and record its `[[Description]]`
+                // (undefined, or a coerced string) so `.description` can read
+                // it back. The record handle itself is the symbol value and
+                // gives each `Symbol()` a unique identity.
+                let handle_local = self.reserve_temp_local();
+                self.emit_heap_alloc_const(HEAP_SYMBOL_RECORD_SIZE, function)?;
+                function.instruction(&Instruction::LocalSet(handle_local));
+                match description {
+                    None => {
+                        self.store_i64_const_at_offset(
+                            handle_local,
+                            HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                            ValueKind::Undefined.tag() as u64,
+                            function,
+                        );
+                    }
+                    Some(description) => {
+                        let desc_payload_local = self.reserve_temp_local();
+                        let desc_tag_local = self.reserve_temp_local();
+                        self.compile_expr_to_locals(
+                            description,
+                            desc_payload_local,
+                            desc_tag_local,
+                            function,
+                        )?;
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            desc_payload_local,
+                            desc_tag_local,
+                            function,
+                        )?;
+                        self.store_i64_local_at_offset(
+                            handle_local,
+                            HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                            desc_tag_local,
+                            function,
+                        );
+                        self.store_i64_local_at_offset(
+                            handle_local,
+                            HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                            desc_payload_local,
+                            function,
+                        );
+                        self.release_temp_local(desc_tag_local);
+                        self.release_temp_local(desc_payload_local);
+                    }
+                }
+                function.instruction(&Instruction::LocalGet(handle_local));
+                self.release_temp_local(handle_local);
             }
             ExprIr::String(value) => {
                 function.instruction(&Instruction::I64Const(self.strings.payload(value)));

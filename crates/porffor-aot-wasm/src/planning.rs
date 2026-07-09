@@ -214,6 +214,47 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::ArrayBufferConstructor);
             }
+            StandardBuiltinId::NumberPrototypeToFixed
+            | StandardBuiltinId::NumberPrototypeToExponential
+            | StandardBuiltinId::NumberPrototypeToPrecision
+            | StandardBuiltinId::NumberPrototypeToString
+            | StandardBuiltinId::NumberPrototypeToLocaleString
+            | StandardBuiltinId::NumberPrototypeValueOf => {
+                // These bodies can be reached purely via dynamic property
+                // dispatch on a Number-typed value (no direct call-site
+                // FunctionId reference), so `should_stub_standard_builtin`
+                // alone isn't enough to guarantee the property gets installed:
+                // `Number.prototype`'s own-properties are only written by the
+                // `NumberConstructor` bootstrap block, which is separately
+                // gated on this same root set. Without forcing the
+                // constructor in here too, the method body compiles but its
+                // `Number.prototype` property is silently never defined, so
+                // the runtime property read at the call site resolves to
+                // `undefined` and traps instead of throwing/working.
+                self.standard_roots
+                    .insert(StandardBuiltinId::NumberConstructor);
+            }
+            StandardBuiltinId::BooleanPrototypeToString | StandardBuiltinId::BooleanPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::BooleanConstructor);
+            }
+            StandardBuiltinId::SymbolFor | StandardBuiltinId::SymbolKeyFor => {
+                // `Symbol.for` / `Symbol.keyFor` live on the `Symbol`
+                // constructor object and share its runtime registry, which is
+                // only allocated by the `SymbolConstructor` bootstrap block.
+                self.standard_roots
+                    .insert(StandardBuiltinId::SymbolConstructor);
+            }
+            StandardBuiltinId::StringPrototypeToString | StandardBuiltinId::StringPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::StringConstructor);
+            }
+            StandardBuiltinId::BigIntPrototypeToString
+            | StandardBuiltinId::BigIntPrototypeToLocaleString
+            | StandardBuiltinId::BigIntPrototypeValueOf => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::BigIntConstructor);
+            }
             StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
             | StandardBuiltinId::SharedArrayBufferPrototypeMaxByteLengthGetter
             | StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter
@@ -617,7 +658,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -965,7 +1006,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -1091,6 +1132,62 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
+    if builtin == StandardBuiltinId::ObjectKeys
+        && (script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+            || script_references_standard_builtin(script, StandardBuiltinId::JsonParse))
+    {
+        // The runtime-recursive JSON.stringify / JSON.parse helpers reach
+        // Object.keys dynamically (own-key enumeration, both as a direct call
+        // and through a funcref-table dispatch). It is never referenced in the
+        // script text, so force its body to be emitted here rather than letting
+        // the dispatch land on the shared stub.
+        return false;
+    }
+    if (builtin == StandardBuiltinId::ObjectKeys
+        || builtin == StandardBuiltinId::ObjectGetOwnPropertyNames)
+        && script_uses_for_in_enumeration(script)
+    {
+        // `for...in` over an array or object target compiles to
+        // `compile_for_in_object`, whose key-snapshot codegen calls
+        // `Object.keys` and `Object.getOwnPropertyNames` directly in wasm
+        // (not through a typed IR call), so plain `for...in` usage with no
+        // other reference to these builtins would otherwise hit the shared
+        // "not emitted" stub at runtime.
+        return false;
+    }
+    if matches!(
+        builtin,
+        StandardBuiltinId::StringPrototypeToString
+            | StandardBuiltinId::StringPrototypeValueOf
+            | StandardBuiltinId::NumberPrototypeToString
+            | StandardBuiltinId::NumberPrototypeValueOf
+            | StandardBuiltinId::BooleanPrototypeToString
+            | StandardBuiltinId::BooleanPrototypeValueOf
+            | StandardBuiltinId::BigIntPrototypeToString
+            | StandardBuiltinId::BigIntPrototypeValueOf
+    ) && script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+    {
+        // JSON.stringify coerces primitive-wrapper objects (String/Number/
+        // Boolean/BigInt exotic objects, and String/Number `space` arguments)
+        // to primitives by dynamically reading and invoking their `toString` /
+        // `valueOf` methods, which resolve to these prototype builtins. They are
+        // never statically referenced, so materialize them alongside the helper
+        // instead of letting the dynamic dispatch hit the shared stub.
+        return false;
+    }
+    if builtin == StandardBuiltinId::StringPrototypeSplit
+        && script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+    {
+        // `JSON.stringify` returns a value typed `String | undefined`
+        // (never a single concrete `ValueKind`), so a subsequent
+        // `result.split(...)` call on that value cannot be statically
+        // resolved to `StringPrototypeSplit` at the call site — it goes
+        // through the generic dynamic-callee dispatch path instead, which
+        // records no static reference. Materialize it alongside the
+        // `JSON.stringify` helper rather than letting that dispatch land on
+        // the shared "not emitted" stub.
+        return false;
+    }
     if builtin == StandardBuiltinId::ReflectSet
         && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
@@ -1099,6 +1196,32 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if builtin == StandardBuiltinId::StringPrototypeStartsWith
         && script_references_standard_builtin(script, StandardBuiltinId::ProxyConstructor)
     {
+        return false;
+    }
+    if builtin == StandardBuiltinId::ProxyRevoke
+        && script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable)
+    {
+        // `Proxy.revocable`'s implementation synthesizes a bound function whose
+        // target is `[[ProxyRevoke]]` directly in codegen (not through a typed
+        // IR call), so the revoke half of the pair never shows up as a
+        // reachable `function_targets` reference on its own. Without this,
+        // `should_stub_standard_builtin` sees no reference to `ProxyRevoke` and
+        // stubs its body, so invoking the returned `revoke()` function lands on
+        // the shared "not emitted" stub instead of actually revoking the proxy.
+        return false;
+    }
+    if builtin == StandardBuiltinId::BoundFunctionInvoker
+        && (script_references_standard_builtin(script, StandardBuiltinId::FunctionPrototypeBind)
+            || script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable))
+    {
+        // `[[BoundFunctionInvoke]]` is the shared dispatch body every bound
+        // function's table slot points to. It is wired in directly via codegen
+        // (`emit_alloc_bound_function_value`) whenever `Function.prototype.bind`
+        // or `Proxy.revocable` (which synthesizes its own bound `revoke`
+        // function) runs, never through a typed IR call, so the reachability
+        // scan never sees it referenced and stubs it out — leaving every bound
+        // function call land on the shared "not emitted" stub instead of the
+        // real invoker.
         return false;
     }
 
@@ -1118,6 +1241,95 @@ fn ordinary_native_error_constructors() -> [StandardBuiltinId; 6] {
 
 pub(crate) fn script_uses_create_realm(script: &ScriptIr) -> bool {
     script.host_builtins.contains(&HostBuiltinId::CreateRealm)
+}
+
+/// Whether the script contains a `for...in` loop over an array or object
+/// target (`StatementIr::ForInArray` / `StatementIr::ForInObject`).
+///
+/// Both compile down to `compile_for_in_object`, whose key-snapshot codegen
+/// (`emit_for_in_object_key_snapshot`) calls `Object.keys` and
+/// `Object.getOwnPropertyNames` directly via wasm codegen rather than
+/// through a typed IR call, so `script_references_standard_builtin` never
+/// sees them referenced. Without this carve-out, ordinary `for...in` usage
+/// with no other reference to those builtins hits the "not emitted" stub at
+/// runtime. `for...in` over a string (`ForInString`) is self-contained and
+/// does not need this.
+pub(crate) fn script_uses_for_in_enumeration(script: &ScriptIr) -> bool {
+    block_uses_for_in_enumeration(&script.body)
+        || script
+            .functions
+            .iter()
+            .any(|function| block_uses_for_in_enumeration(&function.body))
+}
+
+fn block_uses_for_in_enumeration(block: &BlockIr) -> bool {
+    block
+        .statements
+        .iter()
+        .any(statement_uses_for_in_enumeration)
+}
+
+fn statement_uses_for_in_enumeration(statement: &StatementIr) -> bool {
+    match statement {
+        StatementIr::ForInArray { .. } | StatementIr::ForInObject { .. } => true,
+        StatementIr::Empty
+        | StatementIr::Debugger
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. }
+        | StatementIr::Lexical { .. }
+        | StatementIr::Expression(_)
+        | StatementIr::Throw(_)
+        | StatementIr::Return(_)
+        | StatementIr::Var(_) => false,
+        StatementIr::LexicalBlock(statements) => {
+            statements.iter().any(statement_uses_for_in_enumeration)
+        }
+        StatementIr::Block(block) => block_uses_for_in_enumeration(block),
+        StatementIr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            statement_uses_for_in_enumeration(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(statement_uses_for_in_enumeration)
+        }
+        StatementIr::While { body, .. } | StatementIr::DoWhile { body, .. } => {
+            statement_uses_for_in_enumeration(body)
+        }
+        StatementIr::For { body, .. } => statement_uses_for_in_enumeration(body),
+        StatementIr::ForOfArray { body, .. }
+        | StatementIr::ForOfString { body, .. }
+        | StatementIr::ForOfIterator { body, .. }
+        | StatementIr::ForInString { body, .. } => statement_uses_for_in_enumeration(body),
+        StatementIr::Switch { cases, .. } => cases
+            .iter()
+            .any(|case| block_uses_for_in_enumeration(&case.body)),
+        StatementIr::Labelled { statement, .. } => statement_uses_for_in_enumeration(statement),
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => block_uses_for_in_enumeration(try_block) || block_uses_for_in_enumeration(catch_block),
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+        } => {
+            block_uses_for_in_enumeration(try_block)
+                || block_uses_for_in_enumeration(finally_block)
+        }
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            block_uses_for_in_enumeration(try_block)
+                || block_uses_for_in_enumeration(catch_block)
+                || block_uses_for_in_enumeration(finally_block)
+        }
+    }
 }
 
 pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) -> bool {
@@ -1279,6 +1491,8 @@ pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) 
             | StandardBuiltinId::BooleanPrototypeValueOf
             | StandardBuiltinId::ProxyConstructor
             | StandardBuiltinId::ProxyRevocable
+            | StandardBuiltinId::ProxyRevoke
+            | StandardBuiltinId::BoundFunctionInvoker
             | StandardBuiltinId::RegExpConstructor
             | StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::DateConstructor
@@ -1850,6 +2064,36 @@ pub(crate) fn optimized_call_method_references_function(
     let PropertyKeyIr::StaticString(name) = key else {
         return false;
     };
+    if name == "toString" {
+        // Dynamically dispatched (receiver type not statically known to be a
+        // literal), so no single call site pins one FunctionId. Without these
+        // arms, `should_stub_standard_builtin` treats every primitive-wrapper
+        // `toString` as unreferenced whenever it's only reached via runtime
+        // property lookup (e.g. `computedNumber.toString(16)`), so the
+        // builtin body is stubbed AND its Number.prototype/String.prototype/
+        // etc. property is never installed, leaving the runtime property
+        // read to resolve to `undefined` and trap on the "callee must be a
+        // function" check instead of throwing.
+        return StandardBuiltinId::NumberPrototypeToString.function_id() == *target
+            || StandardBuiltinId::StringPrototypeToString.function_id() == *target
+            || StandardBuiltinId::BooleanPrototypeToString.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeToString.function_id() == *target;
+    }
+    if name == "valueOf" {
+        return StandardBuiltinId::NumberPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::StringPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::BooleanPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeValueOf.function_id() == *target;
+    }
+    if name == "toFixed" {
+        return StandardBuiltinId::NumberPrototypeToFixed.function_id() == *target;
+    }
+    if name == "toPrecision" {
+        return StandardBuiltinId::NumberPrototypeToPrecision.function_id() == *target;
+    }
+    if name == "toExponential" {
+        return StandardBuiltinId::NumberPrototypeToExponential.function_id() == *target;
+    }
     if name == "includes" {
         return StandardBuiltinId::ArrayPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target;
@@ -1915,9 +2159,13 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "slice" {
         return StandardBuiltinId::StringPrototypeSlice.function_id() == *target;
     }
+    if name == "toLocaleString" {
+        return StandardBuiltinId::ArrayPrototypeToLocaleString.function_id() == *target
+            || StandardBuiltinId::NumberPrototypeToLocaleString.function_id() == *target
+            || StandardBuiltinId::BigIntPrototypeToLocaleString.function_id() == *target;
+    }
     let builtin = match name.as_str() {
         "concat" => StandardBuiltinId::ArrayPrototypeConcat,
-        "toLocaleString" => StandardBuiltinId::ArrayPrototypeToLocaleString,
         "flat" => StandardBuiltinId::ArrayPrototypeFlat,
         "flatMap" => StandardBuiltinId::ArrayPrototypeFlatMap,
         "push" => StandardBuiltinId::ArrayPrototypePush,
@@ -2115,7 +2363,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::This
         | ExprIr::Arguments
@@ -2319,6 +2567,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
         StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => 1,
         StandardBuiltinId::ObjectPrototypeIsPrototypeOf => 1,
+        StandardBuiltinId::SymbolConstructor => 0,
+        StandardBuiltinId::SymbolFor => 1,
+        StandardBuiltinId::SymbolKeyFor => 1,
         StandardBuiltinId::ObjectPrototypeToString => 0,
         StandardBuiltinId::ObjectPrototypeToLocaleString => 0,
         StandardBuiltinId::ObjectPrototypeValueOf => 0,
@@ -3114,7 +3365,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::This
         | ExprIr::Identifier(_)
@@ -3244,7 +3495,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -3948,7 +4199,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This

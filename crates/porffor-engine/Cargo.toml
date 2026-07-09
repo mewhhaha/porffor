@@ -13,7 +13,7 @@ porffor-ir = { path = "../porffor-ir" }
 porffor-runtime = { path = "../porffor-runtime" }
 porffor-spec-exec = { path = "../porffor-spec-exec", optional = true }
 wasmi = "0.31.2"
-wasmtime = { version = "38.0.4", default-features = false, features = ["cranelift", "gc", "gc-drc", "gc-null", "runtime", "std", "threads"] }
+wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "gc-null", "runtime", "std", "threads"] }
 
 [dev-dependencies]
 wasmparser = "0.245.1"

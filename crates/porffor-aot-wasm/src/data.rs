@@ -605,6 +605,26 @@ impl StringPool {
             "Symbol.split",
             "Symbol.toStringTag",
             "Symbol.toPrimitive",
+            "Symbol is not a constructor",
+            "Symbol.keyFor argument must be a symbol",
+            "Symbol.asyncIterator",
+            "Symbol.hasInstance",
+            "Symbol.unscopables",
+            "Symbol.asyncDispose",
+            "Symbol",
+            "iterator",
+            "asyncIterator",
+            "hasInstance",
+            "isConcatSpreadable",
+            "species",
+            "toStringTag",
+            "toPrimitive",
+            "unscopables",
+            "dispose",
+            "asyncDispose",
+            "for",
+            "keyFor",
+            "description",
             "(?:)",
             "source",
             "flags",
@@ -1206,8 +1226,11 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
-            ExprIr::Symbol => {
+            ExprIr::Symbol { description } => {
                 self.uses_heap = true;
+                if let Some(description) = description {
+                    self.collect_expr(description);
+                }
             }
             ExprIr::String(value) => {
                 self.intern_string(value);

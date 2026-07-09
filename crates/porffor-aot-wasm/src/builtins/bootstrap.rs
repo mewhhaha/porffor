@@ -2199,6 +2199,133 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 }
             }
+            StandardBuiltinId::SymbolConstructor => {
+                // `Symbol` is not constructable, so the generic
+                // prototype/constructor wiring above (gated on
+                // `constructable()`) is skipped. Wire `Symbol.prototype`
+                // (non-writable/enumerable/configurable) and the
+                // `Symbol.prototype.constructor` back-reference here, then
+                // install the well-known symbols as non-writable,
+                // non-enumerable, non-configurable data properties whose
+                // values are the interned well-known symbol values.
+                function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    false,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::LocalGet(object_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+
+                // Symbol.prototype[Symbol.toStringTag] === "Symbol"
+                // (non-writable, non-enumerable, configurable).
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("Symbol")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+
+                for (key, value) in [
+                    ("iterator", "Symbol.iterator"),
+                    ("asyncIterator", "Symbol.asyncIterator"),
+                    ("hasInstance", "Symbol.hasInstance"),
+                    ("isConcatSpreadable", "Symbol.isConcatSpreadable"),
+                    ("match", "Symbol.match"),
+                    ("matchAll", "Symbol.matchAll"),
+                    ("replace", "Symbol.replace"),
+                    ("search", "Symbol.search"),
+                    ("species", "Symbol.species"),
+                    ("split", "Symbol.split"),
+                    ("toPrimitive", "Symbol.toPrimitive"),
+                    ("toStringTag", "Symbol.toStringTag"),
+                    ("unscopables", "Symbol.unscopables"),
+                    ("dispose", "Symbol.dispose"),
+                    ("asyncDispose", "Symbol.asyncDispose"),
+                ] {
+                    function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_data_property_with_flags(
+                        object_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        false,
+                        false,
+                        false,
+                        function,
+                    )?;
+                }
+
+                // Global symbol registry backing `Symbol.for` / `Symbol.keyFor`:
+                // a null-prototype ordinary object mapping description strings to
+                // the canonical registered symbol values.
+                self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+                function.instruction(&Instruction::GlobalSet(SYMBOL_REGISTRY_GLOBAL_INDEX));
+
+                if let Some(for_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolFor.function_id())
+                    .cloned()
+                {
+                    self.emit_object_define_function_data(object_local, "for", &for_meta, function)?;
+                }
+                if let Some(key_for_meta) = self
+                    .functions
+                    .get(&StandardBuiltinId::SymbolKeyFor.function_id())
+                    .cloned()
+                {
+                    self.emit_object_define_function_data(
+                        object_local,
+                        "keyFor",
+                        &key_for_meta,
+                        function,
+                    )?;
+                }
+            }
             StandardBuiltinId::NumberConstructor => {
                 function.instruction(&Instruction::GlobalGet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(prototype_object_local));
@@ -2724,7 +2851,9 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::EvalFunction
             | StandardBuiltinId::ThrowTypeError
             | StandardBuiltinId::Escape
-            | StandardBuiltinId::Unescape => {}
+            | StandardBuiltinId::Unescape
+            | StandardBuiltinId::SymbolFor
+            | StandardBuiltinId::SymbolKeyFor => {}
         }
 
         self.release_temp_local(prototype_object_local);
@@ -3721,6 +3850,12 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(ERROR_PROTOTYPE_GLOBAL_INDEX));
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(ERROR_PROTOTYPE_GLOBAL_INDEX));
@@ -4157,6 +4292,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::BooleanConstructor,
                 BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::SymbolConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::SymbolConstructor,
+                SYMBOL_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

@@ -35,9 +35,14 @@ const MATRIX_STRATEGY_VERSION: u32 = 2;
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
 const MATRIX_RECURSION_THRESHOLD: usize = 500;
 const MATRIX_CHUNK_SIZE: usize = 250;
-// Resume path is used by low-RAM matrix publication. Checkpoint after every
-// completed case so a timed-out process never restarts a whole slow node.
-const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 1;
+// Resume path is used by low-RAM matrix publication. Checkpoint periodically
+// so a timed-out process never restarts a whole slow node, without paying the
+// O(n) summarize/sort/fs::write cost after every single case (which made
+// resume runs O(n^2) in the number of completed cases). A final checkpoint is
+// always written after the run completes, so normal exits never lose
+// progress; only an interrupt can lose up to `RESUME_CASE_CHECKPOINT_INTERVAL
+// - 1` already-completed cases.
+const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 25;
 const DISABLE_CASE_RUNNER_ENV: &str = "PORFFOR_TEST262_DISABLE_CASE_RUNNER";
 static TEST262_PANIC_HOOK: Once = Once::new();
 
@@ -20106,24 +20111,20 @@ fn execute_cases(
         return Ok(existing);
     }
 
-    if run_config.resume {
-        let mut all_results = completed.into_values().collect::<Vec<_>>();
-        all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
-        for (index, case) in remaining.into_iter().enumerate() {
-            let result = run_case_entry(config, preludes, &case, run_config);
-            all_results.push(result);
-            all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
-
-            if (index + 1) % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
-                write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
-            }
-        }
-        return Ok(all_results);
-    }
+    // Resume mode used to run this loop fully single-threaded (ignoring
+    // --threads / worker_count), which made resumed low-RAM matrix runs far
+    // slower than fresh ones. It now shares the same worker pool as the
+    // non-resume path; `resume` only controls which cases were skipped above
+    // and how often the coordinator checkpoints progress below.
+    let previously_completed: Vec<TestResult> = completed.into_values().collect();
 
     let queue = Arc::new(Mutex::new(remaining));
     let results = Arc::new(Mutex::new(Vec::new()));
     let worker_count = config.worker_count.max(1).min(cases.len().max(1));
+    // Guarded by the same mutex as `results` so the "did we cross a
+    // checkpoint boundary" decision is race-safe: the length check happens
+    // while still holding the lock that guards pushes into `results`.
+    let checkpoint_error: Mutex<Option<String>> = Mutex::new(None);
 
     thread::scope(|scope| {
         for _ in 0..worker_count {
@@ -20140,6 +20141,8 @@ fn execute_cases(
                 execution_backend: run_config.execution_backend,
                 max_matrix_nodes: None,
             };
+            let previously_completed = &previously_completed;
+            let checkpoint_error = &checkpoint_error;
             thread::Builder::new()
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, move || loop {
@@ -20152,15 +20155,62 @@ fn execute_cases(
                     };
                     let result =
                         run_case_entry(&worker_config, &preludes, &case, &worker_run_config);
-                    results.lock().expect("results mutex poisoned").push(result);
+
+                    let checkpoint_snapshot = {
+                        let mut guard = results.lock().expect("results mutex poisoned");
+                        guard.push(result);
+                        if run_config.resume
+                            && guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0
+                        {
+                            let mut snapshot_results = previously_completed.clone();
+                            snapshot_results.extend(guard.iter().cloned());
+                            Some(snapshot_results)
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(mut snapshot_results) = checkpoint_snapshot {
+                        snapshot_results
+                            .sort_by(|left, right| left.test_path.cmp(&right.test_path));
+                        if let Err(err) = write_resume_case_checkpoint(
+                            &worker_config,
+                            manifest,
+                            &snapshot_results,
+                            run_config,
+                        ) {
+                            let mut error_guard = checkpoint_error
+                                .lock()
+                                .expect("checkpoint error mutex poisoned");
+                            if error_guard.is_none() {
+                                *error_guard = Some(err);
+                            }
+                        }
+                    }
                 })
                 .expect("worker thread should spawn");
         }
     });
 
-    let mut all_results = completed.into_values().collect::<Vec<_>>();
+    if let Some(err) = checkpoint_error
+        .into_inner()
+        .expect("checkpoint error mutex poisoned")
+    {
+        return Err(err);
+    }
+
+    let mut all_results = previously_completed;
     all_results.extend(results.lock().expect("results mutex poisoned").clone());
     all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+
+    // Always write a final checkpoint on a normal (non-interrupted) exit so
+    // resume runs never lose completed work to the checkpoint interval, even
+    // when the last worker's write happened before its case count crossed a
+    // boundary.
+    if run_config.resume {
+        write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
+    }
+
     Ok(all_results)
 }
 
@@ -20344,13 +20394,24 @@ fn run_case_entry(
     case: &TestCase,
     run_config: &RunConfig,
 ) -> TestResult {
-    // Real process-level timeout enforcement (kill + wait) only exists for the
-    // child-runner path in `run_one_case_in_child_process`. The in-process path
-    // below can only *measure* elapsed time after a call returns, so it cannot
-    // bound a genuine hang (an infinite loop never returns). Every case must
-    // therefore go through the child runner whenever one is configured, not
-    // only single-case/resume invocations, or a directory/full-suite run has
-    // no enforcement at all and a hanging case stalls the whole worker forever.
+    // In-process execution is the default (`config.case_runner_bin` is only
+    // `Some` when the CLI is invoked with `PORFFOR_TEST262_FORCE_CASE_RUNNER`
+    // set, e.g. for crash repro). This used to be unsafe for a
+    // directory/full-suite run: the in-process path could only *measure*
+    // elapsed time after a call returned, so it could not bound a genuine
+    // hang (an infinite loop never returns), and a hanging case would stall
+    // the whole worker forever. That is no longer true for
+    // `ExecutionBackend::WasmAot`: `run_one_case` passes `config.timeout_ms`
+    // into `RunOptions::timeout_ms`, and `porffor_engine::run_with_wasm_aot_inner`
+    // enforces it in-process via wasmtime epoch interruption, so a hanging
+    // Wasm-AOT module traps out on its own on a bounded schedule. The one
+    // remaining gap is `ExecutionBackend::SpecExec` (the developer-only Boa
+    // differential oracle, never the product/conformance default backend):
+    // it has no epoch-interruption-equivalent bound, so a hang there still
+    // stalls its worker. When that matters, force the child runner via
+    // `PORFFOR_TEST262_FORCE_CASE_RUNNER=1`, which restores real
+    // process-level timeout enforcement (kill + wait) in
+    // `run_one_case_in_child_process` for every backend.
     let use_child_runner = config.case_runner_bin.is_some();
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
@@ -20482,6 +20543,12 @@ fn run_one_case(
             },
             test_path: Some(case.source_path.display().to_string()),
             can_block: case.flags.contains("CanBlockIsTrue"),
+            // Bounds Wasm-AOT execution in-process via wasmtime epoch
+            // interruption (see `run_with_wasm_aot_inner` in
+            // porffor-engine); this is what lets `run_case_entry` default to
+            // running cases in-process instead of always paying a
+            // child-process spawn per case.
+            timeout_ms: Some(timeout_ms),
         };
 
         let run_result = if execution_backend == ExecutionBackend::WasmAot {

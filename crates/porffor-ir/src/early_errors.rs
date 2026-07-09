@@ -178,7 +178,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::String(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::Boolean(_)
         | ExprIr::Null
         | ExprIr::Undefined
