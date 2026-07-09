@@ -22416,6 +22416,15 @@ impl<'a> ScriptLowerer<'a> {
                 if !(2.0..=36.0).contains(&value) || value.fract() != 0.0 {
                     return None;
                 }
+                // `js_number_to_string` below only implements the base-10
+                // (ToString) algorithm. A radix other than 10 must fall
+                // through to the general call path, which threads the
+                // radix into `emit_number_to_radix_string_payload` at
+                // runtime; folding it here would silently drop the radix
+                // argument and always emit decimal digits.
+                if value != 10.0 {
+                    return None;
+                }
             }
         }
         let value = self.static_number_to_string_receiver_value(receiver)?;
