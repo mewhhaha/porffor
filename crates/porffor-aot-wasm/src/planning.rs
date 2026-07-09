@@ -617,7 +617,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -965,7 +965,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -1102,6 +1102,18 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
         // the dispatch land on the shared stub.
         return false;
     }
+    if (builtin == StandardBuiltinId::ObjectKeys
+        || builtin == StandardBuiltinId::ObjectGetOwnPropertyNames)
+        && script_uses_for_in_enumeration(script)
+    {
+        // `for...in` over an array or object target compiles to
+        // `compile_for_in_object`, whose key-snapshot codegen calls
+        // `Object.keys` and `Object.getOwnPropertyNames` directly in wasm
+        // (not through a typed IR call), so plain `for...in` usage with no
+        // other reference to these builtins would otherwise hit the shared
+        // "not emitted" stub at runtime.
+        return false;
+    }
     if matches!(
         builtin,
         StandardBuiltinId::StringPrototypeToString
@@ -1120,6 +1132,19 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
         // `valueOf` methods, which resolve to these prototype builtins. They are
         // never statically referenced, so materialize them alongside the helper
         // instead of letting the dynamic dispatch hit the shared stub.
+        return false;
+    }
+    if builtin == StandardBuiltinId::StringPrototypeSplit
+        && script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
+    {
+        // `JSON.stringify` returns a value typed `String | undefined`
+        // (never a single concrete `ValueKind`), so a subsequent
+        // `result.split(...)` call on that value cannot be statically
+        // resolved to `StringPrototypeSplit` at the call site — it goes
+        // through the generic dynamic-callee dispatch path instead, which
+        // records no static reference. Materialize it alongside the
+        // `JSON.stringify` helper rather than letting that dispatch land on
+        // the shared "not emitted" stub.
         return false;
     }
     if builtin == StandardBuiltinId::ReflectSet
@@ -1175,6 +1200,95 @@ fn ordinary_native_error_constructors() -> [StandardBuiltinId; 6] {
 
 pub(crate) fn script_uses_create_realm(script: &ScriptIr) -> bool {
     script.host_builtins.contains(&HostBuiltinId::CreateRealm)
+}
+
+/// Whether the script contains a `for...in` loop over an array or object
+/// target (`StatementIr::ForInArray` / `StatementIr::ForInObject`).
+///
+/// Both compile down to `compile_for_in_object`, whose key-snapshot codegen
+/// (`emit_for_in_object_key_snapshot`) calls `Object.keys` and
+/// `Object.getOwnPropertyNames` directly via wasm codegen rather than
+/// through a typed IR call, so `script_references_standard_builtin` never
+/// sees them referenced. Without this carve-out, ordinary `for...in` usage
+/// with no other reference to those builtins hits the "not emitted" stub at
+/// runtime. `for...in` over a string (`ForInString`) is self-contained and
+/// does not need this.
+pub(crate) fn script_uses_for_in_enumeration(script: &ScriptIr) -> bool {
+    block_uses_for_in_enumeration(&script.body)
+        || script
+            .functions
+            .iter()
+            .any(|function| block_uses_for_in_enumeration(&function.body))
+}
+
+fn block_uses_for_in_enumeration(block: &BlockIr) -> bool {
+    block
+        .statements
+        .iter()
+        .any(statement_uses_for_in_enumeration)
+}
+
+fn statement_uses_for_in_enumeration(statement: &StatementIr) -> bool {
+    match statement {
+        StatementIr::ForInArray { .. } | StatementIr::ForInObject { .. } => true,
+        StatementIr::Empty
+        | StatementIr::Debugger
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. }
+        | StatementIr::Lexical { .. }
+        | StatementIr::Expression(_)
+        | StatementIr::Throw(_)
+        | StatementIr::Return(_)
+        | StatementIr::Var(_) => false,
+        StatementIr::LexicalBlock(statements) => {
+            statements.iter().any(statement_uses_for_in_enumeration)
+        }
+        StatementIr::Block(block) => block_uses_for_in_enumeration(block),
+        StatementIr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            statement_uses_for_in_enumeration(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(statement_uses_for_in_enumeration)
+        }
+        StatementIr::While { body, .. } | StatementIr::DoWhile { body, .. } => {
+            statement_uses_for_in_enumeration(body)
+        }
+        StatementIr::For { body, .. } => statement_uses_for_in_enumeration(body),
+        StatementIr::ForOfArray { body, .. }
+        | StatementIr::ForOfString { body, .. }
+        | StatementIr::ForOfIterator { body, .. }
+        | StatementIr::ForInString { body, .. } => statement_uses_for_in_enumeration(body),
+        StatementIr::Switch { cases, .. } => cases
+            .iter()
+            .any(|case| block_uses_for_in_enumeration(&case.body)),
+        StatementIr::Labelled { statement, .. } => statement_uses_for_in_enumeration(statement),
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => block_uses_for_in_enumeration(try_block) || block_uses_for_in_enumeration(catch_block),
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+        } => {
+            block_uses_for_in_enumeration(try_block)
+                || block_uses_for_in_enumeration(finally_block)
+        }
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            block_uses_for_in_enumeration(try_block)
+                || block_uses_for_in_enumeration(catch_block)
+                || block_uses_for_in_enumeration(finally_block)
+        }
+    }
 }
 
 pub(crate) fn create_realm_exposes_standard_builtin(builtin: StandardBuiltinId) -> bool {
@@ -2174,7 +2288,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::This
         | ExprIr::Arguments
@@ -3173,7 +3287,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::This
         | ExprIr::Identifier(_)
@@ -3303,7 +3417,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -4007,7 +4121,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         | ExprIr::Boolean(_)
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
-        | ExprIr::Symbol
+        | ExprIr::Symbol { .. }
         | ExprIr::String(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This

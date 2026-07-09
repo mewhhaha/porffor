@@ -1206,8 +1206,11 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
-            ExprIr::Symbol => {
+            ExprIr::Symbol { description } => {
                 self.uses_heap = true;
+                if let Some(description) = description {
+                    self.collect_expr(description);
+                }
             }
             ExprIr::String(value) => {
                 self.intern_string(value);

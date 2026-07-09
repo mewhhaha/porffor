@@ -6866,7 +6866,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
-            | ExprIr::Symbol
+            | ExprIr::Symbol { .. }
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::This
@@ -11511,10 +11511,29 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             if name == "Symbol" {
-                for arg in args {
+                // `Symbol(description)`: if description is undefined, the
+                // `[[Description]]` is undefined; otherwise it is
+                // `? ToString(description)` (spec 20.4.1.1). Only the first
+                // argument participates; any extra arguments are still
+                // evaluated for their side effects.
+                let description = match args.first() {
+                    None => None,
+                    Some(arg) => {
+                        let lowered = self.lower_expression(arg);
+                        if lowered.kind == ValueKind::Undefined {
+                            None
+                        } else {
+                            Some(Box::new(TypedExpr::spec_to_string(lowered)))
+                        }
+                    }
+                };
+                for arg in args.iter().skip(1) {
                     self.lower_expression(arg);
                 }
-                return TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol);
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Symbol),
+                    ExprIr::Symbol { description },
+                );
             }
         }
 
@@ -15789,6 +15808,57 @@ impl<'a> ScriptLowerer<'a> {
             .union(KindSet::from_kind(ValueKind::Arguments))
     }
 
+    /// Object-like kinds whose default `toString`/`toLocaleString` is
+    /// `Object.prototype`'s, *purely by virtue of their `ValueKind`* — i.e.
+    /// excluding `Array` and `Function`, which always override `toString`
+    /// (`Array.prototype.toString`, `Function.prototype.toString`) regardless
+    /// of what heap-shape tracking knows. This is narrower than
+    /// `object_like_kind_set()` on purpose: it is only safe to resolve a
+    /// dynamically-retrieved `toString`/`toLocaleString` straight to the
+    /// `Object.prototype` builtin when the receiver's kind can't itself be
+    /// one of those overriding kinds. Values that are `ValueKind::Object` but
+    /// represent a built-in exotic object with its own override (`Error`,
+    /// `Date`, `RegExp`, boxed primitives, or a user `class` with its own
+    /// method) are still guarded separately via `read_object_shape`, which
+    /// walks the tracked prototype chain for an existing override.
+    fn plain_object_kind_set() -> KindSet {
+        KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Arguments))
+    }
+
+    /// Whether it is statically safe to resolve a dynamically-retrieved
+    /// `toString`/`toLocaleString` property read straight to the matching
+    /// `Object.prototype` builtin, for a receiver that isn't a literal
+    /// `Object.prototype` reference.
+    ///
+    /// Three conditions must all hold:
+    /// - `target.possible_kinds` rules out `Array`/`Function`, which always
+    ///   override `toString`/`toLocaleString` regardless of shape tracking.
+    /// - `target.heap_shape` is *positively tracked* (`Some`) — an object
+    ///   literal, `Object.create` result, etc.
+    /// - `read_object_shape(target, name)` finds no override anywhere in
+    ///   that tracked prototype chain (rules out Error/boxed-primitive/
+    ///   user-defined overrides).
+    ///
+    /// `heap_shape.is_some()` alone is not enough: the *default* `this` info
+    /// used for a function whose call sites the lowering pass can't trace
+    /// (e.g. a standalone function assigned to `BigInt.prototype.toJSON` and
+    /// invoked only via the JSON.stringify runtime's own dynamic dispatch)
+    /// falls back to `global_this_info()`, which is `ValueKind::Object` with
+    /// a *populated* heap shape (all visible global bindings) even though
+    /// the receiver's real value is unrelated to any tracked object shape.
+    /// So `this` (and only `this` — an aliased/copied `this` value continues
+    /// to carry the same untrustworthy info) is excluded outright.
+    fn dynamic_object_prototype_method_resolution_is_safe(
+        &self,
+        target: &TypedExpr,
+        name: &str,
+    ) -> bool {
+        !matches!(target.expr, ExprIr::This)
+            && target.possible_kinds.is_subset_of(Self::plain_object_kind_set())
+            && target.heap_shape.is_some()
+            && self.read_object_shape(target, name).is_none()
+    }
+
     fn value_info_from_shape(shape: Option<Box<HeapShape>>) -> ValueInfo {
         ValueInfo {
             kind: ValueKind::Object,
@@ -18747,14 +18817,24 @@ impl<'a> ScriptLowerer<'a> {
                 return self.function_value_expr(StandardBuiltinId::ArrayOf.function_id());
             }
             if name == "toString"
-                && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                    || self.dynamic_object_prototype_method_resolution_is_safe(&target, "toString"))
             {
                 return self
                     .function_value_expr(StandardBuiltinId::ObjectPrototypeToString.function_id());
             }
             if name == "toLocaleString"
-                && self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
+                    || self.dynamic_object_prototype_method_resolution_is_safe(
+                        &target,
+                        "toLocaleString",
+                    ))
             {
+                // Same reasoning as `toString`; `toLocaleString` is overridden
+                // by the same set of built-in exotic objects (via
+                // `Object.prototype.toLocaleString` calling `this.toString()`,
+                // but several prototypes — Array, Number, Date — define their
+                // own `toLocaleString` directly).
                 return self.function_value_expr(
                     StandardBuiltinId::ObjectPrototypeToLocaleString.function_id(),
                 );

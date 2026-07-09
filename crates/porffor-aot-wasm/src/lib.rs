@@ -389,7 +389,10 @@ pick(true);"#,
         let mut program = lower(&source);
         let script = program.script.as_mut().expect("script ir should exist");
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_to_property_key(
-            TypedExpr::from_info(ValueInfo::new(ValueKind::Symbol), ExprIr::Symbol),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Symbol),
+                ExprIr::Symbol { description: None },
+            ),
         ));
         script.body.result_kind = ValueKind::Dynamic;
 

@@ -2136,10 +2136,33 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    // Heap `Symbol(desc)` records (small handle, high 32 bits
+                    // zero) store their `[[Description]]` in the record;
+                    // well-known symbols carry an interned string payload
+                    // whose description is that string.
+                    function.instruction(&Instruction::LocalGet(target_local));
+                    function.instruction(&Instruction::I64Const(32));
+                    function.instruction(&Instruction::I64ShrU);
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(target_local));
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::Br(1));
                     function.instruction(&Instruction::End);
                 }
@@ -3187,10 +3210,33 @@ impl<'a> FunctionBuilder<'a> {
             },
             ValueKind::Symbol => match key {
                 PropertyKeyIr::StaticString(name) if name == "description" => {
+                    // Heap `Symbol(desc)` records (small handle, high 32 bits
+                    // zero) store their `[[Description]]` in the record;
+                    // well-known symbols carry an interned string payload
+                    // whose description is that string.
+                    function.instruction(&Instruction::LocalGet(target_local));
+                    function.instruction(&Instruction::I64Const(32));
+                    function.instruction(&Instruction::I64ShrU);
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(target_local));
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::End);
                 }
                 _ => {
                     function.instruction(&Instruction::I64Const(0));
@@ -3351,10 +3397,33 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    // Heap `Symbol(desc)` records (small handle, high 32 bits
+                    // zero) store their `[[Description]]` in the record;
+                    // well-known symbols carry an interned string payload
+                    // whose description is that string.
+                    function.instruction(&Instruction::LocalGet(target_local));
+                    function.instruction(&Instruction::I64Const(32));
+                    function.instruction(&Instruction::I64ShrU);
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    self.load_i64_from_offset(
+                        target_local,
+                        HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(target_local));
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::LocalSet(payload_local));
