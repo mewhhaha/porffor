@@ -1300,6 +1300,10 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // Bound function objects dispatch through `[[BoundFunctionInvoke]]`'s
+        // funcref-table slot, so its real body must be emitted.
+        self.functions
+            .record_standard_builtin(StandardBuiltinId::BoundFunctionInvoker);
         let meta = self
             .functions
             .get(&StandardBuiltinId::BoundFunctionInvoker.function_id())
@@ -2573,6 +2577,10 @@ impl<'a> FunctionBuilder<'a> {
         meta: &WasmFunctionMeta,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // This is the choke point that makes a builtin's funcref-table slot
+        // reachable at runtime (a function object now carries it), so its real
+        // body must be emitted — see `FunctionMetaRegistry`.
+        self.functions.record_builtin_meta(meta);
         let function_object_alloc_function_index =
             self.function_object_alloc_function_index.ok_or_else(|| {
                 EmitError::unsupported(
@@ -4816,6 +4824,9 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // A direct call into a builtin's body requires its real body to be
+        // emitted — see `FunctionMetaRegistry`.
+        self.functions.record_builtin_meta(meta);
         if meta.class_kind == ClassFunctionKind::Constructor {
             self.emit_throw_runtime_error(
                 "TypeError",
@@ -6874,6 +6885,26 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(object_tag_local);
                 self.release_temp_local(key_local);
             }
+            ValueKind::Symbol => {
+                let key_local = self.compile_object_key_to_local(key, function)?;
+                function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(self.scratch_local));
+                let object_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(object_tag_local));
+                self.emit_object_read(
+                    self.scratch_local,
+                    object_tag_local,
+                    self.scratch_local,
+                    object_tag_local,
+                    key_local,
+                    callee_payload_local,
+                    callee_tag_local,
+                    function,
+                )?;
+                self.release_temp_local(object_tag_local);
+                self.release_temp_local(key_local);
+            }
             _ => {
                 self.release_temp_local(flags_local);
                 self.release_temp_local(table_index_local);
@@ -6934,6 +6965,9 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in porffor wasm-aot first slice: direct call to unknown top-level function `{name}`"
             ))
         })?;
+        // A direct call into a builtin's body requires its real body to be
+        // emitted — see `FunctionMetaRegistry`.
+        self.functions.record_builtin_meta(meta);
         let wasm_index = meta.wasm_index;
         let is_class_constructor = meta.class_kind == ClassFunctionKind::Constructor;
         let is_strict = meta.strict;

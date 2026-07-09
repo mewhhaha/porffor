@@ -789,7 +789,11 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
         | StandardBuiltinId::SymbolFor
-        | StandardBuiltinId::SymbolKeyFor => None,
+        | StandardBuiltinId::SymbolKeyFor
+        | StandardBuiltinId::SymbolPrototypeDescriptionGetter
+        | StandardBuiltinId::SymbolPrototypeToString
+        | StandardBuiltinId::SymbolPrototypeValueOf
+        | StandardBuiltinId::SymbolPrototypeToPrimitive => None,
     }
 }
 

@@ -819,17 +819,12 @@ impl<'a> FunctionBuilder<'a> {
         meta: &WasmFunctionMeta,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.is_main()
-            && self
-                .standard_builtin_for_function_meta(meta)
-                .is_some_and(|builtin| {
-                    !self
-                        .runtime_bootstrap_plan
-                        .should_initialize_standard_builtin(builtin)
-                })
-        {
-            return Ok(());
-        }
+        // No per-method plan gate here: once a bootstrap arm runs, every
+        // property it defines must actually exist (the spec makes them all
+        // observable, e.g. via Object.getOwnPropertyDescriptor, without any
+        // call ever happening). The materialization below records the builtin
+        // in the FunctionMetaRegistry, which guarantees its real body is
+        // emitted, so installing unconditionally is safe.
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
@@ -863,21 +858,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(payload_local);
         self.release_temp_local(key_local);
         Ok(())
-    }
-
-    fn standard_builtin_for_function_meta(
-        &self,
-        meta: &WasmFunctionMeta,
-    ) -> Option<StandardBuiltinId> {
-        self.functions
-            .iter()
-            .find(|(_, candidate)| {
-                candidate.wasm_index == meta.wasm_index
-                    && candidate.table_index == meta.table_index
-                    && candidate.name == meta.name
-                    && candidate.to_string_value == meta.to_string_value
-            })
-            .and_then(|(function_id, _)| StandardBuiltinId::from_function_id(function_id))
     }
 
     pub(crate) fn emit_object_define_function_global_data(
@@ -3239,10 +3219,31 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                 }
                 _ => {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
+                    // Everything else (`constructor`, `toString`, `valueOf`,
+                    // `[Symbol.toPrimitive]`, well-known-symbol-keyed
+                    // properties, and any user extensions) is resolved by an
+                    // ordinary lookup against the real `Symbol.prototype`
+                    // heap object, mirroring the actual [[Prototype]] chain.
+                    let key_local = self.compile_object_key_to_local(key, function)?;
+                    let proto_payload_local = self.reserve_temp_local();
+                    let proto_tag_local = self.reserve_temp_local();
+                    function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(proto_payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(proto_tag_local));
+                    self.emit_object_read(
+                        proto_payload_local,
+                        proto_tag_local,
+                        proto_payload_local,
+                        proto_tag_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.release_temp_local(proto_tag_local);
+                    self.release_temp_local(proto_payload_local);
+                    self.release_temp_local(key_local);
                 }
             },
             ValueKind::String => match key {
@@ -12715,7 +12716,7 @@ impl<'a> FunctionBuilder<'a> {
             (ValueKind::Number, NUMBER_PROTOTYPE_GLOBAL_INDEX),
             (ValueKind::String, STRING_PROTOTYPE_GLOBAL_INDEX),
             (ValueKind::Boolean, BOOLEAN_PROTOTYPE_GLOBAL_INDEX),
-            (ValueKind::Symbol, OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            (ValueKind::Symbol, SYMBOL_PROTOTYPE_GLOBAL_INDEX),
         ] {
             function.instruction(&Instruction::LocalGet(object_tag_local));
             function.instruction(&Instruction::I64Const(kind.tag() as i64));

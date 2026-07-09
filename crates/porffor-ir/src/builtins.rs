@@ -604,6 +604,10 @@ pub enum StandardBuiltinId {
     SymbolConstructor,
     SymbolFor,
     SymbolKeyFor,
+    SymbolPrototypeDescriptionGetter,
+    SymbolPrototypeToString,
+    SymbolPrototypeValueOf,
+    SymbolPrototypeToPrimitive,
     ErrorConstructor,
     ErrorIsError,
     EvalErrorConstructor,
@@ -702,7 +706,11 @@ impl StandardBuiltinId {
             | Self::BooleanPrototypeToString
             | Self::BooleanPrototypeValueOf
             | Self::SymbolFor
-            | Self::SymbolKeyFor => None,
+            | Self::SymbolKeyFor
+            | Self::SymbolPrototypeDescriptionGetter
+            | Self::SymbolPrototypeToString
+            | Self::SymbolPrototypeValueOf
+            | Self::SymbolPrototypeToPrimitive => None,
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
             Self::SymbolConstructor => Some(SYMBOL_NAME),
             Self::ErrorConstructor => Some(ERROR_NAME),
@@ -1338,6 +1346,10 @@ impl StandardBuiltinId {
             Self::SymbolConstructor => SYMBOL_NAME,
             Self::SymbolFor => "Symbol.for",
             Self::SymbolKeyFor => "Symbol.keyFor",
+            Self::SymbolPrototypeDescriptionGetter => "get Symbol.prototype.description",
+            Self::SymbolPrototypeToString => "Symbol.prototype.toString",
+            Self::SymbolPrototypeValueOf => "Symbol.prototype.valueOf",
+            Self::SymbolPrototypeToPrimitive => "Symbol.prototype[Symbol.toPrimitive]",
             Self::BooleanPrototypeToString => "Boolean.prototype.toString",
             Self::BooleanPrototypeValueOf => "Boolean.prototype.valueOf",
             Self::ErrorConstructor => ERROR_NAME,
@@ -1980,6 +1992,14 @@ impl StandardBuiltinId {
             Self::SymbolConstructor => BUILTIN_SYMBOL_FUNCTION_ID.to_string(),
             Self::SymbolFor => BUILTIN_SYMBOL_FOR_FUNCTION_ID.to_string(),
             Self::SymbolKeyFor => BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID.to_string(),
+            Self::SymbolPrototypeDescriptionGetter => {
+                "$builtin.Symbol.prototype.description".to_string()
+            }
+            Self::SymbolPrototypeToString => "$builtin.Symbol.prototype.toString".to_string(),
+            Self::SymbolPrototypeValueOf => "$builtin.Symbol.prototype.valueOf".to_string(),
+            Self::SymbolPrototypeToPrimitive => {
+                "$builtin.Symbol.prototype.toPrimitive".to_string()
+            }
             Self::BooleanPrototypeToString => "$builtin.Boolean.prototype.toString".to_string(),
             Self::BooleanPrototypeValueOf => "$builtin.Boolean.prototype.valueOf".to_string(),
             Self::ErrorConstructor => BUILTIN_ERROR_FUNCTION_ID.to_string(),
@@ -2528,6 +2548,12 @@ impl StandardBuiltinId {
             BUILTIN_SYMBOL_FUNCTION_ID => Some(Self::SymbolConstructor),
             BUILTIN_SYMBOL_FOR_FUNCTION_ID => Some(Self::SymbolFor),
             BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID => Some(Self::SymbolKeyFor),
+            "$builtin.Symbol.prototype.description" => {
+                Some(Self::SymbolPrototypeDescriptionGetter)
+            }
+            "$builtin.Symbol.prototype.toString" => Some(Self::SymbolPrototypeToString),
+            "$builtin.Symbol.prototype.valueOf" => Some(Self::SymbolPrototypeValueOf),
+            "$builtin.Symbol.prototype.toPrimitive" => Some(Self::SymbolPrototypeToPrimitive),
             "$builtin.Boolean.prototype.toString" => Some(Self::BooleanPrototypeToString),
             "$builtin.Boolean.prototype.valueOf" => Some(Self::BooleanPrototypeValueOf),
             BUILTIN_ERROR_FUNCTION_ID => Some(Self::ErrorConstructor),
@@ -2938,6 +2964,10 @@ impl StandardBuiltinId {
             Self::SymbolConstructor,
             Self::SymbolFor,
             Self::SymbolKeyFor,
+            Self::SymbolPrototypeDescriptionGetter,
+            Self::SymbolPrototypeToString,
+            Self::SymbolPrototypeValueOf,
+            Self::SymbolPrototypeToPrimitive,
             Self::ErrorConstructor,
             Self::ErrorIsError,
             Self::EvalErrorConstructor,
@@ -3497,6 +3527,10 @@ impl StandardBuiltinId {
             Self::SymbolConstructor => Some(SYMBOL_NAME),
             Self::SymbolFor => Some("for"),
             Self::SymbolKeyFor => Some("keyFor"),
+            Self::SymbolPrototypeDescriptionGetter => Some("get description"),
+            Self::SymbolPrototypeToString => Some("toString"),
+            Self::SymbolPrototypeValueOf => Some("valueOf"),
+            Self::SymbolPrototypeToPrimitive => Some("[Symbol.toPrimitive]"),
             Self::BooleanPrototypeToString => Some("toString"),
             Self::BooleanPrototypeValueOf => Some("valueOf"),
             Self::ErrorConstructor => Some(ERROR_NAME),
