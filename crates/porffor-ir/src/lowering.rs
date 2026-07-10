@@ -21951,10 +21951,17 @@ impl<'a> ScriptLowerer<'a> {
         info: &ValueInfo,
         hint: ToPrimitiveHint,
     ) -> Option<ValueInfo> {
-        if !info
-            .possible_kinds
-            .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
-        {
+        // Function objects are ordinary objects for ToPrimitive purposes (they
+        // just also happen to be callable): absent an own/inherited
+        // `@@toPrimitive`/`valueOf` returning a primitive, OrdinaryToPrimitive
+        // falls through to `toString`, which for a function is inherited from
+        // `Function.prototype.toString` (source text) rather than
+        // `Object.prototype.toString`. `object_to_primitive_kinds` already
+        // walks the tracked shape's own properties for overrides and falls
+        // back to `String` when none are found, which matches that default.
+        if !info.possible_kinds.is_subset_of(
+            KindSet::PRIMITIVE_OR_HEAP_COERCIBLE.union(KindSet::from_kind(ValueKind::Function)),
+        ) {
             return None;
         }
 
@@ -21970,6 +21977,7 @@ impl<'a> ScriptLowerer<'a> {
             ValueKind::Object,
             ValueKind::Array,
             ValueKind::Arguments,
+            ValueKind::Function,
         ] {
             if !info.possible_kinds.contains(kind) {
                 continue;
@@ -21982,12 +21990,12 @@ impl<'a> ScriptLowerer<'a> {
                 | ValueKind::String
                 | ValueKind::Symbol
                 | ValueKind::BigInt => KindSet::from_kind(kind),
-                ValueKind::Object => {
+                ValueKind::Object | ValueKind::Function => {
                     self.object_to_primitive_kinds(info.heap_shape.as_deref(), hint)?
                 }
                 ValueKind::Array => self.array_to_primitive_kinds(info.heap_shape.as_deref())?,
                 ValueKind::Arguments => KindSet::from_kind(ValueKind::String),
-                ValueKind::Function | ValueKind::Dynamic => return None,
+                ValueKind::Dynamic => return None,
             };
             possible_kinds = possible_kinds.union(next);
         }

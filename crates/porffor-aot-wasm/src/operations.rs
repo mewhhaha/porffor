@@ -2256,10 +2256,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // A Function is an ordinary object for ToPrimitive purposes: run the
+        // same @@toPrimitive/valueOf/toString hook chain as a plain object
+        // (see `emit_function_to_primitive_locals`), rather than passing the
+        // function through unchanged as if it were already a primitive.
+        self.emit_function_to_primitive_locals(
+            hint,
+            input_payload_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_payload_local));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2304,10 +2321,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_to_primitive_locals_without_throw_propagation(
+            hint,
+            input_payload_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_payload_local));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2325,6 +2355,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_to_primitive_locals_inner(
             hint,
             object_local,
+            ValueKind::Object,
             payload_local,
             tag_local,
             true,
@@ -2343,6 +2374,53 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_to_primitive_locals_inner(
             hint,
             object_local,
+            ValueKind::Object,
+            payload_local,
+            tag_local,
+            false,
+            function,
+        )
+    }
+
+    /// Same as `emit_object_to_primitive_locals`, but for a value already
+    /// known to be tag `Function`. Function objects run the exact same
+    /// OrdinaryToPrimitive algorithm as plain objects (they are ordinary
+    /// objects that happen to be callable) — the only difference is that a
+    /// function's heap record does not reserve the Object record's
+    /// boxed-primitive slot at the same offset, so the fast path that reads
+    /// it must be skipped (functions can never be `new Number(...)`-style
+    /// boxed-primitive wrappers).
+    pub(crate) fn emit_function_to_primitive_locals(
+        &mut self,
+        hint: ToPrimitiveHint,
+        object_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_object_to_primitive_locals_inner(
+            hint,
+            object_local,
+            ValueKind::Function,
+            payload_local,
+            tag_local,
+            true,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_function_to_primitive_locals_without_throw_propagation(
+        &mut self,
+        hint: ToPrimitiveHint,
+        object_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_object_to_primitive_locals_inner(
+            hint,
+            object_local,
+            ValueKind::Function,
             payload_local,
             tag_local,
             false,
@@ -2354,6 +2432,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         hint: ToPrimitiveHint,
         object_local: u32,
+        object_tag_kind: ValueKind,
         payload_local: u32,
         tag_local: u32,
         propagate_hook_throws: bool,
@@ -2367,12 +2446,22 @@ impl<'a> FunctionBuilder<'a> {
         };
 
         let boxed_kind_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            boxed_kind_local,
-            function,
-        );
+        if matches!(object_tag_kind, ValueKind::Object) {
+            self.load_i64_to_local_from_offset(
+                object_local,
+                HEAP_OBJECT_BOXED_KIND_OFFSET,
+                boxed_kind_local,
+                function,
+            );
+        } else {
+            // Non-Object tags (currently only `Function`) never represent a
+            // boxed-primitive wrapper, and their heap record does not
+            // reserve `HEAP_OBJECT_BOXED_KIND_OFFSET` for that purpose (it
+            // overlaps unrelated fields) — force the fast path below to be
+            // skipped rather than reading it.
+            function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_NONE as i64));
+            function.instruction(&Instruction::LocalSet(boxed_kind_local));
+        }
         // Note: `BOXED_PRIMITIVE_KIND_SYMBOL` is deliberately excluded from
         // this fast path (unlike Number/String/Boolean/BigInt wrappers).
         // Symbol wrapper ToPrimitive must consult `[Symbol.toPrimitive]` /
@@ -2412,7 +2501,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(primitive_result_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(call_attempted_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Const(object_tag_kind.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
 
         for hook_name in hook_names {
@@ -2468,7 +2557,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_function_handle_call_without_throw_propagation(
                     hook_value_payload,
                     hook_value_tag,
-                    Some((object_local, None)),
+                    Some((object_local, Some(object_tag_local))),
                     &[],
                     call_result_payload,
                     call_result_tag,
@@ -2545,7 +2634,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_function_handle_call_without_throw_propagation(
                     hook_value_payload,
                     hook_value_tag,
-                    Some((object_local, None)),
+                    Some((object_local, Some(object_tag_local))),
                     &[],
                     call_result_payload,
                     call_result_tag,
