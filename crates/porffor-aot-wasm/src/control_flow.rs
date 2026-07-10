@@ -394,8 +394,17 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                 } else {
                     self.compile_expr_payload(expr, function)?;
+                    // A thrown completion always co-homes the thrown value in
+                    // `result_local` (every `emit_throw_*` / helper-call
+                    // `store_call_results_to` sets it). The statement value left
+                    // on the stack by `compile_expr_payload` is the *normal*
+                    // result and is unrelated on the throw path, so propagate the
+                    // throw from `result_local` — not `scratch_local`, which holds
+                    // unrelated scratch state and would replace a real Error
+                    // instance (e.g. a strict read-only / setter / Proxy write
+                    // TypeError) with garbage.
                     self.emit_propagate_throw_from_locals_if_needed(
-                        self.scratch_local,
+                        self.result_local,
                         self.result_tag_local,
                         function,
                     )?;

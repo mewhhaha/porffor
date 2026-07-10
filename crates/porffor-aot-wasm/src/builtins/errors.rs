@@ -411,7 +411,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_runtime_error_object(name, message, payload_local, tag_local, function)?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
+        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
             self.uses_heap,
         )));

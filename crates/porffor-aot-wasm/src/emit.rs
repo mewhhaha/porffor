@@ -176,6 +176,14 @@ pub(crate) struct FunctionBuilder<'a> {
     /// false only while compiling that helper itself. Every dynamic string
     /// concatenation and ToString site otherwise pays tens of KB inline.
     pub(crate) outline_value_to_string: bool,
+    /// When `Some(local)`, `emit_object_write` is being emitted as the shared
+    /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
+    /// behavior from the runtime value of `local` (a helper parameter carrying
+    /// the calling function's strictness) rather than from the compile-time
+    /// `is_current_function_strict()` of the helper body itself (which is a
+    /// fixed, mode-less runtime helper). `None` for inline emission, where the
+    /// compile-time strictness of the enclosing function is authoritative.
+    pub(crate) object_write_strict_flag_local: Option<u32>,
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
@@ -1288,6 +1296,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_number_to_string: true,
             outline_string_to_number: true,
             outline_value_to_string: true,
+            object_write_strict_flag_local: None,
         }
     }
 
@@ -1608,11 +1617,16 @@ impl<'a> FunctionBuilder<'a> {
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.outline_object_write = false;
+        // Helper parameter 5 carries the calling function's strictness (0 sloppy,
+        // nonzero strict). Parameter 6 stays reserved. Gate `[[Set]]` failure
+        // throws on this runtime flag rather than the helper's own (fixed) mode.
+        self.object_write_strict_flag_local = Some(5);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
         self.pop_scope();
+        self.object_write_strict_flag_local = None;
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalGet(self.completion_local));

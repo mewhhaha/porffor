@@ -10249,7 +10249,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(0));
+        // Parameter 5: the calling function's strictness. The shared write helper
+        // is emitted once with a fixed (mode-less) body, so sloppy vs. strict
+        // `[[Set]]` failure behavior must be selected at runtime from this flag.
+        function.instruction(&Instruction::I64Const(i64::from(
+            self.is_current_function_strict(),
+        )));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Call(helper));
         self.store_call_results_to(
@@ -10272,6 +10277,141 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(saved_result_tag_local);
         self.release_temp_local(saved_result_local);
+        Ok(())
+    }
+
+    /// Emits the `Else` branch of an ordinary `[[Set]]` on an existing
+    /// non-writable data property / accessor-without-setter. Spec: the write is
+    /// a silent no-op in sloppy mode and a `TypeError` only in strict mode.
+    ///
+    /// When emitted inline the enclosing function's compile-time strictness is
+    /// authoritative. When emitted as the shared outlined write helper (a
+    /// fixed, mode-less body) the decision is deferred to the runtime strict
+    /// flag threaded through helper parameter 5.
+    fn emit_object_write_set_failure_else(
+        &mut self,
+        message: &str,
+        extra_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match self.object_write_strict_flag_local {
+            Some(strict_local) => {
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(strict_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error_to_active_handler(
+                    TYPE_ERROR_NAME,
+                    message,
+                    self.result_local,
+                    self.result_tag_local,
+                    extra_depth,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+            None => {
+                if self.is_current_function_strict() {
+                    function.instruction(&Instruction::Else);
+                    self.emit_throw_runtime_error_to_active_handler(
+                        TYPE_ERROR_NAME,
+                        message,
+                        self.result_local,
+                        self.result_tag_local,
+                        extra_depth,
+                        function,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits the sloppy/strict-guarded throw for a Proxy `set` trap that
+    /// returned a falsy value. Spec: `OrdinarySetWithOwnDescriptor`/`PutValue`
+    /// throws only in strict mode; sloppy code silently ignores it. Runtime
+    /// gating mirrors [`Self::emit_object_write_set_failure_else`].
+    fn emit_object_write_proxy_set_false_throw(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match self.object_write_strict_flag_local {
+            Some(strict_local) => {
+                function.instruction(&Instruction::LocalGet(strict_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Proxy set trap returned false",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
+            None => {
+                if self.is_current_function_strict() {
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "Proxy set trap returned false",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits the sloppy/strict-guarded outcome for adding a new property to a
+    /// non-extensible object. Spec: strict mode throws a `TypeError`; sloppy
+    /// mode silently abandons the write. `sloppy_br_depth` is the branch depth
+    /// used to abandon the write in the inline (compile-time) case; when emitted
+    /// as the outlined helper the runtime guard nests one extra block, so the
+    /// sloppy branch targets `sloppy_br_depth + 1`.
+    fn emit_object_write_non_extensible_failure(
+        &mut self,
+        sloppy_br_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match self.object_write_strict_flag_local {
+            Some(strict_local) => {
+                function.instruction(&Instruction::LocalGet(strict_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error_to_active_handler(
+                    TYPE_ERROR_NAME,
+                    "Cannot add property to non-extensible object",
+                    self.result_local,
+                    self.result_tag_local,
+                    5,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::Br(sloppy_br_depth + 1));
+                function.instruction(&Instruction::End);
+            }
+            None => {
+                if self.is_current_function_strict() {
+                    self.emit_throw_runtime_error_to_active_handler(
+                        TYPE_ERROR_NAME,
+                        "Cannot add property to non-extensible object",
+                        self.result_local,
+                        self.result_tag_local,
+                        5,
+                        function,
+                    )?;
+                } else {
+                    function.instruction(&Instruction::Br(sloppy_br_depth));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -10444,16 +10584,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if self.is_current_function_strict() {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Proxy set trap returned false",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-        }
+        self.emit_object_write_proxy_set_false_throw(function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
         function.instruction(&Instruction::I64Const(0));
@@ -10504,16 +10635,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if self.is_current_function_strict() {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Proxy set trap returned false",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-        }
+        self.emit_object_write_proxy_set_false_throw(function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(proxy_handled_local));
@@ -10648,17 +10770,11 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             function,
         );
-        if self.is_current_function_strict() {
-            function.instruction(&Instruction::Else);
-            self.emit_throw_runtime_error_to_active_handler(
-                TYPE_ERROR_NAME,
-                "Cannot assign to read only property",
-                self.result_local,
-                self.result_tag_local,
-                9,
-                function,
-            )?;
-        }
+        self.emit_object_write_set_failure_else(
+            "Cannot assign to read only property",
+            9,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.load_i64_to_local_from_offset(
@@ -10686,17 +10802,11 @@ impl<'a> FunctionBuilder<'a> {
             setter_result_tag_local,
             function,
         )?;
-        if self.is_current_function_strict() {
-            function.instruction(&Instruction::Else);
-            self.emit_throw_runtime_error_to_active_handler(
-                TYPE_ERROR_NAME,
-                "Cannot assign to read only property",
-                self.result_local,
-                self.result_tag_local,
-                9,
-                function,
-            )?;
-        }
+        self.emit_object_write_set_failure_else(
+            "Cannot assign to read only property",
+            9,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(3));
@@ -10778,16 +10888,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if self.is_current_function_strict() {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Proxy set trap returned false",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-        }
+        self.emit_object_write_proxy_set_false_throw(function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(prototype_proxy_set_handled_local));
@@ -10913,18 +11014,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(cap_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if self.is_current_function_strict() {
-            self.emit_throw_runtime_error_to_active_handler(
-                TYPE_ERROR_NAME,
-                "Cannot add property to non-extensible object",
-                self.result_local,
-                self.result_tag_local,
-                5,
-                function,
-            )?;
-        } else {
-            function.instruction(&Instruction::Br(1));
-        }
+        self.emit_object_write_non_extensible_failure(1, function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(len_local));
