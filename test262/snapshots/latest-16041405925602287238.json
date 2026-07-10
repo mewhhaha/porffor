@@ -9,62 +9,62 @@
   "manifest_hash": 16041405925602287238,
   "run_kind": "full",
   "total": 1230,
-  "passed": 854,
+  "passed": 930,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
     "Lowering": 0,
     "Parser": 0,
-    "Runtime": 292,
+    "Runtime": 216,
     "Unsupported": 84,
     "WasmBackend": 0
   },
   "counts_per_outcome": {
-    "Bug": 239,
+    "Bug": 216,
     "Crash": 0,
-    "NotImplemented": 137,
-    "Success": 854
+    "NotImplemented": 84,
+    "Success": 930
   },
   "slowest_tests": [
     {
-      "path": "built-ins/String/S15.5.5.1_A4_T2.js",
-      "duration_ms": 56429
+      "path": "built-ins/String/prototype/replace/regexp-capture-by-index.js",
+      "duration_ms": 27299
     },
     {
-      "path": "built-ins/String/prototype/replace/regexp-capture-by-index.js",
-      "duration_ms": 56098
+      "path": "built-ins/String/prototype/split/separator-regexp.js",
+      "duration_ms": 13404
+    },
+    {
+      "path": "built-ins/String/prototype/match/regexp-prototype-match-v-u-flag.js",
+      "duration_ms": 5911
+    },
+    {
+      "path": "built-ins/String/prototype/toString/non-generic-realm.js",
+      "duration_ms": 5451
+    },
+    {
+      "path": "built-ins/String/prototype/valueOf/non-generic-realm.js",
+      "duration_ms": 5395
     },
     {
       "path": "built-ins/String/prototype/indexOf/position-tointeger-toprimitive.js",
-      "duration_ms": 52457
-    },
-    {
-      "path": "built-ins/String/S15.5.2.1_A1_T16.js",
-      "duration_ms": 51801
-    },
-    {
-      "path": "built-ins/String/S15.5.5.1_A3.js",
-      "duration_ms": 50302
+      "duration_ms": 3803
     },
     {
       "path": "built-ins/String/prototype/indexOf/searchstring-tostring-toprimitive.js",
-      "duration_ms": 49605
+      "duration_ms": 3773
     },
     {
-      "path": "built-ins/String/S9.8.1_A6.js",
-      "duration_ms": 48711
+      "path": "built-ins/String/prototype/match/duplicate-named-indices-groups-properties.js",
+      "duration_ms": 3640
     },
     {
       "path": "built-ins/String/S9.8_A5_T1.js",
-      "duration_ms": 45945
+      "duration_ms": 3622
     },
     {
-      "path": "built-ins/String/S9.8.1_A10.js",
-      "duration_ms": 45082
-    },
-    {
-      "path": "built-ins/String/S15.5.1.1_A1_T11.js",
-      "duration_ms": 41289
+      "path": "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js",
+      "duration_ms": 3593
     }
   ],
   "timeout_list": [],
@@ -76,7 +76,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: string index must be number. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 5128624114624078943,
-      "duration_ms": 6073
+      "duration_ms": 583
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-3-2.js",
@@ -85,70 +85,70 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: string index must be number. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 5128624114624078943,
-      "duration_ms": 8976
+      "duration_ms": 635
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-3-6.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: s[NaN]: wasm-aot completion: object(handle@9221120237041090560)",
-      "detail_hash": 2563133397923216092,
-      "duration_ms": 9970
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@159248)",
+      "detail_hash": 15905369171641950796,
+      "duration_ms": 689
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-3-7.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: s[Infinity]: wasm-aot completion: object(handle@9218868437227405312)",
-      "detail_hash": 12260905302322918479,
-      "duration_ms": 9357
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@159256)",
+      "detail_hash": 12825285539196264813,
+      "duration_ms": 712
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-3-8.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: s[Math.pow(2, 32)-1]: wasm-aot completion: object(handle@315370858610699)",
-      "detail_hash": 9529259260191236077,
-      "duration_ms": 5285
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@159256)",
+      "detail_hash": 12825285539196264813,
+      "duration_ms": 728
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-7-2.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: s[-1]: wasm-aot completion: object(handle@315370858610699)",
-      "detail_hash": 10167579131228724315,
-      "duration_ms": 8052
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@159248)",
+      "detail_hash": 15905369171641950796,
+      "duration_ms": 700
     },
     {
       "test_path": "built-ins/String/15.5.5.5.2-7-4.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: s[11]: wasm-aot completion: object(handle@315370858610699)",
-      "detail_hash": 11196744244981349126,
-      "duration_ms": 4405
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@159240)",
+      "detail_hash": 4979259328706614330,
+      "duration_ms": 712
     },
     {
       "test_path": "built-ins/String/S15.5.1.1_A1_T16.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@129176)",
-      "detail_hash": 3091112331917899564,
-      "duration_ms": 33321
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179912)",
+      "detail_hash": 4870862364037113295,
+      "duration_ms": 2511
     },
     {
       "test_path": "built-ins/String/S15.5.1.1_A1_T17.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@129048)",
-      "detail_hash": 3990348483273750125,
-      "duration_ms": 31553
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179784)",
+      "detail_hash": 465074891275543166,
+      "duration_ms": 2146
     },
     {
       "test_path": "built-ins/String/S15.5.1.1_A1_T6.js",
@@ -157,79 +157,79 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 587
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/S15.5.1.1_A1_T8.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133168)",
-      "detail_hash": 4873821232979028439,
-      "duration_ms": 31126
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@239616)",
+      "detail_hash": 14343464726159288379,
+      "duration_ms": 1988
     },
     {
       "test_path": "built-ins/String/S15.5.2.1_A1_T11.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134360)",
-      "detail_hash": 10948122940658603729,
-      "duration_ms": 26968
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@185096)",
+      "detail_hash": 978173462983282609,
+      "duration_ms": 1949
     },
     {
       "test_path": "built-ins/String/S15.5.2.1_A1_T16.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@131368)",
-      "detail_hash": 6109921582439446164,
-      "duration_ms": 51801
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182104)",
+      "detail_hash": 14624313225865481098,
+      "duration_ms": 3466
     },
     {
       "test_path": "built-ins/String/S15.5.2.1_A1_T17.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@130568)",
-      "detail_hash": 18182369976016458936,
-      "duration_ms": 36711
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@181304)",
+      "detail_hash": 17190588886582158758,
+      "duration_ms": 2824
     },
     {
       "test_path": "built-ins/String/S15.5.2.1_A1_T8.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132296)",
-      "detail_hash": 17029470652433600972,
-      "duration_ms": 36192
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@200960)",
+      "detail_hash": 7447301171161450030,
+      "duration_ms": 1940
     },
     {
       "test_path": "built-ins/String/S15.5.5.1_A2.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@131688)",
-      "detail_hash": 18397407939563059233,
-      "duration_ms": 29721
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@181672)",
+      "detail_hash": 4515523469636627198,
+      "duration_ms": 1702
     },
     {
       "test_path": "built-ins/String/S15.5.5.1_A3.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@160592)",
-      "detail_hash": 14279470621894907478,
-      "duration_ms": 50302
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@209584)",
+      "detail_hash": 6964513709450424139,
+      "duration_ms": 3112
     },
     {
       "test_path": "built-ins/String/S15.5.5.1_A4_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132248)",
-      "detail_hash": 16175621032012879353,
-      "duration_ms": 32150
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182232)",
+      "detail_hash": 5317202279575679659,
+      "duration_ms": 2270
     },
     {
       "test_path": "built-ins/String/S15.5.5.1_A4_T2.js",
@@ -238,61 +238,52 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: string or coercive `+`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 489524361793333863,
-      "duration_ms": 56429
+      "duration_ms": 3238
     },
     {
       "test_path": "built-ins/String/S15.5.5.1_A5.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132136)",
-      "detail_hash": 15156994746039864354,
-      "duration_ms": 25115
-    },
-    {
-      "test_path": "built-ins/String/S15.5.5_A1_T2.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@131184)",
-      "detail_hash": 11740936905535960068,
-      "duration_ms": 17833
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182872)",
+      "detail_hash": 8795267356000404090,
+      "duration_ms": 1973
     },
     {
       "test_path": "built-ins/String/S8.12.8_A1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot convert object to primitive value: wasm-aot completion: object(handle@132136)",
-      "detail_hash": 11883946897972669914,
-      "duration_ms": 23010
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@183192)",
+      "detail_hash": 4412260402032541182,
+      "duration_ms": 1716
     },
     {
       "test_path": "built-ins/String/S9.8.1_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@128944)",
-      "detail_hash": 10230705663306450418,
-      "duration_ms": 45082
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179680)",
+      "detail_hash": 14999828324471700354,
+      "duration_ms": 2534
     },
     {
       "test_path": "built-ins/String/S9.8.1_A7.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@128528)",
-      "detail_hash": 515907076376795083,
-      "duration_ms": 30910
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179264)",
+      "detail_hash": 15244338772211528912,
+      "duration_ms": 1675
     },
     {
       "test_path": "built-ins/String/S9.8.1_A9_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@128968)",
-      "detail_hash": 8499390123532127620,
-      "duration_ms": 40299
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179704)",
+      "detail_hash": 16010136323788100410,
+      "duration_ms": 2998
     },
     {
       "test_path": "built-ins/String/S9.8_A1_T1.js",
@@ -301,43 +292,43 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 454
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/S9.8_A4_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@128640)",
-      "detail_hash": 17892658469020065228,
-      "duration_ms": 29138
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179368)",
+      "detail_hash": 4935392831117685058,
+      "duration_ms": 1823
     },
     {
       "test_path": "built-ins/String/fromCharCode/S15.5.3.2_A1.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@129448)",
-      "detail_hash": 6965722101623331142,
-      "duration_ms": 24443
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179432)",
+      "detail_hash": 8880897739816031900,
+      "duration_ms": 1833
     },
     {
       "test_path": "built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128656)",
-      "detail_hash": 17458402926325117385,
-      "duration_ms": 20406
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179392)",
+      "detail_hash": 11308936090311260152,
+      "duration_ms": 1582
     },
     {
       "test_path": "built-ins/String/fromCharCode/S9.7_A1.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133016)",
-      "detail_hash": 7438624021058607014,
-      "duration_ms": 36017
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@190656)",
+      "detail_hash": 1674386715828842859,
+      "duration_ms": 2819
     },
     {
       "test_path": "built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
@@ -346,34 +337,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(error)",
       "detail_hash": 12812341728617779119,
-      "duration_ms": 30480
+      "duration_ms": 3590
     },
     {
       "test_path": "built-ins/String/fromCharCode/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 35476
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2550
     },
     {
       "test_path": "built-ins/String/fromCodePoint/argument-is-not-integer.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws received the wrong error constructor: wasm-aot completion: object(handle@126704)",
-      "detail_hash": 4364266832079308676,
-      "duration_ms": 27354
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@177520)",
+      "detail_hash": 15442372890987823930,
+      "duration_ms": 2137
     },
     {
       "test_path": "built-ins/String/fromCodePoint/arguments-is-empty.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@108736)",
-      "detail_hash": 7245785540557072807,
-      "duration_ms": 5016
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@159472)",
+      "detail_hash": 345242404669203665,
+      "duration_ms": 647
     },
     {
       "test_path": "built-ins/String/fromCodePoint/fromCodePoint.js",
@@ -382,52 +373,52 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
       "detail_hash": 4157586038938152846,
-      "duration_ms": 33818
+      "duration_ms": 2663
     },
     {
       "test_path": "built-ins/String/fromCodePoint/length.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 34206
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2537
     },
     {
       "test_path": "built-ins/String/fromCodePoint/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 32261
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2628
     },
     {
       "test_path": "built-ins/String/fromCodePoint/number-is-out-of-range.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws received the wrong error constructor: wasm-aot completion: object(handle@126608)",
-      "detail_hash": 4101004861499729691,
-      "duration_ms": 23459
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@177424)",
+      "detail_hash": 9723356397089409983,
+      "duration_ms": 1884
     },
     {
       "test_path": "built-ins/String/fromCodePoint/return-string-value.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@108760)",
-      "detail_hash": 12464091444399366001,
-      "duration_ms": 5361
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@159496)",
+      "detail_hash": 3318088606467918135,
+      "duration_ms": 680
     },
     {
       "test_path": "built-ins/String/fromCodePoint/to-number-conversions.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@108784)",
-      "detail_hash": 2254789107983520299,
-      "duration_ms": 5962
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@159520)",
+      "detail_hash": 8960187273339404273,
+      "duration_ms": 678
     },
     {
       "test_path": "built-ins/String/proto-from-ctor-realm.js",
@@ -436,34 +427,25 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 10827699057442756595,
-      "duration_ms": 392
-    },
-    {
-      "test_path": "built-ins/String/prototype/S15.5.3.1_A2.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132064)",
-      "detail_hash": 2028022598998624672,
-      "duration_ms": 15328
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/S15.5.4_A1.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@130832)",
-      "detail_hash": 17058186924111986227,
-      "duration_ms": 15870
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@199376)",
+      "detail_hash": 10635692020366308689,
+      "duration_ms": 1521
     },
     {
       "test_path": "built-ins/String/prototype/S15.5.4_A3.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132432)",
-      "detail_hash": 17980430654050659064,
-      "duration_ms": 18457
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@200224)",
+      "detail_hash": 2457483390461865120,
+      "duration_ms": 1695
     },
     {
       "test_path": "built-ins/String/prototype/Symbol.iterator/name.js",
@@ -472,25 +454,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
       "detail_hash": 14196761934288662390,
-      "duration_ms": 34571
+      "duration_ms": 2516
     },
     {
       "test_path": "built-ins/String/prototype/Symbol.iterator/this-val-to-str-err.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@136152)",
-      "detail_hash": 7875929849162666086,
-      "duration_ms": 15973
-    },
-    {
-      "test_path": "built-ins/String/prototype/charAt/S15.5.4.4_A10.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot assign to read only property: wasm-aot completion: object(handle@0)",
-      "detail_hash": 11184968581732631826,
-      "duration_ms": 12245
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@184472)",
+      "detail_hash": 4475365020125753562,
+      "duration_ms": 1608
     },
     {
       "test_path": "built-ins/String/prototype/charAt/S15.5.4.4_A5.js",
@@ -499,25 +472,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(intostring)",
       "detail_hash": 7471093292356709463,
-      "duration_ms": 21309
-    },
-    {
-      "test_path": "built-ins/String/prototype/charAt/S15.5.4.4_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132736)",
-      "detail_hash": 11638288754459852853,
-      "duration_ms": 17645
-    },
-    {
-      "test_path": "built-ins/String/prototype/charCodeAt/S15.5.4.5_A10.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot assign to read only property: wasm-aot completion: object(handle@0)",
-      "detail_hash": 11184968581732631826,
-      "duration_ms": 10045
+      "duration_ms": 1657
     },
     {
       "test_path": "built-ins/String/prototype/charCodeAt/S15.5.4.5_A4.js",
@@ -526,277 +481,169 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(intostring)",
       "detail_hash": 7471093292356709463,
-      "duration_ms": 19190
-    },
-    {
-      "test_path": "built-ins/String/prototype/charCodeAt/S15.5.4.5_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132744)",
-      "detail_hash": 16363204717608892172,
-      "duration_ms": 20973
+      "duration_ms": 1824
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@158232)",
-      "detail_hash": 1805925228644673994,
-      "duration_ms": 37685
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@207224)",
+      "detail_hash": 5667088755046943413,
+      "duration_ms": 3093
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A11.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128480)",
-      "detail_hash": 13769988417441173989,
-      "duration_ms": 20190
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179208)",
+      "detail_hash": 7876646493894797258,
+      "duration_ms": 1775
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@135552)",
-      "detail_hash": 5596008495916867114,
-      "duration_ms": 17288
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191792)",
+      "detail_hash": 3604895159533254501,
+      "duration_ms": 1665
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@136400)",
-      "detail_hash": 15564498059466929279,
-      "duration_ms": 18575
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@194016)",
+      "detail_hash": 14520440262765698590,
+      "duration_ms": 1622
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A1_T6.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129704)",
-      "detail_hash": 5740521406004713251,
-      "duration_ms": 21373
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180440)",
+      "detail_hash": 17771124093738369082,
+      "duration_ms": 1622
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A1_T9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131096)",
-      "detail_hash": 13399442132650722670,
-      "duration_ms": 22245
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@181872)",
+      "detail_hash": 5695055125958387897,
+      "duration_ms": 2054
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@142040)",
-      "detail_hash": 13041071624129975569,
-      "duration_ms": 19921
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205192)",
+      "detail_hash": 8194629478637910829,
+      "duration_ms": 1577
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A3.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129184)",
-      "detail_hash": 9189766155738504613,
-      "duration_ms": 16065
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179920)",
+      "detail_hash": 17272896896356474319,
+      "duration_ms": 1656
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A4_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@136288)",
-      "detail_hash": 5035090405275342836,
-      "duration_ms": 15622
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@192528)",
+      "detail_hash": 10149615361612958888,
+      "duration_ms": 1754
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A4_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133960)",
-      "detail_hash": 11328068745732705219,
-      "duration_ms": 17393
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@183872)",
+      "detail_hash": 14716069310666959400,
+      "duration_ms": 1967
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A8.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128744)",
-      "detail_hash": 5667007646441673452,
-      "duration_ms": 16333
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179480)",
+      "detail_hash": 9421494323690538881,
+      "duration_ms": 1928
     },
     {
       "test_path": "built-ins/String/prototype/concat/S15.5.4.6_A9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128592)",
-      "detail_hash": 14405733609747306224,
-      "duration_ms": 15025
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179328)",
+      "detail_hash": 17477606705932079133,
+      "duration_ms": 1853
     },
     {
       "test_path": "built-ins/String/prototype/concat/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 34301
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205504)",
+      "detail_hash": 398182534513467339,
+      "duration_ms": 2631
     },
     {
       "test_path": "built-ins/String/prototype/concat/this-value-not-obj-coercible.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 19577
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@174392)",
+      "detail_hash": 3450221727280120017,
+      "duration_ms": 1704
     },
     {
-      "test_path": "built-ins/String/prototype/constructor/S15.5.4.1_A1_T2.js",
+      "test_path": "built-ins/String/prototype/indexOf/position-tointeger-errors.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131920)",
-      "detail_hash": 3996858956063980313,
-      "duration_ms": 20779
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@182840)",
+      "detail_hash": 3100542579661408556,
+      "duration_ms": 2183
     },
     {
-      "test_path": "built-ins/String/prototype/endsWith/endsWith.js",
+      "test_path": "built-ins/String/prototype/indexOf/searchstring-tostring-errors.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(endsWith function)",
-      "detail_hash": 7863924021732598817,
-      "duration_ms": 2035
-    },
-    {
-      "test_path": "built-ins/String/prototype/endsWith/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(endsWith function)",
-      "detail_hash": 7863924021732598817,
-      "duration_ms": 2459
-    },
-    {
-      "test_path": "built-ins/String/prototype/endsWith/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(endsWith function)",
-      "detail_hash": 7863924021732598817,
-      "duration_ms": 2490
-    },
-    {
-      "test_path": "built-ins/String/prototype/includes/includes.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(includes function)",
-      "detail_hash": 2073382060594942989,
-      "duration_ms": 1740
-    },
-    {
-      "test_path": "built-ins/String/prototype/includes/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(includes function)",
-      "detail_hash": 2073382060594942989,
-      "duration_ms": 2597
-    },
-    {
-      "test_path": "built-ins/String/prototype/includes/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(includes function)",
-      "detail_hash": 2073382060594942989,
-      "duration_ms": 1939
-    },
-    {
-      "test_path": "built-ins/String/prototype/indexOf/S15.5.4.7_A10.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot assign to read only property: wasm-aot completion: object(handle@0)",
-      "detail_hash": 11184968581732631826,
-      "duration_ms": 10642
-    },
-    {
-      "test_path": "built-ins/String/prototype/indexOf/S15.5.4.7_A1_T9.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@136568)",
-      "detail_hash": 13707358905069867871,
-      "duration_ms": 23589
-    },
-    {
-      "test_path": "built-ins/String/prototype/indexOf/S15.5.4.7_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132720)",
-      "detail_hash": 14063270323643570823,
-      "duration_ms": 22428
-    },
-    {
-      "test_path": "built-ins/String/prototype/lastIndexOf/S15.5.4.8_A10.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot assign to read only property: wasm-aot completion: object(handle@0)",
-      "detail_hash": 11184968581732631826,
-      "duration_ms": 8325
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@182512)",
+      "detail_hash": 10984936271998044706,
+      "duration_ms": 2168
     },
     {
       "test_path": "built-ins/String/prototype/lastIndexOf/S15.5.4.8_A1_T10.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@139800)",
-      "detail_hash": 5868878768760349106,
-      "duration_ms": 12961
-    },
-    {
-      "test_path": "built-ins/String/prototype/lastIndexOf/S15.5.4.8_A1_T9.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@136584)",
-      "detail_hash": 16260963873971324683,
-      "duration_ms": 6233
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@190072)",
+      "detail_hash": 3404502680669874462,
+      "duration_ms": 1706
     },
     {
       "test_path": "built-ins/String/prototype/lastIndexOf/S15.5.4.8_A4_T3.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@144328)",
-      "detail_hash": 12173827719181643915,
-      "duration_ms": 5239
-    },
-    {
-      "test_path": "built-ins/String/prototype/lastIndexOf/S15.5.4.8_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132736)",
-      "detail_hash": 11638288754459852853,
-      "duration_ms": 5630
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@194680)",
+      "detail_hash": 15951107662625301407,
+      "duration_ms": 1799
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/15.5.4.9_3.js",
@@ -805,7 +652,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `localeCompare`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 2417076536488515879,
-      "duration_ms": 5017
+      "duration_ms": 1566
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/15.5.4.9_CE.js",
@@ -814,34 +661,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `localeCompare`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 2417076536488515879,
-      "duration_ms": 5712
+      "duration_ms": 1684
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@158272)",
-      "detail_hash": 13484401222219625894,
-      "duration_ms": 11073
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@207264)",
+      "detail_hash": 14377061784571701347,
+      "duration_ms": 3257
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A11.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128504)",
-      "detail_hash": 17774390876157806942,
-      "duration_ms": 5400
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179240)",
+      "detail_hash": 18284910757172686092,
+      "duration_ms": 1709
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130008)",
-      "detail_hash": 833043241611052241,
-      "duration_ms": 5620
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180744)",
+      "detail_hash": 7937681415984615882,
+      "duration_ms": 1925
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A1_T2.js",
@@ -850,187 +697,61 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `localeCompare`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 2417076536488515879,
-      "duration_ms": 4756
+      "duration_ms": 1379
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A8.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128760)",
-      "detail_hash": 11165647679210012828,
-      "duration_ms": 5601
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179496)",
+      "detail_hash": 9061149616695970551,
+      "duration_ms": 1791
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/S15.5.4.9_A9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128632)",
-      "detail_hash": 9859464882947871339,
-      "duration_ms": 5640
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179368)",
+      "detail_hash": 569176853378209116,
+      "duration_ms": 1884
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 9473
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2649
     },
     {
       "test_path": "built-ins/String/prototype/localeCompare/this-value-not-obj-coercible.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5067
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A1_T12.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133536)",
-      "detail_hash": 15272736244361793285,
-      "duration_ms": 5500
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A1_T3.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@105968)",
-      "detail_hash": 14263416554024132486,
-      "duration_ms": 1429
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A1_T6.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137464)",
-      "detail_hash": 1213740853130380894,
-      "duration_ms": 6203
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A1_T9.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@140624)",
-      "detail_hash": 16740491748167064126,
-      "duration_ms": 6766
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128728)",
-      "detail_hash": 16648049636846508493,
-      "duration_ms": 5848
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/S15.5.4.10_A9.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128592)",
-      "detail_hash": 14405733609747306224,
-      "duration_ms": 5772
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(match function)",
-      "detail_hash": 12060969859715208848,
-      "duration_ms": 683
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(match function)",
-      "detail_hash": 12060969859715208848,
-      "duration_ms": 673
-    },
-    {
-      "test_path": "built-ins/String/prototype/match/this-value-not-obj-coercible.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5218
-    },
-    {
-      "test_path": "built-ins/String/prototype/matchAll/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(matchAll function)",
-      "detail_hash": 13816876002224672024,
-      "duration_ms": 673
-    },
-    {
-      "test_path": "built-ins/String/prototype/matchAll/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(matchAll function)",
-      "detail_hash": 13816876002224672024,
-      "duration_ms": 683
-    },
-    {
-      "test_path": "built-ins/String/prototype/matchAll/prop-desc.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(matchAll function)",
-      "detail_hash": 13816876002224672024,
-      "duration_ms": 673
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@174416)",
+      "detail_hash": 9937318764861246637,
+      "duration_ms": 1690
     },
     {
       "test_path": "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-invocation.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype.matchAll RegExp @@matchAll is not callable: wasm-aot completion: object(handle@133680)",
-      "detail_hash": 167765546964345627,
-      "duration_ms": 5359
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@156016)",
+      "detail_hash": 12295121323621893235,
+      "duration_ms": 1961
     },
     {
       "test_path": "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype.matchAll RegExp @@matchAll is not callable: wasm-aot completion: object(handle@262296)",
-      "detail_hash": 1547452152020703992,
-      "duration_ms": 6576
-    },
-    {
-      "test_path": "built-ins/String/prototype/matchAll/this-val-non-obj-coercible.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5078
-    },
-    {
-      "test_path": "built-ins/String/prototype/matchAll/toString-this-val.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@120776)",
-      "detail_hash": 14092682632253497891,
-      "duration_ms": 1870
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@318168)",
+      "detail_hash": 18169946818383070221,
+      "duration_ms": 3593
     },
     {
       "test_path": "built-ins/String/prototype/normalize/form-is-not-valid-throws.js",
@@ -1039,34 +760,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 5550
+      "duration_ms": 1729
     },
     {
       "test_path": "built-ins/String/prototype/normalize/length.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 9512
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2835
     },
     {
       "test_path": "built-ins/String/prototype/normalize/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 9501
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2849
     },
     {
       "test_path": "built-ins/String/prototype/normalize/normalize.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: `typeof String.prototype.normalize` is `function`: wasm-aot completion: object(handle@0)",
-      "detail_hash": 1717490495819499282,
-      "duration_ms": 9592
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@202048)",
+      "detail_hash": 8478493324119229987,
+      "duration_ms": 2736
     },
     {
       "test_path": "built-ins/String/prototype/normalize/return-abrupt-from-form-as-symbol.js",
@@ -1075,7 +796,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 4475
+      "duration_ms": 1509
     },
     {
       "test_path": "built-ins/String/prototype/normalize/return-abrupt-from-form.js",
@@ -1084,7 +805,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 5019
+      "duration_ms": 1625
     },
     {
       "test_path": "built-ins/String/prototype/normalize/return-normalized-string-from-coerced-form.js",
@@ -1093,7 +814,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 1598
+      "duration_ms": 648
     },
     {
       "test_path": "built-ins/String/prototype/normalize/return-normalized-string-using-default-parameter.js",
@@ -1102,7 +823,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 1538
+      "duration_ms": 627
     },
     {
       "test_path": "built-ins/String/prototype/normalize/return-normalized-string.js",
@@ -1111,106 +832,106 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `normalize`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 398433804609241329,
-      "duration_ms": 1558
+      "duration_ms": 623
     },
     {
       "test_path": "built-ins/String/prototype/replace/15.5.4.11-1.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@119344)",
-      "detail_hash": 10643706832620919992,
-      "duration_ms": 1799
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@171440)",
+      "detail_hash": 15365752155688169527,
+      "duration_ms": 887
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A12.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@139232)",
-      "detail_hash": 10026398620820289981,
-      "duration_ms": 5248
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191328)",
+      "detail_hash": 5680894612452793609,
+      "duration_ms": 1909
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129496)",
-      "detail_hash": 11711032106369239932,
-      "duration_ms": 4999
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180232)",
+      "detail_hash": 4710516246132641117,
+      "duration_ms": 1849
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T10.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@132432)",
-      "detail_hash": 12391448428429151740,
-      "duration_ms": 5167
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182536)",
+      "detail_hash": 8690216530718314212,
+      "duration_ms": 1770
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T11.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133584)",
-      "detail_hash": 8737965020833544836,
-      "duration_ms": 5390
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@184304)",
+      "detail_hash": 17502184526729898470,
+      "duration_ms": 1794
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T12.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@135144)",
-      "detail_hash": 14265792679690352544,
-      "duration_ms": 5509
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@185568)",
+      "detail_hash": 11922848932375699649,
+      "duration_ms": 1844
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T13.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134680)",
-      "detail_hash": 10767114144930885355,
-      "duration_ms": 5428
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@185400)",
+      "detail_hash": 11257559864509566750,
+      "duration_ms": 1844
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T14.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@139640)",
-      "detail_hash": 11302770420435729770,
-      "duration_ms": 5188
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191736)",
+      "detail_hash": 11838742377712463145,
+      "duration_ms": 1653
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T17.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@139880)",
-      "detail_hash": 15880298214145774201,
-      "duration_ms": 5168
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191968)",
+      "detail_hash": 12226601984163300742,
+      "duration_ms": 1694
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131880)",
-      "detail_hash": 9839995155958966994,
-      "duration_ms": 6204
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@184024)",
+      "detail_hash": 15390084130588229363,
+      "duration_ms": 2016
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T4.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@133640)",
-      "detail_hash": 15012629802099742643,
-      "duration_ms": 6405
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@183832)",
+      "detail_hash": 17032609152359416623,
+      "duration_ms": 1967
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T5.js",
@@ -1219,7 +940,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 10827699057442756595,
-      "duration_ms": 130
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T6.js",
@@ -1228,484 +949,430 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 10827699057442756595,
-      "duration_ms": 130
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T7.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@130152)",
-      "detail_hash": 6245225522063221762,
-      "duration_ms": 5037
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180264)",
+      "detail_hash": 3548099365310306641,
+      "duration_ms": 1603
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T8.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@142152)",
-      "detail_hash": 17042787931831791082,
-      "duration_ms": 5210
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@194328)",
+      "detail_hash": 10508607137879975849,
+      "duration_ms": 1693
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A1_T9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@135024)",
-      "detail_hash": 14519436944526373553,
-      "duration_ms": 6515
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@188744)",
+      "detail_hash": 1580683297299264597,
+      "duration_ms": 2241
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T1.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138040)",
-      "detail_hash": 11369861458103912678,
-      "duration_ms": 5118
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190136)",
+      "detail_hash": 6935015085301743834,
+      "duration_ms": 1645
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T10.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138096)",
-      "detail_hash": 3537873664500136016,
-      "duration_ms": 5107
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190192)",
+      "detail_hash": 9506172020103734196,
+      "duration_ms": 1699
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T2.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138064)",
-      "detail_hash": 210100973878346189,
-      "duration_ms": 5117
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190160)",
+      "detail_hash": 5480962978974861223,
+      "duration_ms": 1652
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T3.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138064)",
-      "detail_hash": 210100973878346189,
-      "duration_ms": 5228
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190160)",
+      "detail_hash": 5480962978974861223,
+      "duration_ms": 1590
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T4.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138144)",
-      "detail_hash": 5743508232210157828,
-      "duration_ms": 5108
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190240)",
+      "detail_hash": 9397187706490008727,
+      "duration_ms": 1681
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T5.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138104)",
-      "detail_hash": 15640189699713587346,
-      "duration_ms": 5078
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190200)",
+      "detail_hash": 10845768718125376780,
+      "duration_ms": 1637
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T6.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138040)",
-      "detail_hash": 11369861458103912678,
-      "duration_ms": 5088
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190136)",
+      "detail_hash": 6935015085301743834,
+      "duration_ms": 1739
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T7.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138056)",
-      "detail_hash": 1171110431296554934,
-      "duration_ms": 5158
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190152)",
+      "detail_hash": 18294040864161501306,
+      "duration_ms": 1700
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T8.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138056)",
-      "detail_hash": 1171110431296554934,
-      "duration_ms": 5088
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190152)",
+      "detail_hash": 18294040864161501306,
+      "duration_ms": 1621
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A2_T9.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138080)",
-      "detail_hash": 10484743793758578131,
-      "duration_ms": 5077
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190176)",
+      "detail_hash": 15038885644327942026,
+      "duration_ms": 1667
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A3_T1.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@137960)",
-      "detail_hash": 4526236282126882949,
-      "duration_ms": 5018
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190048)",
+      "detail_hash": 17318837715066660637,
+      "duration_ms": 1689
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A3_T2.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@137952)",
-      "detail_hash": 4110968137041261001,
-      "duration_ms": 5118
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190048)",
+      "detail_hash": 17318837715066660637,
+      "duration_ms": 1649
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A3_T3.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@137960)",
-      "detail_hash": 4526236282126882949,
-      "duration_ms": 5088
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190056)",
+      "detail_hash": 3168784379670151244,
+      "duration_ms": 1735
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A4_T1.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@140312)",
-      "detail_hash": 10857466665098559621,
-      "duration_ms": 5319
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@192408)",
+      "detail_hash": 15253821322435770264,
+      "duration_ms": 1712
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A4_T2.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@140320)",
-      "detail_hash": 13665323918598595415,
-      "duration_ms": 5270
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@192408)",
+      "detail_hash": 15253821322435770264,
+      "duration_ms": 1727
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A4_T3.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@140320)",
-      "detail_hash": 13665323918598595415,
-      "duration_ms": 5299
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@192416)",
+      "detail_hash": 2939738436789709689,
+      "duration_ms": 1677
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A4_T4.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@140320)",
-      "detail_hash": 13665323918598595415,
-      "duration_ms": 5289
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@192416)",
+      "detail_hash": 2939738436789709689,
+      "duration_ms": 1763
     },
     {
       "test_path": "built-ins/String/prototype/replace/S15.5.4.11_A5_T1.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@138080)",
-      "detail_hash": 10484743793758578131,
-      "duration_ms": 5068
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@190176)",
+      "detail_hash": 15038885644327942026,
+      "duration_ms": 1680
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-invocation.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5289
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@146688)",
+      "detail_hash": 7728041683129071613,
+      "duration_ms": 1830
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-is-null.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118720)",
-      "detail_hash": 3405857067876028533,
-      "duration_ms": 2302
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@168832)",
+      "detail_hash": 16442030177315360446,
+      "duration_ms": 782
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-on-bigint-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118736)",
-      "detail_hash": 6185215419896143972,
-      "duration_ms": 2212
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@171856)",
+      "detail_hash": 10605089181543160836,
+      "duration_ms": 780
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-on-boolean-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118168)",
-      "detail_hash": 13168099298028200033,
-      "duration_ms": 2182
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@169032)",
+      "detail_hash": 2650319968690348110,
+      "duration_ms": 808
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-on-number-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@120688)",
-      "detail_hash": 5785668564853415829,
-      "duration_ms": 2202
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@177088)",
+      "detail_hash": 7616422629533142582,
+      "duration_ms": 814
     },
     {
       "test_path": "built-ins/String/prototype/replace/cstm-replace-on-string-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@117152)",
-      "detail_hash": 12487806998357854300,
-      "duration_ms": 2202
-    },
-    {
-      "test_path": "built-ins/String/prototype/replace/length.js",
-      "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 9411
-    },
-    {
-      "test_path": "built-ins/String/prototype/replace/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 9462
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@166512)",
+      "detail_hash": 12553520788407289235,
+      "duration_ms": 782
     },
     {
       "test_path": "built-ins/String/prototype/replace/regexp-capture-by-index.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@122168)",
-      "detail_hash": 6347801711814886063,
-      "duration_ms": 56098
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@144504)",
+      "detail_hash": 8865816710563819976,
+      "duration_ms": 27299
     },
     {
       "test_path": "built-ins/String/prototype/replace/regexp-prototype-replace-v-u-flag.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@121488)",
-      "detail_hash": 800507946430287861,
-      "duration_ms": 3822
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@173744)",
+      "detail_hash": 16603154836119453479,
+      "duration_ms": 1738
     },
     {
       "test_path": "built-ins/String/prototype/replace/replaceValue-evaluation-order-regexp-object.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@118152)",
-      "detail_hash": 12401770129224203352,
-      "duration_ms": 1840
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@174392)",
+      "detail_hash": 585781070394640343,
+      "duration_ms": 788
     },
     {
       "test_path": "built-ins/String/prototype/replace/replaceValue-evaluation-order.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@111544)",
-      "detail_hash": 9259475575818873990,
-      "duration_ms": 1689
-    },
-    {
-      "test_path": "built-ins/String/prototype/replace/this-value-not-obj-coercible.js",
-      "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5168
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@161656)",
+      "detail_hash": 14542833941103823170,
+      "duration_ms": 771
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/cstm-replaceall-on-bigint-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118736)",
-      "detail_hash": 6185215419896143972,
-      "duration_ms": 2141
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@171856)",
+      "detail_hash": 10605089181543160836,
+      "duration_ms": 844
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/cstm-replaceall-on-boolean-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118168)",
-      "detail_hash": 13168099298028200033,
-      "duration_ms": 2192
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@169032)",
+      "detail_hash": 2650319968690348110,
+      "duration_ms": 847
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/cstm-replaceall-on-number-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@120688)",
-      "detail_hash": 5785668564853415829,
-      "duration_ms": 2192
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@177088)",
+      "detail_hash": 7616422629533142582,
+      "duration_ms": 829
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/cstm-replaceall-on-string-primitive.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@117152)",
-      "detail_hash": 12487806998357854300,
-      "duration_ms": 2151
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@166512)",
+      "detail_hash": 12553520788407289235,
+      "duration_ms": 839
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024-0x0024.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@110448)",
-      "detail_hash": 8701997875906949653,
-      "duration_ms": 1578
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160560)",
+      "detail_hash": 16533318819490497852,
+      "duration_ms": 698
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024-0x0026.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@110336)",
-      "detail_hash": 16360255173578572654,
-      "duration_ms": 1578
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160448)",
+      "detail_hash": 16291196029458273634,
+      "duration_ms": 727
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024-0x0027.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@111024)",
-      "detail_hash": 8357619769125685752,
-      "duration_ms": 1599
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@161136)",
+      "detail_hash": 10749916645671831517,
+      "duration_ms": 686
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024-0x003C.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@117872)",
-      "detail_hash": 2872572662202862495,
-      "duration_ms": 1689
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@169472)",
+      "detail_hash": 4267398556994322156,
+      "duration_ms": 704
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024-0x0060.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@110736)",
-      "detail_hash": 3689942428761311256,
-      "duration_ms": 1609
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160848)",
+      "detail_hash": 605444960301416128,
+      "duration_ms": 687
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@110368)",
-      "detail_hash": 13196685129449864550,
-      "duration_ms": 1568
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160480)",
+      "detail_hash": 11520132028180580554,
+      "duration_ms": 715
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024N.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@117872)",
-      "detail_hash": 2872572662202862495,
-      "duration_ms": 1679
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@169472)",
+      "detail_hash": 4267398556994322156,
+      "duration_ms": 714
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/getSubstitution-0x0024NN.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118048)",
-      "detail_hash": 16254231732905272073,
-      "duration_ms": 1669
-    },
-    {
-      "test_path": "built-ins/String/prototype/replaceAll/length.js",
-      "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 9312
-    },
-    {
-      "test_path": "built-ins/String/prototype/replaceAll/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 9302
-    },
-    {
-      "test_path": "built-ins/String/prototype/replaceAll/replaceAll.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: `typeof String.prototype.replaceAll` is `function`: wasm-aot completion: object(handle@0)",
-      "detail_hash": 7386697526673098969,
-      "duration_ms": 9381
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@169648)",
+      "detail_hash": 13825805910429792290,
+      "duration_ms": 733
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-call-each-match-position.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@135056)",
-      "detail_hash": 15498423600946599969,
-      "duration_ms": 7682
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@217896)",
+      "detail_hash": 3362837671096325322,
+      "duration_ms": 3068
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-call-matching-empty.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@135032)",
-      "detail_hash": 16841678440284512452,
-      "duration_ms": 5962
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@217872)",
+      "detail_hash": 4664514752363822150,
+      "duration_ms": 2169
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-call-skip-no-match.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@116776)",
-      "detail_hash": 1828059497963791403,
-      "duration_ms": 3649
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@166888)",
+      "detail_hash": 3651978307649780913,
+      "duration_ms": 1300
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-fn-skip-toString.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@113616)",
-      "detail_hash": 7522087182650501922,
-      "duration_ms": 1750
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@163232)",
+      "detail_hash": 15140005497022996069,
+      "duration_ms": 711
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-tostring-abrupt.js",
@@ -1714,43 +1381,43 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5862
+      "duration_ms": 1719
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-value-replaces-string.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@109984)",
-      "detail_hash": 8041479031801960274,
-      "duration_ms": 1598
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160096)",
+      "detail_hash": 13544837681603082051,
+      "duration_ms": 683
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/replaceValue-value-tostring.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@112472)",
-      "detail_hash": 7148002670207716582,
-      "duration_ms": 2072
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@162584)",
+      "detail_hash": 12868124549162240012,
+      "duration_ms": 750
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-empty-string-this-empty-string.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@109936)",
-      "detail_hash": 10957017374167698115,
-      "duration_ms": 1608
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160048)",
+      "detail_hash": 8721442936682448660,
+      "duration_ms": 693
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-empty-string.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@109968)",
-      "detail_hash": 16931868191949009294,
-      "duration_ms": 1618
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160080)",
+      "detail_hash": 10688457804939021346,
+      "duration_ms": 702
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-flags-no-g-throws.js",
@@ -1759,7 +1426,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5530
+      "duration_ms": 1648
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-flags-null-undefined-throws.js",
@@ -1768,7 +1435,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5117
+      "duration_ms": 1547
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-flags-toString-abrupt.js",
@@ -1777,7 +1444,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5832
+      "duration_ms": 1635
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-get-flags-abrupt.js",
@@ -1786,7 +1453,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 7531
+      "duration_ms": 2175
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-isRegExp-abrupt.js",
@@ -1795,7 +1462,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5238
+      "duration_ms": 1514
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-RegExp-call-fn.js",
@@ -1804,7 +1471,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 17536119935887761074,
-      "duration_ms": 5098
+      "duration_ms": 1533
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-RegExp-call.js",
@@ -1813,7 +1480,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 17536119935887761074,
-      "duration_ms": 1749
+      "duration_ms": 659
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-before-tostring.js",
@@ -1822,7 +1489,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 1729
+      "duration_ms": 631
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-call-abrupt.js",
@@ -1831,25 +1498,25 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5269
+      "duration_ms": 1609
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-call.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@124360)",
-      "detail_hash": 12335478193786472903,
-      "duration_ms": 1820
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@178144)",
+      "detail_hash": 9716925809082791805,
+      "duration_ms": 803
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-is-null.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@118728)",
-      "detail_hash": 15554787753585152592,
-      "duration_ms": 2342
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@168840)",
+      "detail_hash": 13703966865107155402,
+      "duration_ms": 815
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-replacer-method-abrupt.js",
@@ -1858,7 +1525,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 8788
+      "duration_ms": 2511
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-tostring-abrupt.js",
@@ -1867,34 +1534,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5741
+      "duration_ms": 1723
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/searchValue-tostring-regexp.js",
       "kind": "Runtime",
-      "outcome": "NotImplemented",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype RegExp/string fallback is unsupported in wasm-aot: wasm-aot completion: object(handle@119456)",
-      "detail_hash": 6512996556244765826,
-      "duration_ms": 1638
-    },
-    {
-      "test_path": "built-ins/String/prototype/replaceAll/this-is-null-throws.js",
-      "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: function must exist: wasm-aot completion: object(handle@0)",
-      "detail_hash": 1822030961052109944,
-      "duration_ms": 4696
-    },
-    {
-      "test_path": "built-ins/String/prototype/replaceAll/this-is-undefined-throws.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: function must exist: wasm-aot completion: object(handle@0)",
-      "detail_hash": 1822030961052109944,
-      "duration_ms": 4686
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@171048)",
+      "detail_hash": 18412873412176139791,
+      "duration_ms": 804
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/this-tostring-abrupt.js",
@@ -1903,7 +1552,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5730
+      "duration_ms": 1707
     },
     {
       "test_path": "built-ins/String/prototype/replaceAll/this-tostring.js",
@@ -1912,214 +1561,70 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 1990
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A10.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(search function)",
-      "detail_hash": 11477106263348010911,
-      "duration_ms": 673
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A11.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128480)",
-      "detail_hash": 13769988417441173989,
-      "duration_ms": 5329
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A1_T12.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@133536)",
-      "detail_hash": 15272736244361793285,
-      "duration_ms": 5358
+      "duration_ms": 657
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A1_T6.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129680)",
-      "detail_hash": 7904548015933753377,
-      "duration_ms": 4978
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182648)",
+      "detail_hash": 5833143501776612704,
+      "duration_ms": 1671
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A1_T9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@132632)",
-      "detail_hash": 17565086872062783371,
-      "duration_ms": 6153
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@188592)",
+      "detail_hash": 920977524576485686,
+      "duration_ms": 1954
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129120)",
-      "detail_hash": 9230823159398884045,
-      "duration_ms": 5057
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182096)",
+      "detail_hash": 2728600294694643652,
+      "duration_ms": 1617
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129120)",
-      "detail_hash": 9230823159398884045,
-      "duration_ms": 5017
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T3.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137296)",
-      "detail_hash": 10813323265399638438,
-      "duration_ms": 5097
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T4.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137416)",
-      "detail_hash": 11689371576646354001,
-      "duration_ms": 5068
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T5.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137416)",
-      "detail_hash": 11689371576646354001,
-      "duration_ms": 5148
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182096)",
+      "detail_hash": 2728600294694643652,
+      "duration_ms": 1682
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T6.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129128)",
-      "detail_hash": 3778535084934342829,
-      "duration_ms": 4998
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182104)",
+      "detail_hash": 13184627030463817082,
+      "duration_ms": 1698
     },
     {
       "test_path": "built-ins/String/prototype/search/S15.5.4.12_A2_T7.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129144)",
-      "detail_hash": 17281396319717374711,
-      "duration_ms": 5018
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A3_T1.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137472)",
-      "detail_hash": 2876984701246155492,
-      "duration_ms": 5097
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A3_T2.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@137496)",
-      "detail_hash": 11237613334344478903,
-      "duration_ms": 5027
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128728)",
-      "detail_hash": 16648049636846508493,
-      "duration_ms": 5691
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/S15.5.4.12_A9.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128592)",
-      "detail_hash": 14405733609747306224,
-      "duration_ms": 5612
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/invoke-builtin-search-searcher-undef.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@133872)",
-      "detail_hash": 17246621253520256852,
-      "duration_ms": 6063
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(search function)",
-      "detail_hash": 11477106263348010911,
-      "duration_ms": 663
-    },
-    {
-      "test_path": "built-ins/String/prototype/search/this-value-not-obj-coercible.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5339
-    },
-    {
-      "test_path": "built-ins/String/prototype/slice/S15.5.4.13_A3_T2.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130120)",
-      "detail_hash": 16307881593703357542,
-      "duration_ms": 5037
-    },
-    {
-      "test_path": "built-ins/String/prototype/slice/S15.5.4.13_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132712)",
-      "detail_hash": 12304919246448670568,
-      "duration_ms": 5590
-    },
-    {
-      "test_path": "built-ins/String/prototype/slice/this-value-tostring-throws-toprimitive.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@128448)",
-      "detail_hash": 311528909390868430,
-      "duration_ms": 4756
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182120)",
+      "detail_hash": 13896791525448013235,
+      "duration_ms": 1694
     },
     {
       "test_path": "built-ins/String/prototype/split/call-split-2-instance-is-string-one-two-three-four-five.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: The value of __split.length is 2: wasm-aot completion: object(handle@120176)",
-      "detail_hash": 17900437214785571346,
-      "duration_ms": 1790
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@210264)",
+      "detail_hash": 7665053618098850860,
+      "duration_ms": 885
     },
     {
       "test_path": "built-ins/String/prototype/split/checking-by-using-eval.js",
@@ -2128,34 +1633,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 130
-    },
-    {
-      "test_path": "built-ins/String/prototype/split/checking-if-enumerating-the-string-prototype-split-length-property-fails.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@133208)",
-      "detail_hash": 9052367820003662751,
-      "duration_ms": 4897
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/split/instance-is-function.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@115080)",
-      "detail_hash": 16484855939444191233,
-      "duration_ms": 1829
-    },
-    {
-      "test_path": "built-ins/String/prototype/split/instance-is-math.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: The value of __split[0] is \"[object Math]\": wasm-aot completion: object(handle@113672)",
-      "detail_hash": 12422143820361279002,
-      "duration_ms": 1750
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@202512)",
+      "detail_hash": 12406768107301002527,
+      "duration_ms": 953
     },
     {
       "test_path": "built-ins/String/prototype/split/separator-override-tostring-limit-override-valueof-throws.js",
@@ -2164,7 +1651,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(intointeger)",
       "detail_hash": 6982394985761893554,
-      "duration_ms": 2192
+      "duration_ms": 902
     },
     {
       "test_path": "built-ins/String/prototype/split/separator-override-tostring-limit-override-valueof-tostring-throws.js",
@@ -2173,25 +1660,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(intointeger)",
       "detail_hash": 6982394985761893554,
-      "duration_ms": 2343
+      "duration_ms": 983
     },
     {
       "test_path": "built-ins/String/prototype/split/separator-override-tostring-throws-limit-override-valueof-throws.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: The value of `e` is \"intoint\": wasm-aot completion: object(handle@120864)",
-      "detail_hash": 9365197884261257225,
-      "duration_ms": 2202
-    },
-    {
-      "test_path": "built-ins/String/prototype/split/separator-override-valueof.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: The value of __split[0] is \"undefined\": wasm-aot completion: object(handle@114896)",
-      "detail_hash": 2324906789810657466,
-      "duration_ms": 2534
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@180000)",
+      "detail_hash": 3715669746189152534,
+      "duration_ms": 1151
     },
     {
       "test_path": "built-ins/String/prototype/split/separator-regexp-limit-string-via-eval.js",
@@ -2200,43 +1678,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 131
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/split/separator-regexp.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large",
-      "detail_hash": 10119025308033241195,
-      "duration_ms": 26368
-    },
-    {
-      "test_path": "built-ins/String/prototype/startsWith/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(startsWith function)",
-      "detail_hash": 17992454695001985762,
-      "duration_ms": 663
-    },
-    {
-      "test_path": "built-ins/String/prototype/startsWith/name.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(startsWith function)",
-      "detail_hash": 17992454695001985762,
-      "duration_ms": 663
-    },
-    {
-      "test_path": "built-ins/String/prototype/startsWith/startsWith.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(startsWith function)",
-      "detail_hash": 17992454695001985762,
-      "duration_ms": 653
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(\"x\".split(/.?/) must return [\"\", \"\"])",
+      "detail_hash": 3782112422386584840,
+      "duration_ms": 13404
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T11.js",
@@ -2245,7 +1696,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(instart)",
       "detail_hash": 1895845537458261926,
-      "duration_ms": 5419
+      "duration_ms": 2000
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T12.js",
@@ -2254,7 +1705,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(instart)",
       "detail_hash": 1895845537458261926,
-      "duration_ms": 5470
+      "duration_ms": 2090
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T13.js",
@@ -2263,7 +1714,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(inend)",
       "detail_hash": 7445657667230275826,
-      "duration_ms": 5479
+      "duration_ms": 1724
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T15.js",
@@ -2272,16 +1723,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4868
+      "duration_ms": 1446
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134096)",
-      "detail_hash": 257439195340951650,
-      "duration_ms": 6334
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@185664)",
+      "detail_hash": 6024133536618953126,
+      "duration_ms": 1940
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T5.js",
@@ -2290,61 +1741,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 10827699057442756595,
-      "duration_ms": 130
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T7.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@129056)",
-      "detail_hash": 13381172407648621004,
-      "duration_ms": 5110
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@179792)",
+      "detail_hash": 13166472106937210072,
+      "duration_ms": 1556
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T8.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132888)",
-      "detail_hash": 11520042858011937782,
-      "duration_ms": 5137
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@183704)",
+      "detail_hash": 14085905506399912714,
+      "duration_ms": 1569
     },
     {
       "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A1_T9.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132016)",
-      "detail_hash": 8589460428635622003,
-      "duration_ms": 5220
-    },
-    {
-      "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A3_T6.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130136)",
-      "detail_hash": 15961519982176293671,
-      "duration_ms": 5107
-    },
-    {
-      "test_path": "built-ins/String/prototype/substring/S15.5.4.15_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132720)",
-      "detail_hash": 14063270323643570823,
-      "duration_ms": 5491
-    },
-    {
-      "test_path": "built-ins/String/prototype/substring/this-value-tostring-throws-toprimitive.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@128456)",
-      "detail_hash": 10662805177794429410,
-      "duration_ms": 4776
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@185072)",
+      "detail_hash": 5978538882004619572,
+      "duration_ms": 1576
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/Final_Sigma_U180E.js",
@@ -2353,88 +1777,88 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 1579
+      "duration_ms": 622
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@158296)",
-      "detail_hash": 18159872176095718606,
-      "duration_ms": 10823
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@207288)",
+      "detail_hash": 9347574125299687486,
+      "duration_ms": 3229
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A11.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128512)",
-      "detail_hash": 7348011875909353077,
-      "duration_ms": 5592
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179248)",
+      "detail_hash": 10317233892128321763,
+      "duration_ms": 1678
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129520)",
-      "detail_hash": 13015966500296191984,
-      "duration_ms": 5684
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180256)",
+      "detail_hash": 12337013406629647334,
+      "duration_ms": 1534
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130160)",
-      "detail_hash": 13105645968183612743,
-      "duration_ms": 5956
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180896)",
+      "detail_hash": 4521102800964636428,
+      "duration_ms": 1553
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T11.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132872)",
-      "detail_hash": 12022187920271158124,
-      "duration_ms": 7657
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182296)",
+      "detail_hash": 2482603506888074862,
+      "duration_ms": 1688
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T12.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134160)",
-      "detail_hash": 1615594923332629469,
-      "duration_ms": 8001
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@183592)",
+      "detail_hash": 17074218153201733990,
+      "duration_ms": 1676
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T13.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131656)",
-      "detail_hash": 15366774302395828088,
-      "duration_ms": 9150
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182392)",
+      "detail_hash": 17673703327857719404,
+      "duration_ms": 1849
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T14.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@138520)",
-      "detail_hash": 7142180695793168679,
-      "duration_ms": 8532
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191240)",
+      "detail_hash": 15713293387186269049,
+      "duration_ms": 1601
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130328)",
-      "detail_hash": 8813405392039730618,
-      "duration_ms": 9285
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182440)",
+      "detail_hash": 11258928326376128664,
+      "duration_ms": 1593
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T3.js",
@@ -2443,7 +1867,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 181
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T4.js",
@@ -2452,7 +1876,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 10252
+      "duration_ms": 1815
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T5.js",
@@ -2461,7 +1885,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 9800
+      "duration_ms": 1837
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T6.js",
@@ -2470,7 +1894,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 9193
+      "duration_ms": 1489
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T7.js",
@@ -2479,7 +1903,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 8605
+      "duration_ms": 1467
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T8.js",
@@ -2488,7 +1912,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 8417
+      "duration_ms": 1542
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A1_T9.js",
@@ -2497,7 +1921,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 9826
+      "duration_ms": 1876
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A2_T1.js",
@@ -2506,34 +1930,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 9260
+      "duration_ms": 1855
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A8.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128776)",
-      "detail_hash": 9330454981549693789,
-      "duration_ms": 9825
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179512)",
+      "detail_hash": 9569070973791315918,
+      "duration_ms": 2000
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/S15.5.4.17_A9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128656)",
-      "detail_hash": 17458402926325117385,
-      "duration_ms": 9972
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179392)",
+      "detail_hash": 11308936090311260152,
+      "duration_ms": 2023
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156488)",
-      "detail_hash": 4352977522600109653,
-      "duration_ms": 17128
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205520)",
+      "detail_hash": 2465507531874263282,
+      "duration_ms": 2842
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/special_casing.js",
@@ -2542,7 +1966,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 2352
+      "duration_ms": 697
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/special_casing_conditional.js",
@@ -2551,7 +1975,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 2863
+      "duration_ms": 704
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/supplementary_plane.js",
@@ -2560,97 +1984,97 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 16050392770237725780,
-      "duration_ms": 2626
+      "duration_ms": 712
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleLowerCase/this-value-not-obj-coercible.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 9344
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@174424)",
+      "detail_hash": 5997090409218259774,
+      "duration_ms": 1936
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@158296)",
-      "detail_hash": 18159872176095718606,
-      "duration_ms": 19560
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@207288)",
+      "detail_hash": 9347574125299687486,
+      "duration_ms": 3517
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A11.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128512)",
-      "detail_hash": 7348011875909353077,
-      "duration_ms": 9546
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179248)",
+      "detail_hash": 10317233892128321763,
+      "duration_ms": 2049
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129520)",
-      "detail_hash": 13015966500296191984,
-      "duration_ms": 8722
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180256)",
+      "detail_hash": 12337013406629647334,
+      "duration_ms": 1762
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130160)",
-      "detail_hash": 13105645968183612743,
-      "duration_ms": 8897
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180896)",
+      "detail_hash": 4521102800964636428,
+      "duration_ms": 1729
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T11.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132872)",
-      "detail_hash": 12022187920271158124,
-      "duration_ms": 8373
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182296)",
+      "detail_hash": 2482603506888074862,
+      "duration_ms": 1866
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T12.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134160)",
-      "detail_hash": 1615594923332629469,
-      "duration_ms": 7523
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@183592)",
+      "detail_hash": 17074218153201733990,
+      "duration_ms": 1881
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T13.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131656)",
-      "detail_hash": 15366774302395828088,
-      "duration_ms": 7181
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182392)",
+      "detail_hash": 17673703327857719404,
+      "duration_ms": 1824
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T14.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@138512)",
-      "detail_hash": 11005849350989928070,
-      "duration_ms": 5178
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191232)",
+      "detail_hash": 9343248402640874029,
+      "duration_ms": 1728
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130336)",
-      "detail_hash": 12581550997608705178,
-      "duration_ms": 5048
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182448)",
+      "detail_hash": 13746420118001072521,
+      "duration_ms": 1686
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T3.js",
@@ -2659,7 +2083,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 120
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T4.js",
@@ -2668,7 +2092,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleUpperCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 1094319244850772197,
-      "duration_ms": 5701
+      "duration_ms": 1999
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T5.js",
@@ -2677,7 +2101,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleUpperCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 1094319244850772197,
-      "duration_ms": 5932
+      "duration_ms": 1857
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T6.js",
@@ -2686,7 +2110,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4795
+      "duration_ms": 1561
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T7.js",
@@ -2695,7 +2119,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4776
+      "duration_ms": 1550
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T8.js",
@@ -2704,7 +2128,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4777
+      "duration_ms": 1546
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A1_T9.js",
@@ -2713,7 +2137,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5642
+      "duration_ms": 1906
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A2_T1.js",
@@ -2722,34 +2146,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleUpperCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 1094319244850772197,
-      "duration_ms": 5260
+      "duration_ms": 1793
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A8.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128776)",
-      "detail_hash": 9330454981549693789,
-      "duration_ms": 5610
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179512)",
+      "detail_hash": 9569070973791315918,
+      "duration_ms": 2038
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/S15.5.4.19_A9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128656)",
-      "detail_hash": 17458402926325117385,
-      "duration_ms": 5742
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179392)",
+      "detail_hash": 11308936090311260152,
+      "duration_ms": 2075
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156488)",
-      "detail_hash": 4352977522600109653,
-      "duration_ms": 9465
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205520)",
+      "detail_hash": 2465507531874263282,
+      "duration_ms": 2973
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/special_casing.js",
@@ -2758,7 +2182,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleUpperCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 1094319244850772197,
-      "duration_ms": 1722
+      "duration_ms": 618
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/supplementary_plane.js",
@@ -2767,16 +2191,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLocaleUpperCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 1094319244850772197,
-      "duration_ms": 1643
+      "duration_ms": 626
     },
     {
       "test_path": "built-ins/String/prototype/toLocaleUpperCase/this-value-not-obj-coercible.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5396
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@174424)",
+      "detail_hash": 5997090409218259774,
+      "duration_ms": 1884
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/Final_Sigma_U180E.js",
@@ -2785,88 +2209,88 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 1635
+      "duration_ms": 644
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@158264)",
-      "detail_hash": 11846380326779343357,
-      "duration_ms": 10698
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@207256)",
+      "detail_hash": 16344208760946733710,
+      "duration_ms": 3204
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A11.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128496)",
-      "detail_hash": 9073162479563676904,
-      "duration_ms": 5556
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179232)",
+      "detail_hash": 15953830305473486797,
+      "duration_ms": 1741
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T1.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@129496)",
-      "detail_hash": 11711032106369239932,
-      "duration_ms": 5127
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180232)",
+      "detail_hash": 4710516246132641117,
+      "duration_ms": 1594
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T10.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130136)",
-      "detail_hash": 15961519982176293671,
-      "duration_ms": 5198
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@180872)",
+      "detail_hash": 13743416433544556074,
+      "duration_ms": 1633
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T11.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@132856)",
-      "detail_hash": 15949667537812480758,
-      "duration_ms": 5521
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@182288)",
+      "detail_hash": 11247317766382191412,
+      "duration_ms": 1690
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T12.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@134152)",
-      "detail_hash": 16407627207480278748,
-      "duration_ms": 5531
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@183584)",
+      "detail_hash": 11088352105239183111,
+      "duration_ms": 1728
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T13.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@131616)",
-      "detail_hash": 8245797092260003970,
-      "duration_ms": 5530
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182352)",
+      "detail_hash": 5092132999213843006,
+      "duration_ms": 1793
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T14.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@138496)",
-      "detail_hash": 18391613337820436518,
-      "duration_ms": 5178
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@191216)",
+      "detail_hash": 17729966980182200076,
+      "duration_ms": 1667
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T2.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@130304)",
-      "detail_hash": 7993758887513426408,
-      "duration_ms": 4907
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@182416)",
+      "detail_hash": 1831765222922942143,
+      "duration_ms": 1578
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T3.js",
@@ -2875,7 +2299,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 130
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T4.js",
@@ -2884,7 +2308,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 5341
+      "duration_ms": 1868
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T5.js",
@@ -2893,7 +2317,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 5794
+      "duration_ms": 1813
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T6.js",
@@ -2902,7 +2326,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4737
+      "duration_ms": 1561
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T7.js",
@@ -2911,7 +2335,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4747
+      "duration_ms": 1517
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T8.js",
@@ -2920,7 +2344,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4549
+      "duration_ms": 1489
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A1_T9.js",
@@ -2929,7 +2353,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5456
+      "duration_ms": 1891
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A2_T1.js",
@@ -2938,34 +2362,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 5304
+      "duration_ms": 1807
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A8.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128752)",
-      "detail_hash": 14481474751940672195,
-      "duration_ms": 5510
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179488)",
+      "detail_hash": 17078423645448716772,
+      "duration_ms": 1956
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/S15.5.4.16_A9.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@128624)",
-      "detail_hash": 910849112813016770,
-      "duration_ms": 5580
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@179360)",
+      "detail_hash": 14084013919396198474,
+      "duration_ms": 2105
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156480)",
-      "detail_hash": 8191366702234413650,
-      "duration_ms": 9417
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205512)",
+      "detail_hash": 16596001020196260767,
+      "duration_ms": 2982
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/special_casing.js",
@@ -2974,7 +2398,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 1528
+      "duration_ms": 642
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/special_casing_conditional.js",
@@ -2983,7 +2407,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 1539
+      "duration_ms": 642
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/supplementary_plane.js",
@@ -2992,25 +2416,34 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `toLowerCase`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 7984119267302339547,
-      "duration_ms": 1538
+      "duration_ms": 611
     },
     {
       "test_path": "built-ins/String/prototype/toLowerCase/this-value-not-obj-coercible.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@0)",
-      "detail_hash": 13161893628678008090,
-      "duration_ms": 5140
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@174408)",
+      "detail_hash": 14418894640494905908,
+      "duration_ms": 1713
+    },
+    {
+      "test_path": "built-ins/String/prototype/toString/non-generic-realm.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(boolean wrong error)",
+      "detail_hash": 17000887313578018771,
+      "duration_ms": 5451
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T14.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@140832)",
-      "detail_hash": 1380081533739431689,
-      "duration_ms": 5127
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@193488)",
+      "detail_hash": 10215788178777953404,
+      "duration_ms": 1676
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T3.js",
@@ -3019,7 +2452,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 4340862895924462476,
-      "duration_ms": 130
+      "duration_ms": 0
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T4.js",
@@ -3028,7 +2461,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5611
+      "duration_ms": 1844
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T6.js",
@@ -3037,7 +2470,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4776
+      "duration_ms": 1508
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T7.js",
@@ -3046,7 +2479,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4786
+      "duration_ms": 1479
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T8.js",
@@ -3055,7 +2488,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15259417211001837983,
-      "duration_ms": 4807
+      "duration_ms": 1553
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A1_T9.js",
@@ -3064,178 +2497,70 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported string dot access. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 9342199488077222984,
-      "duration_ms": 5601
-    },
-    {
-      "test_path": "built-ins/String/prototype/toUpperCase/S15.5.4.18_A8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@132728)",
-      "detail_hash": 6121150177563276218,
-      "duration_ms": 5309
+      "duration_ms": 1983
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/special_casing.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: LATIN SMALL LETTER SHARP S: wasm-aot completion: object(handle@79336)",
-      "detail_hash": 1445185652481961095,
-      "duration_ms": 1669
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@165816)",
+      "detail_hash": 1719779316849671347,
+      "duration_ms": 778
     },
     {
       "test_path": "built-ins/String/prototype/toUpperCase/supplementary_plane.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: DESERET SMALL LETTER LONG I: wasm-aot completion: object(handle@74768)",
-      "detail_hash": 10095057579693521463,
-      "duration_ms": 1669
-    },
-    {
-      "test_path": "built-ins/String/prototype/trim/15.5.4.20-1-8.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: standard builtin body is not emitted unless referenced directly: Function: wasm-aot completion: object(handle@109312)",
-      "detail_hash": 1312737035101869010,
-      "duration_ms": 1569
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@161256)",
+      "detail_hash": 4469014173991573904,
+      "duration_ms": 741
     },
     {
       "test_path": "built-ins/String/prototype/trim/15.5.4.20-2-27.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype.trim.call(123.1234567): wasm-aot completion: object(handle@73504)",
-      "detail_hash": 5912580209935532019,
-      "duration_ms": 1777
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@160296)",
+      "detail_hash": 4860139741284542393,
+      "duration_ms": 702
     },
     {
       "test_path": "built-ins/String/prototype/trim/15.5.4.20-2-49.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: String.prototype.trim.call(regObj): wasm-aot completion: object(handle@118432)",
-      "detail_hash": 13781948777309154760,
-      "duration_ms": 1855
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@173904)",
+      "detail_hash": 12079000957713890475,
+      "duration_ms": 812
     },
     {
-      "test_path": "built-ins/String/prototype/trim/15.5.4.20-2-50.js",
+      "test_path": "built-ins/String/prototype/valueOf/non-generic-realm.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Cannot convert object to primitive value: wasm-aot completion: object(handle@111640)",
-      "detail_hash": 6925588578569159405,
-      "duration_ms": 2099
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimEnd/this-value-object-cannot-convert-to-primitive-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@129256)",
-      "detail_hash": 18410672041071429418,
-      "duration_ms": 4807
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimEnd/this-value-object-valueof-call-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@134392)",
-      "detail_hash": 14331846547416181601,
-      "duration_ms": 5007
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimEnd/this-value-object-valueof-meth-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@134968)",
-      "detail_hash": 10989194050667885105,
-      "duration_ms": 5149
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimEnd/this-value-object-valueof-meth-priority.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: thisVal.toString expected to have been accessed.: wasm-aot completion: object(handle@493646361133071)",
-      "detail_hash": 15737388246797715856,
-      "duration_ms": 1961
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimEnd/this-value-object-valueof-returns-object-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@130360)",
-      "detail_hash": 18357177416160169342,
-      "duration_ms": 4877
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimStart/this-value-object-cannot-convert-to-primitive-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@129256)",
-      "detail_hash": 18410672041071429418,
-      "duration_ms": 5556
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimStart/this-value-object-valueof-call-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@134392)",
-      "detail_hash": 14331846547416181601,
-      "duration_ms": 8571
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimStart/this-value-object-valueof-meth-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@134968)",
-      "detail_hash": 10989194050667885105,
-      "duration_ms": 8368
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimStart/this-value-object-valueof-meth-priority.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: thisVal.toString expected to have been accessed.: wasm-aot completion: object(handle@493646361133071)",
-      "detail_hash": 15737388246797715856,
-      "duration_ms": 3424
-    },
-    {
-      "test_path": "built-ins/String/prototype/trimStart/this-value-object-valueof-returns-object-err.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@130360)",
-      "detail_hash": 18357177416160169342,
-      "duration_ms": 8907
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(boolean wrong error)",
+      "detail_hash": 17000887313578018771,
+      "duration_ms": 5395
     },
     {
       "test_path": "built-ins/String/raw/length.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 14360
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205504)",
+      "detail_hash": 398182534513467339,
+      "duration_ms": 2812
     },
     {
       "test_path": "built-ins/String/raw/name.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@156472)",
-      "detail_hash": 15423108943455963697,
-      "duration_ms": 14921
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@205504)",
+      "detail_hash": 398182534513467339,
+      "duration_ms": 2964
     },
     {
       "test_path": "built-ins/String/raw/raw.js",
@@ -3244,88 +2569,88 @@
       "origin": "unknown",
       "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
       "detail_hash": 4157586038938152846,
-      "duration_ms": 15094
+      "duration_ms": 2964
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-from-empty-array-length.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109400)",
-      "detail_hash": 8086079847947681767,
-      "duration_ms": 2513
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160136)",
+      "detail_hash": 6761479286658052625,
+      "duration_ms": 741
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-negative-infinity.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2422
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 736
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-not-defined.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2213
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 708
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-undefined.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2210
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 697
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-zero-NaN.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2041
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 705
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-zero-boolean.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2210
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 732
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-zero-null.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109440)",
-      "detail_hash": 2420937506056431408,
-      "duration_ms": 2384
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160176)",
+      "detail_hash": 12071148382072813337,
+      "duration_ms": 724
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-number.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109592)",
-      "detail_hash": 16616246783559620828,
-      "duration_ms": 2267
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160320)",
+      "detail_hash": 11946410768644982568,
+      "duration_ms": 705
     },
     {
       "test_path": "built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-string.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109552)",
-      "detail_hash": 13142409651932073183,
-      "duration_ms": 2440
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160288)",
+      "detail_hash": 18127542334761644803,
+      "duration_ms": 738
     },
     {
       "test_path": "built-ins/String/raw/return-the-string-value-from-template.js",
@@ -3334,16 +2659,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: TaggedTemplate(TaggedTemplate { tag: PropertyAccess(Simple(SimplePropertyAccess { target: Identifier(Identifier { ident: Sym { value: 72 }, span: Span((64, 18), (64, 24)) }), field: Const(Identifier { ident: Sym { value: 55 }, span: Span((64, 25), (64, 28)) }) })), raws: [Sym { value: 84 }], cookeds: [Some(Sym { value: 85 })], exprs: [], identifier: 4294967296, span: Span((64, 28), (64, 39)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 2214066465264494215,
-      "duration_ms": 2458
+      "duration_ms": 627
     },
     {
       "test_path": "built-ins/String/raw/return-the-string-value.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109856)",
-      "detail_hash": 14077100488089184139,
-      "duration_ms": 2658
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160592)",
+      "detail_hash": 11755471526023296120,
+      "duration_ms": 740
     },
     {
       "test_path": "built-ins/String/raw/special-characters.js",
@@ -3352,25 +2677,25 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: TaggedTemplate(TaggedTemplate { tag: PropertyAccess(Simple(SimplePropertyAccess { target: Identifier(Identifier { ident: Sym { value: 72 }, span: Span((49, 3), (49, 9)) }), field: Const(Identifier { ident: Sym { value: 55 }, span: Span((49, 10), (49, 13)) }) })), raws: [Sym { value: 84 }, Sym { value: 87 }], cookeds: [Some(Sym { value: 85 }), Some(Sym { value: 87 })], exprs: [Literal(Literal { kind: String(Sym { value: 86 }), span: Span((49, 32), (49, 38)) })], identifier: 4294967296, span: Span((49, 13), (49, 45)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 14855121618951243628,
-      "duration_ms": 2370
+      "duration_ms": 643
     },
     {
       "test_path": "built-ins/String/raw/substitutions-are-appended-on-same-index.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@109688)",
-      "detail_hash": 10036812275762724671,
-      "duration_ms": 2418
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@160416)",
+      "detail_hash": 13066166696720941230,
+      "duration_ms": 733
     },
     {
       "test_path": "built-ins/String/raw/substitutions-are-limited-to-template-raw-length.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@115792)",
-      "detail_hash": 4444846396180209617,
-      "duration_ms": 3224
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@166520)",
+      "detail_hash": 8497140233757601063,
+      "duration_ms": 785
     },
     {
       "test_path": "built-ins/String/raw/template-substitutions-are-appended-on-same-index.js",
@@ -3379,7 +2704,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: TaggedTemplate(TaggedTemplate { tag: PropertyAccess(Simple(SimplePropertyAccess { target: Identifier(Identifier { ident: Sym { value: 72 }, span: Span((70, 18), (70, 24)) }), field: Const(Identifier { ident: Sym { value: 55 }, span: Span((70, 25), (70, 28)) }) })), raws: [Sym { value: 84 }, Sym { value: 85 }, Sym { value: 86 }], cookeds: [Some(Sym { value: 84 }), Some(Sym { value: 85 }), Some(Sym { value: 86 })], exprs: [Literal(Literal { kind: Int(2), span: Span((70, 32), (70, 33)) }), Literal(Literal { kind: Int(4), span: Span((70, 37), (70, 38)) })], identifier: 4294967296, span: Span((70, 28), (70, 41)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 14797746408997390917,
-      "duration_ms": 2627
+      "duration_ms": 611
     },
     {
       "test_path": "built-ins/String/raw/zero-literal-segments.js",
@@ -3388,25 +2713,16 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: TaggedTemplate(TaggedTemplate { tag: PropertyAccess(Simple(SimplePropertyAccess { target: Identifier(Identifier { ident: Sym { value: 72 }, span: Span((47, 18), (47, 24)) }), field: Const(Identifier { ident: Sym { value: 55 }, span: Span((47, 25), (47, 28)) }) })), raws: [Sym { value: 46 }], cookeds: [Some(Sym { value: 46 })], exprs: [], identifier: 4294967296, span: Span((47, 28), (47, 30)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15249663946503502365,
-      "duration_ms": 2739
-    },
-    {
-      "test_path": "built-ins/String/symbol-string-coercion.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.sameValue failed: wasm-aot completion: object(handle@73528)",
-      "detail_hash": 11210940289223894571,
-      "duration_ms": 2585
+      "duration_ms": 588
     },
     {
       "test_path": "built-ins/String/symbol-wrapping.js",
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: assert.throws expected a throw: wasm-aot completion: object(handle@126400)",
-      "detail_hash": 13881950414072556406,
-      "duration_ms": 7161
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@177280)",
+      "detail_hash": 7684216265977976626,
+      "duration_ms": 1493
     },
     {
       "test_path": "built-ins/StringIteratorPrototype/Symbol.toStringTag.js",
@@ -3415,7 +2731,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic string property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15578063053911705686,
-      "duration_ms": 12501
+      "duration_ms": 2478
     },
     {
       "test_path": "built-ins/StringIteratorPrototype/ancestry.js",
@@ -3424,7 +2740,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic string property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15578063053911705686,
-      "duration_ms": 2013
+      "duration_ms": 611
     },
     {
       "test_path": "built-ins/StringIteratorPrototype/next/next-iteration-surrogate-pairs.js",
@@ -3433,7 +2749,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic string property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15578063053911705686,
-      "duration_ms": 2067
+      "duration_ms": 811
     },
     {
       "test_path": "built-ins/StringIteratorPrototype/next/next-iteration.js",
@@ -3442,7 +2758,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic string property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15578063053911705686,
-      "duration_ms": 2329
+      "duration_ms": 824
     },
     {
       "test_path": "built-ins/StringIteratorPrototype/next/next-missing-internal-slots.js",
@@ -3451,7 +2767,7 @@
       "origin": "unknown",
       "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic string property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
       "detail_hash": 15578063053911705686,
-      "duration_ms": 6406
+      "duration_ms": 1714
     }
   ],
   "completed_paths": [
