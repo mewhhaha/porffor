@@ -3015,6 +3015,7 @@ impl StandardBuiltinId {
                 | Self::StringConstructor
                 | Self::BooleanConstructor
                 | Self::BigIntConstructor
+                | Self::SymbolConstructor
                 | Self::ErrorConstructor
                 | Self::EvalErrorConstructor
                 | Self::AggregateErrorConstructor

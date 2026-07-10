@@ -2200,49 +2200,20 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             StandardBuiltinId::SymbolConstructor => {
-                // `Symbol` is not constructable, so the generic
-                // prototype/constructor wiring above (gated on
-                // `constructable()`) is skipped. Wire `Symbol.prototype`
-                // (non-writable/enumerable/configurable) and the
-                // `Symbol.prototype.constructor` back-reference here, then
-                // install the well-known symbols as non-writable,
-                // non-enumerable, non-configurable data properties whose
-                // values are the interned well-known symbol values.
-                function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-                function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_append_data_property_with_flags(
-                    object_local,
-                    key_local,
-                    payload_local,
-                    tag_local,
-                    false,
-                    false,
-                    false,
-                    function,
-                )?;
-
+                // `Symbol` has a [[Construct]] internal method per spec (it
+                // may appear as an `extends` target; a `super()` call into
+                // it throws) even though `new Symbol()` always throws, so
+                // `constructable()` is true and the generic prototype/
+                // constructor wiring above already defined the
+                // non-writable/non-enumerable/non-configurable `prototype`
+                // data property and the writable/non-enumerable/
+                // configurable `Symbol.prototype.constructor` back-reference
+                // (see the `else` branch gated on `builtin.constructable()`
+                // near the top of this function). Fetch the prototype object
+                // and continue with the well-known symbols, the global
+                // registry, and `Symbol.prototype`'s remaining members.
                 function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(prototype_object_local));
-                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-                function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::LocalGet(object_local));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_object_append_data_property_with_flags(
-                    prototype_object_local,
-                    key_local,
-                    payload_local,
-                    tag_local,
-                    true,
-                    false,
-                    true,
-                    function,
-                )?;
 
                 // Symbol.prototype[Symbol.toStringTag] === "Symbol"
                 // (non-writable, non-enumerable, configurable).

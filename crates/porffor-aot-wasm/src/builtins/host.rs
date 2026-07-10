@@ -2240,6 +2240,27 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Boolean`",
                 )
             })?;
+        let symbol_meta = self
+            .functions
+            .get(&StandardBuiltinId::SymbolConstructor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Symbol`",
+                )
+            })?;
+        // `Symbol.for`/`Symbol.keyFor` are only materialized in `self.functions`
+        // when the script actually reaches them (mirrors the main-realm
+        // `SymbolConstructor` bootstrap arm's `if let Some` guard for the same
+        // methods) — install them on this realm's `Symbol` only if present.
+        let symbol_for_meta = self
+            .functions
+            .get(&StandardBuiltinId::SymbolFor.function_id())
+            .cloned();
+        let symbol_key_for_meta = self
+            .functions
+            .get(&StandardBuiltinId::SymbolKeyFor.function_id())
+            .cloned();
         let number_static_method_metas = [
             (
                 "isInteger",
@@ -3062,6 +3083,7 @@ impl<'a> FunctionBuilder<'a> {
         let number_prototype_local = self.reserve_temp_local();
         let string_prototype_local = self.reserve_temp_local();
         let boolean_prototype_local = self.reserve_temp_local();
+        let symbol_prototype_local = self.reserve_temp_local();
         let bigint_prototype_local = self.reserve_temp_local();
         let array_buffer_prototype_local = self.reserve_temp_local();
         let data_view_prototype_local = self.reserve_temp_local();
@@ -3084,6 +3106,7 @@ impl<'a> FunctionBuilder<'a> {
         let number_constructor_local = self.reserve_temp_local();
         let string_constructor_local = self.reserve_temp_local();
         let boolean_constructor_local = self.reserve_temp_local();
+        let symbol_constructor_local = self.reserve_temp_local();
         let array_buffer_constructor_local = self.reserve_temp_local();
         let data_view_constructor_local = self.reserve_temp_local();
         let typed_array_constructor_local = self.reserve_temp_local();
@@ -3175,6 +3198,8 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
+        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(symbol_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(bigint_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
@@ -4347,6 +4372,143 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(method_payload_local);
         }
 
+        // `Symbol`: realm-local constructor + prototype identity (matches
+        // spec/`otherRealm.Symbol !== Symbol`), but the well-known symbol
+        // *values* below are the same interned payload constants the main
+        // realm and every other realm install, so `Symbol.iterator ===
+        // otherRealm.Symbol.iterator` holds automatically without any
+        // extra plumbing. `Symbol.prototype` is a plain object (unlike
+        // Number/String/Boolean, `Object(symbol)` wrapper creation stores
+        // `BOXED_PRIMITIVE_KIND_SYMBOL` directly on the wrapper rather than
+        // reading boxed-primitive metadata off the prototype). `Symbol.for`/
+        // `Symbol.keyFor` read/write the single `SYMBOL_REGISTRY_GLOBAL_INDEX`
+        // global, which this function never resets, so the registry is
+        // shared across realms per spec.
+        self.emit_function_value_payload(&symbol_meta, function)?;
+        function.instruction(&Instruction::LocalSet(symbol_constructor_local));
+        self.emit_store_function_defining_realm(
+            symbol_constructor_local,
+            realm_record_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            symbol_constructor_local,
+            HEAP_PROTOTYPE_OFFSET,
+            function_prototype_local,
+            function,
+        );
+        self.emit_set_function_prototype_data_with_flags(
+            symbol_constructor_local,
+            symbol_prototype_local,
+            false,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        let symbol_member_payload_local = self.reserve_temp_local();
+        let symbol_member_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol")));
+        function.instruction(&Instruction::LocalSet(symbol_member_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+        self.emit_object_define_local_data_with_flags(
+            symbol_prototype_local,
+            "Symbol.toStringTag",
+            symbol_member_payload_local,
+            symbol_member_tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        for (key, value) in [
+            ("iterator", "Symbol.iterator"),
+            ("asyncIterator", "Symbol.asyncIterator"),
+            ("hasInstance", "Symbol.hasInstance"),
+            ("isConcatSpreadable", "Symbol.isConcatSpreadable"),
+            ("match", "Symbol.match"),
+            ("matchAll", "Symbol.matchAll"),
+            ("replace", "Symbol.replace"),
+            ("search", "Symbol.search"),
+            ("species", "Symbol.species"),
+            ("split", "Symbol.split"),
+            ("toPrimitive", "Symbol.toPrimitive"),
+            ("toStringTag", "Symbol.toStringTag"),
+            ("unscopables", "Symbol.unscopables"),
+            ("dispose", "Symbol.dispose"),
+            ("asyncDispose", "Symbol.asyncDispose"),
+        ] {
+            function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+            function.instruction(&Instruction::LocalSet(symbol_member_payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+            function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+            self.emit_object_define_local_data_with_flags(
+                symbol_constructor_local,
+                key,
+                symbol_member_payload_local,
+                symbol_member_tag_local,
+                false,
+                false,
+                false,
+                function,
+            )?;
+        }
+        if let Some(for_meta) = &symbol_for_meta {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(for_meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+            self.emit_object_define_local_data(
+                symbol_constructor_local,
+                "for",
+                method_payload_local,
+                symbol_member_tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        if let Some(key_for_meta) = &symbol_key_for_meta {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(key_for_meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+            self.emit_object_define_local_data(
+                symbol_constructor_local,
+                "keyFor",
+                method_payload_local,
+                symbol_member_tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        self.release_temp_local(symbol_member_tag_local);
+        self.release_temp_local(symbol_member_payload_local);
+
         self.emit_function_value_payload(&array_buffer_meta, function)?;
         function.instruction(&Instruction::LocalSet(array_buffer_constructor_local));
         self.emit_store_function_defining_realm(
@@ -5324,6 +5486,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_object_define_local_data(
             global_local,
+            SYMBOL_NAME,
+            symbol_constructor_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_object_define_local_data(
+            global_local,
             ARRAY_BUFFER_NAME,
             array_buffer_constructor_local,
             tag_local,
@@ -5531,6 +5700,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_array_constructor_local);
         self.release_temp_local(data_view_constructor_local);
         self.release_temp_local(array_buffer_constructor_local);
+        self.release_temp_local(symbol_constructor_local);
         self.release_temp_local(boolean_constructor_local);
         self.release_temp_local(string_constructor_local);
         self.release_temp_local(number_constructor_local);
@@ -5553,6 +5723,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(data_view_prototype_local);
         self.release_temp_local(array_buffer_prototype_local);
         self.release_temp_local(bigint_prototype_local);
+        self.release_temp_local(symbol_prototype_local);
         self.release_temp_local(boolean_prototype_local);
         self.release_temp_local(string_prototype_local);
         self.release_temp_local(number_prototype_local);

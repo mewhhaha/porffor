@@ -1843,6 +1843,17 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 StandardBuiltinId::SymbolConstructor => {
                     object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(ValueInfo {
+                            kind: ValueKind::Object,
+                            possible_kinds: KindSet::from_kind(ValueKind::Object),
+                            heap_shape: Some(Self::standard_boxed_prototype_shape(
+                                BoxedPrimitiveKind::Symbol,
+                            )),
+                            function_targets: BTreeSet::new(),
+                        }),
+                    );
+                    object.properties.insert(
                         "for".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             StandardBuiltinId::SymbolFor.function_id(),
@@ -17984,25 +17995,32 @@ impl<'a> ScriptLowerer<'a> {
             function_targets: BTreeSet::new(),
         };
         let receiver_info = target_info.clone();
+        // Property keys passed to trap handlers are the result of
+        // `ToPropertyKey`, which can yield either a `String` or a `Symbol`
+        // (e.g. `proxy[Symbol.iterator]`) — never hard-narrow this to
+        // `String` alone, or codegen for the trap body (e.g. an explicit
+        // `String(key)` call) can specialize away the `Symbol` case and
+        // trap/throw uncatchably when a real symbol key arrives at runtime.
+        let key_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::from_kind(ValueKind::String)
+                .union(KindSet::from_kind(ValueKind::Symbol)),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
         match trap_name {
             "get" => self.merge_function_param_infos(
                 function_id,
-                &[
-                    target_info,
-                    ValueInfo::new(ValueKind::String),
-                    receiver_info,
-                ],
+                &[target_info, key_info, receiver_info],
             ),
-            "has" | "getOwnPropertyDescriptor" | "deleteProperty" => self
-                .merge_function_param_infos(
-                    function_id,
-                    &[target_info, ValueInfo::new(ValueKind::String)],
-                ),
+            "has" | "getOwnPropertyDescriptor" | "deleteProperty" => {
+                self.merge_function_param_infos(function_id, &[target_info, key_info])
+            }
             "defineProperty" => self.merge_function_param_infos(
                 function_id,
                 &[
                     target_info,
-                    ValueInfo::new(ValueKind::String),
+                    key_info,
                     ValueInfo {
                         kind: ValueKind::Object,
                         possible_kinds: KindSet::from_kind(ValueKind::Object),
