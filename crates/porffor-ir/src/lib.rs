@@ -18,7 +18,7 @@ use boa_ast::{
         update::{UpdateOp, UpdateTarget},
     },
     expression::New,
-    expression::{Call, Expression, RegExpLiteral, SuperCall},
+    expression::{Call, Expression, Optional, OptionalOperationKind, RegExpLiteral, SuperCall},
     function::{
         ArrowFunction, ClassDeclaration, ClassElement, ClassElementName, ClassExpression,
         ClassMethodDefinition, FormalParameter, FormalParameterList, FunctionBody,
@@ -215,6 +215,15 @@ mod tests {
         let script = program.script.as_ref().expect("script ir should exist");
         assert_eq!(script.result_kind(), ValueKind::String);
         assert!(program.ir_summary().contains("compound_assigns=1"));
+    }
+
+    #[test]
+    fn lowers_coercive_compound_add_in_reduce_callback() {
+        let program = lower_script(
+            "function callback(accumulator, value) { accumulator += value; return accumulator; } [11, 9].reduceRight(callback, 0);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program.ir_summary().contains("heap_coercions=1"));
     }
 
     #[test]
@@ -1493,5 +1502,82 @@ mod tests {
             panic!("expected expression statement");
         };
         assert!(matches!(second.expr, ExprIr::Null));
+    }
+
+    #[test]
+    fn lowers_optional_property_chain_as_one_ir_expression() {
+        let program = lower_script("let a; a?.b;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+            panic!("expected optional-chain expression statement");
+        };
+        let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+            panic!("expected one optional-property-chain IR expression");
+        };
+        assert!(matches!(target.expr, ExprIr::Identifier(_)));
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].key, PropertyKeyIr::StaticString("b".to_string()));
+        assert!(chain[0].shorted);
+    }
+
+    #[test]
+    fn optional_property_chain_preserves_each_operation_shorted_flag() {
+        for (source, expected_flags) in [
+            ("let a; a?.b.c;", vec![true, false]),
+            ("let a; a?.b?.c;", vec![true, true]),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}");
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(expr) = &script.body.statements[1] else {
+                panic!("expected optional-chain expression statement");
+            };
+            let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
+                panic!("expected optional-property-chain IR expression");
+            };
+            assert_eq!(
+                chain
+                    .iter()
+                    .map(|access| access.shorted)
+                    .collect::<Vec<_>>(),
+                expected_flags,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn optional_property_chain_keeps_computed_key_inside_chain() {
+        let program = lower_script("function key() { return 'x'; } let a; a?.[key()];");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+            panic!("expected optional-chain expression statement");
+        };
+        let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
+            panic!("expected optional-property-chain IR expression");
+        };
+        let PropertyKeyIr::StringExpr(key) = &chain[0].key else {
+            panic!("expected deferred computed key, got {:?}", chain[0].key);
+        };
+        assert!(
+            matches!(
+                key.expr,
+                ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+            ),
+            "expected the deferred key expression to contain the call, got {:?}",
+            key.expr
+        );
+    }
+
+    #[test]
+    fn optional_call_is_recorded_as_wasm_aot_unsupported() {
+        let program = lower_script("let a; a?.();");
+        assert!(!program.is_wasm_supported());
+        assert!(program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("optional chains with calls") }));
     }
 }

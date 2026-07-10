@@ -966,6 +966,14 @@ pub enum ExprIr {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
     },
+    /// A property-only optional chain.
+    ///
+    /// Every key remains an expression in the chain so a backend can defer a
+    /// computed key until all preceding optional operations have succeeded.
+    OptionalPropertyChain {
+        target: Box<TypedExpr>,
+        chain: Vec<OptionalPropertyAccessIr>,
+    },
     PropertyWrite {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
@@ -1164,6 +1172,14 @@ pub enum ExprIr {
         lhs: Box<TypedExpr>,
         rhs: Box<TypedExpr>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionalPropertyAccessIr {
+    pub key: PropertyKeyIr,
+    /// Whether this operation was introduced by `?.` and therefore
+    /// short-circuits the whole chain for a nullish receiver.
+    pub shorted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2035,6 +2051,20 @@ impl IrSummaryCounts {
                 }
                 self.visit_expr(target);
                 self.visit_property_key(key);
+            }
+            ExprIr::OptionalPropertyChain { target, chain } => {
+                self.property_reads += chain.len();
+                self.visit_expr(target);
+                for access in chain {
+                    if matches!(access.key, PropertyKeyIr::ArrayLength) {
+                        self.array_lengths += 1;
+                    }
+                    if matches!(&access.key, PropertyKeyIr::StaticString(name) if name == "prototype")
+                    {
+                        self.prototype_reads += 1;
+                    }
+                    self.visit_property_key(&access.key);
+                }
             }
             ExprIr::PropertyWrite { target, key, value } => {
                 self.property_writes += 1;

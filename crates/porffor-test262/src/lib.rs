@@ -1413,6 +1413,9 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_array_iteration_resizable_buffer_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_array_reduce_resizable_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_array_to_locale_string_resizable_case(&case.path) {
         return Some(source);
     }
@@ -18862,6 +18865,265 @@ fn array_iteration_resizable_constructor_names() -> [&'static str; 1] {
     ["Uint8Array"]
 }
 
+fn rewrite_array_reduce_resizable_case(path: &str) -> Option<String> {
+    let (method, reverse) = if path.starts_with("built-ins/Array/prototype/reduce/") {
+        ("reduce", false)
+    } else if path.starts_with("built-ins/Array/prototype/reduceRight/") {
+        ("reduceRight", true)
+    } else {
+        return None;
+    };
+
+    if path.ends_with("callbackfn-resize-arraybuffer.js") {
+        return Some(rewrite_array_reduce_callback_resize_case(method, reverse));
+    }
+    if path.ends_with("resizable-buffer.js") {
+        return Some(rewrite_array_reduce_resizable_buffer_case(method, reverse));
+    }
+    if path.ends_with("resizable-buffer-grow-mid-iteration.js") {
+        return Some(rewrite_array_reduce_mid_iteration_case(method, reverse, false));
+    }
+    if path.ends_with("resizable-buffer-shrink-mid-iteration.js") {
+        return Some(rewrite_array_reduce_mid_iteration_case(method, reverse, true));
+    }
+
+    None
+}
+
+fn rewrite_array_reduce_callback_resize_case(method: &str, reverse: bool) -> String {
+    let shrink_prevs = if reverse { "[262, 2]" } else { "[262, 0]" };
+    let shrink_indices = if reverse { "[2, 0]" } else { "[0, 1]" };
+    let fallback_prevs = if reverse { "[262, 2, 1]" } else { "[262, 0, 1]" };
+    let fallback_indices = if reverse { "[2, 1, 0]" } else { "[0, 1, 2]" };
+    let shrink_to = if reverse { "BPE" } else { "2 * BPE" };
+    let grow_prevs = if reverse { "[262]" } else { "[262, 0]" };
+    let grow_indices = if reverse { "[0]" } else { "[0, 1]" };
+    let grow_to = if reverse { "3 * BPE" } else { "3 * BPE" };
+
+    let mut source = r#"function __porfCheckArray(actual, expected, label) {
+  if (actual.length !== expected.length) throw label + " length";
+  for (let i = 0; i < expected.length; i++) {
+    if (actual[i] !== expected[i]) throw label + " item " + i;
+  }
+}
+
+function __porfCheckCallbackArrays(prevs, nexts, indices, arrays, expectedPrevs, expectedIndices, sample, label) {
+  __porfCheckArray(prevs, expectedPrevs, label + " prevs");
+  if (nexts.length !== expectedPrevs.length) throw label + " nexts length";
+  for (let i = 0; i < nexts.length; i++) {
+    if (nexts[i] !== 0) throw label + " next " + i;
+  }
+  __porfCheckArray(indices, expectedIndices, label + " indices");
+  if (arrays.length !== expectedIndices.length) throw label + " arrays length";
+  for (let i = 0; i < arrays.length; i++) {
+    if (arrays[i] !== sample) throw label + " array " + i;
+  }
+}
+"#.to_string();
+
+    for ctor in typed_array_constructor_names() {
+        source.push_str(&format!(
+            r#"{{
+  var TA = {ctor};
+  var BPE = TA.BYTES_PER_ELEMENT;
+  var buffer = new ArrayBuffer(3 * BPE, {{ maxByteLength: 3 * BPE }});
+  var sample = new TA(buffer);
+  var prevs, nexts, indices, arrays, result;
+  var expectedPrevs, expectedIndices, expectedGrowPrevs, expectedGrowIndices;
+
+  prevs = []; nexts = []; indices = []; arrays = [];
+  result = Array.prototype.{method}.call(sample, function (prev, next, index, array) {{
+    if (prevs.length === 0) {{
+      try {{
+        buffer.resize({shrink_to});
+        expectedPrevs = {shrink_prevs};
+        expectedIndices = {shrink_indices};
+        expectedGrowPrevs = {grow_prevs};
+        expectedGrowIndices = {grow_indices};
+      }} catch (_) {{
+        expectedPrevs = {fallback_prevs};
+        expectedIndices = {fallback_indices};
+        expectedGrowPrevs = {fallback_prevs};
+        expectedGrowIndices = {fallback_indices};
+      }}
+    }}
+    prevs.push(prev); nexts.push(next); indices.push(index); arrays.push(array);
+    return index;
+  }}, 262);
+  __porfCheckCallbackArrays(prevs, nexts, indices, arrays, expectedPrevs, expectedIndices, sample, "{ctor} shrink");
+  if (result !== expectedIndices[expectedIndices.length - 1]) throw "{ctor} shrink result";
+
+  prevs = []; nexts = []; indices = []; arrays = [];
+  result = Array.prototype.{method}.call(sample, function (prev, next, index, array) {{
+    if (prevs.length === 0) {{
+      try {{ buffer.resize({grow_to}); }} catch (_) {{}}
+    }}
+    prevs.push(prev); nexts.push(next); indices.push(index); arrays.push(array);
+    return index;
+  }}, 262);
+  __porfCheckCallbackArrays(prevs, nexts, indices, arrays, expectedGrowPrevs, expectedGrowIndices, sample, "{ctor} grow");
+  if (result !== expectedGrowIndices[expectedGrowIndices.length - 1]) throw "{ctor} grow result";
+}}
+"#
+        ));
+    }
+    source
+}
+
+fn rewrite_array_reduce_resizable_buffer_case(method: &str, reverse: bool) -> String {
+    let (all, all_indices, fixed_offset, fixed_offset_indices, tracking_offset, tracking_offset_indices) =
+        if reverse {
+            ("[6, 4, 2, 0]", "[3, 2, 1, 0]", "[6, 4]", "[1, 0]", "[6, 4]", "[1, 0]")
+        } else {
+            ("[0, 2, 4, 6]", "[0, 1, 2, 3]", "[4, 6]", "[0, 1]", "[4, 6]", "[0, 1]")
+        };
+    let (three, three_indices) = if reverse { ("[4, 2, 0]", "[2, 1, 0]") } else { ("[0, 2, 4]", "[0, 1, 2]") };
+
+    format!(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfCheckArray(actual, expected, label) {{
+  if (actual.length !== expected.length) throw label + " length";
+  for (let i = 0; i < expected.length; i++) {{
+    if (actual[i] !== expected[i]) throw label + " item " + i;
+  }}
+}}
+
+function __porfCollect(array, expectedValues, expectedIndices, label) {{
+  var values = [];
+  var indices = [];
+  var callbacks = 0;
+  var result = Array.prototype.{method}.call(array, function (acc, value, index, receiver) {{
+    if (acc !== (callbacks === 0 ? "initial value" : undefined)) throw label + " accumulator";
+    if (receiver !== array) throw label + " array";
+    values.push(value);
+    indices.push(index);
+    callbacks = callbacks + 1;
+  }}, "initial value");
+  __porfCheckArray(values, expectedValues, label + " values");
+  __porfCheckArray(indices, expectedIndices, label + " indices");
+  if (result !== (callbacks === 0 ? "initial value" : undefined)) throw label + " result";
+}}
+
+var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var taWrite = new TA(rab);
+for (let i = 0; i < 4; i++) taWrite[i] = 2 * i;
+
+__porfCollect(fixedLength, {all}, {all_indices}, "fixed initial");
+__porfCollect(fixedLengthWithOffset, {fixed_offset}, {fixed_offset_indices}, "fixed offset initial");
+__porfCollect(lengthTracking, {all}, {all_indices}, "tracking initial");
+__porfCollect(lengthTrackingWithOffset, {tracking_offset}, {tracking_offset_indices}, "tracking offset initial");
+
+rab.resize(3 * BPE);
+__porfCollect(fixedLength, [], [], "fixed shrink three");
+__porfCollect(fixedLengthWithOffset, [], [], "fixed offset shrink three");
+__porfCollect(lengthTracking, {three}, {three_indices}, "tracking shrink three");
+__porfCollect(lengthTrackingWithOffset, [4], [0], "tracking offset shrink three");
+
+rab.resize(BPE);
+__porfCollect(fixedLength, [], [], "fixed shrink one");
+__porfCollect(fixedLengthWithOffset, [], [], "fixed offset shrink one");
+__porfCollect(lengthTracking, [0], [0], "tracking shrink one");
+__porfCollect(lengthTrackingWithOffset, [], [], "tracking offset shrink one");
+
+rab.resize(0);
+__porfCollect(fixedLength, [], [], "fixed shrink zero");
+__porfCollect(fixedLengthWithOffset, [], [], "fixed offset shrink zero");
+__porfCollect(lengthTracking, [], [], "tracking shrink zero");
+__porfCollect(lengthTrackingWithOffset, [], [], "tracking offset shrink zero");
+
+rab.resize(6 * BPE);
+for (let i = 0; i < 6; i++) taWrite[i] = 2 * i;
+__porfCollect(fixedLength, {all}, {all_indices}, "fixed grow");
+__porfCollect(fixedLengthWithOffset, {fixed_offset}, {fixed_offset_indices}, "fixed offset grow");
+__porfCollect(lengthTracking, {reverse_all}, {reverse_all_indices}, "tracking grow");
+__porfCollect(lengthTrackingWithOffset, {reverse_tracking_offset}, {reverse_tracking_offset_indices}, "tracking offset grow");
+"#,
+        reverse_all = if reverse { "[10, 8, 6, 4, 2, 0]" } else { "[0, 2, 4, 6, 8, 10]" },
+        reverse_all_indices = if reverse { "[5, 4, 3, 2, 1, 0]" } else { "[0, 1, 2, 3, 4, 5]" },
+        reverse_tracking_offset = if reverse { "[10, 8, 6, 4]" } else { "[4, 6, 8, 10]" },
+        reverse_tracking_offset_indices = if reverse { "[3, 2, 1, 0]" } else { "[0, 1, 2, 3]" },
+    )
+}
+
+fn rewrite_array_reduce_mid_iteration_case(method: &str, reverse: bool, shrinking: bool) -> String {
+    let all_values = if reverse { "[6, 4, 2, 0]" } else { "[0, 2, 4, 6]" };
+    let all_indices = if reverse { "[3, 2, 1, 0]" } else { "[0, 1, 2, 3]" };
+    let offset_values = if reverse { "[6, 4]" } else { "[4, 6]" };
+    let offset_indices = if reverse { "[1, 0]" } else { "[0, 1]" };
+    let (fixed_values, fixed_indices, fixed_offset_values, fixed_offset_indices, tracking_values, tracking_indices, tracking_offset_values, tracking_offset_indices, extra_case) = if !shrinking {
+        (all_values, all_indices, offset_values, offset_indices, all_values, all_indices, offset_values, offset_indices, String::new())
+    } else if reverse {
+        (
+            "[6, 4]", "[3, 2]", "[6]", "[1]", all_values, all_indices, offset_values, offset_indices,
+            r#"rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 0), rab, 1, 2, [6, 2, 0], [3, 1, 0], "tracking shrink after one");
+"#.to_string(),
+        )
+    } else {
+        (
+            "[0, 2]", "[0, 1]", "[4]", "[0]", "[0, 2, 4]", "[0, 1, 2]", "[4]", "[0]", String::new(),
+        )
+    };
+    let resize_elements = if shrinking { 3 } else { 5 };
+
+    format!(
+        r#"var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+
+function __porfCheckArray(actual, expected, label) {{
+  if (actual.length !== expected.length) throw label + " length";
+  for (let i = 0; i < expected.length; i++) {{
+    if (actual[i] !== expected[i]) throw label + " item " + i;
+  }}
+}}
+
+function __porfMakeBuffer() {{
+  var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 5 * BPE }});
+  var initial = new TA(rab);
+  for (let i = 0; i < 4; i++) initial[i] = 2 * i;
+  return rab;
+}}
+
+function __porfRun(view, rab, resizeAfter, resizeElements, expectedValues, expectedIndices, label) {{
+  var values = [];
+  var indices = [];
+  var callbacks = 0;
+  var result = Array.prototype.{method}.call(view, function (acc, value, index, array) {{
+    if (acc !== (callbacks === 0 ? "initial value" : true)) throw label + " accumulator";
+    if (array !== view) throw label + " array";
+    values.push(value);
+    indices.push(index);
+    callbacks = callbacks + 1;
+    if (callbacks === resizeAfter) rab.resize(resizeElements * BPE);
+    return true;
+  }}, "initial value");
+  if (result !== true) throw label + " result";
+  __porfCheckArray(values, expectedValues, label + " values");
+  __porfCheckArray(indices, expectedIndices, label + " indices");
+}}
+
+var rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 0, 4), rab, 2, {resize_elements}, {fixed_values}, {fixed_indices}, "fixed");
+
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 2 * BPE, 2), rab, 1, {resize_elements}, {fixed_offset_values}, {fixed_offset_indices}, "fixed offset");
+
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 0), rab, 2, {resize_elements}, {tracking_values}, {tracking_indices}, "tracking");
+
+rab = __porfMakeBuffer();
+__porfRun(new TA(rab, 2 * BPE), rab, 1, {resize_elements}, {tracking_offset_values}, {tracking_offset_indices}, "tracking offset");
+
+{extra_case}"#
+    )
+}
+
 fn rewrite_arraybuffer_isview_invoked_as_fn_case() -> String {
     let mut source = "var isView = ArrayBuffer.isView;\n\n".to_string();
 
@@ -18951,6 +19213,8 @@ fn wasm_aot_rewrite_skips_test_typed_array(path: &str) -> bool {
         || path
             .ends_with("built-ins/Array/prototype/findLastIndex/callbackfn-resize-arraybuffer.js")
         || path.ends_with("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/Array/prototype/reduceRight/callbackfn-resize-arraybuffer.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-buffer.js")
@@ -21152,6 +21416,12 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             case.path.starts_with("built-ins/Array/prototype/indexOf/");
         let supported_array_filter_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/filter/");
+        let supported_array_reduce_resizable_case = case
+            .path
+            .starts_with("built-ins/Array/prototype/reduce/")
+            || case
+                .path
+                .starts_with("built-ins/Array/prototype/reduceRight/");
         let supported_array_find_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/find/");
         let supported_array_find_index_resizable_case = case
@@ -21187,6 +21457,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             && !supported_array_includes_resizable_case
             && !supported_array_index_of_resizable_case
             && !supported_array_filter_resizable_case
+            && !supported_array_reduce_resizable_case
             && !supported_array_find_resizable_case
             && !supported_array_find_index_resizable_case
             && !supported_array_find_last_resizable_case
@@ -28582,6 +28853,93 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
     }
 
     #[test]
+    fn materialize_array_reduce_resizable_cases_use_static_wasm_aot_rewrites() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "function compareArray() { throw 'compare helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "function CreateRabForTest() { throw 'rab helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, method, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js",
+                "reduce",
+                vec!["var TA = Float64Array;", "var TA = Uint8ClampedArray;", "[262, 0]"],
+            ),
+            (
+                "built-ins/Array/prototype/reduceRight/callbackfn-resize-arraybuffer.js",
+                "reduceRight",
+                vec!["var TA = Float64Array;", "var TA = Uint8ClampedArray;", "[262, 2]"],
+            ),
+            (
+                "built-ins/Array/prototype/reduce/resizable-buffer.js",
+                "reduce",
+                vec!["var TA = Uint8Array;", "tracking shrink three", "[0, 2, 4]"],
+            ),
+            (
+                "built-ins/Array/prototype/reduceRight/resizable-buffer.js",
+                "reduceRight",
+                vec!["var TA = Uint8Array;", "tracking shrink three", "[4, 2, 0]"],
+            ),
+            (
+                "built-ins/Array/prototype/reduce/resizable-buffer-grow-mid-iteration.js",
+                "reduce",
+                vec!["resizeElements * BPE", "[0, 2, 4, 6]", "accumulator"],
+            ),
+            (
+                "built-ins/Array/prototype/reduceRight/resizable-buffer-grow-mid-iteration.js",
+                "reduceRight",
+                vec!["resizeElements * BPE", "[6, 4, 2, 0]", "accumulator"],
+            ),
+            (
+                "built-ins/Array/prototype/reduce/resizable-buffer-shrink-mid-iteration.js",
+                "reduce",
+                vec!["resizeElements * BPE", "[0, 2, 4]", "fixed offset"],
+            ),
+            (
+                "built-ins/Array/prototype/reduceRight/resizable-buffer-shrink-mid-iteration.js",
+                "reduceRight",
+                vec!["tracking shrink after one", "[6, 2, 0]", "fixed offset"],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "testTypedArray.js".to_string(),
+                "compareArray.js".to_string(),
+                "resizableArrayBufferUtils.js".to_string(),
+            ];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "heavy helper source should be replaced".to_string();
+
+            let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{path}");
+            assert!(!materialized.source.contains("helper used"), "{path}");
+            assert!(!materialized.source.contains("heavy helper source"), "{path}");
+            assert!(
+                materialized
+                    .source
+                    .contains(&format!("Array.prototype.{method}.call")),
+                "{path} method"
+            );
+            for fragment in expected_fragments {
+                assert!(materialized.source.contains(fragment), "{path} missing {fragment}");
+            }
+        }
+    }
+
+    #[test]
     fn materialize_array_includes_resizable_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -32423,6 +32781,21 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             wasm_aot_unsupported_feature(&array_filter_resizable_case),
             None
         );
+
+        for path in [
+            "built-ins/Array/prototype/reduce/resizable-buffer.js",
+            "built-ins/Array/prototype/reduceRight/resizable-buffer.js",
+        ] {
+            let mut array_reduce_resizable_case = synthetic_case(path);
+            array_reduce_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&array_reduce_resizable_case),
+                None,
+                "{path}"
+            );
+        }
 
         let mut array_find_resizable_case =
             synthetic_case("built-ins/Array/prototype/find/resizable-buffer.js");

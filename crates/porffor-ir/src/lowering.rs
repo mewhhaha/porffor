@@ -7116,6 +7116,16 @@ impl<'a> ScriptLowerer<'a> {
                     self.infer_property_key_throw_info(key),
                 )
             }
+            ExprIr::OptionalPropertyChain { target, chain } => {
+                let mut info = self.infer_expr_throw_info(target);
+                for access in chain {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_property_key_throw_info(&access.key),
+                    );
+                }
+                info
+            }
             ExprIr::PropertyWrite { target, key, value } => {
                 let mut info = self.infer_expr_throw_info(target);
                 info =
@@ -9381,6 +9391,7 @@ impl<'a> ScriptLowerer<'a> {
             Expression::ArrowFunction(function) => self.lower_arrow_function(function),
             Expression::ClassExpression(class) => self.lower_class_expression(class),
             Expression::PropertyAccess(access) => self.lower_property_access(access),
+            Expression::Optional(optional) => self.lower_optional_property_chain(optional),
             Expression::SuperCall(call) => self.lower_super_call(call),
             Expression::This(_) => {
                 if !self.is_function_body {
@@ -9401,7 +9412,6 @@ impl<'a> ScriptLowerer<'a> {
             | Expression::AsyncFunctionExpression(_)
             | Expression::AsyncGeneratorExpression(_)
             | Expression::ImportCall(_)
-            | Expression::Optional(_)
             | Expression::TaggedTemplate(_)
             | Expression::ImportMeta(_)
             | Expression::Await(_)
@@ -12170,6 +12180,7 @@ impl<'a> ScriptLowerer<'a> {
                                     | "some"
                                     | "find"
                                     | "reduce"
+                                    | "reduceRight"
                                     | "map"
                                     | "filter"
                                     | "flatMap"
@@ -12191,13 +12202,14 @@ impl<'a> ScriptLowerer<'a> {
                                             heap_shape: None,
                                             function_targets: BTreeSet::new(),
                                         };
-                                        if field_name == "reduce" {
+                                        if field_name == "reduce" || field_name == "reduceRight" {
                                             self.merge_function_param_infos(
                                                 &callback_id,
                                                 &[
                                                     dynamic_value.clone(),
-                                                    dynamic_value,
+                                                    dynamic_value.clone(),
                                                     ValueInfo::new(ValueKind::Number),
+                                                    dynamic_value,
                                                 ],
                                             );
                                         } else {
@@ -12215,7 +12227,7 @@ impl<'a> ScriptLowerer<'a> {
                             }
                             let result_info = match field_name.as_str() {
                                 "every" | "some" => ValueInfo::new(ValueKind::Boolean),
-                                "find" | "reduce" => ValueInfo {
+                                "find" | "reduce" | "reduceRight" => ValueInfo {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
@@ -18729,6 +18741,56 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn lower_optional_property_chain(&mut self, optional: &Optional) -> TypedExpr {
+        if optional.chain().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                OptionalOperationKind::Call { .. }
+                    | OptionalOperationKind::PrivatePropertyAccess { .. }
+            )
+        }) {
+            return self.unsupported_expr(
+                "optional chains with calls or private property accesses are not supported",
+            );
+        }
+
+        let target = self.lower_property_target(optional.target());
+        let mut chain = Vec::with_capacity(optional.chain().len());
+        for operation in optional.chain() {
+            let OptionalOperationKind::SimplePropertyAccess { field } = operation.kind() else {
+                unreachable!("unsupported optional operation was rejected above");
+            };
+            let key = match field {
+                PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                    self.interner.resolve_expect(name.sym()).to_string(),
+                ),
+                PropertyAccessField::Expr(expr) => {
+                    let Some(key) = self.lower_dynamic_object_property_key(expr.as_ref()) else {
+                        return self.unsupported_expr("unsupported optional computed property key");
+                    };
+                    key
+                }
+            };
+            chain.push(OptionalPropertyAccessIr {
+                key,
+                shorted: operation.shorted(),
+            });
+        }
+
+        TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::OptionalPropertyChain {
+                target: Box::new(target),
+                chain,
+            },
+        )
+    }
+
     fn lower_super_call(&mut self, call: &SuperCall) -> TypedExpr {
         if !self
             .class_context
@@ -19981,6 +20043,82 @@ impl<'a> ScriptLowerer<'a> {
                             && (rhs_may_string
                                 || binding_allows_string_add
                                 || global_allows_string_add)));
+                let lhs_info = binding
+                    .as_ref()
+                    .map(|binding| ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    })
+                    .or_else(|| {
+                        global_info
+                            .as_ref()
+                            .filter(|info| info.proven_present)
+                            .map(|info| info.value_info.clone())
+                    });
+                let coercive_add = matches!(op, AssignOp::Add)
+                    && !string_add
+                    && lhs_info.as_ref().is_some_and(|lhs| {
+                        lhs.kind != ValueKind::Number || value.kind != ValueKind::Number
+                    });
+                if coercive_add {
+                    if binding
+                        .as_ref()
+                        .is_some_and(|binding| binding.mode == BindingMode::Const)
+                    {
+                        return self.unsupported_expr("assignment to const binding");
+                    }
+                    let Some(lhs_info) = lhs_info else {
+                        self.unsupported_with_message(format!(
+                            "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
+                        ));
+                        return TypedExpr::undefined();
+                    };
+                    let lhs = TypedExpr::from_info(
+                        lhs_info,
+                        if let Some(storage_name) = binding_storage_name.clone() {
+                            ExprIr::Identifier(storage_name)
+                        } else {
+                            ExprIr::GlobalPropertyRead { name: name.clone() }
+                        },
+                    );
+                    let possible_kinds = KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Number))
+                        .union(KindSet::from_kind(ValueKind::BigInt));
+                    let result_info = ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    };
+                    let result = TypedExpr::from_info(
+                        result_info.clone(),
+                        ExprIr::CoerciveAdd {
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(value),
+                        },
+                    );
+                    if let Some(storage_name) = binding_storage_name {
+                        self.set_binding_value_info(&name, result_info.clone());
+                        return TypedExpr::from_info(
+                            result_info,
+                            ExprIr::AssignIdentifier {
+                                name: storage_name,
+                                value: Box::new(result),
+                            },
+                        );
+                    }
+                    self.set_global_property_value_info(name.clone(), result_info.clone());
+                    return TypedExpr::from_info(
+                        result_info,
+                        ExprIr::GlobalPropertyWrite {
+                            name,
+                            value: Box::new(result),
+                            implicit: false,
+                        },
+                    );
+                }
                 if !string_add && value.kind != ValueKind::Number {
                     return self.unsupported_expr("coercive compound assignment");
                 }

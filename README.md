@@ -206,7 +206,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-06-24`:
+Recent focused progress through `2026-07-10`:
 
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
@@ -335,6 +335,15 @@ Recent focused progress through `2026-06-24`:
   `built-ins/Array/prototype/find` shard `1/8`, which also includes
   `findLast`/`findLastIndex` prefix matches, now reports `12/12` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.reduce` and `Array.prototype.reduceRight` are registered
+  Wasm-AOT builtins with generic `LengthOfArrayLike`, length snapshots,
+  directional `HasProperty`/`Get` traversal, inherited and accessor-backed
+  indexes, exact callback arguments and abrupt completion propagation,
+  initial-value and empty-input semantics, Array instances used as prototypes,
+  and fixed-length or length-tracking typed-array views across resizable-buffer
+  grow and shrink. The combined pinned real-Test262 prefix sweep reports
+  `520/520` as of `2026-07-10` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/reduce --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - The exact real Test262
   `Array.prototype.map/callbackfn-resize-arraybuffer.js`,
   `Array.prototype.every/callbackfn-resize-arraybuffer.js`,

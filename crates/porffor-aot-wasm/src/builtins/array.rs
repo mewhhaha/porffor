@@ -18453,13 +18453,18 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             function,
         )?;
-        self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
             callback_payload_local,
             callback_tag_local,
             undefined_this_payload_local,
             undefined_this_tag_local,
             argc_local,
             argv_local,
+            accumulator_payload_local,
+            accumulator_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
             accumulator_payload_local,
             accumulator_tag_local,
             function,

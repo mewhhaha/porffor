@@ -1284,6 +1284,13 @@ impl StringPool {
                 self.collect_expr(target);
                 self.collect_property_key(key);
             }
+            ExprIr::OptionalPropertyChain { target, chain } => {
+                self.uses_heap = true;
+                self.collect_expr(target);
+                for access in chain {
+                    self.collect_property_key(&access.key);
+                }
+            }
             ExprIr::PropertyWrite { target, key, value } => {
                 self.uses_heap = true;
                 self.collect_expr(target);

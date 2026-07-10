@@ -31,6 +31,17 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         } => {
             expr_contains_this_before_super(operand, state);
         }
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            expr_contains_this_before_super(target, state);
+            for access in chain {
+                match &access.key {
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_contains_this_before_super(expr, state);
+                    }
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+                }
+            }
+        }
         ExprIr::StringCharCodeAt { target, index } => {
             expr_contains_this_before_super(target, state);
             expr_contains_this_before_super(index, state);

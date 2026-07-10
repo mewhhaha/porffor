@@ -72,6 +72,13 @@ let emptyThrows = throwsTypeError(function () {
   [].reduceRight(function () {});
 });
 
+let missingCallbackReferenceError = false;
+try {
+  [1].reduce(missingReducer);
+} catch (error) {
+  missingCallbackReferenceError = error instanceof ReferenceError;
+}
+
 let callbackThrow = false;
 try {
   [1].reduce(function () {
@@ -144,6 +151,23 @@ try {
   argumentsGetterThrowOk = error === argumentsGetterThrow;
 }
 
+function ArrayPrototypeSubclass() {}
+ArrayPrototypeSubclass.prototype = [1, 2, 3];
+let subclassedArrayReceiver = new ArrayPrototypeSubclass();
+let subclassedArrayPrototypeOk = subclassedArrayReceiver.reduce(
+  function (accumulator, item) { return accumulator + item; },
+  0
+) === 6;
+subclassedArrayPrototypeOk = subclassedArrayPrototypeOk &&
+  subclassedArrayReceiver.reduceRight(
+    function (accumulator, item) { return accumulator + item; },
+    "4"
+  ) === "4321";
+subclassedArrayReceiver.length = null;
+subclassedArrayPrototypeOk = subclassedArrayPrototypeOk &&
+  subclassedArrayReceiver.reduce(function () { return 0; }, 1) === 1 &&
+  subclassedArrayReceiver.reduceRight(function () { return 0; }, 1) === 1;
+
 let fakeBuffer = {
   $ArrayBufferByteLength: 8,
   $ArrayBufferDataPtr: 8
@@ -211,4 +235,5 @@ if (lengthReadBeforeCallableCheck && orderedTypeError) checks = checks + 256;
 if (sawUndefinedThis) checks = checks + 512;
 checks === 2047 && overrideOk && customPrototypeOk && inheritedArgumentsOk &&
   argumentsAccessorOk && typedSlotSpoofOk && typedArrayOk && typedShadowOk &&
-  argumentsGetterThrowOk && typedOwnLengthOk && typedCustomPrototypeOk;
+  argumentsGetterThrowOk && subclassedArrayPrototypeOk && typedOwnLengthOk &&
+  typedCustomPrototypeOk && missingCallbackReferenceError;

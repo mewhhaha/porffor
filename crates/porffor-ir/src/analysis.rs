@@ -1542,6 +1542,49 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
             }
+            Expression::Optional(optional) => {
+                self.scan_expression(
+                    owner_id,
+                    optional.target(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
+                for operation in optional.chain() {
+                    match operation.kind() {
+                        OptionalOperationKind::SimplePropertyAccess {
+                            field: PropertyAccessField::Expr(expr),
+                        } => self.scan_expression(
+                            owner_id,
+                            expr,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        ),
+                        OptionalOperationKind::Call { args } => {
+                            for arg in args {
+                                self.scan_expression(
+                                    owner_id,
+                                    arg,
+                                    interner,
+                                    source_text,
+                                    self_name,
+                                    capture_aliases,
+                                    refs,
+                                );
+                            }
+                        }
+                        OptionalOperationKind::SimplePropertyAccess {
+                            field: PropertyAccessField::Const(_),
+                        }
+                        | OptionalOperationKind::PrivatePropertyAccess { .. } => {}
+                    }
+                }
+            }
             Expression::FunctionExpression(function) => {
                 let key = function_expression_key(function);
                 if !self.function_expr_ids.contains_key(&key) {
@@ -1755,7 +1798,6 @@ impl<'a> AnalysisBuilder<'a> {
             | Expression::AsyncFunctionExpression(_)
             | Expression::AsyncGeneratorExpression(_)
             | Expression::ImportCall(_)
-            | Expression::Optional(_)
             | Expression::TaggedTemplate(_)
             | Expression::ImportMeta(_)
             | Expression::BinaryInPrivate(_)

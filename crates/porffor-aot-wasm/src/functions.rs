@@ -4867,6 +4867,11 @@ impl<'a> FunctionBuilder<'a> {
                     spread_tag_local,
                     function,
                 )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    spread_payload_local,
+                    spread_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(spread_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
@@ -4905,6 +4910,11 @@ impl<'a> FunctionBuilder<'a> {
             let payload_local = self.reserve_temp_local();
             let tag_local = self.reserve_temp_local();
             self.compile_expr_to_locals(arg, payload_local, tag_local, function)?;
+            self.emit_propagate_throw_from_locals_if_needed(
+                payload_local,
+                tag_local,
+                function,
+            )?;
             arg_locals.push((payload_local, tag_local));
         }
 
@@ -5750,8 +5760,6 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "reduce") {
-            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
-                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator = receiver
                 .heap_shape
                 .as_deref()
@@ -5762,7 +5770,7 @@ impl<'a> FunctionBuilder<'a> {
                         .contains(&StandardBuiltinId::IteratorPrototypeReduce.function_id()),
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
-            if receiver_is_iterator || !receiver_is_array {
+            if receiver_is_iterator {
                 let receiver_payload_local = self.reserve_temp_local();
                 let receiver_tag_local = self.reserve_temp_local();
                 let callee_payload_local = self.reserve_temp_local();

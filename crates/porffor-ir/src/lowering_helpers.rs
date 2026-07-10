@@ -181,6 +181,24 @@ pub(crate) fn default_param_uses_current_or_later_name(
         Expression::PropertyAccess(access) => {
             default_param_property_access_uses_blocked(access, blocked, interner)
         }
+        Expression::Optional(optional) => {
+            default_param_uses_current_or_later_name(optional.target(), blocked, interner)
+                || optional
+                    .chain()
+                    .iter()
+                    .any(|operation| match operation.kind() {
+                        OptionalOperationKind::SimplePropertyAccess {
+                            field: PropertyAccessField::Expr(expr),
+                        } => default_param_uses_current_or_later_name(expr, blocked, interner),
+                        OptionalOperationKind::Call { args } => args.iter().any(|arg| {
+                            default_param_uses_current_or_later_name(arg, blocked, interner)
+                        }),
+                        OptionalOperationKind::SimplePropertyAccess {
+                            field: PropertyAccessField::Const(_),
+                        }
+                        | OptionalOperationKind::PrivatePropertyAccess { .. } => false,
+                    })
+        }
         Expression::FunctionExpression(_)
         | Expression::ArrowFunction(_)
         | Expression::AsyncArrowFunction(_)
@@ -195,7 +213,6 @@ pub(crate) fn default_param_uses_current_or_later_name(
         | Expression::New(_)
         | Expression::SuperCall(_)
         | Expression::ImportCall(_)
-        | Expression::Optional(_)
         | Expression::TaggedTemplate(_)
         | Expression::NewTarget(_)
         | Expression::ImportMeta(_)

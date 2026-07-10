@@ -965,13 +965,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
-            object_local,
-            name,
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_object_define_local_data(object_local, name, payload_local, tag_local, function)?;
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);
         Ok(())
@@ -2068,6 +2062,33 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_expr_to_locals(target, target_local, target_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(target_local, target_tag_local, function)?;
 
+        let result = self.compile_property_read_from_locals(
+            target,
+            key,
+            target_local,
+            target_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        );
+        self.release_temp_local(target_tag_local);
+        self.release_temp_local(target_local);
+        result
+    }
+
+    /// Emits a property read for an already-evaluated receiver. The caller owns
+    /// the receiver locals, which permits compound expressions to retain and
+    /// reuse them across multiple property accesses.
+    pub(crate) fn compile_property_read_from_locals(
+        &mut self,
+        target: &TypedExpr,
+        key: &PropertyKeyIr,
+        target_local: u32,
+        target_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         match target.kind {
             ValueKind::Object | ValueKind::Function | ValueKind::Dynamic => {
                 let dynamic_symbol_description = target.kind == ValueKind::Dynamic
@@ -2297,8 +2318,6 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         self.release_temp_local(index_local);
-                        self.release_temp_local(target_tag_local);
-                        self.release_temp_local(target_local);
                         close_runtime_shortcut_blocks(function);
                         return Ok(());
                     }
@@ -2319,8 +2338,6 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     self.release_temp_local(index_local);
-                    self.release_temp_local(target_tag_local);
-                    self.release_temp_local(target_local);
                     close_runtime_shortcut_blocks(function);
                     return Ok(());
                 }
@@ -2350,8 +2367,6 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         self.release_temp_local(index_local);
-                        self.release_temp_local(target_tag_local);
-                        self.release_temp_local(target_local);
                         close_runtime_shortcut_blocks(function);
                         return Ok(());
                     }
@@ -2403,8 +2418,6 @@ impl<'a> FunctionBuilder<'a> {
                                         function.instruction(&Instruction::LocalSet(tag_local));
                                         function.instruction(&Instruction::End);
                                         self.release_temp_local(key_local);
-                                        self.release_temp_local(target_tag_local);
-                                        self.release_temp_local(target_local);
                                         close_runtime_shortcut_blocks(function);
                                         return Ok(());
                                     }
@@ -2625,8 +2638,6 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(byte_length_tag_local);
                     self.release_temp_local(byte_length_payload_local);
                     self.release_temp_local(key_local);
-                    self.release_temp_local(target_tag_local);
-                    self.release_temp_local(target_local);
                     close_runtime_shortcut_blocks(function);
                     return Ok(());
                 }
@@ -2751,7 +2762,8 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::I64Eqz);
                         function.instruction(&Instruction::If(BlockType::Empty));
                         function.instruction(&Instruction::Else);
-                        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                         function.instruction(&Instruction::LocalSet(prototype_tag_local));
                         self.emit_object_read(
                             prototype_payload_local,
@@ -3907,16 +3919,12 @@ impl<'a> FunctionBuilder<'a> {
                 }
             },
             _ => {
-                self.release_temp_local(target_tag_local);
-                self.release_temp_local(target_local);
                 return Err(EmitError::unsupported(
                     "unsupported in porffor wasm-aot first slice: property access on non-object target",
                 ));
             }
         }
 
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_local);
         Ok(())
     }
 
@@ -6284,7 +6292,11 @@ impl<'a> FunctionBuilder<'a> {
                 // separately check the read's completion — e.g. the JSON.stringify
                 // builtin's `LengthOfArrayLike` — still see the abrupt completion,
                 // matching the inline wrapper's throw discipline.
-                self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
                 self.release_temp_local(key_tag_local);
                 return Ok(());
             }
@@ -8242,7 +8254,11 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         ) {
-            return self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function);
+            return self.emit_propagate_throw_from_locals_if_needed(
+                payload_local,
+                tag_local,
+                function,
+            );
         }
         self.emit_object_read_ordinary_inner(
             object_local,
@@ -12990,14 +13006,18 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.completion_local));
                 function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_throw_depth));
+                function.instruction(&Instruction::BrIf(
+                    self.depth_to(target) + extra_throw_depth,
+                ));
                 return;
             }
             if let Some(target) = self.finally_stack.last().copied() {
                 function.instruction(&Instruction::LocalGet(self.completion_local));
                 function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_throw_depth));
+                function.instruction(&Instruction::BrIf(
+                    self.depth_to(target) + extra_throw_depth,
+                ));
                 return;
             }
         }

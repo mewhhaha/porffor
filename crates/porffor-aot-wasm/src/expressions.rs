@@ -1,4 +1,5 @@
 use super::*;
+use porffor_ir::OptionalPropertyAccessIr;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_expr_payload(
@@ -1181,6 +1182,16 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
+            ExprIr::OptionalPropertyChain { target, chain } => {
+                self.compile_optional_property_chain_to_locals(
+                    target,
+                    chain,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::SuperConstruct { args } => {
                 let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
                 self.emit_super_construct_with_arg_vector(
@@ -1681,6 +1692,108 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn compile_optional_property_chain_to_locals(
+        &mut self,
+        target: &TypedExpr,
+        chain: &[OptionalPropertyAccessIr],
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let receiver_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        self.compile_expr_to_locals(target, receiver_local, receiver_tag_local, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            receiver_local,
+            receiver_tag_local,
+            function,
+        )?;
+
+        // The first access retains the lowering information from the source
+        // expression. Each following receiver is an observed runtime value, so
+        // use the existing dynamic property-read path while retaining the same
+        // payload/tag locals.
+        let dynamic_receiver = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::Undefined,
+        );
+
+        // One enclosing block makes a shorted operation exit the complete
+        // contiguous chain. In particular, a computed key is emitted only
+        // after the corresponding nullish test.
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        for (index, access) in chain.iter().enumerate() {
+            if access.shorted {
+                self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                // Leave both this `if` and the surrounding chain block.
+                function.instruction(&Instruction::Br(1));
+                function.instruction(&Instruction::End);
+            } else {
+                // Only `?.` short-circuits. A later ordinary property access
+                // (for example `base?.value.next`) still performs RequireObjectCoercible.
+                self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Cannot read properties of null or undefined",
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                    payload_local,
+                    tag_local,
+                    2,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+
+            self.compile_property_read_from_locals(
+                if index == 0 && !matches!(target.kind, ValueKind::Undefined | ValueKind::Null) {
+                    target
+                } else {
+                    // A statically nullish first receiver is valid when this
+                    // operation is shorted, but the ordinary static property
+                    // emitter quite reasonably rejects it during compilation.
+                    &dynamic_receiver
+                },
+                &access.key,
+                receiver_local,
+                receiver_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                payload_local,
+                tag_local,
+                1,
+                function,
+            )?;
+
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::LocalSet(receiver_local));
+            function.instruction(&Instruction::LocalGet(tag_local));
+            function.instruction(&Instruction::LocalSet(receiver_tag_local));
+        }
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_local);
+        Ok(())
+    }
+
     pub(crate) fn compile_expr_to_binding(
         &mut self,
         expr: &TypedExpr,
@@ -1882,6 +1995,15 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_property_read_to_locals(
                     target,
                     key,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::OptionalPropertyChain { target, chain } => {
+                self.compile_optional_property_chain_to_locals(
+                    target,
+                    chain,
                     payload_local,
                     tag_local,
                     function,

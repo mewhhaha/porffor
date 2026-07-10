@@ -255,7 +255,8 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::NumberConstructor);
             }
-            StandardBuiltinId::BooleanPrototypeToString | StandardBuiltinId::BooleanPrototypeValueOf => {
+            StandardBuiltinId::BooleanPrototypeToString
+            | StandardBuiltinId::BooleanPrototypeValueOf => {
                 self.standard_roots
                     .insert(StandardBuiltinId::BooleanConstructor);
             }
@@ -276,7 +277,8 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::SymbolConstructor);
             }
-            StandardBuiltinId::StringPrototypeToString | StandardBuiltinId::StringPrototypeValueOf => {
+            StandardBuiltinId::StringPrototypeToString
+            | StandardBuiltinId::StringPrototypeValueOf => {
                 self.standard_roots
                     .insert(StandardBuiltinId::StringConstructor);
             }
@@ -612,6 +614,13 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
         }
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            expr_exposes_global_object(target)
+                || chain.iter().any(|access| {
+                    property_key_exposes_global_object(&access.key)
+                        || property_access_exposes_global_object(target, &access.key)
+                })
+        }
         ExprIr::PropertyWrite { target, key, value } => {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
@@ -940,6 +949,12 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::PropertyUpdate { target, key, .. } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
+        }
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            collect_expr_global_property_names(target, names);
+            for access in chain {
+                collect_property_key_global_property_names(&access.key, names);
+            }
         }
         ExprIr::PropertyWrite { target, key, value } => {
             collect_expr_global_property_names(target, names);
@@ -1849,6 +1864,28 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         ExprIr::SpecOperation { operands, .. } => operands
             .iter()
             .any(|operand| expr_references_function(operand, target)),
+        ExprIr::OptionalPropertyChain {
+            target: object,
+            chain,
+        } => {
+            expr_references_function(object, target)
+                || chain.iter().any(|access| {
+                    property_key_references_function(&access.key, target)
+                        || optimized_call_method_references_function(&access.key, target)
+                        || shape_data_references_function(
+                            object.heap_shape.as_deref(),
+                            &access.key,
+                            target,
+                        )
+                        || shape_accessor_references_function(
+                            object.heap_shape.as_deref(),
+                            &access.key,
+                            target,
+                            true,
+                            false,
+                        )
+                })
+        }
         ExprIr::PropertyRead {
             target: object,
             key,
@@ -2660,6 +2697,7 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         expr,
         ExprIr::Identifier(_)
             | ExprIr::PropertyRead { .. }
+            | ExprIr::OptionalPropertyChain { .. }
             | ExprIr::GlobalPropertyRead { .. }
             | ExprIr::CallNamed { .. }
             | ExprIr::SpreadArgument(_)
@@ -3023,6 +3061,16 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
             | ObjectPropertyIr::Setter { function, .. } => expr_uses_function_table(function),
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            matches!(target.kind, ValueKind::Object)
+                || expr_uses_function_table(target)
+                || chain.iter().any(|access| match &access.key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_function_table(expr.as_ref())
+                    }
+                })
+        }
         ExprIr::PropertyRead { target, key } => {
             matches!(target.kind, ValueKind::Object)
                 || expr_uses_function_table(target)
@@ -3165,6 +3213,15 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
             | ObjectPropertyIr::Setter { function, .. } => expr_uses_calls(function),
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            expr_uses_calls(target)
+                || chain.iter().any(|access| match &access.key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_calls(expr.as_ref())
+                    }
+                })
+        }
         ExprIr::PropertyRead { target, key } => {
             expr_uses_calls(target)
                 || match key {
@@ -3503,6 +3560,19 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 .max()
                 .unwrap_or(0);
             child.max(6)
+        }
+        ExprIr::OptionalPropertyChain { target, chain } => {
+            let child = chain
+                .iter()
+                .fold(count_expr_temp_locals(target), |acc, access| {
+                    acc.max(match &access.key {
+                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                            count_expr_temp_locals(expr.as_ref())
+                        }
+                    })
+                });
+            child.max(12)
         }
         ExprIr::PropertyRead { target, key } => {
             let child = count_expr_temp_locals(target).max(match key {
