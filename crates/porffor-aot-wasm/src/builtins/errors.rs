@@ -436,8 +436,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let prototype_local = self.reserve_temp_local();
-        let expected_parent_local = self.reserve_temp_local();
-        let actual_parent_local = self.reserve_temp_local();
         let prototype_offset = error_realm_prototype_offset(name);
 
         function.instruction(&Instruction::LocalGet(self.current_env_local));
@@ -462,33 +460,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalGet(error_prototype_global_index(name)));
         function.instruction(&Instruction::LocalSet(prototype_local));
         function.instruction(&Instruction::End);
-        if name != ERROR_NAME {
-            self.load_i64_to_local_from_offset(
-                self.current_env_local,
-                HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,
-                expected_parent_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(expected_parent_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::GlobalGet(ERROR_PROTOTYPE_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(expected_parent_local));
-            function.instruction(&Instruction::End);
-            self.load_i64_to_local_from_offset(
-                prototype_local,
-                HEAP_PROTOTYPE_OFFSET,
-                actual_parent_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(actual_parent_local));
-            function.instruction(&Instruction::LocalGet(expected_parent_local));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::GlobalGet(error_prototype_global_index(name)));
-            function.instruction(&Instruction::LocalSet(prototype_local));
-            function.instruction(&Instruction::End);
-        }
         self.emit_throw_runtime_error_with_prototype_local(
             name,
             message,
@@ -499,8 +470,6 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(actual_parent_local);
-        self.release_temp_local(expected_parent_local);
         self.release_temp_local(prototype_local);
         Ok(())
     }

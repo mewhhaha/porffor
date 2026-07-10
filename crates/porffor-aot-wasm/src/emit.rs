@@ -729,7 +729,7 @@ fn emit_script_with_forced_builtins(
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..13 {
+        for _ in 0..15 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,

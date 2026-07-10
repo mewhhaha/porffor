@@ -86,6 +86,14 @@ pub(crate) const ATOMICS_OBJECT_GLOBAL_INDEX: u32 = 74;
 pub(crate) const SYMBOL_CONSTRUCTOR_GLOBAL_INDEX: u32 = 75;
 pub(crate) const SYMBOL_PROTOTYPE_GLOBAL_INDEX: u32 = 76;
 pub(crate) const SYMBOL_REGISTRY_GLOBAL_INDEX: u32 = 77;
+// Canonical per-realm `parseInt`/`parseFloat` function objects. The spec
+// requires `Number.parseInt` and the global `parseInt` to be the *same*
+// function object (likewise `parseFloat`). These mutable globals hold that
+// object during realm construction so every install site reads one identity;
+// they are reset to 0 at the start of each realm build so createRealm mints
+// fresh objects per realm rather than aliasing the previous realm's.
+pub(crate) const PARSE_INT_FUNCTION_GLOBAL_INDEX: u32 = 78;
+pub(crate) const PARSE_FLOAT_FUNCTION_GLOBAL_INDEX: u32 = 79;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -417,7 +425,26 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "[[SymbolRegistry]]",
         index: SYMBOL_REGISTRY_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "%parseInt%",
+        index: PARSE_INT_FUNCTION_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%parseFloat%",
+        index: PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
+    },
 ];
+
+/// Maps a global-object property name to the canonical function-object global
+/// that must back both it and the matching `Number.*` static, so the two share
+/// one identity within a realm.
+pub(crate) fn canonical_host_function_global_index_by_name(name: &str) -> Option<u32> {
+    match name {
+        "parseInt" => Some(PARSE_INT_FUNCTION_GLOBAL_INDEX),
+        "parseFloat" => Some(PARSE_FLOAT_FUNCTION_GLOBAL_INDEX),
+        _ => None,
+    }
+}
 
 pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {

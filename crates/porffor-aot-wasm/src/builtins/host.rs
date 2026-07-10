@@ -3106,6 +3106,14 @@ impl<'a> FunctionBuilder<'a> {
         let tag_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
 
+        // Each realm build mints its own canonical parseInt/parseFloat objects;
+        // clear the get-or-create slots so this realm does not alias the
+        // previous realm's (or the main realm's) function identities.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(PARSE_INT_FUNCTION_GLOBAL_INDEX));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(PARSE_FLOAT_FUNCTION_GLOBAL_INDEX));
+
         self.emit_alloc_realm_record(0, 1, realm_record_local, function)?;
 
         self.emit_alloc_plain_object_with_prototype(None, None, function)?;
@@ -4191,6 +4199,18 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
         for (name, meta) in &number_static_method_metas {
+            if let Some(global_index) = canonical_host_function_global_index_by_name(name) {
+                self.emit_define_canonical_realm_host_function(
+                    number_constructor_local,
+                    name,
+                    meta,
+                    global_index,
+                    realm_record_local,
+                    type_error_prototype_local,
+                    function,
+                )?;
+                continue;
+            }
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload(meta, function)?;
             function.instruction(&Instruction::LocalSet(method_payload_local));
@@ -5411,6 +5431,18 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(function_payload_local);
         }
         for (name, meta) in &global_host_function_metas {
+            if let Some(global_index) = canonical_host_function_global_index_by_name(name) {
+                self.emit_define_canonical_realm_host_function(
+                    global_local,
+                    name,
+                    meta,
+                    global_index,
+                    realm_record_local,
+                    type_error_prototype_local,
+                    function,
+                )?;
+                continue;
+            }
             let function_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload(meta, function)?;
             function.instruction(&Instruction::LocalSet(function_payload_local));

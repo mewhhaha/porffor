@@ -2511,29 +2511,41 @@ impl<'a> FunctionBuilder<'a> {
                 let parse_int_meta = self
                     .functions
                     .get(&HostBuiltinId::ParseInt.function_id())
+                    .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Number.parseInt`",
                         )
                     })?;
-                self.emit_object_define_function_data(
+                self.emit_ensure_canonical_host_function(
+                    &parse_int_meta,
+                    PARSE_INT_FUNCTION_GLOBAL_INDEX,
+                    function,
+                )?;
+                self.emit_object_define_function_global_data(
                     object_local,
                     "parseInt",
-                    parse_int_meta,
+                    PARSE_INT_FUNCTION_GLOBAL_INDEX,
                     function,
                 )?;
                 let parse_float_meta = self
                     .functions
                     .get(&HostBuiltinId::ParseFloat.function_id())
+                    .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Number.parseFloat`",
                         )
                     })?;
-                self.emit_object_define_function_data(
+                self.emit_ensure_canonical_host_function(
+                    &parse_float_meta,
+                    PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
+                    function,
+                )?;
+                self.emit_object_define_function_global_data(
                     object_local,
                     "parseFloat",
-                    parse_float_meta,
+                    PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
                     function,
                 )?;
                 function.instruction(&Instruction::GlobalGet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
@@ -4678,13 +4690,27 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(tag_local));
                 }
                 ScriptGlobalBindingKind::HostFunction(builtin) => {
-                    let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in porffor wasm-aot first slice: unknown script-global host function `{}`",
-                            builtin.as_str()
-                        ))
-                    })?;
-                    self.emit_function_value_payload(meta, function)?;
+                    let meta = self
+                        .functions
+                        .get(&builtin.function_id())
+                        .cloned()
+                        .ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in porffor wasm-aot first slice: unknown script-global host function `{}`",
+                                builtin.as_str()
+                            ))
+                        })?;
+                    // `parseInt`/`parseFloat` must be the same object as
+                    // `Number.parseInt`/`Number.parseFloat`; source them from the
+                    // canonical per-realm global rather than a fresh allocation.
+                    if let Some(global_index) =
+                        canonical_host_function_global_index_by_name(binding.name.as_str())
+                    {
+                        self.emit_ensure_canonical_host_function(&meta, global_index, function)?;
+                        function.instruction(&Instruction::GlobalGet(global_index));
+                    } else {
+                        self.emit_function_value_payload(&meta, function)?;
+                    }
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
