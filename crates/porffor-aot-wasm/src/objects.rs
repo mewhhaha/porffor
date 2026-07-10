@@ -902,6 +902,81 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Get-or-create the canonical function object held in `global_index`,
+    /// allocating it from `meta` the first time. Used so a realm's global
+    /// `parseInt`/`parseFloat` and its `Number.parseInt`/`Number.parseFloat`
+    /// resolve to a single function-object identity (spec: they are the same
+    /// object). No realm-error-prototype wiring here — the main realm relies on
+    /// the default-realm throw fallback.
+    pub(crate) fn emit_ensure_canonical_host_function(
+        &mut self,
+        meta: &WasmFunctionMeta,
+        global_index: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::GlobalGet(global_index));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_value_payload(meta, function)?;
+        function.instruction(&Instruction::GlobalSet(global_index));
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Realm-aware variant: get-or-create the canonical function object in
+    /// `global_index`, wiring the defining realm and realm TypeError prototype
+    /// on first allocation, then define it as an own data property of
+    /// `object_local`. Both the global-object and `Number` install sites call
+    /// this within one realm build so they share the same object.
+    pub(crate) fn emit_define_canonical_realm_host_function(
+        &mut self,
+        object_local: u32,
+        name: &str,
+        meta: &WasmFunctionMeta,
+        global_index: u32,
+        realm_record_local: u32,
+        type_error_prototype_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(global_index));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_value_payload(meta, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        self.emit_store_function_defining_realm(payload_local, realm_record_local, function);
+        self.store_i64_local_at_offset(
+            payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::GlobalSet(global_index));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::GlobalGet(global_index));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            object_local,
+            name,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_object_append_data_property_with_flags(
         &mut self,
         object_local: u32,
@@ -14315,6 +14390,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(self.scratch_local));

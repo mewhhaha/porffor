@@ -3014,7 +3014,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.emit_store_array_descriptor_at_index(
+        self.emit_store_array_descriptor_for_index(
             array_local,
             index_local,
             descriptor_kind_local,
@@ -4865,6 +4865,127 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(list_len_local);
         self.release_temp_local(list_ptr_local);
         self.release_temp_local(descriptor_kind_local);
+        self.release_temp_local(entry_local);
+        self.release_temp_local(cap_local);
+        self.release_temp_local(len_local);
+        self.release_temp_local(buffer_local);
+    }
+
+    /// Reads the own-property descriptor kind for `index_local` on an
+    /// array-shaped heap object (array or arguments object), consulting the
+    /// dense buffer when the index is within `cap` and falling back to the
+    /// sparse present-index list otherwise. Writes `0` into `result_local`
+    /// when the index has no own property (out of `len` bounds, or simply
+    /// absent from both the dense buffer and the present-index list).
+    ///
+    /// This mirrors the bounds-checked lookup used by
+    /// [`Self::emit_array_has_index_i32`] and
+    /// [`Self::emit_array_advance_to_next_present_index`]; callers that need
+    /// to inspect flags (e.g. `OBJECT_DESCRIPTOR_ENUMERABLE`) for an index
+    /// already known to be present should use this instead of indexing the
+    /// dense buffer directly, which is unsafe for indices `>= cap`.
+    pub(crate) fn emit_array_descriptor_kind_for_index(
+        &mut self,
+        array_local: u32,
+        index_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let buffer_local = self.reserve_temp_local();
+        let len_local = self.reserve_temp_local();
+        let cap_local = self.reserve_temp_local();
+        let entry_local = self.reserve_temp_local();
+        let list_ptr_local = self.reserve_temp_local();
+        let list_len_local = self.reserve_temp_local();
+        let list_index_local = self.reserve_temp_local();
+        let candidate_index_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(array_local, HEAP_PTR_OFFSET, buffer_local, function);
+        self.load_i64_to_local_from_offset(array_local, HEAP_LEN_OFFSET, len_local, function);
+        self.load_i64_to_local_from_offset(array_local, HEAP_CAP_OFFSET, cap_local, function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(0));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(cap_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(buffer_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(entry_local));
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            array_local,
+            HEAP_ARRAY_PRESENT_INDEXES_PTR_OFFSET,
+            list_ptr_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            array_local,
+            HEAP_ARRAY_PRESENT_INDEXES_LEN_OFFSET,
+            list_len_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(list_index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(list_index_local));
+        function.instruction(&Instruction::LocalGet(list_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(list_ptr_local));
+        function.instruction(&Instruction::LocalGet(list_index_local));
+        function.instruction(&Instruction::I64Const(HEAP_ARRAY_PRESENT_ENTRY_SIZE as i64));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(entry_local));
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_ARRAY_PRESENT_ENTRY_INDEX_OFFSET,
+            candidate_index_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(candidate_index_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_ARRAY_PRESENT_ENTRY_DESCRIPTOR_KIND_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(list_len_local));
+        function.instruction(&Instruction::LocalSet(list_index_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(list_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(list_index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(candidate_index_local);
+        self.release_temp_local(list_index_local);
+        self.release_temp_local(list_len_local);
+        self.release_temp_local(list_ptr_local);
         self.release_temp_local(entry_local);
         self.release_temp_local(cap_local);
         self.release_temp_local(len_local);

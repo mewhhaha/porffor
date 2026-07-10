@@ -7079,19 +7079,19 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(scan_index_local));
                 function.instruction(&Instruction::Block(BlockType::Empty));
                 function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_array_advance_to_next_present_index(
+                    arg_payload_local,
+                    scan_index_local,
+                    len_local,
+                    function,
+                );
                 function.instruction(&Instruction::LocalGet(scan_index_local));
                 function.instruction(&Instruction::LocalGet(len_local));
                 function.instruction(&Instruction::I64GeU);
                 function.instruction(&Instruction::BrIf(1));
-                function.instruction(&Instruction::LocalGet(buffer_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-                function.instruction(&Instruction::I64Mul);
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(entry_local));
-                self.load_i64_to_local_from_offset(
-                    entry_local,
-                    HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+                self.emit_array_descriptor_kind_for_index(
+                    arg_payload_local,
+                    scan_index_local,
                     descriptor_kind_local,
                     function,
                 );
@@ -7140,19 +7140,19 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(scan_index_local));
                 function.instruction(&Instruction::Block(BlockType::Empty));
                 function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_array_advance_to_next_present_index(
+                    arg_payload_local,
+                    scan_index_local,
+                    len_local,
+                    function,
+                );
                 function.instruction(&Instruction::LocalGet(scan_index_local));
                 function.instruction(&Instruction::LocalGet(len_local));
                 function.instruction(&Instruction::I64GeU);
                 function.instruction(&Instruction::BrIf(1));
-                function.instruction(&Instruction::LocalGet(buffer_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-                function.instruction(&Instruction::I64Mul);
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(entry_local));
-                self.load_i64_to_local_from_offset(
-                    entry_local,
-                    HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+                self.emit_array_descriptor_kind_for_index(
+                    arg_payload_local,
+                    scan_index_local,
                     descriptor_kind_local,
                     function,
                 );
