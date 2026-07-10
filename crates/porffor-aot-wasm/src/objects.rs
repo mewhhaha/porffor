@@ -6186,6 +6186,45 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
+        if self.outline_object_read_proxy {
+            if let Some(helper) = self.object_read_proxy_helper_function_index() {
+                // The helper takes the key tag explicitly (param 5); compute it
+                // here (respecting an override) so the helper body has a fixed
+                // signature.
+                let key_tag_local = self.reserve_temp_local();
+                if let Some(key_tag_override_local) = key_tag_override_local {
+                    function.instruction(&Instruction::LocalGet(key_tag_override_local));
+                    function.instruction(&Instruction::LocalSet(key_tag_local));
+                } else {
+                    self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
+                }
+                function.instruction(&Instruction::LocalGet(object_local));
+                function.instruction(&Instruction::LocalGet(object_tag_local));
+                function.instruction(&Instruction::LocalGet(receiver_payload_local));
+                function.instruction(&Instruction::LocalGet(receiver_tag_local));
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::LocalGet(key_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                // Store the value (or, on a throw, the thrown value) into the
+                // caller's value locals and set the completion tuple, mirroring
+                // the outlined ordinary-read path (`emit_object_read_ordinary_inner`).
+                // `result_local` is not touched, so no caller value held across
+                // the read is clobbered.
+                self.store_call_results(payload_local, tag_local, function);
+                // Inside the outlined helper a proxy-trap throw has no active
+                // handler, so it is surfaced as a throw completion with the thrown
+                // value in the caller's `payload`/`tag` locals. Propagate it here
+                // (to the active handler, or by returning) so callers that do not
+                // separately check the read's completion — e.g. the JSON.stringify
+                // builtin's `LengthOfArrayLike` — still see the abrupt completion,
+                // matching the inline wrapper's throw discipline.
+                self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+                self.release_temp_local(key_tag_local);
+                return Ok(());
+            }
+        }
+
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
@@ -12870,6 +12909,99 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Routes a pending throw completion (left in `result_local`/`result_tag_local`
+    /// by a shared-helper call) to the active handler, or returns it, mirroring
+    /// [`Self::emit_throw_runtime_error_to_active_handler`] but for a completion
+    /// that already exists. Uses `BrIf` so no extra wasm frame is introduced and
+    /// `extra_throw_depth` keeps the same meaning callers already pass (the count
+    /// of untracked wasm frames wrapping the call site).
+    fn emit_route_pending_throw_to_active_handler(
+        &mut self,
+        extra_throw_depth: u32,
+        function: &mut Function,
+    ) {
+        if self.is_main() {
+            if let Some(target) = self.throw_handler_stack.last().copied() {
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_throw_depth));
+                return;
+            }
+            if let Some(target) = self.finally_stack.last().copied() {
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_throw_depth));
+                return;
+            }
+        }
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+    }
+
+    /// Emits a `call` to the shared proxy-aware `[[GetPrototypeOf]]` helper,
+    /// storing the prototype into the result locals and routing a proxy-trap
+    /// throw to the active handler. Replaces the inline proxy state machine at
+    /// every call site.
+    fn emit_call_object_get_prototype_of_helper(
+        &mut self,
+        object_payload_local: u32,
+        object_tag_local: u32,
+        result_payload_local: u32,
+        result_tag_local: u32,
+        extra_throw_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let helper = self
+            .object_get_prototype_of_helper_function_index()
+            .expect("get-prototype-of helper index must exist");
+        function.instruction(&Instruction::LocalGet(object_payload_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(self.result_local, self.result_tag_local, function);
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(result_payload_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(result_tag_local));
+        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        Ok(())
+    }
+
+    /// Emits a `call` to the shared proxy-aware `[[IsExtensible]]` helper,
+    /// storing the boolean result into `result_local` and routing a proxy-trap
+    /// throw to the active handler.
+    fn emit_call_object_is_extensible_helper(
+        &mut self,
+        object_payload_local: u32,
+        object_tag_local: u32,
+        result_local: u32,
+        extra_throw_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let helper = self
+            .object_is_extensible_helper_function_index()
+            .expect("is-extensible helper index must exist");
+        function.instruction(&Instruction::LocalGet(object_payload_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(self.result_local, self.result_tag_local, function);
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        Ok(())
+    }
+
     pub(crate) fn emit_object_get_prototype_of(
         &mut self,
         object_payload_local: u32,
@@ -12974,6 +13106,21 @@ impl<'a> FunctionBuilder<'a> {
         extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.outline_object_get_prototype_of {
+            if self
+                .object_get_prototype_of_helper_function_index()
+                .is_some()
+            {
+                return self.emit_call_object_get_prototype_of_helper(
+                    object_payload_local,
+                    object_tag_local,
+                    result_payload_local,
+                    result_tag_local,
+                    extra_throw_depth,
+                    function,
+                );
+            }
+        }
         let handled_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();
@@ -13994,6 +14141,17 @@ impl<'a> FunctionBuilder<'a> {
         extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.outline_object_is_extensible {
+            if self.object_is_extensible_helper_function_index().is_some() {
+                return self.emit_call_object_is_extensible_helper(
+                    object_payload_local,
+                    object_tag_local,
+                    result_local,
+                    extra_throw_depth,
+                    function,
+                );
+            }
+        }
         let handled_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();

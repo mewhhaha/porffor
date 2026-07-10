@@ -182,6 +182,27 @@ pub(crate) struct FunctionBuilder<'a> {
     /// false only while compiling that helper itself. ToNumber appears at ~130
     /// builtin sites, each otherwise several KB inline.
     pub(crate) outline_value_to_number: bool,
+    /// When false, `emit_object_get_prototype_of_with_depth` inlines the
+    /// proxy-aware `[[GetPrototypeOf]]` state machine instead of emitting a call
+    /// to the shared helper. Set false only while compiling that helper itself.
+    /// The proxy get-prototype-of expansion (which mutually inlines the
+    /// proxy-aware `[[IsExtensible]]` walk to a fixed depth) is ~356KB per
+    /// `instanceof` site under a realm/proxy-enabled module, so outlining it is
+    /// what keeps `instanceof other.X` reading functions from blowing past
+    /// Cranelift's per-function code-size limit.
+    pub(crate) outline_object_get_prototype_of: bool,
+    /// When false, `emit_object_is_extensible_i32_with_depth` inlines the
+    /// proxy-aware `[[IsExtensible]]` state machine instead of emitting a call to
+    /// the shared helper. Set false only while compiling that helper itself.
+    pub(crate) outline_object_is_extensible: bool,
+    /// When false, `emit_object_read_with_key_tag` inlines the proxy-aware
+    /// `[[Get]]` wrapper (proxy-handler check, `get` trap invoke, invariant
+    /// validation, one-level nested-proxy unroll) instead of emitting a call to
+    /// the shared helper. Set false only while compiling that helper itself. The
+    /// proxy read wrapper is ~21KB per read site under a realm/proxy-enabled
+    /// module, and dynamic reads are the single most common operation, so
+    /// outlining it is the dominant code-size win for realm modules.
+    pub(crate) outline_object_read_proxy: bool,
     /// When `Some(local)`, `emit_object_write` is being emitted as the shared
     /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
     /// behavior from the runtime value of `local` (a helper parameter carrying
@@ -559,6 +580,57 @@ fn emit_script_with_forced_builtins(
             builder.compile_value_to_number_helper()
         })
         .transpose()?;
+    let object_get_prototype_of_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_get_prototype_of_helper()
+        })
+        .transpose()?;
+    let object_is_extensible_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_is_extensible_helper()
+        })
+        .transpose()?;
+    let object_read_proxy_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_read_proxy_helper()
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -662,6 +734,11 @@ fn emit_script_with_forced_builtins(
         // dynamic ToString (value-to-string) helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // dynamic ToNumber (value-to-number) helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // proxy-aware [[GetPrototypeOf]] + [[IsExtensible]] helpers.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // proxy-aware [[Get]] helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
@@ -839,6 +916,21 @@ fn emit_script_with_forced_builtins(
             value_to_number_helper_function
                 .as_ref()
                 .expect("value-to-number helper must exist when heap is enabled"),
+        );
+        code.function(
+            object_get_prototype_of_helper_function
+                .as_ref()
+                .expect("get-prototype-of helper must exist when heap is enabled"),
+        );
+        code.function(
+            object_is_extensible_helper_function
+                .as_ref()
+                .expect("is-extensible helper must exist when heap is enabled"),
+        );
+        code.function(
+            object_read_proxy_helper_function
+                .as_ref()
+                .expect("object-read-proxy helper must exist when heap is enabled"),
         );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
@@ -1327,6 +1419,9 @@ impl<'a> FunctionBuilder<'a> {
             outline_string_to_number: true,
             outline_value_to_string: true,
             outline_value_to_number: true,
+            outline_object_get_prototype_of: true,
+            outline_object_is_extensible: true,
+            outline_object_read_proxy: true,
             object_write_strict_flag_local: None,
         }
     }
@@ -1385,12 +1480,33 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 15)
     }
 
-    /// Wasm function index of the shared JSON.stringify value helper. Emitted
-    /// only when `JSON.stringify` is compiled, immediately after the
-    /// value-to-number helper (the last unconditional runtime helper), so its
-    /// index never shifts the preceding fixed-offset helpers.
-    pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
+    /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn object_get_prototype_of_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index.map(|base| base + 16)
+    }
+
+    /// Wasm function index of the shared proxy-aware `[[IsExtensible]]` helper.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 17)
+    }
+
+    /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn object_read_proxy_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 18)
+    }
+
+    /// Wasm function index of the shared JSON.stringify value helper. Emitted
+    /// only when `JSON.stringify` is compiled, immediately after the last
+    /// unconditional runtime helper, so its index never shifts the preceding
+    /// fixed-offset helpers.
+    pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 19)
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -1880,6 +1996,105 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared proxy-aware `[[GetPrototypeOf]]` helper. The proxy
+    /// get-prototype-of state machine (walk the proxy chain, invoke the
+    /// `getPrototypeOf` trap, validate against a non-extensible target) is
+    /// emitted once here and reached with a plain `call`, instead of being
+    /// inlined (~356KB) at every `instanceof`/prototype-walk site in a
+    /// realm/proxy-enabled module.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
+    /// 1=object tag. Params 2-6 are unused. Results are the standard four-i64
+    /// tuple: on normal completion the prototype `(payload, tag)` is in the first
+    /// two slots; a proxy-trap throw is surfaced through the completion slots.
+    fn compile_object_get_prototype_of_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_get_prototype_of = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_object_get_prototype_of_with_depth(
+            0,
+            1,
+            self.result_local,
+            self.result_tag_local,
+            4,
+            0,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared proxy-aware `[[IsExtensible]]` helper, called by the
+    /// get-prototype-of helper (and the `Object`/`Reflect` extensibility
+    /// builtins) instead of inlining its proxy-trap walk.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
+    /// 1=object tag. Params 2-6 are unused. Results are the standard four-i64
+    /// tuple: on normal completion the boolean result (0/1) is in the first slot;
+    /// a proxy-trap throw is surfaced through the completion slots.
+    fn compile_object_is_extensible_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_is_extensible = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_object_is_extensible_i32_with_depth(0, 1, self.result_local, 4, 0, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared proxy-aware `[[Get]]` helper. The proxy read wrapper
+    /// (proxy-handler check, `get` trap invoke, invariant validation, one-level
+    /// nested-proxy target unroll) is emitted once here and reached with a plain
+    /// `call`, instead of being inlined (~21KB) at every dynamic property read in
+    /// a realm/proxy-enabled module.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
+    /// 1=object tag, 2=receiver payload, 3=receiver tag, 4=key payload, 5=key
+    /// tag. Param 6 is unused. Results are the standard four-i64 tuple: on normal
+    /// completion the value `(payload, tag)` is in the first two slots; a
+    /// proxy-trap throw is surfaced through the completion slots.
+    fn compile_object_read_proxy_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_object_read_proxy = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_object_read_with_key_tag(
+            0,
+            1,
+            2,
+            3,
+            4,
+            Some(5),
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
