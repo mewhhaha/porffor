@@ -344,6 +344,17 @@ Recent focused progress through `2026-07-10`:
   grow and shrink. The combined pinned real-Test262 prefix sweep reports
   `520/520` as of `2026-07-10` under
   `./target/debug/porf test262 run built-ins/Array/prototype/reduce --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- Property-access optional chains now have dedicated IR and Wasm-AOT lowering
+  for dot and computed keys. The implementation evaluates the base once,
+  defers computed keys until after the nullish check, short-circuits the whole
+  contiguous chain, preserves grouped boundaries such as `(value?.a).b`, and
+  performs primitive property lookup through the appropriate prototype while
+  retaining the primitive receiver. The pinned real-Test262
+  `language/expressions/optional-chaining` leaf reports `23/38` with no bugs or
+  crashes as of `2026-07-10`; the remaining `15` cases are explicit unsupported
+  optional-call, async, mixed-production, or unrelated feature gaps. Refresh
+  with
+  `./target/debug/porf test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - The exact real Test262
   `Array.prototype.map/callbackfn-resize-arraybuffer.js`,
   `Array.prototype.every/callbackfn-resize-arraybuffer.js`,

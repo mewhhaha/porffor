@@ -19066,16 +19066,25 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn static_array_numeric_property_key(&self, expr: &Expression) -> Option<PropertyKeyIr> {
-        let value = self.try_constant_array_index_expr(expr)?;
-        if value <= MAX_ARRAY_INDEX {
+        let value = Self::literal_number_value(Self::unwrap_parenthesized_expr(expr))?;
+        if value.is_finite()
+            && value >= 0.0
+            && value.fract() == 0.0
+            && value <= MAX_ARRAY_INDEX
+        {
             Some(PropertyKeyIr::ArrayIndex(Box::new(
                 self.static_number_index_expr(value),
             )))
         } else {
             Some(PropertyKeyIr::StaticString(
-                Self::static_number_property_key_from_value(value),
+                Self::js_number_to_string(value),
             ))
         }
+    }
+
+    fn lower_array_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
+        self.static_array_numeric_property_key(expr)
+            .or_else(|| self.lower_dynamic_object_property_key(expr))
     }
 
     fn narrow_array_index_expr(&mut self, index: &mut TypedExpr) -> bool {
@@ -19632,65 +19641,38 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        if let Some(key) = self.static_array_numeric_property_key(expr) {
-            let info = match &key {
-                PropertyKeyIr::StaticString(name) => {
-                    self.read_object_shape(&target, name).unwrap_or(ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    })
-                }
-                PropertyKeyIr::ArrayIndex(index) => {
-                    self.read_array_shape(&target, index).unwrap_or(ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    })
-                }
-                _ => unreachable!("array numeric property helper only returns static keys"),
-            };
-            return TypedExpr::from_info(
-                info,
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key,
-                },
-            );
-        }
-        let mut index = self.lower_expression(expr);
-        if !self.narrow_array_index_expr(&mut index) {
-            let string_or_boolean_key =
-                KindSet::from_kind(ValueKind::String).union(KindSet::from_kind(ValueKind::Boolean));
-            if index.possible_kinds.is_subset_of(string_or_boolean_key) {
-                return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StringExpr(Box::new(index)),
-                    },
-                );
-            }
+        let Some(key) = self.lower_array_property_key(expr) else {
             return self.unsupported_expr("array index must be number");
-        }
-        let info = self.read_array_shape(&target, &index).unwrap_or(ValueInfo {
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: BTreeSet::new(),
-        });
+        };
+        let info = match &key {
+            PropertyKeyIr::StaticString(name) => {
+                self.read_object_shape(&target, name).unwrap_or(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            PropertyKeyIr::ArrayIndex(index) => {
+                self.read_array_shape(&target, index).unwrap_or(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayLength => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+        };
         TypedExpr::from_info(
             info,
             ExprIr::PropertyRead {
                 target: Box::new(target),
-                key: PropertyKeyIr::ArrayIndex(Box::new(index)),
+                key,
             },
         )
     }
@@ -21056,27 +21038,10 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                             PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.static_array_numeric_property_key(expr) {
-                                    key
-                                } else {
-                                    let mut index = self.lower_expression(expr);
-                                    if let ExprIr::String(key) = &index.expr {
-                                        if key == "Symbol.isConcatSpreadable" {
-                                            PropertyKeyIr::StaticString(key.clone())
-                                        } else {
-                                            PropertyKeyIr::StringExpr(Box::new(index))
-                                        }
-                                    } else if index.possible_kinds.is_subset_of(
-                                        KindSet::from_kind(ValueKind::String)
-                                            .union(KindSet::from_kind(ValueKind::Boolean)),
-                                    ) {
-                                        PropertyKeyIr::StringExpr(Box::new(index))
-                                    } else if self.narrow_array_index_expr(&mut index) {
-                                        PropertyKeyIr::ArrayIndex(Box::new(index))
-                                    } else {
-                                        return self.unsupported_expr("array index must be number");
-                                    }
-                                }
+                                let Some(key) = self.lower_array_property_key(expr) else {
+                                    return self.unsupported_expr("array index must be number");
+                                };
+                                key
                             }
                         };
                         let value = self.lower_expression(rhs);

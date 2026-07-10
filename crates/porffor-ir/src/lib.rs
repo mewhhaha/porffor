@@ -839,6 +839,66 @@ mod tests {
     }
 
     #[test]
+    fn lowers_fractional_array_keys_as_named_properties() {
+        let program = lower_script(
+            "const arr = [39, 42]; arr[1.1] = 'other prop'; arr[1.1];",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(write) = &script.body.statements[1] else {
+            panic!("expected array property write");
+        };
+        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
+            panic!("expected property write, got {:?}", write.expr);
+        };
+        assert_eq!(key, &PropertyKeyIr::StaticString("1.1".to_string()));
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected array property read");
+        };
+        let ExprIr::PropertyRead { key, .. } = &read.expr else {
+            panic!("expected property read, got {:?}", read.expr);
+        };
+        assert_eq!(key, &PropertyKeyIr::StaticString("1.1".to_string()));
+        assert_eq!(read.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn lowers_runtime_number_array_keys_through_to_property_key() {
+        for key_init in ["1", "1.1", "-1", "NaN", "Infinity"] {
+            let source = format!(
+                "let key = {key_init}; let array = []; array[key] = 7; array[key];"
+            );
+            let program = lower_script(&source);
+            assert!(program.is_wasm_supported(), "{source}");
+            let script = program.script.as_ref().expect("script ir should exist");
+
+            let StatementIr::Expression(write) = &script.body.statements[2] else {
+                panic!("expected array property write for {source}");
+            };
+            let ExprIr::PropertyWrite { key, .. } = &write.expr else {
+                panic!("expected property write for {source}, got {:?}", write.expr);
+            };
+            assert!(
+                matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
+                "runtime numeric write key must use ToPropertyKey for {source}, got {key:?}"
+            );
+
+            let StatementIr::Expression(read) = &script.body.statements[3] else {
+                panic!("expected array property read for {source}");
+            };
+            let ExprIr::PropertyRead { key, .. } = &read.expr else {
+                panic!("expected property read for {source}, got {:?}", read.expr);
+            };
+            assert!(
+                matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
+                "runtime numeric read key must use ToPropertyKey for {source}, got {key:?}"
+            );
+        }
+    }
+
+    #[test]
     fn folds_iterator_from_nullish_symbol_iterator_fallback() {
         let program = lower_script(
             "function* g() { yield 0; yield 1; yield 2; }

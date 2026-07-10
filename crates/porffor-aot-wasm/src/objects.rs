@@ -2062,8 +2062,43 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_expr_to_locals(target, target_local, target_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(target_local, target_tag_local, function)?;
 
+        // Ordinary property access always performs RequireObjectCoercible.
+        // Optional-chain lowering deliberately bypasses this wrapper and does
+        // its own per-operation nullish check, which preserves `a?.b.c` while
+        // making the grouped boundary `(a?.b).c` throw as required.
+        self.compile_nullish_tagged_i32(target_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            1,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        let dynamic_target = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::Undefined,
+        );
+
         let result = self.compile_property_read_from_locals(
-            target,
+            if matches!(target.kind, ValueKind::Undefined | ValueKind::Null) {
+                &dynamic_target
+            } else {
+                target
+            },
             key,
             target_local,
             target_tag_local,
@@ -2089,6 +2124,17 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if target.kind == ValueKind::Dynamic {
+            return self.compile_dynamic_property_read_from_locals(
+                key,
+                target_local,
+                target_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            );
+        }
+
         match target.kind {
             ValueKind::Object | ValueKind::Function | ValueKind::Dynamic => {
                 let dynamic_symbol_description = target.kind == ValueKind::Dynamic
@@ -3322,6 +3368,32 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(index_local);
                 }
             },
+            ValueKind::Number | ValueKind::Boolean => {
+                let key_local = self.compile_object_key_to_local(key, function)?;
+                let prototype_local = self.reserve_temp_local();
+                let prototype_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::GlobalGet(match target.kind {
+                    ValueKind::Number => NUMBER_PROTOTYPE_GLOBAL_INDEX,
+                    ValueKind::Boolean => BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+                    _ => unreachable!(),
+                }));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                self.emit_object_read(
+                    prototype_local,
+                    prototype_tag_local,
+                    target_local,
+                    target_tag_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(prototype_tag_local);
+                self.release_temp_local(prototype_local);
+                self.release_temp_local(key_local);
+            }
             ValueKind::Symbol => match key {
                 PropertyKeyIr::StaticString(name) if name == "description" => {
                     // Heap `Symbol(desc)` records (small handle, high 32 bits
@@ -3368,8 +3440,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_object_read(
                         proto_payload_local,
                         proto_tag_local,
-                        proto_payload_local,
-                        proto_tag_local,
+                        target_local,
+                        target_tag_local,
                         key_local,
                         payload_local,
                         tag_local,
@@ -3382,6 +3454,30 @@ impl<'a> FunctionBuilder<'a> {
             },
             ValueKind::String => match key {
                 PropertyKeyIr::ArrayLength => {
+                    let offset_local = self.reserve_temp_local();
+                    let byte_len_local = self.reserve_temp_local();
+                    self.emit_unpack_string_payload(
+                        target_local,
+                        offset_local,
+                        byte_len_local,
+                        function,
+                    );
+                    self.emit_utf16_code_unit_len_from_utf8_locals(
+                        offset_local,
+                        byte_len_local,
+                        payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(payload_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.release_temp_local(byte_len_local);
+                    self.release_temp_local(offset_local);
+                }
+                PropertyKeyIr::StaticString(name) if name == "length" => {
                     let offset_local = self.reserve_temp_local();
                     let byte_len_local = self.reserve_temp_local();
                     self.emit_unpack_string_payload(
@@ -3446,131 +3542,147 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(end_local);
                     self.release_temp_local(index_local);
                 }
-                PropertyKeyIr::StaticString(name)
-                    if matches!(
-                        name.as_str(),
-                        "match"
-                            | "matchAll"
-                            | "replace"
-                            | "replaceAll"
-                            | "search"
-                            | "indexOf"
-                            | "lastIndexOf"
-                            | "charAt"
-                            | "charCodeAt"
-                            | "codePointAt"
-                            | "at"
-                            | "slice"
-                            | "split"
-                            | "padStart"
-                            | "padEnd"
-                            | "repeat"
-                            | "endsWith"
-                            | "includes"
-                            | "startsWith"
-                            | "toUpperCase"
-                            | "toString"
-                            | "valueOf"
-                            | "isWellFormed"
-                            | "toWellFormed"
-                    ) =>
-                {
-                    let builtin = match name.as_str() {
-                        "match" => StandardBuiltinId::StringPrototypeMatch,
-                        "matchAll" => StandardBuiltinId::StringPrototypeMatchAll,
-                        "replace" => StandardBuiltinId::StringPrototypeReplace,
-                        "replaceAll" => StandardBuiltinId::StringPrototypeReplaceAll,
-                        "search" => StandardBuiltinId::StringPrototypeSearch,
-                        "indexOf" => StandardBuiltinId::StringPrototypeIndexOf,
-                        "lastIndexOf" => StandardBuiltinId::StringPrototypeLastIndexOf,
-                        "charAt" => StandardBuiltinId::StringPrototypeCharAt,
-                        "charCodeAt" => StandardBuiltinId::StringPrototypeCharCodeAt,
-                        "codePointAt" => StandardBuiltinId::StringPrototypeCodePointAt,
-                        "at" => StandardBuiltinId::StringPrototypeAt,
-                        "slice" => StandardBuiltinId::StringPrototypeSlice,
-                        "split" => StandardBuiltinId::StringPrototypeSplit,
-                        "padStart" => StandardBuiltinId::StringPrototypePadStart,
-                        "padEnd" => StandardBuiltinId::StringPrototypePadEnd,
-                        "repeat" => StandardBuiltinId::StringPrototypeRepeat,
-                        "endsWith" => StandardBuiltinId::StringPrototypeEndsWith,
-                        "includes" => StandardBuiltinId::StringPrototypeIncludes,
-                        "startsWith" => StandardBuiltinId::StringPrototypeStartsWith,
-                        "toUpperCase" => StandardBuiltinId::StringPrototypeToUpperCase,
-                        "toString" => StandardBuiltinId::StringPrototypeToString,
-                        "valueOf" => StandardBuiltinId::StringPrototypeValueOf,
-                        "isWellFormed" => StandardBuiltinId::StringPrototypeIsWellFormed,
-                        "toWellFormed" => StandardBuiltinId::StringPrototypeToWellFormed,
-                        _ => unreachable!(),
-                    };
-                    let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
-                            builtin.debug_name()
-                        ))
-                    })?;
-                    self.emit_function_value_payload(meta, function)?;
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                }
-                PropertyKeyIr::StaticString(name) if name == "Symbol.iterator" => {
-                    let meta = self
-                        .functions
-                        .get(&StandardBuiltinId::ArrayPrototypeValues.function_id())
-                        .ok_or_else(|| {
-                            EmitError::unsupported(
-                                "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype[Symbol.iterator]`",
-                            )
-                        })?;
-                    self.emit_function_value_payload(meta, function)?;
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                }
-                PropertyKeyIr::StaticString(name) if name == "description" => {
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                PropertyKeyIr::StringExpr(_) => {
+                    let key_local = self.reserve_temp_local();
+                    let key_tag_local = self.reserve_temp_local();
+                    let index_local = self.reserve_temp_local();
+                    let found_local = self.reserve_temp_local();
+                    self.compile_object_key_to_locals(key, key_local, key_tag_local, function)?;
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(found_local));
+
+                    // String exotic own properties are considered before the
+                    // boxed String.prototype fallback. Only string keys can be
+                    // `length` or canonical integer indices; symbol keys flow
+                    // directly to the ordinary prototype lookup below.
+                    function.instruction(&Instruction::LocalGet(key_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    // Heap `Symbol(desc)` records (small handle, high 32 bits
-                    // zero) store their `[[Description]]` in the record;
-                    // well-known symbols carry an interned string payload
-                    // whose description is that string.
-                    function.instruction(&Instruction::LocalGet(target_local));
-                    function.instruction(&Instruction::I64Const(32));
-                    function.instruction(&Instruction::I64ShrU);
+                    function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+                    function.instruction(&Instruction::LocalSet(self.scratch_local));
+                    self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    let offset_local = self.reserve_temp_local();
+                    let byte_len_local = self.reserve_temp_local();
+                    self.emit_unpack_string_payload(
+                        target_local,
+                        offset_local,
+                        byte_len_local,
+                        function,
+                    );
+                    self.emit_utf16_code_unit_len_from_utf8_locals(
+                        offset_local,
+                        byte_len_local,
+                        payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(payload_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(found_local));
+                    self.release_temp_local(byte_len_local);
+                    self.release_temp_local(offset_local);
+                    function.instruction(&Instruction::Else);
+                    self.emit_string_index_0_to_4_or_minus_one(key_local, index_local, function);
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64GeS);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    let string_offset_local = self.reserve_temp_local();
+                    let string_byte_len_local = self.reserve_temp_local();
+                    let string_unit_len_local = self.reserve_temp_local();
+                    self.emit_unpack_string_payload(
+                        target_local,
+                        string_offset_local,
+                        string_byte_len_local,
+                        function,
+                    );
+                    self.emit_utf16_code_unit_len_from_utf8_locals(
+                        string_offset_local,
+                        string_byte_len_local,
+                        string_unit_len_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::LocalGet(string_unit_len_local));
+                    function.instruction(&Instruction::I64LtU);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_string_index_read(
+                        target_local,
+                        index_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(found_local));
+                    function.instruction(&Instruction::End);
+                    self.release_temp_local(string_unit_len_local);
+                    self.release_temp_local(string_byte_len_local);
+                    self.release_temp_local(string_offset_local);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+
+                    function.instruction(&Instruction::LocalGet(found_local));
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_from_offset(
+                    let prototype_local = self.reserve_temp_local();
+                    let prototype_tag_local = self.reserve_temp_local();
+                    function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(prototype_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                    self.emit_object_read_with_key_tag(
+                        prototype_local,
+                        prototype_tag_local,
                         target_local,
-                        HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
+                        target_tag_local,
+                        key_local,
+                        Some(key_tag_local),
+                        payload_local,
+                        tag_local,
                         function,
-                    );
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    self.load_i64_from_offset(
-                        target_local,
-                        HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(target_local));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
+                    )?;
+                    self.release_temp_local(prototype_tag_local);
+                    self.release_temp_local(prototype_local);
                     function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    function.instruction(&Instruction::End);
+
+                    self.release_temp_local(found_local);
+                    self.release_temp_local(index_local);
+                    self.release_temp_local(key_tag_local);
+                    self.release_temp_local(key_local);
                 }
                 _ => {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
+                    let key_local = self.reserve_temp_local();
+                    let key_tag_local = self.reserve_temp_local();
+                    let prototype_local = self.reserve_temp_local();
+                    let prototype_tag_local = self.reserve_temp_local();
+                    self.compile_object_key_to_locals(key, key_local, key_tag_local, function)?;
+                    function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(prototype_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                    self.emit_object_read_with_key_tag(
+                        prototype_local,
+                        prototype_tag_local,
+                        target_local,
+                        target_tag_local,
+                        key_local,
+                        Some(key_tag_local),
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.release_temp_local(prototype_tag_local);
+                    self.release_temp_local(prototype_local);
+                    self.release_temp_local(key_tag_local);
+                    self.release_temp_local(key_local);
                 }
             },
             ValueKind::Arguments => match key {
@@ -3883,41 +3995,40 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(prototype_tag_local);
                 self.release_temp_local(key_local);
             }
-            ValueKind::BigInt => match key {
-                PropertyKeyIr::StaticString(name) => {
-                    let builtin = match name.as_str() {
-                        "toString" => Some(StandardBuiltinId::BigIntPrototypeToString),
-                        "toLocaleString" => Some(StandardBuiltinId::BigIntPrototypeToLocaleString),
-                        "valueOf" => Some(StandardBuiltinId::BigIntPrototypeValueOf),
-                        _ => None,
-                    };
-                    if let Some(builtin) = builtin {
-                        let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
-                                builtin.debug_name()
-                            ))
-                        })?;
-                        self.emit_function_value_payload(meta, function)?;
-                        function.instruction(&Instruction::LocalSet(payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(tag_local));
-                    } else {
-                        function.instruction(&Instruction::I64Const(0));
-                        function.instruction(&Instruction::LocalSet(payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(tag_local));
-                    }
-                }
-                _ => {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                }
-            },
+            ValueKind::BigInt => {
+                let key_local = self.reserve_temp_local();
+                let key_tag_local = self.reserve_temp_local();
+                let constructor_local = self.reserve_temp_local();
+                let prototype_local = self.reserve_temp_local();
+                let prototype_tag_local = self.reserve_temp_local();
+                self.compile_object_key_to_locals(key, key_local, key_tag_local, function)?;
+                function.instruction(&Instruction::GlobalGet(BIGINT_CONSTRUCTOR_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(constructor_local));
+                self.load_i64_to_local_from_offset(
+                    constructor_local,
+                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                    prototype_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                self.emit_object_read_with_key_tag(
+                    prototype_local,
+                    prototype_tag_local,
+                    target_local,
+                    target_tag_local,
+                    key_local,
+                    Some(key_tag_local),
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(prototype_tag_local);
+                self.release_temp_local(prototype_local);
+                self.release_temp_local(constructor_local);
+                self.release_temp_local(key_tag_local);
+                self.release_temp_local(key_local);
+            }
             _ => {
                 return Err(EmitError::unsupported(
                     "unsupported in porffor wasm-aot first slice: property access on non-object target",
@@ -3925,6 +4036,66 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    fn compile_dynamic_property_read_from_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        target_local: u32,
+        target_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // Dispatch before compiling the key. A computed key therefore appears
+        // in each runtime arm but executes in exactly one selected arm, after
+        // the optional-chain nullish check performed by the caller.
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        self.push_control(ControlFrameKind::Block);
+        for kind in [
+            ValueKind::Object,
+            ValueKind::Function,
+            ValueKind::Array,
+            ValueKind::Arguments,
+            ValueKind::Number,
+            ValueKind::Boolean,
+            ValueKind::String,
+            ValueKind::Symbol,
+            ValueKind::BigInt,
+        ] {
+            function.instruction(&Instruction::LocalGet(target_tag_local));
+            function.instruction(&Instruction::I64Const(kind.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
+            let runtime_target = TypedExpr::from_info(ValueInfo::new(kind), ExprIr::Undefined);
+            self.compile_property_read_from_locals(
+                &runtime_target,
+                key,
+                target_local,
+                target_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::Br(1));
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+
+        // Undefined and null normally reach the explicit caller-side
+        // RequireObjectCoercible check. Keep the dynamic emitter sound when it
+        // is reused from another path by producing the same abrupt completion.
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -4626,6 +4797,16 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(key_local);
             }
             ValueKind::Array => {
+                let computed_key_local = if matches!(key, PropertyKeyIr::StringExpr(_)) {
+                    Some(self.compile_object_key_to_local(key, function)?)
+                } else {
+                    None
+                };
+                let computed_index_local = if matches!(key, PropertyKeyIr::ArrayIndex(_)) {
+                    Some(self.compile_array_index_to_local(key, function)?)
+                } else {
+                    None
+                };
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
                 if matches!(key, PropertyKeyIr::ArrayLength)
                     || matches!(key, PropertyKeyIr::StaticString(name) if name == "length")
@@ -4689,7 +4870,25 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 } else if matches!(key, PropertyKeyIr::StringExpr(_)) {
-                    let key_local = self.compile_object_key_to_local(key, function)?;
+                    let key_local = computed_key_local.expect("computed array property key local");
+                    let index_local = self.reserve_temp_local();
+                    self.emit_string_index_0_to_4_or_minus_one(
+                        key_local,
+                        index_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64GeS);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_array_assignment_write(
+                        target_local,
+                        index_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(key_local));
                     function.instruction(&Instruction::I64Const(
                         self.strings.payload("Symbol.isConcatSpreadable"),
@@ -4702,7 +4901,17 @@ impl<'a> FunctionBuilder<'a> {
                         tag_local,
                         function,
                     )?;
+                    function.instruction(&Instruction::Else);
+                    self.emit_array_define_named_data_property(
+                        target_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
                     function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                    self.release_temp_local(index_local);
                     self.release_temp_local(key_local);
                 } else if let PropertyKeyIr::StaticString(name) = key {
                     if let Some(index) = static_array_index_name(name) {
@@ -4731,7 +4940,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.release_temp_local(key_local);
                     }
                 } else {
-                    let index_local = self.compile_array_index_to_local(key, function)?;
+                    let index_local =
+                        computed_index_local.expect("computed array index local");
                     self.emit_array_assignment_write(
                         target_local,
                         index_local,

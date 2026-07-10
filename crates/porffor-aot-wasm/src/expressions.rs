@@ -1709,10 +1709,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // The first access retains the lowering information from the source
-        // expression. Each following receiver is an observed runtime value, so
-        // use the existing dynamic property-read path while retaining the same
-        // payload/tag locals.
+        // Every access uses runtime tag dispatch. Besides handling the result
+        // of an earlier access, this is important for optional access on a
+        // statically primitive base: the property lookup still follows that
+        // primitive's boxed/prototype semantics after the nullish check.
         let dynamic_receiver = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -1727,22 +1727,26 @@ impl<'a> FunctionBuilder<'a> {
         // contiguous chain. In particular, a computed key is emitted only
         // after the corresponding nullish test.
         function.instruction(&Instruction::Block(BlockType::Empty));
-        for (index, access) in chain.iter().enumerate() {
+        self.push_control(ControlFrameKind::Block);
+        for access in chain {
             if access.shorted {
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.push_control(ControlFrameKind::If);
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
                 // Leave both this `if` and the surrounding chain block.
                 function.instruction(&Instruction::Br(1));
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             } else {
                 // Only `?.` short-circuits. A later ordinary property access
                 // (for example `base?.value.next`) still performs RequireObjectCoercible.
                 self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.push_control(ControlFrameKind::If);
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
                     "Cannot read properties of null or undefined",
@@ -1750,24 +1754,17 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
-                    2,
                     function,
                 )?;
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
 
             self.compile_property_read_from_locals(
-                if index == 0 && !matches!(target.kind, ValueKind::Undefined | ValueKind::Null) {
-                    target
-                } else {
-                    // A statically nullish first receiver is valid when this
-                    // operation is shorted, but the ordinary static property
-                    // emitter quite reasonably rejects it during compilation.
-                    &dynamic_receiver
-                },
+                &dynamic_receiver,
                 &access.key,
                 receiver_local,
                 receiver_tag_local,
@@ -1775,18 +1772,14 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                1,
-                function,
-            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
 
             function.instruction(&Instruction::LocalGet(payload_local));
             function.instruction(&Instruction::LocalSet(receiver_local));
             function.instruction(&Instruction::LocalGet(tag_local));
             function.instruction(&Instruction::LocalSet(receiver_tag_local));
         }
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(receiver_tag_local);
