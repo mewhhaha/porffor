@@ -426,7 +426,39 @@ impl<'a> FunctionBuilder<'a> {
                 let payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_value_to_string_payload(payload_local, tag_local, function)?;
+                // `emit_value_to_string_payload` routes Object/Array/Arguments
+                // through the shared outlined ToString helper, which
+                // hard-returns the whole function on a Symbol/ToPrimitive
+                // throw instead of reaching an enclosing in-function
+                // try/catch. This is the static `String(x)`/template-literal
+                // ToString-coercion site (see `SpecOperationIr::ToString`'s
+                // lowering) and sits at tracked block depth, so dispatch
+                // Object/Array/Arguments ourselves via
+                // `emit_tagged_to_primitive_locals` (which leaves an abrupt
+                // completion in locals without branching) and propagate
+                // correctly here.
+                let primitive_payload_local = self.reserve_temp_local();
+                let primitive_tag_local = self.reserve_temp_local();
+                self.emit_tagged_to_primitive_locals(
+                    ToPrimitiveHint::String,
+                    payload_local,
+                    tag_local,
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
+                self.emit_primitive_to_string_payload(
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
+                self.release_temp_local(primitive_tag_local);
+                self.release_temp_local(primitive_payload_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(payload_local);
                 Ok(())
@@ -822,8 +854,35 @@ impl<'a> FunctionBuilder<'a> {
                     )));
                 };
                 self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_value_to_string_payload(payload_local, tag_local, function)?;
+                // Same reasoning as the `ToString` arm in
+                // `compile_spec_operation_payload`: dispatch
+                // Object/Array/Arguments ourselves and propagate correctly
+                // instead of relying on `emit_value_to_string_payload`'s
+                // internal hard-return-on-throw, and don't stamp a bogus
+                // String tag over an abrupt completion.
+                let primitive_payload_local = self.reserve_temp_local();
+                let primitive_tag_local = self.reserve_temp_local();
+                self.emit_tagged_to_primitive_locals(
+                    ToPrimitiveHint::String,
+                    payload_local,
+                    tag_local,
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
+                self.emit_primitive_to_string_payload(
+                    primitive_payload_local,
+                    primitive_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalSet(payload_local));
+                self.release_temp_local(primitive_tag_local);
+                self.release_temp_local(primitive_payload_local);
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
                 Ok(())
@@ -2102,6 +2161,29 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.compile_expr_to_primitive_locals_with_extra_depth(
+            expr,
+            hint,
+            payload_local,
+            tag_local,
+            0,
+            function,
+        )
+    }
+
+    /// Same as `compile_expr_to_primitive_locals`, but for call sites that sit
+    /// `extra_depth` untracked wasm blocks deeper than `self.control_stack`
+    /// reflects (e.g. already inside a manually-emitted `If`), so the internal
+    /// throw propagation's `Br` reaches the correct active handler.
+    pub(crate) fn compile_expr_to_primitive_locals_with_extra_depth(
+        &mut self,
+        expr: &TypedExpr,
+        hint: ToPrimitiveHint,
+        payload_local: u32,
+        tag_local: u32,
+        extra_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         if expr.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
             self.compile_expr_to_locals(expr, payload_local, tag_local, function)?;
             return Ok(());
@@ -2116,6 +2198,19 @@ impl<'a> FunctionBuilder<'a> {
             raw_tag_local,
             payload_local,
             tag_local,
+            function,
+        )?;
+        // `emit_tagged_to_primitive_locals` (via `emit_object_to_primitive_locals`)
+        // leaves an abrupt ToPrimitive completion as THROW with the error already
+        // in `payload_local`/`tag_local` rather than branching internally (see
+        // `emit_object_to_primitive_locals_locals_inner`). Propagate here to
+        // reach the active in-function try/catch handler (or return the
+        // completion when there is none); `extra_depth` accounts for any
+        // untracked wasm blocks the caller already has open at this point.
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            extra_depth,
             function,
         )?;
         self.release_temp_local(raw_tag_local);
@@ -2559,10 +2654,19 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(hook_value_tag);
         self.release_temp_local(hook_value_payload);
         function.instruction(&Instruction::End);
-        if propagate_hook_throws {
-            self.emit_return_current_completion_if_throw(function);
-            self.set_completion_kind(CompletionKind::Normal, function);
-        }
+        // Note (propagate_hook_throws=true): a throw here (BigInt/Symbol
+        // conversion failure, non-primitive hook return, or "no primitive
+        // found") is left as completion=THROW with the error value already
+        // stored in `payload_local`/`tag_local` (and `self.result_local`/
+        // `self.result_tag_local` via `emit_throw_runtime_error`). We
+        // deliberately do NOT branch or hard-return here: to_primitive is
+        // invoked from untracked raw `If` blocks whose depth isn't reflected
+        // in `self.control_stack`, so a `Br` computed from `depth_to` would
+        // be wrong, and a hard `Return` would skip past any enclosing
+        // in-function try/catch. Every tracked-depth caller of
+        // `emit_object_to_primitive_locals` is responsible for checking
+        // `self.completion_local` after the call and propagating via
+        // `emit_propagate_throw_from_locals_if_needed[_with_extra_depth]`.
         self.release_temp_local(boxed_kind_local);
         Ok(())
     }
@@ -4040,11 +4144,25 @@ impl<'a> FunctionBuilder<'a> {
             primitive_tag_local,
             function,
         )?;
+        // A ToPrimitive throw here leaves completion=THROW with the error in
+        // `primitive_payload_local`/`primitive_tag_local` (Object-tagged) rather
+        // than branching (see `emit_object_to_primitive_locals_locals_inner`).
+        // Skip the further primitive->number conversion in that case so it
+        // doesn't reinterpret the error object as a NaN-producing primitive and
+        // silently mask the throw; callers of this function are responsible for
+        // checking `self.completion_local` and propagating.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::Else);
         self.emit_primitive_to_number_payload_allow_bigint(
             primitive_tag_local,
             primitive_payload_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);
@@ -5567,18 +5685,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(done_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.compile_expr_to_primitive_locals(
+        // Nested one untracked `If` deep (the `done_local==0` check above), so
+        // the internal throw propagation needs to know about that extra block.
+        self.compile_expr_to_primitive_locals_with_extra_depth(
             lhs,
             ToPrimitiveHint::Default,
             lhs_payload,
             lhs_tag,
+            1,
             function,
         )?;
-        self.compile_expr_to_primitive_locals(
+        self.compile_expr_to_primitive_locals_with_extra_depth(
             rhs,
             ToPrimitiveHint::Default,
             rhs_payload,
             rhs_tag,
+            1,
             function,
         )?;
         self.emit_loose_tagged_equality_i32(lhs_tag, lhs_payload, rhs_tag, rhs_payload, function)?;
@@ -6471,11 +6593,26 @@ impl<'a> FunctionBuilder<'a> {
             primitive_tag_local,
             function,
         )?;
+        // A ToPrimitive throw here leaves completion=THROW with the error
+        // (Object-tagged) in `primitive_payload_local`/`primitive_tag_local`
+        // rather than branching (see
+        // `emit_object_to_primitive_locals_locals_inner`). Feeding an
+        // Object-tagged value into `emit_primitive_to_string_payload` hits its
+        // unrecognized-tag `unreachable` trap, so skip that call on throw;
+        // callers of this function are responsible for checking
+        // `self.completion_local` and propagating.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::Else);
         self.emit_primitive_to_string_payload(
             primitive_payload_local,
             primitive_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);

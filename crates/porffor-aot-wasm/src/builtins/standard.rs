@@ -30964,6 +30964,21 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         function.instruction(&Instruction::LocalSet(primitive_payload_local));
+                        // A ToPrimitive throw inside the conversion above leaves
+                        // completion=THROW with the original error already in
+                        // `self.result_local`/`self.result_tag_local` (untouched,
+                        // since the number-conversion helper skips further
+                        // processing on throw). Propagate to the active
+                        // try/catch handler here (this arm is nested one
+                        // untracked `If` deep, the `has_arg_local` check above)
+                        // instead of falling through and stamping a bogus
+                        // Number tag over the thrown error.
+                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                            self.result_local,
+                            self.result_tag_local,
+                            1,
+                            function,
+                        )?;
                         function
                             .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                         function.instruction(&Instruction::LocalSet(primitive_tag_local));
@@ -30993,11 +31008,43 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         function.instruction(&Instruction::Else);
-                        self.emit_value_to_string_payload(
+                        // `emit_value_to_string_payload` routes non-string
+                        // arguments through the shared outlined ToString
+                        // helper, which hard-returns the whole (possibly
+                        // inlined-at-this-call-site) function on a Symbol/
+                        // ToPrimitive throw — that would escape past an
+                        // enclosing in-function try/catch. Dispatch
+                        // Object/Array/Arguments ToPrimitive ourselves via
+                        // `emit_tagged_to_primitive_locals` (which leaves an
+                        // abrupt completion in locals without branching) so we
+                        // can propagate correctly at this call site's known
+                        // nesting depth instead.
+                        let string_arg_primitive_payload_local = self.reserve_temp_local();
+                        let string_arg_primitive_tag_local = self.reserve_temp_local();
+                        self.emit_tagged_to_primitive_locals(
+                            ToPrimitiveHint::String,
                             arg_payload_local,
                             arg_tag_local,
+                            string_arg_primitive_payload_local,
+                            string_arg_primitive_tag_local,
                             function,
                         )?;
+                        // Nested two untracked `If`s deep here: the
+                        // `has_arg_local` check and the Symbol-tag check
+                        // above.
+                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                            string_arg_primitive_payload_local,
+                            string_arg_primitive_tag_local,
+                            2,
+                            function,
+                        )?;
+                        self.emit_primitive_to_string_payload(
+                            string_arg_primitive_payload_local,
+                            string_arg_primitive_tag_local,
+                            function,
+                        )?;
+                        self.release_temp_local(string_arg_primitive_tag_local);
+                        self.release_temp_local(string_arg_primitive_payload_local);
                         function.instruction(&Instruction::LocalSet(primitive_payload_local));
                         function.instruction(&Instruction::End);
                         function

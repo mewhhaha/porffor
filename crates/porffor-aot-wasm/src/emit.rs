@@ -1965,10 +1965,35 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_string_payload(0, 1, &mut function)?;
+        // A Symbol/ToPrimitive throw deep inside (see
+        // `emit_object_to_primitive_locals_locals_inner`) leaves completion=THROW
+        // with the real error already in `self.result_local` without branching;
+        // only commit the computed string payload over `self.result_local` on
+        // the normal-completion path, else the throw would be silently replaced
+        // by whatever placeholder value the dispatch produced.
+        let computed_value_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalSet(computed_value_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(computed_value_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(computed_value_local);
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
+        // The result tag is String on normal completion, but on a throw
+        // `self.result_local` holds the real thrown error (typically an Object),
+        // not a string — report its actual tag instead of hardcoding String.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
@@ -1992,10 +2017,32 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_number_payload(1, 0, &mut function)?;
+        // Same discipline as `compile_value_to_string_helper`: a BigInt/Symbol/
+        // ToPrimitive throw leaves completion=THROW with the real error already
+        // in `self.result_local` without branching, so only commit the computed
+        // number payload on the normal-completion path.
+        let computed_value_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalSet(computed_value_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(computed_value_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(computed_value_local);
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
+        // Same reasoning as `compile_value_to_string_helper`: report the real
+        // thrown error's tag on a throw instead of hardcoding Number.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
