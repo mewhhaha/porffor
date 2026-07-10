@@ -2488,12 +2488,24 @@ impl<'a> FunctionBuilder<'a> {
         self.load_i64_to_local_from_offset(array_local, HEAP_CAP_OFFSET, cap_local, function);
         self.load_i64_to_local_from_offset(array_local, HEAP_PTR_OFFSET, buffer_local, function);
 
+        // Growing `length` alone must not force the dense backing buffer to
+        // cover the whole new length: indices beyond `MAX_DENSE_ARRAY_INDEX`
+        // are served by the sparse present-indexes path everywhere else
+        // (`emit_array_write`, `emit_array_read`), so eagerly densifying up to
+        // e.g. `length = 4294967295` would try to allocate a buffer sized for
+        // ~4 billion 24-byte entries (~100GB) and trap on OOM. Only grow the
+        // dense buffer here when the new length stays within the same dense
+        // range the write path is willing to densify to.
         function.instruction(&Instruction::LocalGet(new_len_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::LocalGet(new_len_local));
         function.instruction(&Instruction::LocalGet(cap_local));
         function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(new_len_local));
+        function.instruction(&Instruction::I64Const(MAX_DENSE_ARRAY_INDEX as i64));
+        function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(new_len_local));

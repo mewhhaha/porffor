@@ -662,8 +662,25 @@ impl<'a> FunctionBuilder<'a> {
             .map_or(self.strict, |meta| meta.strict)
     }
 
+    /// Per CreateMappedArgumentsObject (ES2023 10.4.4), a non-strict ordinary
+    /// function with a simple parameter list gets an arguments object whose
+    /// indexed slots below `min(argc, param_count)` alias the parameter
+    /// bindings. The aliasing machinery (`HEAP_ARGUMENTS_MAPPED_COUNT_OFFSET`
+    /// + env-handle indirection in `emit_arguments_read`/`emit_arguments_
+    /// write`) addresses parameter env slots by argument index, which is only
+    /// valid because analysis pre-assigns simple parameters env slots
+    /// `0..n-1` in declaration order (`collect_function_plan`); the
+    /// `owned_env_slot` check below defends that invariant (destructured
+    /// params, for example, get no pre-assigned slots).
     pub(crate) fn uses_mapped_arguments_object(&self) -> bool {
-        false
+        self.function_flavor == FunctionFlavor::Ordinary
+            && !self.is_current_function_strict()
+            && self.has_simple_parameter_list()
+            && self
+                .params
+                .iter()
+                .enumerate()
+                .all(|(index, param)| self.owned_env_slot(&param.name) == Some(index as u32))
     }
 
     pub(crate) fn read_argument_at_index(

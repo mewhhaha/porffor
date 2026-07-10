@@ -1483,10 +1483,12 @@ mod tests {
                 .emit_wasm(&unit)
                 .unwrap_or_else(|err| panic!("{label} should emit wasm: {err:?}"));
             let (imports, exports) = wasm_import_export_names(&artifact.bytes);
-            assert!(
-                imports.contains(&"porf_host::print_line_utf8".to_string()),
-                "{label} imports: {imports:?}"
-            );
+            // None of these characterization sources call `print`/`console`,
+            // so the emitted module should carry no host imports at all —
+            // the backend now elides unused host imports instead of always
+            // pulling in `porf_host::print_line_utf8`, producing a leaner
+            // public surface than the previously locked expectation.
+            assert!(imports.is_empty(), "{label} imports: {imports:?}");
             for export in [
                 "main",
                 "memory",
@@ -1881,9 +1883,40 @@ mod tests {
     }
 
     #[test]
+    fn wasm_backend_supports_destructured_object_parameter() {
+        // Destructured object parameters (the case `wasm_emit_reports_
+        // unsupported_slice_precisely` used to lock as unsupported) now
+        // compile and run correctly on this branch.
+        let outcome = engine()
+            .run_script(
+                "function f({ x }) { return x; } f({ x: 42 });",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("destructured object parameter should compile and run");
+        assert!(
+            outcome.note.contains("number(42"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_emit_reports_unsupported_slice_precisely() {
+        // Destructured object parameters (the case this test previously
+        // locked as unsupported) now compile and run correctly on this
+        // branch — see `wasm_backend_supports_destructured_object_parameter`
+        // above for that positive coverage. Repoint this test at dynamic
+        // `eval`, a permanent product invariant ("compile JavaScript
+        // directly to Wasm; do not ship interpreter-in-Wasm") rather than a
+        // parameter-shape gap that can be closed by future work, so the
+        // unsupported-slice error-message format stays locked without going
+        // stale again.
         let unit = engine()
-            .compile_script("function f({ x }) { return x; }", CompileOptions::default())
+            .compile_script("eval(\"1\");", CompileOptions::default())
             .expect("script compile should succeed");
         let err = engine()
             .emit_wasm(&unit)
@@ -2766,7 +2799,7 @@ let seen = "";
 let target = { next: function() { return { done: true }; } };
 let p = new Proxy(target, {
   get: function(target, key, receiver) {
-    if (String(key) === "Symbol.iterator") {
+    if (String(key) === "Symbol(Symbol.iterator)") {
       seen = (typeof key) + ":" + (key === Symbol.iterator);
     }
     return Reflect.get(target, key, receiver);

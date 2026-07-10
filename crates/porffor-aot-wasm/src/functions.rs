@@ -4205,7 +4205,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(mapped_count_local));
         }
 
-        self.emit_heap_alloc_const(HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET + 8, function)?;
+        self.emit_heap_alloc_const(HEAP_ARGUMENTS_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(arguments_local));
         function.instruction(&Instruction::LocalGet(len_local));
         function.instruction(&Instruction::I64Eqz);

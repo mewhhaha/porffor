@@ -8422,6 +8422,22 @@ impl<'a> ScriptLowerer<'a> {
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
+            // When an argument is omitted, the default initializer runs and its
+            // value becomes the parameter's runtime value — it is never actually
+            // `undefined`. Call-site observation alone (`merge_omitted_signature_
+            // params_as_undefined`) has no visibility into the default expression
+            // and records the omitted-argument case as kind `Undefined`, which is
+            // wrong whenever the default produces something else (e.g. `x = 1`).
+            // Union the default initializer's inferred kind into the parameter's
+            // static kind so the binding — and everything derived from it,
+            // including the function's return kind — reflects what the default
+            // path can actually produce.
+            let param_info = match default_init.as_ref() {
+                Some(default_init) => {
+                    lowerer.merge_value_infos(param_info, default_init.value_info())
+                }
+                None => param_info,
+            };
             lowerer.declare_binding(
                 name.clone(),
                 BindingInfo {

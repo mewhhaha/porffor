@@ -244,9 +244,19 @@ pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 64;
 pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
 pub(crate) const SPARSE_ARRAY_DENSE_GROW_FACTOR: u64 = 16;
 pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 40;
-pub(crate) const HEAP_ARGUMENTS_MAPPED_COUNT_OFFSET: u64 = 32;
-pub(crate) const HEAP_ARGUMENTS_ENV_HANDLE_OFFSET: u64 = 40;
+// Arguments records reuse the generic array header (ptr/len/cap/prototype at
+// 0/8/16/24) and are also inspected by generic object paths (e.g.
+// `Object.prototype.toString`) that read the boxed-object cluster at
+// 32/40/48 and the internal brand / prototype-tag / proxy fields up to 72.
+// The arguments-specific fields therefore live past that cluster: while the
+// mapped count was always zero a collision with
+// `HEAP_OBJECT_BOXED_KIND_OFFSET` (32) was invisible, but a real mapped
+// count there makes every mapped arguments object classify as a boxed
+// primitive.
 pub(crate) const HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
+pub(crate) const HEAP_ARGUMENTS_MAPPED_COUNT_OFFSET: u64 = 80;
+pub(crate) const HEAP_ARGUMENTS_ENV_HANDLE_OFFSET: u64 = 88;
+pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 96;
 pub(crate) const HEAP_OBJECT_BOXED_KIND_OFFSET: u64 = 32;
 pub(crate) const HEAP_OBJECT_BOXED_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
