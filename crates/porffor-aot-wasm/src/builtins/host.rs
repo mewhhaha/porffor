@@ -2125,6 +2125,28 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "reduce",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeReduce.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.reduce`",
+                        )
+                    })?,
+            ),
+            (
+                "reduceRight",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeReduceRight.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.reduceRight`",
+                        )
+                    })?,
+            ),
+            (
                 "pop",
                 self.functions
                     .get(&StandardBuiltinId::ArrayPrototypePop.function_id())

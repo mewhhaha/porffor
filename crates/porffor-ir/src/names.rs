@@ -150,6 +150,9 @@ pub const BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID: &str = "$builtin.Array.proto
 pub const BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str = "$builtin.Array.prototype.forEach";
 pub const BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID: &str = "$builtin.Array.prototype.filter";
 pub const BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.map";
+pub const BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID: &str = "$builtin.Array.prototype.reduce";
+pub const BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.reduceRight";
 pub const BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID: &str = "$builtin.Array.prototype.pop";
 pub const BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID: &str = "$builtin.Array.prototype.push";
 pub const BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID: &str = "$builtin.Array.prototype.keys";

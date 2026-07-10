@@ -226,6 +226,15 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::ArrayBufferConstructor);
             }
+            StandardBuiltinId::ArrayPrototypeReduce
+            | StandardBuiltinId::ArrayPrototypeReduceRight => {
+                // Array.prototype's method properties are installed by the
+                // Array constructor bootstrap block.  The reducer can be
+                // reached only through a dynamic method Get, so root that
+                // block as well as the body itself.
+                self.standard_roots
+                    .insert(StandardBuiltinId::ArrayConstructor);
+            }
             StandardBuiltinId::NumberPrototypeToFixed
             | StandardBuiltinId::NumberPrototypeToExponential
             | StandardBuiltinId::NumberPrototypeToPrecision
@@ -1242,6 +1251,8 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::ArrayPrototypeForEach
                 | StandardBuiltinId::ArrayPrototypeFilter
                 | StandardBuiltinId::ArrayPrototypeMap
+                | StandardBuiltinId::ArrayPrototypeReduce
+                | StandardBuiltinId::ArrayPrototypeReduceRight
                 | StandardBuiltinId::ArrayPrototypePop
                 | StandardBuiltinId::ArrayPrototypePush
                 | StandardBuiltinId::ArrayPrototypeKeys
@@ -1718,7 +1729,11 @@ pub(crate) fn optimized_call_method_references_function(
             || StandardBuiltinId::IteratorPrototypeFind.function_id() == *target;
     }
     if name == "reduce" {
-        return StandardBuiltinId::IteratorPrototypeReduce.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeReduce.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeReduce.function_id() == *target;
+    }
+    if name == "reduceRight" {
+        return StandardBuiltinId::ArrayPrototypeReduceRight.function_id() == *target;
     }
     if name == "map" {
         return StandardBuiltinId::ArrayPrototypeMap.function_id() == *target
@@ -1775,6 +1790,8 @@ pub(crate) fn optimized_call_method_references_function(
         "concat" => StandardBuiltinId::ArrayPrototypeConcat,
         "flat" => StandardBuiltinId::ArrayPrototypeFlat,
         "flatMap" => StandardBuiltinId::ArrayPrototypeFlatMap,
+        "reduce" => StandardBuiltinId::ArrayPrototypeReduce,
+        "reduceRight" => StandardBuiltinId::ArrayPrototypeReduceRight,
         "push" => StandardBuiltinId::ArrayPrototypePush,
         "from" => StandardBuiltinId::ArrayFrom,
         "of" => StandardBuiltinId::ArrayOf,
@@ -2335,6 +2352,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeForEach => 1,
         StandardBuiltinId::ArrayPrototypeFilter => 1,
         StandardBuiltinId::ArrayPrototypeMap => 1,
+        StandardBuiltinId::ArrayPrototypeReduce => 1,
+        StandardBuiltinId::ArrayPrototypeReduceRight => 1,
         StandardBuiltinId::ArrayPrototypeConcat => 1,
         StandardBuiltinId::ArrayPrototypePop => 0,
         StandardBuiltinId::ArrayPrototypePush => 1,

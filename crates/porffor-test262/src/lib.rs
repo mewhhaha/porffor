@@ -20475,23 +20475,45 @@ fn run_one_case(
             ..CompileOptions::default()
         };
 
-        let compile_result = if materialized.is_module {
-            engine.compile_module(&materialized.source, compile_options.clone())
-        } else {
-            engine.compile_script(&materialized.source, compile_options.clone())
-        };
-
-        if let Some(negative) = &case.negative {
+        // Parse/early-negative tests use an explicit compile path. Wasm-AOT
+        // rejects a successful compile without executing user code; SpecExec
+        // deliberately falls through to its Boa oracle when our front-end
+        // accepts the source, preserving differential syntax coverage. All
+        // other cases go straight through run_script/run_module below: those
+        // APIs perform the one necessary compile and, for Wasm-AOT, use the
+        // whole-program cache.
+        let compile_only_negative = case.negative.as_ref().is_some_and(|negative| {
+            negative.phase.eq_ignore_ascii_case("parse")
+                || negative.phase.eq_ignore_ascii_case("early")
+        });
+        // SpecExec historically preflighted every negative case with
+        // Porffor's compiler and surfaced its diagnostics before invoking the
+        // Boa oracle. Keep that behavior for runtime/resolution negatives;
+        // Wasm-AOT takes the cache-aware run path without this extra compile.
+        let spec_exec_negative_preflight = execution_backend == ExecutionBackend::SpecExec
+            && case.negative.is_some()
+            && !compile_only_negative;
+        if compile_only_negative || spec_exec_negative_preflight {
+            let negative = case.negative.as_ref().expect("negative preflight exists");
             let negative_kind = classify_negative_phase(&negative.phase);
-            match compile_result.as_ref() {
-                Err(err)
-                    if negative.phase.eq_ignore_ascii_case("parse")
-                        || negative.phase.eq_ignore_ascii_case("early") =>
-                {
-                    if compile_negative_error_matches(err, negative) {
+            let compile_result = if materialized.is_module {
+                engine.compile_module(&materialized.source, compile_options.clone())
+            } else {
+                engine.compile_script(&materialized.source, compile_options.clone())
+            };
+            match compile_result {
+                Err(err) => {
+                    if compile_only_negative && compile_negative_error_matches(&err, negative) {
                         return Ok(());
                     }
-                    let detail = compile_negative_error_detail(err);
+                    if !compile_only_negative {
+                        return Err(classify_failure(
+                            &case.path,
+                            classify_engine_error(err.message()),
+                            err.to_string(),
+                        ));
+                    }
+                    let detail = compile_negative_error_detail(&err);
                     return Err(classify_failure(
                         &case.path,
                         negative_kind,
@@ -20501,18 +20523,7 @@ fn run_one_case(
                         ),
                     ));
                 }
-                Err(err) => {
-                    return Err(classify_failure(
-                        &case.path,
-                        classify_engine_error(err.message()),
-                        err.to_string(),
-                    ));
-                }
-                Ok(_)
-                    if (negative.phase.eq_ignore_ascii_case("parse")
-                        || negative.phase.eq_ignore_ascii_case("early"))
-                        && execution_backend != ExecutionBackend::SpecExec =>
-                {
+                Ok(_) if execution_backend == ExecutionBackend::WasmAot => {
                     return Err(classify_failure(
                         &case.path,
                         negative_kind,
@@ -20522,12 +20533,12 @@ fn run_one_case(
                         ),
                     ));
                 }
+                // The SpecExec backend deliberately lets the Boa oracle run
+                // after Porffor's front-end accepts a parse/early negative;
+                // this catches syntax the oracle recognizes that our parser
+                // does not. Preserve that differential behavior while keeping
+                // Wasm-AOT negatives compile-only.
                 Ok(_) => {}
-            }
-        } else if let Err(err) = compile_result.as_ref() {
-            if execution_backend != ExecutionBackend::SpecExec {
-                let kind = classify_engine_error(err.message());
-                return Err(classify_failure(&case.path, kind, err.to_string()));
             }
         }
 
@@ -20551,12 +20562,7 @@ fn run_one_case(
             timeout_ms: Some(timeout_ms),
         };
 
-        let run_result = if execution_backend == ExecutionBackend::WasmAot {
-            match compile_result.as_ref() {
-                Ok(unit) => engine.run_compiled_unit(unit, &materialized.source, run_options),
-                Err(err) => Err(err.clone()),
-            }
-        } else if materialized.is_module {
+        let run_result = if materialized.is_module {
             engine.run_module(&materialized.source, compile_options, run_options)
         } else {
             engine.run_script(&materialized.source, compile_options, run_options)
@@ -20574,6 +20580,30 @@ fn run_one_case(
                     ),
                 )),
                 Err(err) => {
+                    // run_script/run_module can surface parser/IR diagnostics
+                    // directly now that the redundant pre-compile is gone;
+                    // those are compilation failures, not runtime negatives.
+                    if !compile_only_negative
+                        && (err.parse_diagnostic().is_some() || err.ir_diagnostic().is_some())
+                    {
+                        return Err(classify_failure(
+                            &case.path,
+                            classify_engine_error(err.message()),
+                            err.to_string(),
+                        ));
+                    }
+                    // Backend/unsupported/host errors are not the expected
+                    // runtime exception, even if their diagnostic text happens
+                    // to contain a broad error name such as `Error`.
+                    if !compile_only_negative
+                        && classify_engine_error(err.message()) != FailureKind::Runtime
+                    {
+                        return Err(classify_failure(
+                            &case.path,
+                            classify_engine_error(err.message()),
+                            err.to_string(),
+                        ));
+                    }
                     let detail = err.message().to_string();
                     if negative.error_type.is_empty() || detail.contains(&negative.error_type) {
                         Ok(())
@@ -24207,6 +24237,63 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             "structured parse negative should pass, got {:?}",
             result.status
         );
+    }
+
+    #[test]
+    fn run_one_case_does_not_execute_parse_negative_after_compile_success() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/parse-negative-compile-success.js");
+        // This source compiles but would fail at runtime if the parse-negative
+        // path accidentally fell through to execution.
+        case.original_source = "throw new Error('must not execute');".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "parse".to_string(),
+            error_type: "SyntaxError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("parse-negative source that compiles should fail the negative expectation");
+        };
+        assert_eq!(failure.kind, FailureKind::Parser);
+        assert!(failure.detail.contains("compile succeeded"));
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn run_one_case_spec_exec_uses_oracle_after_compile_success() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/parse-negative-spec-exec-oracle.js");
+        case.original_source = "throw new Error('SyntaxError');".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "parse".to_string(),
+            error_type: "Error".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "SpecExec should run its oracle after a successful front-end compile, got {:?}",
+            result.status
+        );
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn run_one_case_spec_exec_runtime_negative_preserves_compile_diagnostic() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/runtime-negative-compile-error.js");
+        case.original_source = "let x = ;".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "runtime".to_string(),
+            error_type: String::new(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("SpecExec runtime negative should expose compile diagnostics");
+        };
+        assert_eq!(failure.kind, FailureKind::Parser);
     }
 
     #[test]

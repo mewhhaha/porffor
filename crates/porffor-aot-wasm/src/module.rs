@@ -649,6 +649,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayPrototypeForEach
         | StandardBuiltinId::ArrayPrototypeFilter
         | StandardBuiltinId::ArrayPrototypeMap
+        | StandardBuiltinId::ArrayPrototypeReduce
+        | StandardBuiltinId::ArrayPrototypeReduceRight
         | StandardBuiltinId::ArrayPrototypePop
         | StandardBuiltinId::ArrayPrototypePush
         | StandardBuiltinId::ArrayPrototypeKeys

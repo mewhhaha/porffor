@@ -1334,6 +1334,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeForEach,
             StandardBuiltinId::ArrayPrototypeFilter,
             StandardBuiltinId::ArrayPrototypeMap,
+            StandardBuiltinId::ArrayPrototypeReduce,
+            StandardBuiltinId::ArrayPrototypeReduceRight,
             StandardBuiltinId::ArrayPrototypePop,
             StandardBuiltinId::ArrayPrototypePush,
             StandardBuiltinId::ArrayPrototypeKeys,
@@ -3358,6 +3360,13 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Array,
                 KindSet::from_kind(ValueKind::Array),
                 Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeReduce
+            | StandardBuiltinId::ArrayPrototypeReduceRight => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ArrayPrototypePop => (
@@ -12798,6 +12807,10 @@ impl<'a> ScriptLowerer<'a> {
                                     "forEach" => Some(StandardBuiltinId::ArrayPrototypeForEach),
                                     "filter" => Some(StandardBuiltinId::ArrayPrototypeFilter),
                                     "map" => Some(StandardBuiltinId::ArrayPrototypeMap),
+                                    "reduce" => Some(StandardBuiltinId::ArrayPrototypeReduce),
+                                    "reduceRight" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeReduceRight)
+                                    }
                                     _ => None,
                                 };
                                 if field_name == "forEach" {
@@ -12963,6 +12976,16 @@ impl<'a> ScriptLowerer<'a> {
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypeMap)
+                                    }
+                                    "reduce"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeReduce)
+                                    }
+                                    "reduceRight"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeReduceRight)
                                     }
                                     "getUint8"
                                         if receiver.possible_kinds.contains(ValueKind::Object) =>
@@ -13227,6 +13250,10 @@ impl<'a> ScriptLowerer<'a> {
                                     "forEach" => Some(StandardBuiltinId::ArrayPrototypeForEach),
                                     "filter" => Some(StandardBuiltinId::ArrayPrototypeFilter),
                                     "map" => Some(StandardBuiltinId::ArrayPrototypeMap),
+                                    "reduce" => Some(StandardBuiltinId::ArrayPrototypeReduce),
+                                    "reduceRight" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeReduceRight)
+                                    }
                                     _ => None,
                                 };
                                 if let Some(builtin) = builtin {
@@ -13333,7 +13360,9 @@ impl<'a> ScriptLowerer<'a> {
                         | StandardBuiltinId::ArrayPrototypeSome
                         | StandardBuiltinId::ArrayPrototypeForEach
                         | StandardBuiltinId::ArrayPrototypeFilter
-                        | StandardBuiltinId::ArrayPrototypeMap),
+                        | StandardBuiltinId::ArrayPrototypeMap
+                        | StandardBuiltinId::ArrayPrototypeReduce
+                        | StandardBuiltinId::ArrayPrototypeReduceRight),
                     ) = StandardBuiltinId::from_function_id(&function_id)
                     {
                         let Some(args) = self.lower_call_args_expanding_spread(args) else {
@@ -13373,6 +13402,40 @@ impl<'a> ScriptLowerer<'a> {
                             self.merge_array_species_constructor_this_info(&receiver);
                         }
                         if matches!(
+                            array_builtin,
+                            StandardBuiltinId::ArrayPrototypeReduce
+                                | StandardBuiltinId::ArrayPrototypeReduceRight
+                        ) {
+                            if let Some(callback) = args.first() {
+                                if let Some(callback_id) =
+                                    self.resolve_single_function_target(callback)
+                                {
+                                    self.merge_function_param_infos(
+                                        &callback_id,
+                                        &[
+                                            ValueInfo {
+                                                kind: ValueKind::Dynamic,
+                                                possible_kinds: KindSet::all_runtime_tags(),
+                                                heap_shape: None,
+                                                function_targets: BTreeSet::new(),
+                                            },
+                                            ValueInfo {
+                                                kind: ValueKind::Dynamic,
+                                                possible_kinds: KindSet::all_runtime_tags(),
+                                                heap_shape: None,
+                                                function_targets: BTreeSet::new(),
+                                            },
+                                            ValueInfo::new(ValueKind::Number),
+                                            receiver.value_info(),
+                                        ],
+                                    );
+                                    self.merge_function_this_info(
+                                        &callback_id,
+                                        ValueInfo::undefined(),
+                                    );
+                                }
+                            }
+                        } else if matches!(
                             array_builtin,
                             StandardBuiltinId::ArrayPrototypeFlatMap
                                 | StandardBuiltinId::ArrayPrototypeFind
@@ -13496,6 +13559,24 @@ impl<'a> ScriptLowerer<'a> {
                             StandardBuiltinId::ArrayPrototypeMap => {
                                 ("map", self.array_map_result_info(&receiver, args.first()))
                             }
+                            StandardBuiltinId::ArrayPrototypeReduce => (
+                                "reduce",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
+                            StandardBuiltinId::ArrayPrototypeReduceRight => (
+                                "reduceRight",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
                             StandardBuiltinId::ArrayPrototypePop => (
                                 "pop",
                                 ValueInfo {
@@ -16770,6 +16851,13 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayPrototypeReduce
+            | StandardBuiltinId::ArrayPrototypeReduceRight => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ArrayPrototypePop => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
@@ -19364,6 +19452,24 @@ impl<'a> ScriptLowerer<'a> {
             if name == "map" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeMap),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "reduce" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReduce),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "reduceRight" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReduceRight),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),

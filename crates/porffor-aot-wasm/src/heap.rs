@@ -256,13 +256,29 @@ pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
 pub(crate) const HEAP_ARGUMENTS_MAPPED_COUNT_OFFSET: u64 = 80;
 pub(crate) const HEAP_ARGUMENTS_ENV_HANDLE_OFFSET: u64 = 88;
-pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 96;
+// `arguments.length` is ordinarily backed by the array-header length, but it
+// is configurable.  Keep an accessor override out-of-line from that header so
+// generic methods can perform its observable [[Get]] rather than treating the
+// internal count as the property value unconditionally.
+pub(crate) const HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET: u64 = 96;
+pub(crate) const HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET: u64 = 104;
+pub(crate) const HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET: u64 = 112;
+pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 120;
 pub(crate) const HEAP_OBJECT_BOXED_KIND_OFFSET: u64 = 32;
 pub(crate) const HEAP_OBJECT_BOXED_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
 pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
+// TypedArray instances are ordinary heap objects with integer-indexed exotic
+// behavior.  Their internal slots must not alias user-visible properties: JS
+// can legally create or overwrite names such as `$TypedArrayByteLength`.
+pub(crate) const HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET: u64 = 80;
+pub(crate) const HEAP_TYPED_ARRAY_BYTE_OFFSET: u64 = 88;
+pub(crate) const HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET: u64 = 96;
+pub(crate) const HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 104;
+pub(crate) const HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 112;
+pub(crate) const HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET: u64 = 120;
 pub(crate) const HEAP_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_CAP_OFFSET: u64 = 16;
@@ -419,6 +435,7 @@ pub(crate) const BOXED_PRIMITIVE_KIND_SYMBOL: u64 = 5;
 pub(crate) const PROXY_HANDLER_PAYLOAD_MIN: u64 = BOXED_PRIMITIVE_KIND_SYMBOL + 1;
 pub(crate) const OBJECT_INTERNAL_BRAND_ERROR: u64 = 1;
 pub(crate) const OBJECT_INTERNAL_BRAND_RAW_JSON: u64 = 2;
+pub(crate) const OBJECT_INTERNAL_BRAND_TYPED_ARRAY: u64 = 3;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 pub(crate) const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -502,6 +519,48 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "viewed_array_buffer",
+        offset: HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "byte_offset",
+        offset: HEAP_TYPED_ARRAY_BYTE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "byte_length",
+        offset: HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "bytes_per_element",
+        offset: HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "element_kind",
+        offset: HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-object-header",
+        name: "length_tracking",
+        offset: HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 

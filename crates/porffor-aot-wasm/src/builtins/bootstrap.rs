@@ -1402,6 +1402,34 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 self.emit_object_define_function_data(object_local, "map", map_meta, function)?;
+                let reduce_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeReduce.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.reduce`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "reduce",
+                    reduce_meta,
+                    function,
+                )?;
+                let reduce_right_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeReduceRight.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.reduceRight`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "reduceRight",
+                    reduce_right_meta,
+                    function,
+                )?;
                 let pop_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypePop.function_id())
@@ -2726,6 +2754,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ArrayPrototypeForEach
             | StandardBuiltinId::ArrayPrototypeFilter
             | StandardBuiltinId::ArrayPrototypeMap
+            | StandardBuiltinId::ArrayPrototypeReduce
+            | StandardBuiltinId::ArrayPrototypeReduceRight
             | StandardBuiltinId::ArrayPrototypePop
             | StandardBuiltinId::ArrayPrototypePush
             | StandardBuiltinId::ArrayPrototypeKeys

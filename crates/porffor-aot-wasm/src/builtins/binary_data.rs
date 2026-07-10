@@ -200,15 +200,13 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_typed_array_current_byte_length(
         &mut self,
         typed_array_payload_local: u32,
-        typed_array_tag_local: u32,
+        _typed_array_tag_local: u32,
         buffer_payload_local: u32,
         byte_offset_local: u32,
         byte_length_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
         let tracking_payload_local = self.reserve_temp_local();
-        let tracking_tag_local = self.reserve_temp_local();
         let buffer_byte_length_local = self.reserve_temp_local();
 
         self.emit_object_read_number_slot_to_i64_local(
@@ -217,27 +215,15 @@ impl<'a> FunctionBuilder<'a> {
             buffer_byte_length_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TYPED_ARRAY_LENGTH_TRACKING_SLOT),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
+        self.load_i64_to_local_from_offset(
             typed_array_payload_local,
-            typed_array_tag_local,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            key_local,
+            HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
             tracking_payload_local,
-            tracking_tag_local,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(tracking_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        );
         function.instruction(&Instruction::LocalGet(tracking_payload_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(byte_offset_local));
         function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
@@ -264,9 +250,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(buffer_byte_length_local);
-        self.release_temp_local(tracking_tag_local);
         self.release_temp_local(tracking_payload_local);
-        self.release_temp_local(key_local);
         Ok(())
     }
 

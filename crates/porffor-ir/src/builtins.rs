@@ -27,7 +27,8 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
     BUILTIN_ATOMICS_ADD_FUNCTION_ID, BUILTIN_ATOMICS_AND_FUNCTION_ID,
@@ -332,6 +333,8 @@ pub enum StandardBuiltinId {
     ArrayPrototypeForEach,
     ArrayPrototypeFilter,
     ArrayPrototypeMap,
+    ArrayPrototypeReduce,
+    ArrayPrototypeReduceRight,
     ArrayPrototypePop,
     ArrayPrototypePush,
     ArrayPrototypeKeys,
@@ -785,6 +788,8 @@ impl StandardBuiltinId {
             | Self::ArrayPrototypeForEach
             | Self::ArrayPrototypeFilter
             | Self::ArrayPrototypeMap
+            | Self::ArrayPrototypeReduce
+            | Self::ArrayPrototypeReduceRight
             | Self::ArrayPrototypePop
             | Self::ArrayPrototypePush
             | Self::ArrayPrototypeKeys
@@ -1060,6 +1065,8 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeForEach => "Array.prototype.forEach",
             Self::ArrayPrototypeFilter => "Array.prototype.filter",
             Self::ArrayPrototypeMap => "Array.prototype.map",
+            Self::ArrayPrototypeReduce => "Array.prototype.reduce",
+            Self::ArrayPrototypeReduceRight => "Array.prototype.reduceRight",
             Self::ArrayPrototypePop => "Array.prototype.pop",
             Self::ArrayPrototypePush => "Array.prototype.push",
             Self::ArrayPrototypeKeys => "Array.prototype.keys",
@@ -1482,6 +1489,10 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeForEach => BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFilter => BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeMap => BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeReduce => BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeReduceRight => {
+                BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID.to_string()
+            }
             Self::ArrayPrototypePop => BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypePush => BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeKeys => BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID.to_string(),
@@ -2114,6 +2125,10 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::ArrayPrototypeForEach),
             BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID => Some(Self::ArrayPrototypeFilter),
             BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeMap),
+            BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID => Some(Self::ArrayPrototypeReduce),
+            BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID => {
+                Some(Self::ArrayPrototypeReduceRight)
+            }
             BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID => Some(Self::ArrayPrototypePop),
             BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID => Some(Self::ArrayPrototypePush),
             BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID => Some(Self::ArrayPrototypeKeys),
@@ -2692,6 +2707,8 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeForEach,
             Self::ArrayPrototypeFilter,
             Self::ArrayPrototypeMap,
+            Self::ArrayPrototypeReduce,
+            Self::ArrayPrototypeReduceRight,
             Self::ArrayPrototypePop,
             Self::ArrayPrototypePush,
             Self::ArrayPrototypeKeys,
@@ -3258,6 +3275,8 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeForEach => Some("forEach"),
             Self::ArrayPrototypeFilter => Some("filter"),
             Self::ArrayPrototypeMap => Some("map"),
+            Self::ArrayPrototypeReduce => Some("reduce"),
+            Self::ArrayPrototypeReduceRight => Some("reduceRight"),
             Self::ArrayPrototypePop => Some("pop"),
             Self::ArrayPrototypePush => Some("push"),
             Self::ArrayPrototypeKeys => Some("keys"),
