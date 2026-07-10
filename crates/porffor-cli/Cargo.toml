@@ -3,6 +3,7 @@ name = "porffor-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autobins = false
 
 [dependencies]
 porffor-engine = { path = "../porffor-engine" }
@@ -20,4 +21,7 @@ spec-exec-oracle = ["porffor-engine/spec-exec-oracle"]
 
 [[bin]]
 name = "porf"
-path = "src/main.rs"
+path = "src/bin/porf.rs"
+
+[lib]
+path = "src/lib.rs"

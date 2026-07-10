@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use porffor_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
+    cache_status, configure_compilation_jobs, prune_caches, CompileOptions, Engine,
+    ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
 use porffor_test262::{
     try_compare_with_js_oracle, ConformanceRunner, FailureKind, FailureOrigin, OutcomeKind,
@@ -15,11 +15,17 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 #[derive(Debug)]
-struct StdoutHostHooks;
+struct StdoutHostHooks {
+    output: OutputBuffer,
+}
 
 impl HostHooks for StdoutHostHooks {
     fn print_line(&self, text: &str) {
-        println!("{text}");
+        let mut output = self
+            .output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        writeln!(output, "{text}").expect("writing host output should succeed");
     }
 }
 
@@ -122,6 +128,10 @@ Commands:
   build wasm <file>                     compile JavaScript directly to Wasm
   build c <file>                        emit C from shared IR
   build native <file>                   emit native artifact from shared IR
+  cache status                          report bounded Porffor caches and the
+                                        legacy global Wasmtime cache
+  cache prune [--legacy-wasmtime]       delete Porffor caches; optionally delete
+                                        the reported legacy Wasmtime cache
   types [entrypoint] [output] [options] generate Worker-style TypeScript types
   typegen [entrypoint] [output] [options]
                                         alias for types
@@ -156,6 +166,11 @@ test262 options:
   --max-matrix-nodes N
   --readme-path PATH
 
+global options:
+  --jobs N                              Cranelift compiler threads (default: half
+                                        the logical CPUs; independent of
+                                        test262 --threads)
+
 types options:
   --config PATH, -c PATH
   --entrypoint PATH
@@ -170,18 +185,11 @@ types options:
 "
 }
 
-fn main() -> ExitCode {
-    match real_main() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("{err}");
-            ExitCode::from(1)
-        }
+fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), String> {
+    if let Some(jobs) = take_global_jobs(&mut args)? {
+        configure_compilation_jobs(jobs)?;
     }
-}
-
-fn real_main() -> Result<(), String> {
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     let Some(command) = args.next() else {
         print!("{}", usage());
         return Ok(());
@@ -194,7 +202,7 @@ fn real_main() -> Result<(), String> {
 
     let engine = Engine::new(
         RealmBuilder::new()
-            .with_host_hooks(Box::new(StdoutHostHooks))
+            .with_host_hooks(Box::new(StdoutHostHooks { output: stdout }))
             .build(),
     );
     match command.as_str() {
@@ -218,6 +226,7 @@ fn real_main() -> Result<(), String> {
                 .map_err(|err| err.to_string())
         }
         "repl" => Err("Rust REPL shell not implemented yet".to_string()),
+        "cache" => handle_cache_command(args.collect()),
         "build" => {
             let format = args
                 .next()
@@ -323,6 +332,86 @@ fn real_main() -> Result<(), String> {
         }
         _ => Err(format!("unknown command: {command}\n\n{}", usage())),
     }
+}
+
+fn handle_cache_command(args: Vec<String>) -> Result<(), String> {
+    let command = args.first().map(String::as_str).unwrap_or("status");
+    match command {
+        "status" if args.len() == 1 || args.is_empty() => {
+            let status = cache_status().map_err(|err| format!("cache status failed: {err}"))?;
+            print_cache_directory("function-cache", &status.function_cache);
+            print_cache_directory("module-cache", &status.module_cache);
+            print_cache_directory("program-cache", &status.program_cache);
+            print_cache_directory("legacy-wasmtime-cache", &status.legacy_wasmtime_cache);
+            println!(
+                "porffor-cache-total-bytes: {}",
+                status
+                    .function_cache
+                    .bytes
+                    .saturating_add(status.module_cache.bytes)
+                    .saturating_add(status.program_cache.bytes)
+            );
+            println!("porffor-cache-total-limit-bytes: {}", 2_u64 * 1024 * 1024 * 1024);
+            Ok(())
+        }
+        "prune" => {
+            let include_legacy = match args.get(1).map(String::as_str) {
+                None => false,
+                Some("--legacy-wasmtime") if args.len() == 2 => true,
+                Some(value) => return Err(format!("unknown cache prune arg: {value}")),
+            };
+            let report = prune_caches(include_legacy)
+                .map_err(|err| format!("cache prune failed: {err}"))?;
+            println!("porffor-files-removed: {}", report.porffor_files_removed);
+            println!("porffor-bytes-removed: {}", report.porffor_bytes_removed);
+            println!("legacy-files-removed: {}", report.legacy_files_removed);
+            println!("legacy-bytes-removed: {}", report.legacy_bytes_removed);
+            if !include_legacy {
+                println!(
+                    "legacy-wasmtime-cache: retained (pass --legacy-wasmtime to remove explicitly)"
+                );
+            }
+            Ok(())
+        }
+        value => Err(format!(
+            "unknown cache command: {value} (expected status or prune)"
+        )),
+    }
+}
+
+fn print_cache_directory(label: &str, status: &porffor_engine::CacheDirectoryStatus) {
+    println!("{label}-path: {}", status.path.display());
+    println!("{label}-exists: {}", status.exists);
+    println!("{label}-files: {}", status.files);
+    println!("{label}-bytes: {}", status.bytes);
+    if let Some(limit) = status.limit_bytes {
+        println!("{label}-limit-bytes: {limit}");
+    }
+}
+
+fn take_global_jobs(args: &mut Vec<String>) -> Result<Option<usize>, String> {
+    let mut jobs = None;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] != "--jobs" {
+            index += 1;
+            continue;
+        }
+        if jobs.is_some() {
+            return Err("--jobs may only be specified once".to_string());
+        }
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| "--jobs needs a value".to_string())?
+            .parse::<usize>()
+            .map_err(|err| format!("invalid --jobs value: {err}"))?;
+        if value == 0 {
+            return Err("--jobs must be a positive integer".to_string());
+        }
+        jobs = Some(value);
+        args.drain(index..=index + 1);
+    }
+    Ok(jobs)
 }
 
 fn repo_root() -> PathBuf {
@@ -2796,6 +2885,18 @@ fn is_module_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_jobs_are_removed_before_command_parsing() {
+        let mut args = vec![
+            "run".to_string(),
+            "script.js".to_string(),
+            "--jobs".to_string(),
+            "3".to_string(),
+        ];
+        assert_eq!(take_global_jobs(&mut args).unwrap(), Some(3));
+        assert_eq!(args, vec!["run", "script.js"]);
+    }
 
     #[test]
     fn parse_test262_args_reads_filter_and_shard() {

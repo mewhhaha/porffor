@@ -1,6 +1,50 @@
+use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::Path;
-use std::process::Command;
+use std::process::Command as ProcessCommand;
+
+struct Command {
+    args: Vec<String>,
+}
+
+struct CommandOutput {
+    status: CommandStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+struct CommandStatus {
+    success: bool,
+}
+
+impl CommandStatus {
+    fn success(&self) -> bool {
+        self.success
+    }
+}
+
+impl Command {
+    fn new(_program: impl AsRef<OsStr>) -> Self {
+        Self { args: Vec::new() }
+    }
+
+    fn arg(&mut self, arg: impl AsRef<OsStr>) -> &mut Self {
+        self.args.push(arg.as_ref().to_string_lossy().into_owned());
+        self
+    }
+
+    fn output(&mut self) -> io::Result<CommandOutput> {
+        let output = porffor_cli::run_cli_capture(self.args.clone());
+        Ok(CommandOutput {
+            status: CommandStatus {
+                success: output.exit_code == 0,
+            },
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
+}
 
 fn fixture_path(name: &str) -> String {
     format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
@@ -106,7 +150,7 @@ fn temp_readme_path(name: &str) -> String {
 
 #[test]
 fn help_lists_clean_break_commands() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
         .arg("--help")
         .output()
         .expect("help command should run");
@@ -117,6 +161,35 @@ fn help_lists_clean_break_commands() {
     assert!(stdout.contains("types [entrypoint]"));
     assert!(stdout.contains("test262 run"));
     assert!(stdout.contains("inspect"));
+}
+
+#[test]
+fn subprocess_argument_handling_rejects_missing_run_source() {
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .output()
+        .expect("run command should report a missing source");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("run needs a source file"));
+}
+
+#[test]
+fn in_process_module_reuse_keeps_host_output_in_fresh_realms() {
+    let path = fixture_path("wasm_host_output.js");
+    let args = [
+        "run",
+        "--execution-backend",
+        "wasm",
+        path.as_str(),
+    ];
+    for _ in 0..2 {
+        let output = porffor_cli::run_cli_capture(args.map(str::to_string));
+        assert_eq!(output.exit_code, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout.matches("root\n").count(), 1);
+        assert_eq!(stdout.matches("alias\n").count(), 1);
+        assert_eq!(stdout.matches("method\n").count(), 1);
+    }
 }
 
 #[test]
@@ -720,7 +793,7 @@ fn inspect_reports_phase_thirty_one_function_tostring_ir_shape() {
 
 #[test]
 fn build_wasm_succeeds_for_supported_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
         .arg("build")
         .arg("wasm")
         .arg(fixture_path("wasm_var.js"))
@@ -1070,7 +1143,7 @@ fn build_wasm_succeeds_for_supported_function_tostring_fixture() {
 
 #[test]
 fn run_wasm_backend_succeeds_for_supported_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
@@ -4994,7 +5067,7 @@ fn run_wasm_backend_succeeds_for_reflect_set_core_fixture() {
 
 #[test]
 fn run_wasm_backend_reports_uncaught_throw_fixture_error() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
@@ -6803,7 +6876,7 @@ fn test262_triage_and_failure_details_read_completed_matrix_snapshots() {
 
 #[test]
 fn test262_wasm_backend_runs_supported_fixture_subset() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
         .arg("test262")
         .arg("run")
         .arg("language/wasm/pass")
