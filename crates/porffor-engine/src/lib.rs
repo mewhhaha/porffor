@@ -1,5 +1,6 @@
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{lower, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
+use sha2::{Digest, Sha256};
 #[cfg(test)]
 use wasmi::{
     core::Trap as WasmiTrap, Caller as WasmiCaller, Engine as WasmiEngine, Linker as WasmiLinker,
@@ -7,20 +8,27 @@ use wasmi::{
 };
 use wasmi::{Store as WasmiStore, Value as WasmiValue};
 use wasmtime::{
-    Cache as WasmtimeCache, Caller as WasmtimeCaller, Config as WasmtimeConfig,
-    Engine as WasmtimeEngine, Extern as WasmtimeExtern, Linker as WasmtimeLinker,
-    Module as WasmtimeModule, OptLevel, RegallocAlgorithm, Store as WasmtimeStore,
-    StoreLimits as WasmtimeStoreLimits, StoreLimitsBuilder as WasmtimeStoreLimitsBuilder,
-    Trap as WasmtimeTrap, Val as WasmtimeVal,
+    Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
+    Extern as WasmtimeExtern, Linker as WasmtimeLinker, Module as WasmtimeModule, OptLevel,
+    RegallocAlgorithm, Store as WasmtimeStore, StoreLimits as WasmtimeStoreLimits,
+    StoreLimitsBuilder as WasmtimeStoreLimitsBuilder, Trap as WasmtimeTrap, Val as WasmtimeVal,
 };
 
-use std::sync::OnceLock;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, OnceLock};
+
+mod cache;
+
+pub use cache::{
+    cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus,
+};
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
+const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
 #[cfg(test)]
 const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
@@ -61,31 +69,18 @@ where
     })
 }
 
-/// Wasmtime's on-disk Cranelift compilation cache, shared across every
-/// `wasmtime::Engine` this process builds. Each engine is built fresh per
-/// test (to keep configs isolated), but the cache is keyed on the wasm bytes
-/// plus compiler settings, so re-compiling the same emitted module (e.g. the
-/// shared test262 harness prelude, or repeated test262 resume/rerun
-/// invocations) hits the cache instead of re-running Cranelift. Compiler
-/// changes naturally change the wasm bytes or the cache key, so there is no
-/// staleness risk from caching.
-///
-/// Loaded once (`Cache::from_file(None)` uses the system default cache
-/// config/location, e.g. `$HOME/.cache/wasmtime` on Linux, creating it if
-/// needed). If that fails for any reason (e.g. an unwritable home directory
-/// in a sandboxed environment), caching is silently disabled and every test
-/// simply compiles uncached as before -- caching is a performance
-/// optimization, never a correctness requirement, so a failure here must not
-/// fail the run.
-fn wasmtime_compilation_cache() -> Option<WasmtimeCache> {
-    static CACHE: OnceLock<Option<WasmtimeCache>> = OnceLock::new();
+/// Porffor-owned Wasmtime whole-module cache. It is deliberately separate from
+/// Wasmtime's global default cache so Porffor can enforce its 1GiB/70% bounds
+/// without changing another Wasmtime application's artifacts.
+fn wasmtime_module_cache() -> Option<wasmtime::Cache> {
+    static CACHE: OnceLock<Option<wasmtime::Cache>> = OnceLock::new();
     CACHE
-        .get_or_init(|| match WasmtimeCache::from_file(None) {
+        .get_or_init(|| match cache::module_cache() {
             Ok(cache) => Some(cache),
             Err(err) => {
                 if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
                     eprintln!(
-                        "porffor wasm trace: wasmtime compilation cache unavailable, running \
+                        "porffor wasm trace: module cache unavailable, running \
                          uncached: {err}"
                     );
                 }
@@ -93,6 +88,153 @@ fn wasmtime_compilation_cache() -> Option<WasmtimeCache> {
             }
         })
         .clone()
+}
+
+fn cranelift_function_cache() -> Option<Arc<cache::FunctionCache>> {
+    static CACHE: OnceLock<Option<Arc<cache::FunctionCache>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            match cache::FunctionCache::new(
+                cache::function_cache_directory(),
+                cache::CACHE_LIMIT_BYTES,
+            ) {
+                Ok(cache) => Some(Arc::new(cache)),
+                Err(err) => {
+                    if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                        eprintln!(
+                            "porffor wasm trace: function cache unavailable, running uncached: \
+                             {err}"
+                        );
+                    }
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+fn program_wasm_cache() -> Option<Arc<cache::FunctionCache>> {
+    static CACHE: OnceLock<Option<Arc<cache::FunctionCache>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            match cache::FunctionCache::new(
+                cache::program_cache_directory(),
+                cache::HALF_CACHE_LIMIT_BYTES,
+            ) {
+                Ok(cache) => Some(Arc::new(cache)),
+                Err(err) => {
+                    if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                        eprintln!(
+                            "porffor wasm trace: program Wasm cache unavailable, running \
+                             uncached: {err}"
+                        );
+                    }
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+fn compiler_fingerprint() -> &'static str {
+    env!("PORFFOR_COMPILER_FINGERPRINT")
+}
+
+fn program_wasm_cache_key(
+    source: &str,
+    goal: ParseGoal,
+    options: &CompileOptions,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(compiler_fingerprint().as_bytes());
+    hash.update(std::env::consts::ARCH.as_bytes());
+    hash.update(match goal {
+        ParseGoal::Script => b"script" as &[u8],
+        ParseGoal::Module => b"module" as &[u8],
+    });
+    hash.update([u8::from(options.optimize)]);
+    if let Some(filename) = &options.filename {
+        hash.update(filename.as_bytes());
+    }
+    if let Some(target) = &options.target_triple {
+        hash.update(target.as_bytes());
+    }
+    hash.update(source.as_bytes());
+    hash.finalize().into()
+}
+
+static COMPILATION_JOBS: OnceLock<usize> = OnceLock::new();
+static COMPILATION_POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
+
+/// Default Cranelift parallelism: half the logical CPUs, with a minimum of one.
+/// Test262's `--threads` remains a separate case-execution setting.
+pub fn default_compilation_jobs() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(2)
+        .div_ceil(2)
+        .max(1)
+}
+
+/// Selects the shared Cranelift compilation-pool size before the first Wasm
+/// module is compiled. A process has one pool so concurrent Test262 workers
+/// cannot each create an unbounded set of compiler threads.
+pub fn configure_compilation_jobs(jobs: usize) -> Result<(), String> {
+    if jobs == 0 {
+        return Err("--jobs must be a positive integer".to_string());
+    }
+    let configured = COMPILATION_JOBS.get_or_init(|| jobs);
+    if *configured == jobs {
+        Ok(())
+    } else {
+        Err(format!(
+            "Wasm compilation pool already configured for {configured} jobs"
+        ))
+    }
+}
+
+fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {
+    let result = COMPILATION_POOL.get_or_init(|| {
+        let jobs = *COMPILATION_JOBS.get_or_init(default_compilation_jobs);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .thread_name(|index| format!("porffor-cranelift-{index}"))
+            .build()
+            .map_err(|err| format!("failed to build {jobs}-thread compilation pool: {err}"))
+    });
+    result.as_ref().map_err(|err| EngineError::new(err.clone()))
+}
+
+fn memory_cached_wasm_module(
+    engine: &WasmtimeEngine,
+    bytes: &[u8],
+) -> Result<(WasmtimeModule, bool), EngineError> {
+    static MODULES: OnceLock<Mutex<VecDeque<([u8; 32], WasmtimeModule)>>> = OnceLock::new();
+    let key: [u8; 32] = Sha256::digest(bytes).into();
+    let modules = MODULES.get_or_init(|| Mutex::new(VecDeque::new()));
+    {
+        let mut modules = modules
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(index) = modules.iter().position(|(candidate, _)| *candidate == key) {
+            let entry = modules.remove(index).expect("module cache index should exist");
+            let module = entry.1.clone();
+            modules.push_back(entry);
+            return Ok((module, true));
+        }
+    }
+
+    let module = compilation_pool()?
+        .install(|| WasmtimeModule::new(engine, bytes))
+        .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err}")))?;
+    let mut modules = modules
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if modules.len() == WASM_MODULE_MEMORY_CACHE_ENTRIES {
+        modules.pop_front();
+    }
+    modules.push_back((key, module.clone()));
+    Ok((module, false))
 }
 
 /// Wall-clock tick between `Engine::increment_epoch()` calls made by
@@ -136,7 +278,25 @@ fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
             config.wasm_function_references(true);
             config.wasm_gc(true);
             config.wasm_exceptions(true);
-            config.cache(wasmtime_compilation_cache());
+            config.parallel_compilation(true);
+            config.cache(wasmtime_module_cache());
+            if let Some(function_cache) = cranelift_function_cache() {
+                config
+                    .enable_incremental_compilation(function_cache)
+                    .map_err(|err| format!("Cranelift function-cache setup failed: {err}"))?;
+            }
+            if std::env::var_os("PORFFOR_VERIFY_FUNCTION_CACHE").is_some() {
+                // This is Cranelift's own diagnostic flag: it recompiles a
+                // sampled cache hit and asserts that the native result is
+                // byte-for-byte identical. The flag name is intentionally
+                // confined to this opt-in CI/debug path because Cranelift
+                // marks stringly-typed compiler flags as an unsafe API.
+                unsafe {
+                    config.cranelift_flag_enable(
+                        "enable_incremental_compilation_cache_checks",
+                    );
+                }
+            }
             // Instruments emitted Wasm with epoch checks at loop back-edges
             // and function entries. Combined with `ensure_wasm_epoch_ticker`
             // and a per-store `set_epoch_deadline` below, this is what lets
@@ -384,8 +544,7 @@ impl Engine {
                 run,
             );
         }
-        let unit = self.compile_script(source, options)?;
-        self.run_compiled_unit(&unit, source, run)
+        self.run_source_with_cached_wasm(source, ParseGoal::Script, options, run.timeout_ms)
     }
 
     pub fn run_module(
@@ -402,8 +561,71 @@ impl Engine {
                 run,
             );
         }
-        let unit = self.compile_module(source, options)?;
-        self.run_compiled_unit(&unit, source, run)
+        self.run_source_with_cached_wasm(source, ParseGoal::Module, options, run.timeout_ms)
+    }
+
+    fn run_source_with_cached_wasm(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        let key = program_wasm_cache_key(source, goal, &options);
+        if let Some(cache) = program_wasm_cache() {
+            let cache_started = std::time::Instant::now();
+            if let Some(bytes) = cache.read(&key) {
+                if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                    eprintln!(
+                        "porffor wasm trace: program-cache hit: {} bytes in {:?}",
+                        bytes.len(),
+                        cache_started.elapsed()
+                    );
+                }
+                match self.run_with_wasm_bytes(&bytes, timeout_ms) {
+                    Err(err) if err.message().starts_with("wasmtime module validation failed:") => {
+                        // An incomplete/corrupted local artifact is a cache
+                        // miss, never a product failure. Remove it and rebuild
+                        // from the JavaScript source below.
+                        cache.remove(&key);
+                    }
+                    result => return result,
+                }
+            } else if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                eprintln!(
+                    "porffor wasm trace: program-cache miss: {:?}",
+                    cache_started.elapsed()
+                );
+            }
+        }
+
+        let unit = match goal {
+            ParseGoal::Script => self.compile_script(source, options)?,
+            ParseGoal::Module => self.compile_module(source, options)?,
+        };
+        let emit_started = std::time::Instant::now();
+        let artifact = self.emit_wasm(&unit)?;
+        if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+            eprintln!(
+                "porffor wasm trace: emit: {:?} ({} bytes)",
+                emit_started.elapsed(),
+                artifact.bytes.len()
+            );
+        }
+        if let Some(cache) = program_wasm_cache() {
+            let cache_started = std::time::Instant::now();
+            if !cache.write(&key, artifact.bytes.clone())
+                && std::env::var_os("PORFFOR_WASM_TRACE").is_some()
+            {
+                eprintln!("porffor wasm trace: program-cache write failed");
+            } else if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                eprintln!(
+                    "porffor wasm trace: program-cache write: {:?}",
+                    cache_started.elapsed()
+                );
+            }
+        }
+        self.run_with_wasm_bytes(&artifact.bytes, timeout_ms)
     }
 
     pub fn emit_wasm(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
@@ -482,6 +704,8 @@ impl Engine {
         options: CompileOptions,
     ) -> Result<CompilationUnit, EngineError> {
         run_on_sized_stack(move || {
+            let trace = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
+            let parse_started = std::time::Instant::now();
             let source = parse(
                 source,
                 ParseOptions {
@@ -490,7 +714,20 @@ impl Engine {
                 },
             )
             .map_err(EngineError::from_parse_error)?;
+            if trace {
+                eprintln!(
+                    "porffor wasm trace: parse: {:?}",
+                    parse_started.elapsed()
+                );
+            }
+            let lower_started = std::time::Instant::now();
             let ir = lower(&source);
+            if trace {
+                eprintln!(
+                    "porffor wasm trace: lower: {:?}",
+                    lower_started.elapsed()
+                );
+            }
             if let Some(diagnostic) = ir
                 .diagnostics
                 .iter()
@@ -586,39 +823,113 @@ impl Engine {
     ) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
-        let trace_phase = |phase: &str| {
+        let trace_phase = |phase: &str, started: std::time::Instant| {
             if trace_wasm {
                 eprintln!(
-                    "porffor wasm trace: {phase} after {:?}",
-                    trace_start.elapsed()
+                    "porffor wasm trace: {phase}: {:?} (total {:?})",
+                    started.elapsed(),
+                    trace_start.elapsed(),
                 );
             }
         };
 
+        let emit_started = std::time::Instant::now();
         let artifact = porffor_aot_wasm::emit(&unit.ir).map_err(|err| {
             EngineError::new(format!(
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
             ))
         })?;
-        if trace_wasm {
-            eprintln!(
-                "porffor wasm trace: artifact bytes: {}",
-                artifact.bytes.len()
-            );
+        if std::env::var_os("PORFFOR_WASM_TRACE_DUMP").is_some() {
             eprintln!(
                 "porffor wasm trace: artifact debug:\n{}",
                 artifact.debug_dump
             );
         }
-        trace_phase("emit");
+        trace_phase("emit", emit_started);
+        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms)
+    }
 
+    fn run_with_wasm_bytes(
+        &self,
+        bytes: &[u8],
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        run_on_sized_stack(|| self.run_with_wasm_bytes_inner(bytes, timeout_ms))
+    }
+
+    fn run_with_wasm_bytes_inner(
+        &self,
+        bytes: &[u8],
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
+        let trace_start = std::time::Instant::now();
+        let trace_phase = |phase: &str, started: std::time::Instant| {
+            if trace_wasm {
+                eprintln!(
+                    "porffor wasm trace: {phase}: {:?} (total {:?})",
+                    started.elapsed(),
+                    trace_start.elapsed(),
+                );
+            }
+        };
+        if trace_wasm {
+            eprintln!("porffor wasm trace: artifact bytes: {}", bytes.len());
+        }
+
+        let engine_started = std::time::Instant::now();
         let engine = shared_wasm_engine()?;
-        trace_phase("engine");
+        trace_phase("engine", engine_started);
         ensure_wasm_epoch_ticker(&engine);
-        let module = WasmtimeModule::new(&engine, &artifact.bytes[..])
-            .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err}")))?;
-        trace_phase("module");
+        let module_started = std::time::Instant::now();
+        let function_cache_before = cranelift_function_cache().map(|cache| cache.counters());
+        let module_cache_before = wasmtime_module_cache()
+            .map(|cache| (cache.cache_hits(), cache.cache_misses()));
+        let (module, memory_cache_hit) = memory_cached_wasm_module(&engine, bytes)?;
+        let module_elapsed = module_started.elapsed();
+        if trace_wasm {
+            eprintln!(
+                "porffor wasm trace: module-memory-cache {}: {:?}",
+                if memory_cache_hit { "hit" } else { "miss" },
+                module_elapsed
+            );
+            if let (Some(before), Some(after)) = (
+                function_cache_before,
+                cranelift_function_cache().map(|cache| cache.counters()),
+            ) {
+                eprintln!(
+                    "porffor wasm trace: function-cache hits={} misses={} during {:?}",
+                    after.0.saturating_sub(before.0),
+                    after.1.saturating_sub(before.1),
+                    module_elapsed
+                );
+            }
+            let module_cache_after = wasmtime_module_cache()
+                .map(|cache| (cache.cache_hits(), cache.cache_misses()));
+            match (module_cache_before, module_cache_after) {
+                (Some(before), Some(after)) if after.0 > before.0 => eprintln!(
+                    "porffor wasm trace: module-cache hit: {:?}",
+                    module_elapsed
+                ),
+                (Some(before), Some(after)) if after.1 > before.1 => {
+                    eprintln!(
+                        "porffor wasm trace: module-cache miss: {:?}",
+                        module_elapsed
+                    );
+                    eprintln!(
+                        "porffor wasm trace: native compilation: {:?}",
+                        module_elapsed
+                    );
+                }
+                _ => eprintln!(
+                    "porffor wasm trace: module-cache result unavailable: {:?}",
+                    module_elapsed
+                ),
+            }
+        }
+        trace_phase("module", module_started);
+        let store_started = std::time::Instant::now();
         let mut store = WasmtimeStore::new(
             &engine,
             WasmHostState {
@@ -677,15 +988,18 @@ impl Engine {
                 },
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        trace_phase("linker");
+        trace_phase("store + linker", store_started);
+        let instantiate_started = std::time::Instant::now();
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(|err| EngineError::new(format!("wasmtime instantiate failed: {err}")))?;
-        trace_phase("instantiate");
+        trace_phase("instantiate", instantiate_started);
+        let lookup_started = std::time::Instant::now();
         let main = instance
             .get_typed_func::<(), i64>(&mut store, "main")
             .map_err(|err| EngineError::new(format!("wasmtime export lookup failed: {err}")))?;
-        trace_phase("lookup main");
+        trace_phase("lookup main", lookup_started);
+        let execution_started = std::time::Instant::now();
         let payload = main.call(&mut store, ()).map_err(|err| {
             if is_wasm_epoch_interrupt(&err) {
                 // Distinguish this from other traps with the same "timeout
@@ -704,7 +1018,7 @@ impl Engine {
                 EngineError::new(format!("wasmtime execution trapped: {err:?}"))
             }
         })?;
-        trace_phase("call main");
+        trace_phase("execution", execution_started);
         let result_kind = instance
             .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
             .ok_or_else(|| EngineError::new("wasmtime export lookup failed: missing result_tag"))?
@@ -929,6 +1243,33 @@ fn render_wasmtime_completion(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program_cache_key_tracks_source_goal_and_configuration() {
+        let base = CompileOptions {
+            filename: Some("case.js".to_string()),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key("1 + 2", ParseGoal::Script, &base);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &base)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 3", ParseGoal::Script, &base)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Module, &base)
+        );
+        let mut changed = base.clone();
+        changed.optimize = !changed.optimize;
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed)
+        );
+    }
     use std::sync::{Arc, Mutex};
     use wasmparser::{Imports, Parser, Payload};
 

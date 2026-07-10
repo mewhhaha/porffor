@@ -63,8 +63,15 @@ Supporting directories:
 Build the Rust CLI:
 
 ```sh
-cargo build -p porffor-cli
+./scripts/dev.sh build
 ```
+
+The developer wrapper uses `lld` when available, falls back to the system
+linker, and caps Cargo at half the machine's logical CPUs (at most eight on the
+primary 16-core development machine). It deliberately shares Cargo's normal
+`target/` directory. `./scripts/dev.sh check`, `exact-test`, `test262`, and
+`timings` provide the corresponding fast-loop commands; set `PORFFOR_JOBS` to
+request a lower cap.
 
 Run the built binary directly:
 
@@ -83,8 +90,9 @@ cargo run -p porffor-cli -- inspect crates/porffor-cli/tests/fixtures/hello.js
 
 Current commands:
 
-- `run [--execution-backend spec|wasm] <file>` runs a script through the Rust engine. `spec` is the default reference backend; `wasm` is the AOT Wasm backend.
+- `run [--execution-backend wasm|spec] <file>` runs a script through the Rust engine. Wasm-AOT is the product default and the only result counted for conformance; `spec` is an explicitly selected, feature-gated differential oracle.
 - `build wasm <file>` compiles JavaScript directly to a Wasm artifact and prints the artifact summary.
+- `cache status` reports the bounded Cranelift function cache, Wasmtime native-module cache, Porffor program-Wasm cache, and the old global Wasmtime cache without modifying any of them. `cache prune` removes only Porffor-owned entries; add `--legacy-wasmtime` to explicitly remove the reported legacy cache too.
 - `build c <file>` and `build native <file>` exist as CLI surfaces but currently fail with scaffold errors.
 - `inspect <file>` prints the parser/lowering pipeline summary and invariants.
 - `types [entrypoint] [output] [options]` and `typegen` generate Wrangler-style Worker TypeScript declarations from config plus a selected entrypoint.
@@ -112,6 +120,31 @@ types from a config plus a selected worker source. JSON, JSONC, and TOML configs
 are supported, and `porf typegen` is accepted as an alias. The package CLI
 type-generation paths are covered by `cargo test -p porffor-cli types_ --quiet`
 for the Rust CLI and `pnpm test:types` for the inherited Node CLI.
+
+Wasm-AOT compilation uses one process-wide Wasmtime engine and a shared
+Cranelift pool. The pool defaults to half the logical CPUs; `porf --jobs N ...`
+overrides it, while Test262 `--threads N` controls case workers independently.
+Every execution still creates a fresh realm, Store, and Wasmtime instance.
+Up to 64 immutable compiled Wasmtime Modules are retained in-process with LRU
+eviction so a warmed chunk does not deserialize/relink the same native code;
+module state is never shared between executions.
+
+Compiled-code storage is Porffor-owned and capped at 2 GiB total: 1 GiB for
+Cranelift function stencils and a 1 GiB whole-program budget split evenly
+between emitted program Wasm and Wasmtime native modules. Each tier prunes to
+70% after crossing its limit. Program entries are keyed by source, parse goal,
+compiler options, architecture, and a build-time SHA-256 of the compiler inputs;
+Cranelift supplies its stencil/version/target/flags key for function entries.
+Writes are atomic and corrupt program/native entries are treated as misses.
+Set `PORFFOR_CACHE_DIR` to relocate only Porffor's cache. The legacy global
+Wasmtime directory is reported by `porf cache status` and is never deleted
+implicitly.
+
+`PORFFOR_WASM_TRACE=1` reports parse, lower, emit, program/function/module
+cache decisions, native compilation, instantiation, and execution timings.
+`PORFFOR_WASM_TRACE_DUMP=1` additionally emits the large backend debug dump.
+CI can sample and recompile function-cache hits with
+`PORFFOR_VERIFY_FUNCTION_CACHE=1`.
 
 ## Conformance
 
@@ -2212,6 +2245,51 @@ the emitted Wasm artifact.
 - README conformance numbers are maintained with `porf test262 publish-status` or the low-RAM publication script, not by hand-editing status totals.
 
 ## Development
+
+The dev/test profiles retain incremental compilation and line-table source
+locations, compile dependencies at `opt-level=2`, and keep Porffor workspace
+crates at `opt-level=0`. Capture representative large-crate build timings with:
+
+```sh
+./scripts/dev.sh timings
+./scripts/dev.sh exact-test -p porffor-cli run_wasm_backend_succeeds_for_supported_fixture -- --exact
+```
+
+The checked-in cross-feature latency workload is
+`benchmarks/wasm-aot-20.txt`. Run the ignored authoritative Wasmtime-AOT
+benchmarks on an idle machine with:
+
+```sh
+cargo test -p porffor-cli --test perf -- --ignored --nocapture --test-threads=1
+```
+
+Measured on the 16-logical-CPU development machine on `2026-07-10`:
+
+- representative incremental engine/CLI rebuild: `1.04 s` (target `<=8 s`);
+- comment-only rebuild probe in the 1.13 MiB IR lowering unit: `0.69 s`;
+- comment-only rebuild probe in the 1.92 MiB standard-builtins backend unit:
+  `4.42 s`;
+- compiler edit through rebuilt authoritative host-output case: `8.64 s`
+  (`1.04 s` rebuild plus `7.60 s` cache-invalidated run; target `<=10 s`);
+- warm exact Wasmtime-AOT execution: `3.96 ms` (target `<=1 s`);
+- repeated exact execution in a fresh `porf` process: `0.72 s`;
+- warmed 20-case cross-feature chunk: `168.28 ms` (target `<=5 s`);
+- cold `wasm_host_output.js` after `porf cache prune`: `13.73 s`, including
+  `0.84 s` lowering and `11.73 s` native compilation (target `<=5 s`, not met).
+- that cold compile averaged `488%` CPU with the eight-thread Cranelift cap;
+- sampled peak RSS for the large host-output artifact was `3,165,520 KiB`;
+- after the validation runs, Porffor compiled-code caches used `1,459,395,488`
+  bytes (below 2 GiB), `target/` used `64 GiB`, and the separately reported
+  legacy Wasmtime cache used `22,276,692,202` bytes.
+
+The cold result keeps the runtime/program product split described in the Rust
+rewrite architecture backlog as required follow-up; warm cache success is not
+reported as cold success.
+
+Existing developer artifacts are never cleaned automatically. If an old
+`target/` has grown too large, inspect it with `du -sh target` and perform the
+one-time cleanup explicitly with `cargo clean`; the next dependency build will
+be intentionally cold.
 
 Start with focused package tests while working, then widen only when the change
 touches shared behavior:

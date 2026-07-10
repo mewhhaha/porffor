@@ -30,3 +30,66 @@ boa_parser = { path = "vendor/boa_parser-0.21.1" }
 icu_calendar = { path = "vendor/icu_calendar-2.0.6" }
 regress = { path = "vendor/regress-0.10.5" }
 temporal_rs = { path = "vendor/temporal_rs-0.1.0" }
+
+# Developer builds keep Porffor's large IR/backend crates cheap to rebuild,
+# while compiling third-party code (notably Wasmtime/Cranelift) once at a
+# useful optimization level. `line-tables-only` preserves source locations
+# without the much larger full debuginfo footprint.
+[profile.dev]
+debug = "line-tables-only"
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.test]
+debug = "line-tables-only"
+incremental = true
+
+[profile.test.package."*"]
+opt-level = 2
+
+# Package overrides win over the wildcard dependency setting above. Keep all
+# workspace crates at opt-level 0 so an IR/backend edit does not trigger a slow
+# optimized rebuild of Porffor itself.
+[profile.dev.package.porffor-front]
+opt-level = 0
+[profile.dev.package.porffor-ir]
+opt-level = 0
+[profile.dev.package.porffor-runtime]
+opt-level = 0
+[profile.dev.package.porffor-spec-exec]
+opt-level = 0
+[profile.dev.package.porffor-aot-wasm]
+opt-level = 0
+[profile.dev.package.porffor-backend-c]
+opt-level = 0
+[profile.dev.package.porffor-backend-native]
+opt-level = 0
+[profile.dev.package.porffor-engine]
+opt-level = 0
+[profile.dev.package.porffor-cli]
+opt-level = 0
+[profile.dev.package.porffor-test262]
+opt-level = 0
+
+[profile.test.package.porffor-front]
+opt-level = 0
+[profile.test.package.porffor-ir]
+opt-level = 0
+[profile.test.package.porffor-runtime]
+opt-level = 0
+[profile.test.package.porffor-spec-exec]
+opt-level = 0
+[profile.test.package.porffor-aot-wasm]
+opt-level = 0
+[profile.test.package.porffor-backend-c]
+opt-level = 0
+[profile.test.package.porffor-backend-native]
+opt-level = 0
+[profile.test.package.porffor-engine]
+opt-level = 0
+[profile.test.package.porffor-cli]
+opt-level = 0
+[profile.test.package.porffor-test262]
+opt-level = 0
