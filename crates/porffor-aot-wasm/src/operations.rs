@@ -3723,6 +3723,46 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // ToNumber appears at ~130 builtin sites and the full per-kind composite
+        // (ToPrimitive on objects, array→string, BigInt/Symbol throws, string
+        // parse) is several KB inline; call the shared helper instead (except
+        // while compiling the helper itself). The already-Number fast path stays
+        // inline so the common case never pays the call. A BigInt/Symbol/
+        // ToPrimitive throw inside the helper is surfaced through the completion
+        // slots and re-raised here with a completion return — the same discipline
+        // the inline composite's own throw sites use (`emit_return_current_
+        // completion`), which is valid at any block depth.
+        if self.outline_value_to_number {
+            if let Some(helper) = self.value_to_number_helper_function_index() {
+                let result_payload_local = self.reserve_temp_local();
+                let result_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                for _ in 0..5 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(result_payload_local, result_tag_local, function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_from_locals(result_payload_local, result_tag_local, function)?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(result_payload_local));
+                function.instruction(&Instruction::End);
+                self.release_temp_local(result_tag_local);
+                self.release_temp_local(result_payload_local);
+                return Ok(());
+            }
+        }
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);

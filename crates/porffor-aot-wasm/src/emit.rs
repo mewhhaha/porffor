@@ -176,6 +176,12 @@ pub(crate) struct FunctionBuilder<'a> {
     /// false only while compiling that helper itself. Every dynamic string
     /// concatenation and ToString site otherwise pays tens of KB inline.
     pub(crate) outline_value_to_string: bool,
+    /// When false, `emit_value_to_number_payload` inlines the full ToNumber
+    /// composite (per-kind dispatch, ToPrimitive on objects, array→string,
+    /// BigInt/Symbol throw sites) instead of calling the shared helper. Set
+    /// false only while compiling that helper itself. ToNumber appears at ~130
+    /// builtin sites, each otherwise several KB inline.
+    pub(crate) outline_value_to_number: bool,
     /// When `Some(local)`, `emit_object_write` is being emitted as the shared
     /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
     /// behavior from the runtime value of `local` (a helper parameter carrying
@@ -536,6 +542,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_value_to_string_helper()
         })
         .transpose()?;
+    let value_to_number_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_value_to_number_helper()
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -637,6 +660,8 @@ fn emit_script_with_forced_builtins(
         functions.function(JS_FUNCTION_TYPE_INDEX);
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // dynamic ToString (value-to-string) helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // dynamic ToNumber (value-to-number) helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
@@ -809,6 +834,11 @@ fn emit_script_with_forced_builtins(
             value_to_string_helper_function
                 .as_ref()
                 .expect("value-to-string helper must exist when heap is enabled"),
+        );
+        code.function(
+            value_to_number_helper_function
+                .as_ref()
+                .expect("value-to-number helper must exist when heap is enabled"),
         );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
@@ -1296,6 +1326,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_number_to_string: true,
             outline_string_to_number: true,
             outline_value_to_string: true,
+            outline_value_to_number: true,
             object_write_strict_flag_local: None,
         }
     }
@@ -1347,12 +1378,19 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 14)
     }
 
+    /// Wasm function index of the shared dynamic ToNumber (value-to-number)
+    /// helper. Unconditional (like value-to-string) so its fixed offset never
+    /// shifts.
+    pub(crate) fn value_to_number_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 15)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the
-    /// value-to-string helper (the last unconditional runtime helper), so its
+    /// value-to-number helper (the last unconditional runtime helper), so its
     /// index never shifts the preceding fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 15)
+        self.heap_alloc_function_index.map(|base| base + 16)
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -1815,6 +1853,33 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared dynamic ToNumber helper (per-kind dispatch,
+    /// ToPrimitive on objects, array→string coercion, BigInt/Symbol throws,
+    /// string parse — several KB per inline copy across ~130 builtin sites).
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
+    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// tuple: on normal completion the number payload (f64 bits) is in the
+    /// first slot with a Number tag; a BigInt/Symbol/ToPrimitive throw is
+    /// surfaced through the completion slots.
+    fn compile_value_to_number_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_value_to_number = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_value_to_number_payload(1, 0, &mut function)?;
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);

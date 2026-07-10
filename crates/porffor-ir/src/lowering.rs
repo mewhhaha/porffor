@@ -178,11 +178,17 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
     match reparse_script(script_source) {
         Ok((script, interner)) => {
             program.stages.push(LoweringStage::AstReparsed);
+            let trace_phases = std::env::var_os("PORFFOR_LOWER_TRACE").is_some();
+            let t0 = std::time::Instant::now();
             let analysis = AnalysisBuilder::default().finish(
                 &script,
                 &interner,
                 script_source.source_text.as_str(),
             );
+            if trace_phases {
+                eprintln!("porffor lower trace: analysis: {:?}", t0.elapsed());
+            }
+            let t1 = std::time::Instant::now();
             let lowered = ScriptLowerer::new(
                 &interner,
                 &analysis,
@@ -190,6 +196,9 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
                 SCRIPT_OWNER_ID.to_string(),
             )
             .lower(&script);
+            if trace_phases {
+                eprintln!("porffor lower trace: script-lower: {:?}", t1.elapsed());
+            }
             program.script = Some(ScriptIr {
                 strict: script.strict(),
                 functions: lowered.functions,
@@ -4653,6 +4662,8 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        let lower_trace = std::env::var_os("PORFFOR_LOWER_TRACE").is_some();
+        let tp = std::time::Instant::now();
         let mut prepass = ScriptLowerer::new(
             self.interner,
             self.analysis,
@@ -4673,8 +4684,20 @@ impl<'a> ScriptLowerer<'a> {
         self.var_bindings = prepass.var_bindings;
         self.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
         self.hoist_statement_items(script.statements().statements());
+        if lower_trace {
+            eprintln!("porffor lower trace: prepass: {:?}", tp.elapsed());
+        }
+        let tp = std::time::Instant::now();
         self.propagate_function_signatures();
+        if lower_trace {
+            eprintln!("porffor lower trace: propagate-signatures: {:?}", tp.elapsed());
+        }
+        let tp = std::time::Instant::now();
         self.prepare_exact_context_specializations();
+        if lower_trace {
+            eprintln!("porffor lower trace: exact-context: {:?}", tp.elapsed());
+        }
+        let tp = std::time::Instant::now();
         let mut functions = Vec::with_capacity(self.analysis.function_order.len());
         for function_id in &self.analysis.function_order {
             let plan = self
@@ -4714,10 +4737,17 @@ impl<'a> ScriptLowerer<'a> {
                 ));
             }
         }
+        if lower_trace {
+            eprintln!("porffor lower trace: final-functions: {:?}", tp.elapsed());
+        }
+        let tp = std::time::Instant::now();
         let body = self.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
         );
+        if lower_trace {
+            eprintln!("porffor lower trace: final-body: {:?}", tp.elapsed());
+        }
         functions.append(&mut self.generated_functions);
         LoweredScript {
             functions,
@@ -8061,7 +8091,12 @@ impl<'a> ScriptLowerer<'a> {
             self.source_text,
             function.id.clone(),
         );
-        lowerer.function_signatures = self.function_signatures.clone();
+        // These five maps are moved back into `self` on every exit path below,
+        // so hand them to the nested lowerer by move rather than deep clone.
+        // FunctionSignature values carry deep ValueInfo/HeapShape trees; cloning
+        // the full map per lowered function dominated harness-heavy compiles
+        // (~30ms x hundreds of lower_function calls).
+        lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
@@ -8077,13 +8112,13 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.seed_script_global_var_properties();
         lowerer.exact_context_function_observations =
-            self.exact_context_function_observations.clone();
+            std::mem::take(&mut self.exact_context_function_observations);
         lowerer.exact_context_callback_observations =
-            self.exact_context_callback_observations.clone();
+            std::mem::take(&mut self.exact_context_callback_observations);
         lowerer.exact_context_callback_specializations =
-            self.exact_context_callback_specializations.clone();
+            std::mem::take(&mut self.exact_context_callback_specializations);
         lowerer.exact_context_function_specializations =
-            self.exact_context_function_specializations.clone();
+            std::mem::take(&mut self.exact_context_function_specializations);
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function.id.clone());
         let exact_context_signature =
@@ -8160,6 +8195,13 @@ impl<'a> ScriptLowerer<'a> {
             lowerer.lower_function_parameters(function.parameters, function.name.as_str())
         else {
             self.diagnostics.extend(lowerer.diagnostics.clone());
+            self.function_signatures = lowerer.function_signatures;
+            self.exact_context_function_observations = lowerer.exact_context_function_observations;
+            self.exact_context_callback_observations = lowerer.exact_context_callback_observations;
+            self.exact_context_callback_specializations =
+                lowerer.exact_context_callback_specializations;
+            self.exact_context_function_specializations =
+                lowerer.exact_context_function_specializations;
             return FunctionIr {
                 id: output_id.clone(),
                 name: function.name.clone(),
@@ -8298,6 +8340,15 @@ impl<'a> ScriptLowerer<'a> {
                         function.name
                     ));
                     self.diagnostics.extend(lowerer.diagnostics.clone());
+                    self.function_signatures = lowerer.function_signatures;
+                    self.exact_context_function_observations =
+                        lowerer.exact_context_function_observations;
+                    self.exact_context_callback_observations =
+                        lowerer.exact_context_callback_observations;
+                    self.exact_context_callback_specializations =
+                        lowerer.exact_context_callback_specializations;
+                    self.exact_context_function_specializations =
+                        lowerer.exact_context_function_specializations;
                     return FunctionIr {
                         id: output_id.clone(),
                         name: function.name.clone(),
@@ -9422,7 +9473,7 @@ impl<'a> ScriptLowerer<'a> {
             self.source_text,
             function_id.clone(),
         );
-        lowerer.function_signatures = self.function_signatures.clone();
+        lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
@@ -11071,7 +11122,7 @@ impl<'a> ScriptLowerer<'a> {
             self.source_text,
             function_id.clone(),
         );
-        lowerer.function_signatures = self.function_signatures.clone();
+        lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
@@ -11341,7 +11392,7 @@ impl<'a> ScriptLowerer<'a> {
             self.source_text,
             function_id.clone(),
         );
-        lowerer.function_signatures = self.function_signatures.clone();
+        lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
