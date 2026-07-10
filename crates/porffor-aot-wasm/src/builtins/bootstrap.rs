@@ -4148,58 +4148,80 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
-        let regexp_match_meta = self
-            .functions
-            .get(&StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.match]`",
-                )
-            })?;
-        self.emit_function_value_payload(&regexp_match_meta, function)?;
-        function.instruction(&Instruction::GlobalSet(
-            REGEXP_PROTOTYPE_SYMBOL_MATCH_GLOBAL_INDEX,
-        ));
-        let regexp_match_all_meta = self
-            .functions
-            .get(&StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.matchAll]`",
-                )
-            })?;
-        self.emit_function_value_payload(&regexp_match_all_meta, function)?;
-        function.instruction(&Instruction::GlobalSet(
-            REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_GLOBAL_INDEX,
-        ));
-        let regexp_search_meta = self
-            .functions
-            .get(&StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.search]`",
-                )
-            })?;
-        self.emit_function_value_payload(&regexp_search_meta, function)?;
-        function.instruction(&Instruction::GlobalSet(
-            REGEXP_PROTOTYPE_SYMBOL_SEARCH_GLOBAL_INDEX,
-        ));
-        let array_typed_array_to_string_meta = self
-            .functions
-            .get(&StandardBuiltinId::TypedArrayPrototypeToString.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.toString`",
-                )
-            })?;
-        self.emit_function_value_payload(&array_typed_array_to_string_meta, function)?;
-        function.instruction(&Instruction::GlobalSet(
-            ARRAY_TYPED_ARRAY_TO_STRING_GLOBAL_INDEX,
-        ));
+        // These per-realm function-value globals cache the `@@match`/`@@matchAll`/
+        // `@@search` methods and the shared Array/TypedArray `toString`. Their only
+        // readers are inside constructor-init and builtin bodies that are
+        // themselves gated on (or force-compiled from) the same planned kind: the
+        // RegExp `@@` slots are read by `init_builtin_constructor_object(RegExp)`
+        // and by the String regexp-protocol method bodies (which force RegExp), and
+        // the shared `toString` slot is read by the Array / TypedArray prototype
+        // setup. When the guarding constructor cannot exist in this module, the
+        // slot is never read, so materializing it here would only force a
+        // dead builtin body through the emission fixpoint. Skip it (shape-guarded
+        // recording — see `FunctionMetaRegistry`).
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::RegExpConstructor)
+        {
+            let regexp_match_meta = self
+                .functions
+                .get(&StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.match]`",
+                    )
+                })?;
+            self.emit_function_value_payload(&regexp_match_meta, function)?;
+            function.instruction(&Instruction::GlobalSet(
+                REGEXP_PROTOTYPE_SYMBOL_MATCH_GLOBAL_INDEX,
+            ));
+            let regexp_match_all_meta = self
+                .functions
+                .get(&StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.matchAll]`",
+                    )
+                })?;
+            self.emit_function_value_payload(&regexp_match_all_meta, function)?;
+            function.instruction(&Instruction::GlobalSet(
+                REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_GLOBAL_INDEX,
+            ));
+            let regexp_search_meta = self
+                .functions
+                .get(&StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.search]`",
+                    )
+                })?;
+            self.emit_function_value_payload(&regexp_search_meta, function)?;
+            function.instruction(&Instruction::GlobalSet(
+                REGEXP_PROTOTYPE_SYMBOL_SEARCH_GLOBAL_INDEX,
+            ));
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ArrayConstructor)
+            || self.runtime_bootstrap_plan.needs_typed_array_intrinsic()
+        {
+            let array_typed_array_to_string_meta = self
+                .functions
+                .get(&StandardBuiltinId::TypedArrayPrototypeToString.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.toString`",
+                    )
+                })?;
+            self.emit_function_value_payload(&array_typed_array_to_string_meta, function)?;
+            function.instruction(&Instruction::GlobalSet(
+                ARRAY_TYPED_ARRAY_TO_STRING_GLOBAL_INDEX,
+            ));
+        }
         self.init_builtin_constructor_object(
             StandardBuiltinId::FunctionConstructor,
             FUNCTION_PROTOTYPE_GLOBAL_INDEX,

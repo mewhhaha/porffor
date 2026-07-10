@@ -2572,6 +2572,22 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Materialize a builtin function value inside a branch that is provably dead
+    /// in this module (its guarding heap-shape/kind cannot exist here), without
+    /// forcing the builtin's real body through the emission fixpoint. The written
+    /// funcref points at the shared stub table slot, which is fine because the
+    /// branch can never execute. See `FunctionMetaRegistry::suppress_recording`.
+    pub(crate) fn emit_function_value_payload_unrecorded(
+        &mut self,
+        meta: &WasmFunctionMeta,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let previous = self.functions.set_recording_suppressed(true);
+        let result = self.emit_function_value_payload(meta, function);
+        self.functions.set_recording_suppressed(previous);
+        result
+    }
+
     pub(crate) fn emit_function_value_payload(
         &mut self,
         meta: &WasmFunctionMeta,
@@ -7066,14 +7082,25 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(args.len() as i64));
         function.instruction(&Instruction::LocalSet(argc_local));
-        self.emit_heap_alloc_const(HEAP_HEADER_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(argv_local));
-        self.emit_heap_alloc_const(capacity * HEAP_ARRAY_ENTRY_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(buffer_local));
-        self.store_i64_local_at_offset(argv_local, HEAP_PTR_OFFSET, buffer_local, function);
-        self.store_i64_const_at_offset(argv_local, HEAP_LEN_OFFSET, args.len() as u64, function);
-        self.store_i64_const_at_offset(argv_local, HEAP_CAP_OFFSET, capacity, function);
-        self.emit_init_array_constructor_slot(argv_local, function);
+        // Argument vectors are built at every call site with pre-evaluated
+        // args; go through the shared array-alloc helper (which performs the
+        // full ~30-store header/slot init once) instead of inlining that init
+        // at each site.
+        if let Some(array_alloc_function_index) = self.array_alloc_function_index {
+            function.instruction(&Instruction::I64Const(args.len() as i64));
+            function.instruction(&Instruction::Call(array_alloc_function_index));
+            function.instruction(&Instruction::LocalSet(buffer_local));
+            function.instruction(&Instruction::LocalSet(argv_local));
+        } else {
+            self.emit_heap_alloc_const(HEAP_HEADER_SIZE, function)?;
+            function.instruction(&Instruction::LocalSet(argv_local));
+            self.emit_heap_alloc_const(capacity * HEAP_ARRAY_ENTRY_SIZE, function)?;
+            function.instruction(&Instruction::LocalSet(buffer_local));
+            self.store_i64_local_at_offset(argv_local, HEAP_PTR_OFFSET, buffer_local, function);
+            self.store_i64_const_at_offset(argv_local, HEAP_LEN_OFFSET, args.len() as u64, function);
+            self.store_i64_const_at_offset(argv_local, HEAP_CAP_OFFSET, capacity, function);
+            self.emit_init_array_constructor_slot(argv_local, function);
+        }
 
         for (index, (arg_payload_local, arg_tag_local)) in args.iter().enumerate() {
             function.instruction(&Instruction::LocalGet(buffer_local));

@@ -1094,13 +1094,6 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if script_references_standard_builtin(script, builtin) {
         return false;
     }
-    if builtin == StandardBuiltinId::ErrorConstructor
-        && ordinary_native_error_constructors()
-            .into_iter()
-            .any(|error_builtin| script_references_standard_builtin(script, error_builtin))
-    {
-        return false;
-    }
     if builtin == StandardBuiltinId::StringPrototypeIndexOf
         && script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeMatch)
     {
@@ -1166,29 +1159,6 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
-    if builtin == StandardBuiltinId::ObjectKeys
-        && (script_references_standard_builtin(script, StandardBuiltinId::JsonStringify)
-            || script_references_standard_builtin(script, StandardBuiltinId::JsonParse))
-    {
-        // The runtime-recursive JSON.stringify / JSON.parse helpers reach
-        // Object.keys dynamically (own-key enumeration, both as a direct call
-        // and through a funcref-table dispatch). It is never referenced in the
-        // script text, so force its body to be emitted here rather than letting
-        // the dispatch land on the shared stub.
-        return false;
-    }
-    if (builtin == StandardBuiltinId::ObjectKeys
-        || builtin == StandardBuiltinId::ObjectGetOwnPropertyNames)
-        && script_uses_for_in_enumeration(script)
-    {
-        // `for...in` over an array or object target compiles to
-        // `compile_for_in_object`, whose key-snapshot codegen calls
-        // `Object.keys` and `Object.getOwnPropertyNames` directly in wasm
-        // (not through a typed IR call), so plain `for...in` usage with no
-        // other reference to these builtins would otherwise hit the shared
-        // "not emitted" stub at runtime.
-        return false;
-    }
     if matches!(
         builtin,
         StandardBuiltinId::StringPrototypeToString
@@ -1232,138 +1202,11 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
-    if builtin == StandardBuiltinId::ProxyRevoke
-        && script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable)
-    {
-        // `Proxy.revocable`'s implementation synthesizes a bound function whose
-        // target is `[[ProxyRevoke]]` directly in codegen (not through a typed
-        // IR call), so the revoke half of the pair never shows up as a
-        // reachable `function_targets` reference on its own. Without this,
-        // `should_stub_standard_builtin` sees no reference to `ProxyRevoke` and
-        // stubs its body, so invoking the returned `revoke()` function lands on
-        // the shared "not emitted" stub instead of actually revoking the proxy.
-        return false;
-    }
-    if builtin == StandardBuiltinId::BoundFunctionInvoker
-        && (script_references_standard_builtin(script, StandardBuiltinId::FunctionPrototypeBind)
-            || script_references_standard_builtin(script, StandardBuiltinId::ProxyRevocable))
-    {
-        // `[[BoundFunctionInvoke]]` is the shared dispatch body every bound
-        // function's table slot points to. It is wired in directly via codegen
-        // (`emit_alloc_bound_function_value`) whenever `Function.prototype.bind`
-        // or `Proxy.revocable` (which synthesizes its own bound `revoke`
-        // function) runs, never through a typed IR call, so the reachability
-        // scan never sees it referenced and stubs it out — leaving every bound
-        // function call land on the shared "not emitted" stub instead of the
-        // real invoker.
-        return false;
-    }
-
     true
-}
-
-fn ordinary_native_error_constructors() -> [StandardBuiltinId; 6] {
-    [
-        StandardBuiltinId::EvalErrorConstructor,
-        StandardBuiltinId::RangeErrorConstructor,
-        StandardBuiltinId::ReferenceErrorConstructor,
-        StandardBuiltinId::SyntaxErrorConstructor,
-        StandardBuiltinId::TypeErrorConstructor,
-        StandardBuiltinId::URIErrorConstructor,
-    ]
 }
 
 pub(crate) fn script_uses_create_realm(script: &ScriptIr) -> bool {
     script.host_builtins.contains(&HostBuiltinId::CreateRealm)
-}
-
-/// Whether the script contains a `for...in` loop over an array or object
-/// target (`StatementIr::ForInArray` / `StatementIr::ForInObject`).
-///
-/// Both compile down to `compile_for_in_object`, whose key-snapshot codegen
-/// (`emit_for_in_object_key_snapshot`) calls `Object.keys` and
-/// `Object.getOwnPropertyNames` directly via wasm codegen rather than
-/// through a typed IR call, so `script_references_standard_builtin` never
-/// sees them referenced. Without this carve-out, ordinary `for...in` usage
-/// with no other reference to those builtins hits the "not emitted" stub at
-/// runtime. `for...in` over a string (`ForInString`) is self-contained and
-/// does not need this.
-pub(crate) fn script_uses_for_in_enumeration(script: &ScriptIr) -> bool {
-    block_uses_for_in_enumeration(&script.body)
-        || script
-            .functions
-            .iter()
-            .any(|function| block_uses_for_in_enumeration(&function.body))
-}
-
-fn block_uses_for_in_enumeration(block: &BlockIr) -> bool {
-    block
-        .statements
-        .iter()
-        .any(statement_uses_for_in_enumeration)
-}
-
-fn statement_uses_for_in_enumeration(statement: &StatementIr) -> bool {
-    match statement {
-        StatementIr::ForInArray { .. } | StatementIr::ForInObject { .. } => true,
-        StatementIr::Empty
-        | StatementIr::Debugger
-        | StatementIr::Break { .. }
-        | StatementIr::Continue { .. }
-        | StatementIr::Lexical { .. }
-        | StatementIr::Expression(_)
-        | StatementIr::Throw(_)
-        | StatementIr::Return(_)
-        | StatementIr::Var(_) => false,
-        StatementIr::LexicalBlock(statements) => {
-            statements.iter().any(statement_uses_for_in_enumeration)
-        }
-        StatementIr::Block(block) => block_uses_for_in_enumeration(block),
-        StatementIr::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            statement_uses_for_in_enumeration(then_branch)
-                || else_branch
-                    .as_deref()
-                    .is_some_and(statement_uses_for_in_enumeration)
-        }
-        StatementIr::While { body, .. } | StatementIr::DoWhile { body, .. } => {
-            statement_uses_for_in_enumeration(body)
-        }
-        StatementIr::For { body, .. } => statement_uses_for_in_enumeration(body),
-        StatementIr::ForOfArray { body, .. }
-        | StatementIr::ForOfString { body, .. }
-        | StatementIr::ForOfIterator { body, .. }
-        | StatementIr::ForInString { body, .. } => statement_uses_for_in_enumeration(body),
-        StatementIr::Switch { cases, .. } => cases
-            .iter()
-            .any(|case| block_uses_for_in_enumeration(&case.body)),
-        StatementIr::Labelled { statement, .. } => statement_uses_for_in_enumeration(statement),
-        StatementIr::TryCatch {
-            try_block,
-            catch_block,
-            ..
-        } => block_uses_for_in_enumeration(try_block) || block_uses_for_in_enumeration(catch_block),
-        StatementIr::TryFinally {
-            try_block,
-            finally_block,
-        } => {
-            block_uses_for_in_enumeration(try_block)
-                || block_uses_for_in_enumeration(finally_block)
-        }
-        StatementIr::TryCatchFinally {
-            try_block,
-            catch_block,
-            finally_block,
-            ..
-        } => {
-            block_uses_for_in_enumeration(try_block)
-                || block_uses_for_in_enumeration(catch_block)
-                || block_uses_for_in_enumeration(finally_block)
-        }
-    }
 }
 
 pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> bool {
@@ -2165,6 +2008,14 @@ pub(crate) struct FunctionMetaRegistry {
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
     touched_standard_builtins: std::cell::RefCell<BTreeSet<StandardBuiltinId>>,
     touched_host_builtins: std::cell::RefCell<BTreeSet<HostBuiltinId>>,
+    /// When set, [`Self::record_standard_builtin`] / [`Self::record_host_builtin`]
+    /// become no-ops. Codegen sets this while emitting a *provably dead* branch
+    /// (guarded by a heap-shape/kind test whose constructor cannot exist in the
+    /// current module — e.g. the proxy write-forwarding path when `Proxy` is not
+    /// planned). Materializing a builtin function value there is still valid wasm
+    /// (it points at the shared stub table slot), but must not drag the builtin's
+    /// real body in through the emission fixpoint, since the branch can never run.
+    suppress_recording: std::cell::Cell<bool>,
 }
 
 impl FunctionMetaRegistry {
@@ -2173,7 +2024,15 @@ impl FunctionMetaRegistry {
             metas,
             touched_standard_builtins: std::cell::RefCell::new(BTreeSet::new()),
             touched_host_builtins: std::cell::RefCell::new(BTreeSet::new()),
+            suppress_recording: std::cell::Cell::new(false),
         }
+    }
+
+    /// Set the recording-suppression flag, returning the previous value so the
+    /// caller can restore it (supporting nested dead-branch scopes). See
+    /// `suppress_recording`.
+    pub(crate) fn set_recording_suppressed(&self, value: bool) -> bool {
+        self.suppress_recording.replace(value)
     }
 
     pub(crate) fn get(&self, function_id: &str) -> Option<&WasmFunctionMeta> {
@@ -2188,11 +2047,17 @@ impl FunctionMetaRegistry {
     /// (e.g. to compare table indexes or to consult an install gate) does not
     /// make the builtin reachable.
     pub(crate) fn record_standard_builtin(&self, builtin: StandardBuiltinId) {
+        if self.suppress_recording.get() {
+            return;
+        }
         self.touched_standard_builtins.borrow_mut().insert(builtin);
     }
 
     /// Host-builtin counterpart of [`Self::record_standard_builtin`].
     pub(crate) fn record_host_builtin(&self, builtin: HostBuiltinId) {
+        if self.suppress_recording.get() {
+            return;
+        }
         self.touched_host_builtins.borrow_mut().insert(builtin);
     }
 

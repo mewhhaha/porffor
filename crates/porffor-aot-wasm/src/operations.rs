@@ -4724,6 +4724,23 @@ impl<'a> FunctionBuilder<'a> {
         string_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // ToNumber of a string operand appears throughout the builtins and its
+        // inline parse state machine is several KB; call the shared helper
+        // instead (except while compiling the helper itself). The helper returns
+        // the standard four-i64 tuple with the f64-bits payload first.
+        if self.outline_string_to_number {
+            if let Some(helper) = self.string_to_number_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(string_payload_local));
+                for _ in 0..6 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::Call(helper));
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                return Ok(());
+            }
+        }
         let offset_local = self.reserve_temp_local();
         let len_local = self.reserve_temp_local();
         let start_local = self.reserve_temp_local();
@@ -6300,6 +6317,45 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // Dynamic string concatenation and ToString sites hit this constantly
+        // and the full per-kind composite is tens of KB inline; call the shared
+        // helper instead (except while compiling the helper itself). The string
+        // fast path stays inline so the common case never pays the call. A
+        // ToPrimitive/Symbol throw inside the helper is surfaced through the
+        // completion slots and re-raised here with a completion return — the
+        // same discipline the inline composite's own throw sites use
+        // (`emit_return_current_completion`), which is valid at any block depth.
+        if self.outline_value_to_string {
+            if let Some(helper) = self.value_to_string_helper_function_index() {
+                let result_payload_local = self.reserve_temp_local();
+                let result_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                for _ in 0..5 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(result_payload_local, result_tag_local, function);
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_from_locals(result_payload_local, result_tag_local, function)?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(result_payload_local));
+                function.instruction(&Instruction::End);
+                self.release_temp_local(result_tag_local);
+                self.release_temp_local(result_payload_local);
+                return Ok(());
+            }
+        }
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -6768,6 +6824,23 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // Number formatting appears in nearly every builtin body and its inline
+        // expansion is several KB; call the shared helper instead (except while
+        // compiling the helper itself). The helper returns the standard four-i64
+        // tuple with the string payload in the first slot.
+        if self.outline_number_to_string {
+            if let Some(helper) = self.number_to_string_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(payload_local));
+                for _ in 0..6 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::Call(helper));
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                return Ok(());
+            }
+        }
         let output_local = self.reserve_temp_local();
         let sign_local = self.reserve_temp_local();
         let abs_local = self.reserve_temp_local();
@@ -8704,6 +8777,28 @@ impl<'a> FunctionBuilder<'a> {
         rhs_payload_local: u32,
         function: &mut Function,
     ) {
+        // Property-name matching and key switches hit this at thousands of
+        // sites per builtin body; call the shared helper instead of inlining
+        // the ~65-instruction byte-compare loop (except inside the helper
+        // itself). The helper returns the standard four-i64 tuple with the
+        // 0/1 result in the first slot.
+        if self.outline_string_equality {
+            if let Some(helper) = self.string_equality_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(lhs_payload_local));
+                function.instruction(&Instruction::LocalGet(rhs_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::Drop);
+                function.instruction(&Instruction::I32WrapI64);
+                return;
+            }
+        }
         let lhs_offset = self.reserve_temp_local();
         let lhs_len = self.reserve_temp_local();
         let rhs_offset = self.reserve_temp_local();

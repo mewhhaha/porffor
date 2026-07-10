@@ -10344,6 +10344,15 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.set`",
                 )
             })?;
+        // The proxy write-forwarding paths below (guarded by `proxy_kind >=
+        // PROXY_HANDLER_PAYLOAD_MIN`) dispatch through `Reflect.set` and can only
+        // run when the object is a Proxy exotic object. A Proxy value requires the
+        // `Proxy` constructor to be planned; when it is not, those branches are
+        // dead, so materialize `Reflect.set` without recording it (which would
+        // otherwise force the whole `Reflect` object through the fixpoint).
+        let proxy_reachable = self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor);
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(proxy_handled_local));
@@ -10733,7 +10742,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_value_payload(&reflect_set_meta, function)?;
+        if proxy_reachable {
+            self.emit_function_value_payload(&reflect_set_meta, function)?;
+        } else {
+            self.emit_function_value_payload_unrecorded(&reflect_set_meta, function)?;
+        }
         function.instruction(&Instruction::LocalSet(proxy_reflect_set_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(proxy_reflect_set_tag_local));
@@ -11097,6 +11110,14 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.defineProperty`",
                 )
             })?;
+        // The `proxy_depth > 0` block below forwards a define through
+        // `Reflect.defineProperty` only when `receiver` is a Proxy exotic object,
+        // which cannot exist unless the `Proxy` constructor is planned. When it is
+        // not, that materialization is in a dead branch — emit it without recording
+        // so it does not force the whole `Reflect` object through the fixpoint.
+        let proxy_reachable = self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor);
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));
@@ -11182,7 +11203,11 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(descriptor_tag_local));
 
-            self.emit_function_value_payload(&reflect_define_meta, function)?;
+            if proxy_reachable {
+                self.emit_function_value_payload(&reflect_define_meta, function)?;
+            } else {
+                self.emit_function_value_payload_unrecorded(&reflect_define_meta, function)?;
+            }
             function.instruction(&Instruction::LocalSet(reflect_define_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(reflect_define_tag_local));
@@ -11478,15 +11503,29 @@ impl<'a> FunctionBuilder<'a> {
         let string_byte_len_local = self.reserve_temp_local();
         let string_unit_len_local = self.reserve_temp_local();
 
-        let reflect_set_meta = self
-            .functions
-            .get(&StandardBuiltinId::ReflectSet.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.set`",
-                )
-            })?;
+        // The proxy write-forwarding branch below dispatches through `Reflect.set`
+        // and is only reachable when `current` is a Proxy exotic object. A Proxy
+        // value can only exist in a module that planned the `Proxy` constructor, so
+        // when it is absent the branch is dead: skip both its emission and the
+        // `Reflect.set` materialization that would otherwise force the whole
+        // `Reflect` object (and its 13 methods) through the emission fixpoint.
+        let proxy_reachable = self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor);
+        let reflect_set_meta = if proxy_reachable {
+            Some(
+                self.functions
+                    .get(&StandardBuiltinId::ReflectSet.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.set`",
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));
@@ -11507,47 +11546,49 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::BrIf(1));
 
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            current_proxy_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(current_proxy_kind_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_value_payload(&reflect_set_meta, function)?;
-        function.instruction(&Instruction::LocalSet(reflect_set_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(reflect_set_tag_local));
-        self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
-        self.emit_function_handle_call(
-            reflect_set_payload_local,
-            reflect_set_tag_local,
-            None,
-            &[
-                (current_payload_local, current_tag_local),
-                (key_local, key_tag_local),
-                (value_payload_local, value_tag_local),
-                (receiver_payload_local, receiver_tag_local),
-            ],
-            result_local,
-            reflect_set_result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(reflect_set_result_tag_local, result_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        if let Some(reflect_set_meta) = &reflect_set_meta {
+            function.instruction(&Instruction::LocalGet(current_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.load_i64_to_local_from_offset(
+                current_payload_local,
+                HEAP_OBJECT_BOXED_KIND_OFFSET,
+                current_proxy_kind_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(current_proxy_kind_local));
+            function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+            function.instruction(&Instruction::I64GeU);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_function_value_payload(reflect_set_meta, function)?;
+            function.instruction(&Instruction::LocalSet(reflect_set_payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(reflect_set_tag_local));
+            self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
+            self.emit_function_handle_call(
+                reflect_set_payload_local,
+                reflect_set_tag_local,
+                None,
+                &[
+                    (current_payload_local, current_tag_local),
+                    (key_local, key_tag_local),
+                    (value_payload_local, value_tag_local),
+                    (receiver_payload_local, receiver_tag_local),
+                ],
+                result_local,
+                reflect_set_result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+            self.compile_truthy_tagged_i32(reflect_set_result_tag_local, result_local, function)?;
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::LocalSet(result_local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(found_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+        }
 
         function.instruction(&Instruction::LocalGet(found_local));
         function.instruction(&Instruction::I64Eqz);
