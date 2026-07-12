@@ -154,7 +154,7 @@ use crate::{
     BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REGEXP_ESCAPE_FUNCTION_ID,
     BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID,
-    BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_HAS_INDICES_GETTER_FUNCTION_ID,
@@ -494,6 +494,7 @@ pub enum StandardBuiltinId {
     RegExpPrototypeStickyGetter,
     RegExpLegacyStaticGetter,
     RegExpLegacyStaticSetter,
+    RegExpPrototypeExec,
     RegExpPrototypeSymbolMatch,
     RegExpPrototypeSymbolMatchAll,
     RegExpPrototypeSymbolSearch,
@@ -969,6 +970,7 @@ impl StandardBuiltinId {
             | Self::RegExpPrototypeStickyGetter
             | Self::RegExpLegacyStaticGetter
             | Self::RegExpLegacyStaticSetter
+            | Self::RegExpPrototypeExec
             | Self::RegExpPrototypeSymbolMatch
             | Self::RegExpPrototypeSymbolMatchAll
             | Self::RegExpPrototypeSymbolSearch
@@ -1266,6 +1268,7 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter => "get RegExp.prototype.sticky",
             Self::RegExpLegacyStaticGetter => "get RegExp legacy static",
             Self::RegExpLegacyStaticSetter => "set RegExp legacy static",
+            Self::RegExpPrototypeExec => "RegExp.prototype.exec",
             Self::RegExpPrototypeSymbolMatch => "RegExp.prototype[Symbol.match]",
             Self::RegExpPrototypeSymbolMatchAll => "RegExp.prototype[Symbol.matchAll]",
             Self::RegExpPrototypeSymbolSearch => "RegExp.prototype[Symbol.search]",
@@ -1884,6 +1887,7 @@ impl StandardBuiltinId {
             Self::RegExpLegacyStaticSetter => {
                 BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID.to_string()
             }
+            Self::RegExpPrototypeExec => BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID.to_string(),
             Self::RegExpPrototypeSymbolMatch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID.to_string()
             }
@@ -2514,6 +2518,7 @@ impl StandardBuiltinId {
             }
             BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticGetter),
             BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticSetter),
+            BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID => Some(Self::RegExpPrototypeExec),
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolMatch)
             }
@@ -2964,6 +2969,7 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter,
             Self::RegExpLegacyStaticGetter,
             Self::RegExpLegacyStaticSetter,
+            Self::RegExpPrototypeExec,
             Self::RegExpPrototypeSymbolMatch,
             Self::RegExpPrototypeSymbolMatchAll,
             Self::RegExpPrototypeSymbolSearch,
@@ -3562,6 +3568,7 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter => Some("get sticky"),
             Self::RegExpLegacyStaticGetter => Some("get RegExp legacy static"),
             Self::RegExpLegacyStaticSetter => Some("set RegExp legacy static"),
+            Self::RegExpPrototypeExec => Some("exec"),
             Self::RegExpPrototypeSymbolMatch => Some("[Symbol.match]"),
             Self::RegExpPrototypeSymbolMatchAll => Some("[Symbol.matchAll]"),
             Self::RegExpPrototypeSymbolSearch => Some("[Symbol.search]"),

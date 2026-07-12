@@ -5579,12 +5579,11 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "exec" || name == "test") {
-            let return_boolean = matches!(key, PropertyKeyIr::StaticString(name) if name == "test");
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == "test") {
             return self.emit_regexp_exec_literal_control_method_call(
                 receiver,
                 args,
-                return_boolean,
+                true,
                 payload_local,
                 tag_local,
                 function,

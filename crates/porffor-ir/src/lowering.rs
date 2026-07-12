@@ -1201,6 +1201,13 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
+            "exec".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeExec.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "Symbol.match".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id(),
@@ -4086,6 +4093,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
+            | StandardBuiltinId::RegExpPrototypeExec
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolSearch => (
                 ValueKind::Dynamic,
@@ -7141,6 +7149,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::BigInt(_)
             | ExprIr::Symbol { .. }
             | ExprIr::String(_)
+            | ExprIr::RegExpLiteral { .. }
             | ExprIr::FunctionValue(_)
             | ExprIr::This
             | ExprIr::Arguments
@@ -12213,11 +12222,6 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
-                if field_name == "exec" {
-                    if let Some(value) = self.static_regexp_exec_call(access.target(), args) {
-                        return value;
-                    }
-                }
                 if field_name == "test" {
                     if let Some(value) = self.static_regexp_test_call(access.target(), args) {
                         return TypedExpr::from_info(
@@ -12791,10 +12795,18 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     )
                                 } else {
-                                    self.unsupported_with_message(format!(
-                                        "unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `{field_name}`"
-                                    ));
-                                    return TypedExpr::undefined();
+                                    TypedExpr::from_info(
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(receiver.clone()),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                        },
+                                    )
                                 }
                             } else {
                                 return self
@@ -12889,9 +12901,18 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     )
                                 } else {
-                                    return self.unsupported_expr(
-                                        "indirect call: unsupported number property",
-                                    );
+                                    TypedExpr::from_info(
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(receiver.clone()),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                        },
+                                    )
                                 }
                             } else {
                                 return self
@@ -12916,9 +12937,18 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     )
                                 } else {
-                                    return self.unsupported_expr(
-                                        "indirect call: unsupported boolean property",
-                                    );
+                                    TypedExpr::from_info(
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ExprIr::PropertyRead {
+                                            target: Box::new(receiver.clone()),
+                                            key: PropertyKeyIr::StaticString(field_name),
+                                        },
+                                    )
                                 }
                             } else {
                                 return self
@@ -14636,132 +14666,6 @@ impl<'a> ScriptLowerer<'a> {
                 this_arg: None,
                 args,
             },
-        )
-    }
-
-    fn static_regexp_exec_call(
-        &self,
-        receiver: &Expression,
-        args: &[Expression],
-    ) -> Option<TypedExpr> {
-        if args.len() != 1 {
-            return None;
-        }
-
-        let Expression::RegExpLiteral(regexp) = Self::unwrap_parenthesized_expr(receiver) else {
-            return None;
-        };
-        let input = self.try_static_string_key(&args[0])?;
-        let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
-        let flags = self.interner.resolve_expect(regexp.flags()).to_string();
-        if flags.contains('g') || flags.contains('y') {
-            return None;
-        }
-        if pattern == r"[\d][\12-\14]{1,}[^\d]"
-            && flags.is_empty()
-            && input == "line1\n\n\n\n\nline2"
-        {
-            return Some(Self::regexp_exec_array_like_from_lowered(
-                vec![TypedExpr::from_info(
-                    Self::string_value_info("1\n\n\n\n\nl"),
-                    ExprIr::String("1\n\n\n\n\nl".to_string()),
-                )],
-                4.0,
-                input,
-            ));
-        }
-        let compiled = Regex::with_flags(&pattern, flags.as_str()).ok()?;
-
-        let Some(match_) = compiled.find(&input) else {
-            return Some(TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Null),
-                ExprIr::Null,
-            ));
-        };
-
-        let elements = match_
-            .groups()
-            .map(|range| {
-                if let Some(range) = range {
-                    let value = input[range].to_string();
-                    TypedExpr::from_info(Self::string_value_info(&value), ExprIr::String(value))
-                } else {
-                    TypedExpr::undefined()
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Some(Self::array_literal_from_lowered(elements))
-    }
-
-    fn regexp_exec_array_like_from_lowered(
-        elements: Vec<TypedExpr>,
-        index: f64,
-        input: String,
-    ) -> TypedExpr {
-        let mut properties = Vec::new();
-        let mut shape = ObjectShape::default();
-
-        for (index, element) in elements.into_iter().enumerate() {
-            let key = index.to_string();
-            shape
-                .properties
-                .insert(key.clone(), ObjectShapeProperty::Data(element.value_info()));
-            properties.push(ObjectPropertyIr::Data {
-                key,
-                value: element,
-                is_shorthand: false,
-            });
-        }
-
-        let length = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Number),
-            ExprIr::Number((properties.len() as f64).to_bits()),
-        );
-        shape.properties.insert(
-            "length".to_string(),
-            ObjectShapeProperty::Data(length.value_info()),
-        );
-        properties.push(ObjectPropertyIr::Data {
-            key: "length".to_string(),
-            value: length,
-            is_shorthand: false,
-        });
-
-        let index_value = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Number),
-            ExprIr::Number(index.to_bits()),
-        );
-        shape.properties.insert(
-            "index".to_string(),
-            ObjectShapeProperty::Data(index_value.value_info()),
-        );
-        properties.push(ObjectPropertyIr::Data {
-            key: "index".to_string(),
-            value: index_value,
-            is_shorthand: false,
-        });
-
-        let input_value =
-            TypedExpr::from_info(Self::string_value_info(&input), ExprIr::String(input));
-        shape.properties.insert(
-            "input".to_string(),
-            ObjectShapeProperty::Data(input_value.value_info()),
-        );
-        properties.push(ObjectPropertyIr::Data {
-            key: "input".to_string(),
-            value: input_value,
-            is_shorthand: false,
-        });
-
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Box::new(HeapShape::Object(shape))),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::ObjectLiteral(properties),
         )
     }
 
@@ -17698,6 +17602,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
             | StandardBuiltinId::RegExpLegacyStaticGetter
+            | StandardBuiltinId::RegExpPrototypeExec
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolSearch => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -18818,10 +18723,15 @@ impl<'a> ScriptLowerer<'a> {
         let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
         let flags = self.interner.resolve_expect(regexp.flags()).to_string();
         let args = vec![
-            TypedExpr::from_info(Self::string_value_info(&pattern), ExprIr::String(pattern)),
-            TypedExpr::from_info(Self::string_value_info(&flags), ExprIr::String(flags)),
+            TypedExpr::from_info(
+                Self::string_value_info(&pattern),
+                ExprIr::String(pattern.clone()),
+            ),
+            TypedExpr::from_info(
+                Self::string_value_info(&flags),
+                ExprIr::String(flags.clone()),
+            ),
         ];
-        let callee = self.function_value_expr(StandardBuiltinId::RegExpConstructor.function_id());
         let Some(result) = self.standard_builtin_call_info(
             StandardBuiltinId::RegExpConstructor,
             &args,
@@ -18831,9 +18741,10 @@ impl<'a> ScriptLowerer<'a> {
         };
         TypedExpr::from_info(
             result,
-            ExprIr::Construct {
-                callee: Box::new(callee),
-                args,
+            ExprIr::RegExpLiteral {
+                program: RegExpProgram::compile(&pattern, &flags).ok(),
+                source: pattern,
+                flags,
             },
         )
     }

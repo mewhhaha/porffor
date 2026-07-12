@@ -208,7 +208,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-07-11`:
+Recent focused progress through `2026-07-12`:
 
 - Derived class construction now uses a per-invocation activation for the
   active constructor, `new.target`, initialization status, and `this`.
@@ -1656,6 +1656,29 @@ Recent focused progress through `2026-07-11`:
   harness. The full exact `built-ins/String/prototype/search` directory now
   reports `43/43` as of `2026-06-21` under
   `./target/debug/porf test262 run built-ins/String/prototype/search --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `RegExp.prototype.exec` is now a real per-realm, non-constructable builtin
+  rather than a literal-folding or method-name shortcut. Calls perform the
+  ordinary property lookup, so direct RegExp literals observe later
+  `RegExp.prototype.exec` replacement, while incompatible receivers are
+  rejected before the input is coerced. The bounded runtime matcher handles
+  dot patterns, non-empty plain ASCII literals, escaped ASCII syntax
+  characters, ASCII-only `ignoreCase`, and one ordered alternation of two plain
+  literals with leftmost-first/source-order selection. It also recognizes the
+  generic `(?:literal|literal)\d?` shape, greedily consumes at most one ASCII
+  digit, and preserves the existing global/sticky `lastIndex` path. Exact real
+  Test262 `S15.10.6.2_A1_T12.js`, `S15.10.6.2_A1_T15.js`,
+  `S15.10.6.2_A1_T16.js`, `S15.10.6.2_A1_T17.js`,
+  `S15.10.6.2_A1_T18.js`, `S15.10.6.2_A2_T7.js`,
+  `S15.10.6.2_A2_T8.js`, `S15.10.6.2_A2_T9.js`,
+  `S15.10.6.2_A3_T1.js`, `S15.10.6.2_A4_T1.js` through
+  `S15.10.6.2_A4_T12.js`, `S15.10.6.2_A5_T1.js` through
+  `S15.10.6.2_A5_T3.js`, `name.js`, and `not-a-constructor.js` report `1/1`
+  each. The full exact `built-ins/RegExp/prototype/exec` leaf reports `58/79`
+  as of `2026-07-12` under
+  `XDG_CACHE_HOME=/tmp/porffor-cache-regexp-full-after-optional-digit ./target/release/porf test262 run built-ins/RegExp/prototype/exec --execution-backend wasm --threads 4 --timeout-ms 120000 --snapshot-dir /tmp/porffor-test262-focused --snapshot-name regexp-exec-after-optional-digit`;
+  character classes, captures/backtracking, broader quantifiers, Unicode
+  folding/property escapes, and other flag combinations remain explicit
+  failures rather than being counted as supported.
   `String.prototype.matchAll` now has focused Wasm-AOT coverage for the first
   metadata, literal-pattern, custom-hook, prototype-deletion, and Unicode
   global RegExp paths. Exact real Test262
@@ -1713,10 +1736,16 @@ Recent focused progress through `2026-07-11`:
   receiver `ToString` failures during the focused `RegExpCreate` fallback, so
   `isregexp-called-once.js` and `regexpcreate-this-throws.js` report `1/1`,
   covered by `wasm_regexp_symbol_match_all_generic_order.js`. Custom
-  `@@species` constructors now receive the original RegExp and coerced flags,
-  reject primitive `constructor` values, avoid reading replacement matcher
-  `global`/`unicode` accessors, and preserve the direct non-global single-match
-  path, covered by `wasm_regexp_symbol_match_all_species.js`. The downstream
+  `@@species` constructors now receive the original RegExp and coerced flags;
+  function-valued constructors observe `Symbol.species`, while the intrinsic
+  default path creates a fresh branded matcher without reading an actual
+  RegExp's shadowing `source` property. Default construction rejects invalid or
+  duplicate flags and the currently recognized malformed-pattern forms before
+  returning an iterator. Primitive `constructor` values are rejected, replacement
+  matcher `global`/`unicode` accessors are not read, and the direct non-global
+  single-match path is preserved. These paths are covered by
+  `wasm_regexp_symbol_match_all_species.js` and
+  `wasm_regexp_symbol_match_all_default_validation.js`. The downstream
   `%RegExpStringIteratorPrototype%.next` leaf now reports `15/15` as of
   `2026-06-21` under
   `./target/debug/porf test262 run built-ins/RegExpStringIteratorPrototype/next --execution-backend wasm --timeout-ms 120000 --threads 4`;

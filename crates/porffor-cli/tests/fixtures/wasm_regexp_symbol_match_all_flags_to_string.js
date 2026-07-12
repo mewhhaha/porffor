@@ -12,16 +12,24 @@ function checkMatch(result, value, index, input, label) {
 }
 
 var regexp = /\w/;
+var flagsGetterCalls = 0;
+var flagsToStringCalls = 0;
 Object.defineProperty(regexp, "flags", {
-  value: {
-    toString: function () {
-      return "g";
-    }
+  get: function () {
+    flagsGetterCalls = flagsGetterCalls + 1;
+    return {
+      toString: function () {
+        flagsToStringCalls = flagsToStringCalls + 1;
+        return "g";
+      }
+    };
   }
 });
 
 var input = "a*b";
-var iterator = regexp[Symbol.matchAll](input);
+var iterator = RegExp.prototype[Symbol.matchAll].call(regexp, input);
+check(flagsGetterCalls, 1, "flags getter count");
+check(flagsToStringCalls, 1, "flags toString count");
 checkMatch(iterator.next(), "a", 0, input, "first");
 checkMatch(iterator.next(), "b", 2, input, "second");
 check(iterator.next().done, true, "final done");

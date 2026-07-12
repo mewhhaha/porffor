@@ -107,6 +107,17 @@ let replacedPrototypeExec = RegExp.prototype.exec;
 RegExp.prototype.exec = function () { return null; };
 let prototypeReplacementMatch = /a/[Symbol.match]("a");
 RegExp.prototype.exec = replacedPrototypeExec;
+let restoredPrototypeExecMatch = /a/[Symbol.match]("a");
+
+let deletedPrototypeExecCalls = 0;
+delete RegExp.prototype.exec;
+Object.prototype.exec = function () {
+  deletedPrototypeExecCalls++;
+  return null;
+};
+let deletedPrototypeExecMatch = /a/[Symbol.match]("a");
+delete Object.prototype.exec;
+RegExp.prototype.exec = replacedPrototypeExec;
 
 customMatch === null
   && execCount === 1
@@ -124,6 +135,9 @@ customMatch === null
   && inheritedExecReads === 1
   && inheritedExecCalls === 1
   && prototypeReplacementMatch === null
+  && restoredPrototypeExecMatch[0] === "a"
+  && deletedPrototypeExecMatch === null
+  && deletedPrototypeExecCalls === 1
   && !Object.prototype.hasOwnProperty.call(/a/, "flags")
   && unicodeSetsChecks
   && order === "dgimsuvy"

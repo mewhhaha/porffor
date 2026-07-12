@@ -607,6 +607,15 @@ impl<'a> FunctionBuilder<'a> {
                 let key_local = self.reserve_temp_local();
                 let payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
+                let exec_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeExec.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.exec`",
+                        )
+                    })?;
                 let match_all_meta = self
                     .functions
                     .get(&StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id())
@@ -618,6 +627,26 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
                 function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(object_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("exec")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(&exec_meta, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::GlobalSet(
+                    REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
                 for (name, getter) in [
                     ("source", StandardBuiltinId::RegExpPrototypeSourceGetter),
                     (
@@ -2954,6 +2983,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::RegExpPrototypeUnicodeGetter
             | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
             | StandardBuiltinId::RegExpPrototypeStickyGetter
+            | StandardBuiltinId::RegExpPrototypeExec
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
             | StandardBuiltinId::RegExpPrototypeSymbolSearch

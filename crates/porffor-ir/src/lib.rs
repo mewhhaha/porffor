@@ -53,6 +53,7 @@ mod lowering;
 mod lowering_helpers;
 mod names;
 mod operations;
+mod regexp;
 pub(crate) use analysis::*;
 pub use builtins::{CallableToStringRepresentation, HostBuiltinId, StandardBuiltinId};
 pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage};
@@ -71,6 +72,11 @@ pub use operations::{
     PropertyDescriptorIr, PropertyDescriptorKind, RelationalBinaryOp, SpecOperationCatalogEntry,
     SpecOperationFamily, SpecOperationIr, SpeciesConstructorIr, ToPrimitiveHint, UnaryNumericOp,
     UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
+};
+pub use regexp::{
+    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpProgram,
+    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
 };
 
 pub use names::*;
@@ -2463,7 +2469,7 @@ mod tests {
     }
 
     #[test]
-    fn folds_static_regexp_literal_exec() {
+    fn does_not_fold_static_regexp_literal_exec() {
         let program = lower_script("/]/.exec(' ]{}')[0]; /\\c0/.exec('\\x0f\\x10\\x11');");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
@@ -2476,11 +2482,59 @@ mod tests {
                 first.expr
             );
         };
-        assert!(matches!(target.expr, ExprIr::ArrayLiteral(_)));
+        assert!(
+            matches!(target.expr, ExprIr::CallMethod { .. }),
+            "literal exec must retain observable RegExp.prototype.exec lookup, got {:?}",
+            target.expr
+        );
         let StatementIr::Expression(second) = &script.body.statements[1] else {
             panic!("expected expression statement");
         };
-        assert!(matches!(second.expr, ExprIr::Null));
+        assert!(
+            matches!(second.expr, ExprIr::CallMethod { .. }),
+            "literal exec must not be folded to a static result, got {:?}",
+            second.expr
+        );
+    }
+
+    #[test]
+    fn lowers_regexp_literals_as_intrinsic_leaves() {
+        let program = lower_script("/t[a-b|q-s]/g; /a+/;");
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(supported) = &script.body.statements[0] else {
+            panic!("expected supported regexp literal expression");
+        };
+        let ExprIr::RegExpLiteral {
+            source,
+            flags,
+            program,
+        } = &supported.expr
+        else {
+            panic!(
+                "expected intrinsic regexp literal, got {:?}",
+                supported.expr
+            );
+        };
+        assert_eq!(source, "t[a-b|q-s]");
+        assert_eq!(flags, "g");
+        assert_eq!(
+            program.as_ref(),
+            Some(&RegExpProgram::compile("t[a-b|q-s]", "g").expect("supported matcher"))
+        );
+        assert!(!matches!(supported.expr, ExprIr::Construct { .. }));
+
+        let StatementIr::Expression(unsupported) = &script.body.statements[1] else {
+            panic!("expected unsupported regexp literal expression");
+        };
+        let ExprIr::RegExpLiteral { program, .. } = &unsupported.expr else {
+            panic!(
+                "expected intrinsic regexp literal, got {:?}",
+                unsupported.expr
+            );
+        };
+        assert_eq!(program, &None);
+        assert!(!matches!(unsupported.expr, ExprIr::Construct { .. }));
     }
 
     #[test]

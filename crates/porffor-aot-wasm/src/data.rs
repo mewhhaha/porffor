@@ -696,6 +696,8 @@ impl StringPool {
             "s",
             "u",
             "RegExp constructor is unsupported in wasm-aot",
+            "Invalid regular expression flags",
+            "Invalid regular expression pattern",
             "RegExp.prototype.flags getter receiver is not an object",
             "RegExp.prototype.exec receiver is not RegExp",
             "RegExp.prototype.exec source is not string",

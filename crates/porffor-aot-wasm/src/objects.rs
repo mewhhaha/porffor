@@ -3990,43 +3990,19 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 PropertyKeyIr::ArrayIndex(_) => {
                     let index_local = self.compile_array_index_to_local(key, function)?;
-                    let end_local = self.reserve_temp_local();
-                    let byte_start_local = self.reserve_temp_local();
-                    let byte_end_local = self.reserve_temp_local();
-                    let byte_len_local = self.reserve_temp_local();
-                    function.instruction(&Instruction::LocalGet(index_local));
+                    let unit_len_local = self.reserve_temp_local();
                     function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::LocalSet(end_local));
-                    self.emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(
+                    function.instruction(&Instruction::LocalSet(unit_len_local));
+                    self.emit_utf16_code_unit_range_payload_from_locals(
                         target_local,
                         index_local,
-                        byte_start_local,
-                        function,
-                    );
-                    self.emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(
-                        target_local,
-                        end_local,
-                        byte_end_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(byte_end_local));
-                    function.instruction(&Instruction::LocalGet(byte_start_local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(byte_len_local));
-                    self.emit_string_slice_payload_from_locals(
-                        target_local,
-                        byte_start_local,
-                        byte_len_local,
+                        unit_len_local,
                         function,
                     )?;
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
-                    self.release_temp_local(byte_len_local);
-                    self.release_temp_local(byte_end_local);
-                    self.release_temp_local(byte_start_local);
-                    self.release_temp_local(end_local);
+                    self.release_temp_local(unit_len_local);
                     self.release_temp_local(index_local);
                 }
                 PropertyKeyIr::StringExpr(_) => {

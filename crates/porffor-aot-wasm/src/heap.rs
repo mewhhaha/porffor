@@ -282,6 +282,12 @@ pub(crate) const HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 112;
 pub(crate) const HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET: u64 = 120;
 pub(crate) const HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET: u64 = 128;
 pub(crate) const HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET: u64 = 136;
+/// Absolute linear-memory address of an immutable, AOT-compiled RegExp program.
+/// Zero means that the object has no attached program and must use the dynamic
+/// construction/migration path.
+pub(crate) const HEAP_REGEXP_PROGRAM_PTR_OFFSET: u64 = 144;
+/// Number of fixed-width instructions in the compiled RegExp program.
+pub(crate) const HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET: u64 = 152;
 pub(crate) const HEAP_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_CAP_OFFSET: u64 = 16;
@@ -644,6 +650,20 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "program_ptr",
+        offset: HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "program_instruction_count",
+        offset: HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 

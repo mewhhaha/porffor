@@ -835,7 +835,7 @@ fn emit_script_with_forced_builtins(
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..15 {
+        for _ in 0..16 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -1922,7 +1922,8 @@ impl<'a> FunctionBuilder<'a> {
     /// bodies under Cranelift's per-function virtual-register limit.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=lhs string
-    /// payload, 1=rhs string payload. Params 2-6 are unused. Results are the
+    /// payload, 1=rhs string payload, 2=ASCII-case-fold mode. Params 3-6 are
+    /// unused. Results are the
     /// standard four-i64 tuple with the comparison result (0 or 1) in the first
     /// slot; the other three are always zero.
     fn compile_string_equality_helper(&mut self) -> Result<Function, EmitError> {
@@ -1930,7 +1931,7 @@ impl<'a> FunctionBuilder<'a> {
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.outline_string_equality = false;
         self.push_scope();
-        self.emit_string_payload_equality_i32(0, 1, &mut function);
+        self.emit_string_payload_equality_i32_with_ascii_case_folding(0, 1, Some(2), &mut function);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(self.result_local));
         self.pop_scope();

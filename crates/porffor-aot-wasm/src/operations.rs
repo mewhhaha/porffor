@@ -9425,6 +9425,21 @@ impl<'a> FunctionBuilder<'a> {
         rhs_payload_local: u32,
         function: &mut Function,
     ) {
+        self.emit_string_payload_equality_i32_with_ascii_case_folding(
+            lhs_payload_local,
+            rhs_payload_local,
+            None,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_string_payload_equality_i32_with_ascii_case_folding(
+        &mut self,
+        lhs_payload_local: u32,
+        rhs_payload_local: u32,
+        ascii_case_folding_local: Option<u32>,
+        function: &mut Function,
+    ) {
         // Property-name matching and key switches hit this at thousands of
         // sites per builtin body; call the shared helper instead of inlining
         // the ~65-instruction byte-compare loop (except inside the helper
@@ -9434,7 +9449,11 @@ impl<'a> FunctionBuilder<'a> {
             if let Some(helper) = self.string_equality_helper_function_index() {
                 function.instruction(&Instruction::LocalGet(lhs_payload_local));
                 function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::I64Const(0));
+                if let Some(ascii_case_folding_local) = ascii_case_folding_local {
+                    function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                }
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Const(0));
@@ -9456,6 +9475,8 @@ impl<'a> FunctionBuilder<'a> {
         let rhs_addr_local = self.reserve_temp_local();
         let lhs_byte_local = self.reserve_temp_local();
         let rhs_byte_local = self.reserve_temp_local();
+        let lhs_lower_local = ascii_case_folding_local.map(|_| self.reserve_temp_local());
+        let rhs_lower_local = ascii_case_folding_local.map(|_| self.reserve_temp_local());
         let result_local = self.reserve_temp_local();
 
         self.emit_unpack_string_payload(lhs_payload_local, lhs_offset, lhs_len, function);
@@ -9495,9 +9516,31 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(rhs_byte_local));
-        function.instruction(&Instruction::LocalGet(lhs_byte_local));
-        function.instruction(&Instruction::LocalGet(rhs_byte_local));
-        function.instruction(&Instruction::I64Ne);
+        if let Some(ascii_case_folding_local) = ascii_case_folding_local {
+            let lhs_lower_local = lhs_lower_local.expect("ASCII folding reserves lhs local");
+            let rhs_lower_local = rhs_lower_local.expect("ASCII folding reserves rhs local");
+            function.instruction(&Instruction::LocalGet(lhs_byte_local));
+            function.instruction(&Instruction::LocalGet(rhs_byte_local));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32And);
+            self.emit_ascii_lowercase_byte_to_local(lhs_byte_local, lhs_lower_local, function);
+            self.emit_ascii_lowercase_byte_to_local(rhs_byte_local, rhs_lower_local, function);
+            function.instruction(&Instruction::LocalGet(lhs_lower_local));
+            function.instruction(&Instruction::LocalGet(rhs_lower_local));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::I32Eqz);
+        } else {
+            function.instruction(&Instruction::LocalGet(lhs_byte_local));
+            function.instruction(&Instruction::LocalGet(rhs_byte_local));
+            function.instruction(&Instruction::I64Ne);
+        }
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));
@@ -9515,6 +9558,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
 
         self.release_temp_local(result_local);
+        if let Some(rhs_lower_local) = rhs_lower_local {
+            self.release_temp_local(rhs_lower_local);
+        }
+        if let Some(lhs_lower_local) = lhs_lower_local {
+            self.release_temp_local(lhs_lower_local);
+        }
         self.release_temp_local(rhs_byte_local);
         self.release_temp_local(lhs_byte_local);
         self.release_temp_local(rhs_addr_local);

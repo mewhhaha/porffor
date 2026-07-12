@@ -27,5 +27,5 @@ RegExp.prototype[Symbol.matchAll].call(receiver, {
   }
 });
 
-check(sequence, "afs", "order");
+check(sequence, "afsm", "order");
 true;

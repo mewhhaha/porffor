@@ -94,6 +94,9 @@ pub(crate) const SYMBOL_REGISTRY_GLOBAL_INDEX: u32 = 77;
 // fresh objects per realm rather than aliasing the previous realm's.
 pub(crate) const PARSE_INT_FUNCTION_GLOBAL_INDEX: u32 = 78;
 pub(crate) const PARSE_FLOAT_FUNCTION_GLOBAL_INDEX: u32 = 79;
+// The main realm's original RegExp.prototype.exec function object. The
+// RegExp @@match and @@search compact paths require this exact identity.
+pub(crate) const REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX: u32 = 80;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -433,6 +436,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%parseFloat%",
         index: PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "%RegExp.prototype.exec%",
+        index: REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -501,6 +508,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::FunctionPrototypeApply
         | StandardBuiltinId::FunctionPrototypeBind
         | StandardBuiltinId::FunctionPrototypeToString
+        | StandardBuiltinId::RegExpPrototypeExec
         | StandardBuiltinId::EvalFunction
         | StandardBuiltinId::StringPrototypeToString
         | StandardBuiltinId::StringPrototypeValueOf

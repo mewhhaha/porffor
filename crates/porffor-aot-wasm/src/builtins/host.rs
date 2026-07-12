@@ -2873,6 +2873,15 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp`",
                 )
             })?;
+        let regexp_prototype_exec_meta = self
+            .functions
+            .get(&StandardBuiltinId::RegExpPrototypeExec.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.exec`",
+                )
+            })?;
         let date_meta = self
             .functions
             .get(&StandardBuiltinId::DateConstructor.function_id())
@@ -3500,6 +3509,32 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(error_to_string_payload_local);
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
+        let exec_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&regexp_prototype_exec_meta, function)?;
+        function.instruction(&Instruction::LocalSet(exec_payload_local));
+        self.emit_store_function_defining_realm(exec_payload_local, realm_record_local, function);
+        self.store_i64_local_at_offset(
+            exec_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            exec_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            exec_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            regexp_prototype_local,
+            "exec",
+            exec_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(exec_payload_local);
         for (name, meta) in &regexp_prototype_symbol_method_metas {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload(meta, function)?;

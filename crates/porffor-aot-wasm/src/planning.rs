@@ -569,6 +569,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::RegExpPrototypeStickyGetter
             | StandardBuiltinId::RegExpLegacyStaticGetter
             | StandardBuiltinId::RegExpLegacyStaticSetter
+            | StandardBuiltinId::RegExpPrototypeExec
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
             | StandardBuiltinId::RegExpPrototypeSymbolSearch => {
@@ -1363,7 +1364,8 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
-    if (builtin == StandardBuiltinId::RegExpPrototypeSymbolMatch
+    if (builtin == StandardBuiltinId::RegExpPrototypeExec
+        || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatch
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatchAll
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolSearch)
         && (script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeMatch)
@@ -2081,6 +2083,7 @@ pub(crate) fn optimized_call_method_references_function(
         "isWellFormed" => StandardBuiltinId::StringPrototypeIsWellFormed,
         "toWellFormed" => StandardBuiltinId::StringPrototypeToWellFormed,
         "search" => StandardBuiltinId::StringPrototypeSearch,
+        "exec" => StandardBuiltinId::RegExpPrototypeExec,
         "Symbol.match" => StandardBuiltinId::RegExpPrototypeSymbolMatch,
         "Symbol.matchAll" => StandardBuiltinId::RegExpPrototypeSymbolMatchAll,
         "Symbol.search" => StandardBuiltinId::RegExpPrototypeSymbolSearch,
@@ -2755,7 +2758,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::RegExpPrototypeStickyGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticSetter => 1,
-        StandardBuiltinId::RegExpPrototypeSymbolMatch
+        StandardBuiltinId::RegExpPrototypeExec
+        | StandardBuiltinId::RegExpPrototypeSymbolMatch
         | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
         | StandardBuiltinId::RegExpPrototypeSymbolSearch => 1,
         StandardBuiltinId::RegExpEscape => 1,

@@ -198,6 +198,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         }
         ExprIr::FunctionValue(_)
         | ExprIr::String(_)
+        | ExprIr::RegExpLiteral { .. }
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }

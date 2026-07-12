@@ -7,9 +7,9 @@ use porffor_front::ParseGoal;
 use crate::{
     ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
     CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
-    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NumericUpdateOp, RelationalBinaryOp,
-    SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode,
-    GLOBAL_THIS_NAME,
+    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NumericUpdateOp, RegExpProgram,
+    RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp,
+    UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 
 pub type FunctionId = String;
@@ -947,6 +947,13 @@ pub enum ExprIr {
         description: Option<Box<TypedExpr>>,
     },
     String(String),
+    /// An intrinsic RegExp literal creation, independent of the mutable global
+    /// `RegExp` constructor.
+    RegExpLiteral {
+        source: String,
+        flags: String,
+        program: Option<RegExpProgram>,
+    },
     FunctionValue(FunctionId),
     This,
     Arguments,
@@ -2072,6 +2079,9 @@ impl IrSummaryCounts {
                         }
                     }
                 }
+            }
+            ExprIr::RegExpLiteral { .. } => {
+                self.objects += 1;
             }
             ExprIr::ArrayLiteral(elements) => {
                 self.arrays += 1;

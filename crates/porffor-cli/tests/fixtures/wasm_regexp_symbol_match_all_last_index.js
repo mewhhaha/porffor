@@ -12,13 +12,15 @@ function checkMatch(result, value, index, input, label) {
 }
 
 var regexp = /./g;
-regexp.lastIndex = {
+var originalLastIndex = {
   valueOf: function () {
     return 2;
   }
 };
+regexp.lastIndex = originalLastIndex;
 var input = "abcd";
 var iterator = regexp[Symbol.matchAll](input);
+check(regexp.lastIndex === originalLastIndex, true, "original lastIndex preserved");
 regexp.lastIndex = 0;
 
 checkMatch(iterator.next(), "c", 2, input, "first");

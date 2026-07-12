@@ -402,6 +402,7 @@ pub const BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.get";
 pub const BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.set";
+pub const BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID: &str = "$builtin.RegExp.prototype.exec";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.match]";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID: &str =

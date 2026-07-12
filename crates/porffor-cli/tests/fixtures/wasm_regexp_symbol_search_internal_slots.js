@@ -30,6 +30,17 @@ if (savedPrototypeExec === undefined) {
 } else {
   RegExp.prototype.exec = savedPrototypeExec;
 }
+let restoredPrototypeExecSearch = /String/i[Symbol.search]("test string");
+
+let deletedPrototypeExecCalls = 0;
+delete RegExp.prototype.exec;
+Object.prototype.exec = function () {
+  deletedPrototypeExecCalls++;
+  return { index: 6 };
+};
+let deletedPrototypeExecSearch = /a/[Symbol.search]("a");
+delete Object.prototype.exec;
+RegExp.prototype.exec = savedPrototypeExec;
 
 let inheritedExec = /a/;
 let inheritedExecReads = 0;
@@ -49,6 +60,9 @@ shadowedSlotsSearch === 0
   && throwingSlotsSearch === 0
   && ownExecSearch === 3
   && replacedPrototypeExecSearch === 4
+  && restoredPrototypeExecSearch === 5
+  && deletedPrototypeExecSearch === 6
+  && deletedPrototypeExecCalls === 1
   && inheritedExecSearch === 5
   && inheritedExecReads === 1
   && inheritedExecCalls === 1;

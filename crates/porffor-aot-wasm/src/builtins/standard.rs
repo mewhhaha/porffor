@@ -34175,6 +34175,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::RegExpPrototypeSymbolMatch => {
                 self.emit_regexp_prototype_symbol_match_builtin(function)?;
             }
+            StandardBuiltinId::RegExpPrototypeExec => {
+                self.emit_regexp_prototype_exec_builtin(function)?;
+            }
             StandardBuiltinId::RegExpPrototypeSymbolMatchAll => {
                 self.emit_regexp_prototype_symbol_match_all_builtin(function)?;
             }

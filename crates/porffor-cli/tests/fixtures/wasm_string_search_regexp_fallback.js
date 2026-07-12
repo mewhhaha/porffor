@@ -4,9 +4,27 @@ function check(actual, expected, label) {
   }
 }
 
-check("target".search("arg"), 1, "plain string creates regexp");
-check("target".search(undefined), 0, "undefined creates empty regexp");
-check(new String("test string").search(/String/i), 5, "regexp ignoreCase literal search");
+var plainStringSearch;
+try {
+  plainStringSearch = "target".search("arg");
+} catch (error) {
+  throw "plain string search threw";
+}
+check(plainStringSearch, 1, "plain string creates regexp");
+var undefinedSearch;
+try {
+  undefinedSearch = "target".search(undefined);
+} catch (error) {
+  throw "undefined search threw";
+}
+check(undefinedSearch, 0, "undefined creates empty regexp");
+var ignoreCaseSearch;
+try {
+  ignoreCaseSearch = new String("test string").search(/String/i);
+} catch (error) {
+  throw "ignoreCase regexp search threw";
+}
+check(ignoreCaseSearch, 5, "regexp ignoreCase literal search");
 
 var nullSearch = {};
 nullSearch[Symbol.search] = null;
