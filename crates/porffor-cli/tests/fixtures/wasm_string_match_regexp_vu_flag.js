@@ -66,6 +66,17 @@ checkArray(
   "dot v",
 );
 
+checkArray(
+  doMatch(/.(.)./g),
+  ["𠮷a", "𠮷b", "𠮷c", "👨‍", "👩‍", "👧‍", "👦d"],
+  "dot sequence no unicode",
+);
+checkArray(
+  doMatch(/.(.)./gu),
+  ["𠮷a𠮷", "b𠮷c", "👨‍👩", "‍👧‍"],
+  "dot sequence unicode",
+);
+
 checkArray(doMatch(/[👨‍👩‍👧‍👦]/v), ["👨"], "emoji v");
 checkArray(doMatch(/[👨‍👩‍👧‍👦]/u), ["👨"], "emoji u");
 check(doMatch(/x/u), null, "x u null");

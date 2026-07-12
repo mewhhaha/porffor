@@ -118,4 +118,18 @@ var revokedAssignment = Proxy.revocable(Object.create(null), {});
 revokedAssignment.revoke();
 if (!throwsTypeError(function() { revokedAssignment.proxy.prop = null; })) failures |= 134217728;
 
+var abruptMarker = {};
+var abruptProxy = new Proxy({}, {
+  defineProperty: function() {
+    throw abruptMarker;
+  },
+});
+var caughtAbrupt;
+try {
+  Object.defineProperty(abruptProxy, "abrupt", {});
+} catch (error) {
+  caughtAbrupt = error;
+}
+if (caughtAbrupt !== abruptMarker) failures |= 268435456;
+
 failures === 0;

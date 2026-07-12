@@ -161,7 +161,9 @@ cargo test -p porffor-cli --quiet
 ```
 
 For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
-checkpoints one node per process and only publishes after verified completion:
+checkpoints one node per process and only publishes after verified completion.
+The wrapper inventories the pinned suite once, then reuses that total while it
+polls aggregate completion between nodes:
 
 ```sh
 ./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
@@ -206,8 +208,82 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-07-10`:
+Recent focused progress through `2026-07-11`:
 
+- Derived class construction now uses a per-invocation activation for the
+  active constructor, `new.target`, initialization status, and `this`.
+  Derived `[[Construct]]` defers instance allocation and `newTarget.prototype`
+  observation until `super()`, caches the super constructor and new target
+  before argument evaluation, and binds `this` only after the base construct
+  completes. Direct and nested arrows share that live activation for
+  `super()`, `this`, `new.target`, and super-property reads/calls, including
+  repeated-`super()` ordering and escaped pre-initialization reads.
+- Class constructors, methods, and accessors now carry their exact tagged
+  `[[HomeObject]]` in the Wasm function context. Super-property lookup
+  recomputes the base on every access while keeping the invocation or lexical
+  `this` as receiver, covering detached/alien receivers, static members,
+  nested arrows, computed calls, getters, and later prototype mutation. The
+  four focused real Test262 arrow files
+  `lexical-supercall-from-immediately-invoked-arrow.js`,
+  `lexical-super-call-from-within-constructor.js`,
+  `lexical-super-property-from-within-constructor.js`, and
+  `lexical-super-property.js` each report `1/1` under Wasm-AOT as of
+  `2026-07-11`.
+- Bound `[[Construct]]` now replaces `newTarget` only when it is the current
+  bound function, preserves unrelated direct and nested bound identities, and
+  leaves bound functions without an own `prototype`. Constructor prototype
+  fallback now follows `GetFunctionRealm` through bound functions and Proxy
+  targets, throws for revoked proxies after the observable prototype read, and
+  selects the defining realm's Object, primitive-wrapper, Array, or concrete
+  TypedArray intrinsic prototype.
+- Array `length` writes now use the full `ArraySetLength` path across direct,
+  computed, `Object.defineProperty`, `Reflect.defineProperty`, `Reflect.set`,
+  and dynamically typed cross-realm assignments. The Wasm-AOT implementation
+  performs the two independently observable numeric conversions, validates the
+  exact uint32 result, preserves the current execution Realm for `RangeError`,
+  respects non-writable length without coercion, shrinks sparse indexes in
+  descending order, and applies deferred `writable: false` after a blocked
+  shrink. Huge one-argument Array construction stays sparse. Materialized
+  `Array.prototype` method access currently defaults to generic
+  observable lookup until specialization has a runtime/version guard, covering
+  direct, aliased, computed, helper-escaped, assignment, definition, and
+  deletion mutations. The complete pinned real Test262
+  `built-ins/Array/length` prefix reports `31/31` as of `2026-07-11` under
+  `./target/debug/porf test262 run built-ins/Array/length --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- `Object.prototype.valueOf` now performs `ToObject` for Boolean, Number,
+  String, Symbol, and BigInt primitives, preserves existing object identity,
+  and selects primitive-wrapper prototypes and `TypeError` from the builtin's
+  defining Realm. Property reads use the installed function object, so
+  configurable `length` deletion and later `Object.prototype.valueOf`
+  replacement remain observable. The complete pinned real Test262
+  `built-ins/Object/prototype/valueOf` leaf reports `20/20` as of `2026-07-11`
+  under `./target/debug/porf test262 run built-ins/Object/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Object.prototype.isPrototypeOf` now preserves the required primitive-argument
+  early return before `ToObject(this)`, throws for a nullish receiver only when
+  the argument is an Object, and walks proxy-aware `[[GetPrototypeOf]]` links
+  while propagating trap failures. The complete pinned real Test262
+  `built-ins/Object/prototype/isPrototypeOf` leaf reports `10/10` as of
+  `2026-07-11` under `./target/debug/porf test262 run built-ins/Object/prototype/isPrototypeOf --execution-backend wasm --timeout-ms 90000 --threads 2`.
+- `Object.prototype.propertyIsEnumerable` now performs `ToPropertyKey` before
+  receiver validation, preserves Symbols returned by `@@toPrimitive`,
+  `toString`, or `valueOf`, and compares Symbol keys by identity without
+  conflating equal descriptions or same-named strings. Abrupt key coercion
+  propagates before a nullish-receiver error, whose `TypeError` comes from the
+  builtin's defining Realm. The complete pinned real Test262
+  `built-ins/Object/prototype/propertyIsEnumerable/` leaf reports `16/16` as
+  of `2026-07-11` under
+  `./target/debug/porf test262 run 'built-ins/Object/prototype/propertyIsEnumerable/' --execution-backend wasm --timeout-ms 90000 --threads 1`.
+- `Array.prototype.join` is now installed as a real Wasm-AOT standard builtin
+  in the main and created Realms. Its generic path performs `ToObject`, captures
+  `LengthOfArrayLike` before separator coercion, observes inherited indexed
+  properties, treats nullish elements as empty strings, and propagates abrupt
+  length, separator, and element conversions. Calls copied onto ordinary
+  objects and direct calls after aliased `Array.prototype.join` replacement use
+  runtime `GetV` plus indirect dispatch instead of an Array-only fast path. The
+  pinned real Test262 `built-ins/Array/prototype/join/` leaf reports `20/23`
+  with zero bugs or crashes as of `2026-07-11`; the remaining three cases are
+  explicitly unsupported resizable-ArrayBuffer tests. Refresh with
+  `./target/debug/porf test262 run 'built-ins/Array/prototype/join/' --execution-backend wasm --timeout-ms 10000 --threads 1`.
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
   conversion ordering, comma separator assembly, primitive element string
@@ -344,17 +420,42 @@ Recent focused progress through `2026-07-10`:
   grow and shrink. The combined pinned real-Test262 prefix sweep reports
   `520/520` as of `2026-07-10` under
   `./target/debug/porf test262 run built-ins/Array/prototype/reduce --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
-- Property-access optional chains now have dedicated IR and Wasm-AOT lowering
-  for dot and computed keys. The implementation evaluates the base once,
-  defers computed keys until after the nullish check, short-circuits the whole
-  contiguous chain, preserves grouped boundaries such as `(value?.a).b`, and
-  performs primitive property lookup through the appropriate prototype while
-  retaining the primitive receiver. The pinned real-Test262
-  `language/expressions/optional-chaining` leaf reports `23/38` with no bugs or
-  crashes as of `2026-07-10`; the remaining `15` cases are explicit unsupported
-  optional-call, async, mixed-production, or unrelated feature gaps. Refresh
-  with
+- Optional chains now have ordered property/call IR and Wasm-AOT lowering for
+  dot keys, computed keys, and calls. The implementation evaluates each base,
+  key, getter, and argument in spec order; keeps optional arguments lazy;
+  preserves the method receiver and strict `this` through direct, grouped, and
+  `super` calls; scopes short-circuiting to each contiguous chain segment; and
+  performs primitive property lookup through the live mutable prototype. The
+  pinned real-Test262 `language/expressions/optional-chaining` leaf reports
+  `29/38` with no bugs or crashes as of `2026-07-11`; the remaining `9` cases
+  are explicit unsupported dynamic-eval, async, tagged-template, or
+  mixed/unrelated feature gaps. Refresh with
   `./target/debug/porf test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- `Array.prototype.flat` and `flatMap` now preserve dynamic custom-species
+  result tags, avoid exposing typed-array implementation slots through Proxy
+  `get` traps, and keep unproven concat/flat result shapes conservative.
+  Computed numeric and string index reads on arrays now fall through holes to
+  inherited properties and call inherited getters with the original array as
+  receiver. The source-free metadata and custom-species harness
+  materializations retain exact descriptor, constructor, `new.target`, and
+  abrupt-completion assertions
+  without loading heavyweight helper paths; the real Proxy path preserves the
+  exact observable access counts. The combined
+  pinned real-Test262 `built-ins/Array/prototype/flat` prefix reports `43/43`,
+  and the exact `flatMap` leaf reports `24/24`, with no unsupported cases,
+  bugs, or crashes as of `2026-07-11`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/flat --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `Array.prototype.includes` now performs the observable generic
+  `ToObject`/`LengthOfArrayLike` sequence for every receiver, including
+  TypedArrays with own `length` properties, while indexed reads recognize real
+  TypedArrays by their internal brand rather than spoofable named properties.
+  Proxy receivers therefore expose only the specified `length` and index
+  `Get` operations. Derived TypedArray constructors also reuse their canonical
+  bootstrapped super constructor so element width and kind metadata survive
+  polymorphic construction. The pinned real-Test262
+  `built-ins/Array/prototype/includes` leaf reports `30/30`, with no
+  unsupported cases, bugs, or crashes as of `2026-07-11`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/includes --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - The exact real Test262
   `Array.prototype.map/callbackfn-resize-arraybuffer.js`,
   `Array.prototype.every/callbackfn-resize-arraybuffer.js`,
@@ -1899,6 +2000,14 @@ Recent focused progress through `2026-07-10`:
   `annexB/built-ins/String/prototype/trimRight/prop-desc.js` each report
   `1/1` passing as of `2026-06-19` under `--execution-backend wasm` with the
   `60000` ms timeout and one thread.
+  The combined pinned real-Test262
+  `annexB/built-ins/String/prototype/sub` prefix reports `21/21` with no
+  unsupported cases, bugs, or crashes as of `2026-07-11`. This includes
+  numeric `substr` start/length coercion and UTF-16 code-unit slicing through
+  astral pairs and lone surrogates. The exact `trimLeft` and `trimRight` leaves
+  each report `4/4`, with each alias sharing the canonical function object in
+  both the main realm and host-created realms. Refresh the combined prefix with
+  `./target/debug/porf test262 run annexB/built-ins/String/prototype/sub --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Annex B global `escape`/`unescape` metadata now uses the same focused
   Wasm-AOT materialization strategy instead of timing out through
   `propertyHelper.js`. The exact real Test262

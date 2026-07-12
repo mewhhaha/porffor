@@ -31,6 +31,7 @@ pub(crate) struct OwnerPlan {
     pub(crate) root_bindings: BTreeSet<String>,
     pub(crate) function_bindings: BTreeMap<String, FunctionId>,
     pub(crate) owned_env_slots: BTreeMap<String, u32>,
+    pub(crate) is_derived_constructor: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub(crate) struct FunctionPlan<'a> {
     pub(crate) is_expression: bool,
     pub(crate) root_functions: Vec<PendingFunction<'a>>,
     pub(crate) captures: BTreeMap<String, CaptureBindingPlan>,
+    pub(crate) lexical_derived_activation_owner: Option<FunctionId>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +111,7 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|function| (function.name.clone(), function.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
+                is_derived_constructor: false,
             },
         );
         self.scan_owner_items(
@@ -240,6 +243,7 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|nested| (nested.name.clone(), nested.id.clone()))
                     .collect(),
                 owned_env_slots,
+                is_derived_constructor: false,
             },
         );
         self.scan_owner_items(
@@ -266,6 +270,7 @@ impl<'a> AnalysisBuilder<'a> {
                 is_expression: function.is_expression,
                 root_functions: root_functions.clone(),
                 captures: BTreeMap::new(),
+                lexical_derived_activation_owner: None,
             },
         );
         for nested in root_functions {
@@ -605,6 +610,7 @@ impl<'a> AnalysisBuilder<'a> {
                             constructor,
                             interner,
                             source_text,
+                            class.super_ref().is_some(),
                         );
                     }
                     self.collect_class_method_owner_plans(
@@ -699,21 +705,26 @@ impl<'a> AnalysisBuilder<'a> {
                         .is_some_and(|owner| owner.strict)
                         || method.body().strict(),
                     parent_owner_id: Some(parent_owner_id.to_string()),
-                    root_bindings: self.collect_owner_bindings(
-                        interner,
-                        method.parameters().as_ref(),
-                        None,
-                        true,
-                        true,
-                        true,
-                        method.body().statements(),
-                        &root_functions,
-                    ),
+                    root_bindings: {
+                        let mut bindings = self.collect_owner_bindings(
+                            interner,
+                            method.parameters().as_ref(),
+                            None,
+                            true,
+                            true,
+                            true,
+                            method.body().statements(),
+                            &root_functions,
+                        );
+                        bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+                        bindings
+                    },
                     function_bindings: root_functions
                         .iter()
                         .map(|nested| (nested.name.clone(), nested.id.clone()))
                         .collect(),
                     owned_env_slots: BTreeMap::new(),
+                    is_derived_constructor: false,
                 },
             );
             self.scan_owner_items(
@@ -736,6 +747,7 @@ impl<'a> AnalysisBuilder<'a> {
         constructor: &'a FunctionExpression,
         interner: &'a Interner,
         source_text: &'a str,
+        is_derived_constructor: bool,
     ) {
         let key = class_constructor_key(constructor);
         if self.class_method_ids.contains_key(&key) {
@@ -762,21 +774,34 @@ impl<'a> AnalysisBuilder<'a> {
                     .is_some_and(|owner| owner.strict)
                     || constructor.body().strict(),
                 parent_owner_id: Some(parent_owner_id.to_string()),
-                root_bindings: self.collect_owner_bindings(
-                    interner,
-                    constructor.parameters().as_ref(),
-                    None,
-                    true,
-                    true,
-                    true,
-                    constructor.body().statements(),
-                    &root_functions,
-                ),
+                root_bindings: {
+                    let mut bindings = self.collect_owner_bindings(
+                        interner,
+                        constructor.parameters().as_ref(),
+                        None,
+                        true,
+                        true,
+                        true,
+                        constructor.body().statements(),
+                        &root_functions,
+                    );
+                    if is_derived_constructor {
+                        bindings.extend([
+                            DERIVED_ACTIVATION_THIS_NAME.to_string(),
+                            DERIVED_ACTIVATION_THIS_STATUS_NAME.to_string(),
+                            DERIVED_ACTIVATION_NEW_TARGET_NAME.to_string(),
+                            DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
+                        ]);
+                    }
+                    bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+                    bindings
+                },
                 function_bindings: root_functions
                     .iter()
                     .map(|nested| (nested.name.clone(), nested.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
+                is_derived_constructor,
             },
         );
         self.scan_owner_items(
@@ -1675,6 +1700,7 @@ impl<'a> AnalysisBuilder<'a> {
                         constructor,
                         interner,
                         source_text,
+                        class.super_ref().is_some(),
                     );
                 }
                 self.collect_class_method_owner_plans(
@@ -1685,6 +1711,7 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
             Expression::SuperCall(call) => {
+                self.record_derived_activation_refs(owner_id, capture_aliases, refs);
                 for arg in call.arguments() {
                     self.scan_expression(
                         owner_id,
@@ -1709,6 +1736,7 @@ impl<'a> AnalysisBuilder<'a> {
                         capture_aliases,
                         refs,
                     );
+                    self.record_derived_activation_refs(owner_id, capture_aliases, refs);
                 }
             }
             Expression::NewTarget(_) => {
@@ -1723,6 +1751,7 @@ impl<'a> AnalysisBuilder<'a> {
                         capture_aliases,
                         refs,
                     );
+                    self.record_derived_activation_refs(owner_id, capture_aliases, refs);
                 }
             }
             Expression::New(new_expr) => {
@@ -1853,33 +1882,111 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
-        let PropertyAccess::Simple(access) = access else {
+        match access {
+            PropertyAccess::Simple(access) => {
+                self.scan_expression(
+                    owner_id,
+                    access.target(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
+                if let PropertyAccessField::Expr(expr) = access.field() {
+                    self.scan_expression(
+                        owner_id,
+                        expr,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+            }
+            PropertyAccess::Super(access) => {
+                self.record_lexical_super_property_refs(owner_id, capture_aliases, refs);
+                if let PropertyAccessField::Expr(expr) = access.field() {
+                    self.scan_expression(
+                        owner_id,
+                        expr,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+            }
+            PropertyAccess::Private(_) => {}
+        }
+    }
+
+    fn record_lexical_super_property_refs(
+        &self,
+        owner_id: &str,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        if !self
+            .owner_plans
+            .get(owner_id)
+            .is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow)
+        {
             return;
-        };
-        self.scan_expression(
-            owner_id,
-            access.target(),
-            interner,
-            source_text,
-            self_name,
-            capture_aliases,
-            refs,
-        );
-        if let PropertyAccessField::Expr(expr) = access.field() {
-            self.scan_expression(
-                owner_id,
-                expr,
-                interner,
-                source_text,
-                self_name,
-                capture_aliases,
-                refs,
-            );
+        }
+        if self.lexical_derived_constructor_owner(owner_id).is_some() {
+            self.record_derived_activation_refs(owner_id, capture_aliases, refs);
+            return;
+        }
+        if self.lexical_class_member_owner(owner_id).is_none() {
+            return;
+        }
+        for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+            self.record_ref(owner_id, name.to_string(), capture_aliases, refs);
+        }
+    }
+
+    fn record_derived_activation_refs(
+        &self,
+        owner_id: &str,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        if !self
+            .owner_plans
+            .get(owner_id)
+            .is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow)
+            || self.lexical_derived_constructor_owner(owner_id).is_none()
+        {
+            return;
+        }
+        for name in [
+            DERIVED_ACTIVATION_THIS_NAME,
+            DERIVED_ACTIVATION_THIS_STATUS_NAME,
+            DERIVED_ACTIVATION_NEW_TARGET_NAME,
+            DERIVED_ACTIVATION_FUNCTION_NAME,
+        ] {
+            self.record_ref(owner_id, name.to_string(), capture_aliases, refs);
         }
     }
 
     fn finalize_capture_plans(&mut self) {
         let mut owned_names = BTreeMap::<String, BTreeSet<String>>::new();
+        // Every derived constructor has a canonical per-invocation activation,
+        // even when no nested arrow currently captures it. Direct `super()`,
+        // derived `this`, and completion normalization all share these slots.
+        for (owner_id, owner) in &self.owner_plans {
+            if owner.is_derived_constructor {
+                owned_names.entry(owner_id.clone()).or_default().extend([
+                    DERIVED_ACTIVATION_THIS_NAME.to_string(),
+                    DERIVED_ACTIVATION_THIS_STATUS_NAME.to_string(),
+                    DERIVED_ACTIVATION_NEW_TARGET_NAME.to_string(),
+                    DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
+                ]);
+            }
+        }
         let function_ids = self.function_order.clone();
         for function_id in function_ids {
             let Some(function) = self.function_plans.get(&function_id).cloned() else {
@@ -1951,13 +2058,31 @@ impl<'a> AnalysisBuilder<'a> {
             let Some(owner) = self.owner_plans.get_mut(&owner_id) else {
                 continue;
             };
-            let mut next_slot = owner
+            let mut next_slot = 0;
+            if owner.is_derived_constructor {
+                for name in [
+                    DERIVED_ACTIVATION_FUNCTION_NAME,
+                    DERIVED_ACTIVATION_NEW_TARGET_NAME,
+                    DERIVED_ACTIVATION_THIS_NAME,
+                    DERIVED_ACTIVATION_THIS_STATUS_NAME,
+                ] {
+                    owner
+                        .owned_env_slots
+                        .entry(name.to_string())
+                        .or_insert_with(|| {
+                            let slot = next_slot;
+                            next_slot += 1;
+                            slot
+                        });
+                }
+            }
+            next_slot = owner
                 .owned_env_slots
                 .values()
                 .copied()
                 .max()
                 .map(|slot| slot + 1)
-                .unwrap_or(0);
+                .unwrap_or(next_slot);
             for name in names {
                 owner.owned_env_slots.entry(name).or_insert_with(|| {
                     let slot = next_slot;
@@ -1982,8 +2107,40 @@ impl<'a> AnalysisBuilder<'a> {
             }
             if let Some(plan) = self.function_plans.get_mut(&function_id) {
                 plan.captures = captures;
+                plan.lexical_derived_activation_owner = plan
+                    .captures
+                    .get(DERIVED_ACTIVATION_FUNCTION_NAME)
+                    .map(|capture| capture.owner_id.clone());
             }
         }
+    }
+
+    fn lexical_derived_constructor_owner(&self, owner_id: &str) -> Option<FunctionId> {
+        let mut current = Some(owner_id.to_string());
+        while let Some(id) = current {
+            let owner = self.owner_plans.get(&id)?;
+            if owner.flavor != FunctionFlavor::Arrow {
+                return owner.is_derived_constructor.then_some(id);
+            }
+            current = owner.parent_owner_id.clone();
+        }
+        None
+    }
+
+    fn lexical_class_member_owner(&self, owner_id: &str) -> Option<FunctionId> {
+        let mut current = Some(owner_id.to_string());
+        while let Some(id) = current {
+            let owner = self.owner_plans.get(&id)?;
+            if owner.flavor != FunctionFlavor::Arrow {
+                return self
+                    .class_method_ids
+                    .values()
+                    .any(|method_id| method_id == &id)
+                    .then_some(id);
+            }
+            current = owner.parent_owner_id.clone();
+        }
+        None
     }
 
     fn resolve_capture_owner(&self, start_owner_id: &str, name: &str) -> Option<String> {

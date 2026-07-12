@@ -94,6 +94,40 @@ mod tests {
         lower(&source)
     }
 
+    fn assert_canonical_derived_activation(function: &FunctionIr) {
+        let activation = function
+            .lexical_derived_activation
+            .as_ref()
+            .expect("derived constructor should own activation metadata");
+        assert_eq!(activation.owner_function_id, function.id);
+        assert_eq!(activation.this_binding, DERIVED_ACTIVATION_THIS_NAME);
+        assert_eq!(
+            activation.this_status_binding,
+            DERIVED_ACTIVATION_THIS_STATUS_NAME
+        );
+        assert_eq!(
+            activation.new_target_binding,
+            DERIVED_ACTIVATION_NEW_TARGET_NAME
+        );
+        assert_eq!(
+            activation.active_function_binding,
+            DERIVED_ACTIVATION_FUNCTION_NAME
+        );
+        assert_eq!(
+            function
+                .owned_env_bindings
+                .iter()
+                .map(|binding| (binding.name.as_str(), binding.slot))
+                .collect::<Vec<_>>(),
+            vec![
+                (DERIVED_ACTIVATION_FUNCTION_NAME, 0),
+                (DERIVED_ACTIVATION_NEW_TARGET_NAME, 1),
+                (DERIVED_ACTIVATION_THIS_NAME, 2),
+                (DERIVED_ACTIVATION_THIS_STATUS_NAME, 3),
+            ]
+        );
+    }
+
     #[test]
     fn lowers_simple_script_ir() {
         let program = lower_script("let x = 40; const y = 2; x + y;");
@@ -146,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn lowers_object_keys_join_before_control_as_direct_array_join() {
+    fn lowers_object_keys_join_before_control_as_runtime_property_call() {
         let program =
             lower_script(r#"var o = { a: 1 }; Object.keys(o).join(""); if (false) {} 1;"#);
         assert!(program.is_wasm_supported());
@@ -155,14 +189,97 @@ mod tests {
             matches!(
                 statement,
                 StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::CallMethod {
-                        key: PropertyKeyIr::StaticString(name),
-                        ..
-                    },
+                    expr: ExprIr::CallIndirect { callee, .. },
                     ..
-                }) if name == "join"
+                }) if matches!(
+                    &callee.expr,
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::GetV,
+                        operands,
+                    } if operands.len() == 2
+                        && matches!(&operands[1].expr, ExprIr::String(name) if name == "join")
+                )
             )
         }));
+    }
+
+    #[test]
+    fn lowers_mutable_array_prototype_method_call_through_runtime_getv() {
+        let program = lower_script(
+            "var alias = Array.prototype; alias.join = function () { return 'alias'; }; Array.prototype.join();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::CallIndirect { callee, .. },
+                    ..
+                }) if matches!(
+                    &callee.expr,
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::GetV,
+                        operands,
+                    } if operands.len() == 2
+                        && matches!(&operands[1].expr, ExprIr::String(name) if name == "join")
+                )
+            )
+        }));
+    }
+
+    #[test]
+    fn lowers_copied_mutable_array_prototype_method_as_indirect_call() {
+        let program = lower_script("var obj = {}; obj.join = Array.prototype.join; obj.join();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::CallIndirect { .. },
+                    possible_kinds,
+                    ..
+                }) if *possible_kinds == KindSet::all_runtime_tags()
+            )
+        }));
+    }
+
+    #[test]
+    fn lowers_computed_array_subclass_method_through_runtime_getv() {
+        let program = lower_script(
+            "class Derived extends Array { push() { return 'derived'; } } var key = 'push'; new Derived()[key]();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let Some(StatementIr::Expression(final_expr)) = script.body.statements.last() else {
+            panic!("expected final expression statement");
+        };
+        let ExprIr::CallIndirect { callee, .. } = &final_expr.expr else {
+            panic!("expected indirect call, got {:?}", final_expr.expr);
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } = &callee.expr
+        else {
+            panic!(
+                "expected GetV callee, got {:?} with targets {:?}",
+                callee.expr, callee.function_targets
+            );
+        };
+        assert_eq!(operands.len(), 2);
+        assert!(
+            matches!(
+                &operands[1].expr,
+                ExprIr::String(name) if name == "push"
+            ) || matches!(
+                &operands[1].expr,
+                ExprIr::GlobalPropertyRead { name } if name == "key"
+            ),
+            "unexpected key operand: {:?}",
+            operands[1]
+        );
     }
 
     #[test]
@@ -176,6 +293,233 @@ mod tests {
         ));
         assert!(program.ir_summary().contains("whiles=1"));
         assert!(program.ir_summary().contains("continues=1"));
+    }
+
+    #[test]
+    fn lowers_array_spread_with_concat_result_element_shape() {
+        let program =
+            lower_script("let source = [17, NaN, 'tail']; let copy = [...source]; copy[1];");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected spread copy declaration");
+        };
+        assert_eq!(name, "copy");
+        let Some(shape) = copy_init.heap_shape.as_deref() else {
+            panic!("spread concat result must retain its array shape");
+        };
+        let HeapShape::Array(shape) = shape else {
+            panic!("spread concat result must retain an array shape");
+        };
+        assert_eq!(shape.elements.len(), 3);
+        assert_eq!(shape.elements[0].kind, ValueKind::Number);
+        assert_eq!(shape.elements[1].kind, ValueKind::Number);
+        assert_eq!(shape.elements[2].kind, ValueKind::String);
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected spread copy element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn lowers_array_spread_with_unshaped_concat_input_as_dynamic_elements() {
+        let program =
+            lower_script("let source = [].concat({ length: 1 }); let copy = [...source]; copy[0];");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected spread copy declaration");
+        };
+        assert_eq!(name, "copy");
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "an unshaped concat input must not become an empty array shape"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected spread copy element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn concat_discards_element_shape_after_array_length_write() {
+        let program = lower_script(
+            "let source = [17, NaN, 'tail']; source.length = 1; let copy = [].concat(source); copy[1];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[2]
+        else {
+            panic!("expected concat copy declaration");
+        };
+        assert_eq!(name, "copy");
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "a length-mutated source must not retain stale concat elements"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[3] else {
+            panic!("expected concat copy element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn concat_discards_element_shape_for_custom_spreadability() {
+        let program = lower_script(
+            "let source = [17]; source[Symbol.isConcatSpreadable] = false; let copy = [].concat(source); copy[0];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[2]
+        else {
+            panic!("expected concat copy declaration");
+        };
+        assert_eq!(name, "copy");
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "@@isConcatSpreadable must make concat element layout dynamic"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[3] else {
+            panic!("expected concat copy element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn concat_discards_element_shape_for_holey_arrays() {
+        let program = lower_script("let source = [, 17]; let copy = [].concat(source); copy[0];");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            init: copy_init, ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected concat copy declaration");
+        };
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "a hole must not be confused with an explicit undefined element"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected concat copy element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn flat_does_not_reuse_unflattened_receiver_shape() {
+        let program =
+            lower_script("let nested = [[17]]; let flattened = nested.flat(); flattened[0];");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: flattened_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected flat result declaration");
+        };
+        assert_eq!(name, "flattened");
+        assert!(
+            flattened_init.heap_shape.is_none(),
+            "flat must not report the receiver's nested element shape"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected flat result element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn flat_map_result_elements_remain_dynamic() {
+        let program = lower_script(
+            "let source = [1, 2]; let mapped = source.flatMap(function (value) { return [value, value]; }); mapped[0];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: mapped_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected flatMap result declaration");
+        };
+        assert_eq!(name, "mapped");
+        assert!(
+            mapped_init.heap_shape.is_none(),
+            "flatMap output cardinality and element layout are runtime-dependent"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected flatMap result element read");
+        };
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn species_capable_array_results_preserve_runtime_object_tags() {
+        for (source, result_statement) in [
+            ("let result = [1].flat();", 0),
+            (
+                "let result = [1].flatMap(function (value) { return value; });",
+                0,
+            ),
+            ("let source = []; let result = source.concat(1);", 1),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Lexical { init, .. } = &script.body.statements[result_statement]
+            else {
+                panic!("expected result declaration for {source}");
+            };
+            assert_eq!(init.kind, ValueKind::Dynamic, "{source}");
+            assert_eq!(init.possible_kinds, KindSet::all_runtime_tags(), "{source}");
+            assert!(init.heap_shape.is_none(), "{source}");
+        }
+    }
+
+    #[test]
+    fn concat_with_proven_array_layout_remains_runtime_dynamic() {
+        let program = lower_script("let result = [1].concat([2]);");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected concat result declaration");
+        };
+        assert_eq!(init.kind, ValueKind::Dynamic);
+        assert_eq!(init.possible_kinds, KindSet::all_runtime_tags());
+        assert!(init.heap_shape.is_none());
     }
 
     #[test]
@@ -778,7 +1122,8 @@ mod tests {
 
     #[test]
     fn marks_explicit_extending_class_constructor_as_derived() {
-        let program = lower_script("class A {} class B extends A { constructor() {} } B;");
+        let program =
+            lower_script("class A {} class B extends A { constructor() { super(); } } B;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
         let derived = script
@@ -788,6 +1133,479 @@ mod tests {
             .expect("derived constructor should be lowered");
         assert!(derived.is_derived_constructor);
         assert!(derived.super_constructor_target.is_some());
+        assert_canonical_derived_activation(derived);
+    }
+
+    #[test]
+    fn gives_default_derived_constructor_canonical_activation_but_not_base_constructor() {
+        let program = lower_script("class A {} class B extends A {} B;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let base = script
+            .functions
+            .iter()
+            .find(|function| function.name == "A")
+            .expect("base constructor should be lowered");
+        assert!(!base.is_derived_constructor);
+        assert!(base.lexical_derived_activation.is_none());
+        assert!(base.owned_env_bindings.iter().all(|binding| ![
+            DERIVED_ACTIVATION_THIS_NAME,
+            DERIVED_ACTIVATION_THIS_STATUS_NAME,
+            DERIVED_ACTIVATION_NEW_TARGET_NAME,
+            DERIVED_ACTIVATION_FUNCTION_NAME,
+        ]
+        .contains(&binding.name.as_str())));
+
+        let derived = script
+            .functions
+            .iter()
+            .find(|function| function.name == "B")
+            .expect("default derived constructor should be lowered");
+        assert!(derived.is_derived_constructor);
+        assert!(derived.is_synthetic_default_derived_constructor);
+        assert_canonical_derived_activation(derived);
+    }
+
+    #[test]
+    fn lowers_immediate_arrow_super_with_derived_activation_capture() {
+        let program =
+            lower_script("class A {} class B extends A { constructor() { (() => super())(); } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.is_derived_constructor)
+            .unwrap();
+        let activation = constructor.lexical_derived_activation.as_ref().unwrap();
+        assert_eq!(activation.owner_function_id, constructor.id);
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.flavor == FunctionFlavor::Arrow)
+            .unwrap();
+        assert!(arrow.uses_super);
+        assert!(arrow
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == DERIVED_ACTIVATION_FUNCTION_NAME));
+        assert!(arrow.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Return(TypedExpr {
+                expr: ExprIr::SuperConstruct { .. },
+                ..
+            })
+        )));
+    }
+
+    #[test]
+    fn nested_arrows_share_derived_activation_this_and_new_target() {
+        let program = lower_script("class A {} class B extends A { constructor() { (() => (() => [this, new.target, super()]))(); } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.is_derived_constructor)
+            .unwrap();
+        let activation = constructor.lexical_derived_activation.as_ref().unwrap();
+        for name in [
+            &activation.this_binding,
+            &activation.this_status_binding,
+            &activation.new_target_binding,
+            &activation.active_function_binding,
+        ] {
+            assert!(constructor
+                .owned_env_bindings
+                .iter()
+                .any(|binding| &binding.name == name));
+        }
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.flavor == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+        assert_eq!(arrows.len(), 2);
+        let innermost = arrows.iter().find(|function| function.uses_super).unwrap();
+        assert!(innermost.captures_lexical_this);
+        assert!(innermost
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == LEXICAL_NEW_TARGET_NAME));
+        assert!(innermost
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == DERIVED_ACTIVATION_THIS_STATUS_NAME));
+    }
+
+    #[test]
+    fn derived_arrow_this_and_new_target_capture_activation_without_super_flag() {
+        for source in [
+            "class A {} class B extends A { constructor() { (() => this)(); } }",
+            "class A {} class B extends A { constructor() { (() => new.target)(); } }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().unwrap();
+            let arrow = script
+                .functions
+                .iter()
+                .find(|function| function.flavor == FunctionFlavor::Arrow)
+                .unwrap();
+            assert!(!arrow.uses_super);
+            for name in [
+                DERIVED_ACTIVATION_FUNCTION_NAME,
+                DERIVED_ACTIVATION_NEW_TARGET_NAME,
+                DERIVED_ACTIVATION_THIS_NAME,
+                DERIVED_ACTIVATION_THIS_STATUS_NAME,
+            ] {
+                assert!(arrow
+                    .captured_bindings
+                    .iter()
+                    .any(|binding| binding.name == name));
+            }
+        }
+    }
+
+    #[test]
+    fn derived_arrow_super_property_captures_activation_and_preserves_slots() {
+        let program = lower_script(
+            "class A { get x() { return 1; } } class B extends A { constructor() { let $a = 1; (() => (() => super.x + $a))(); } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().unwrap();
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.is_derived_constructor)
+            .unwrap();
+        let slots = constructor
+            .owned_env_bindings
+            .iter()
+            .map(|binding| (binding.name.as_str(), binding.slot))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(slots.get(DERIVED_ACTIVATION_FUNCTION_NAME), Some(&0));
+        assert_eq!(slots.get(DERIVED_ACTIVATION_NEW_TARGET_NAME), Some(&1));
+        assert_eq!(slots.get(DERIVED_ACTIVATION_THIS_NAME), Some(&2));
+        assert_eq!(slots.get(DERIVED_ACTIVATION_THIS_STATUS_NAME), Some(&3));
+        assert_eq!(slots.get("$a"), Some(&4));
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.flavor == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+        assert_eq!(arrows.len(), 2);
+        assert!(arrows.iter().any(|function| function.uses_super));
+    }
+
+    #[test]
+    fn derived_arrow_dynamic_super_method_call_uses_lexical_this() {
+        let source = "class A { increment() {} } class B extends A { constructor() { super(); (() => super.increment())(); } }";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.flavor == FunctionFlavor::Arrow)
+            .expect("arrow should be lowered");
+        let Some(StatementIr::Return(TypedExpr {
+            expr:
+                ExprIr::CallIndirect {
+                    callee,
+                    this_arg: Some(this_arg),
+                    args,
+                },
+            ..
+        })) = arrow.body.statements.first()
+        else {
+            panic!("expected indirect super method call: {:?}", arrow.body);
+        };
+        assert!(matches!(
+            callee.expr,
+            ExprIr::SuperPropertyRead {
+                key: PropertyKeyIr::StaticString(ref key),
+            } if key == "increment"
+        ));
+        assert!(matches!(this_arg.expr, ExprIr::This));
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn class_method_arrow_captures_lexical_home_object_and_this_for_super() {
+        let source =
+            "class A { method() {} } class B extends A { make() { return () => super.method(); } }";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let method = script
+            .functions
+            .iter()
+            .find(|function| function.name == "B.make")
+            .expect("class method should be lowered");
+        for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+            assert!(method
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == name));
+        }
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.flavor == FunctionFlavor::Arrow)
+            .expect("arrow should be lowered");
+        for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+            assert!(arrow
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.name == name));
+        }
+        assert!(arrow.captures_lexical_this);
+    }
+
+    #[test]
+    fn exact_context_specialization_preserves_escaped_closure_environment() {
+        let source = "class B { make() { let x = 7; return () => () => x; } } let b = new B(); let outer = b.make(); let inner = outer(); inner();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let inner_init = script.body.statements.iter().find_map(|statement| {
+            let StatementIr::Lexical { name, init, .. } = statement else {
+                return None;
+            };
+            (name == "inner").then_some(init)
+        });
+        let Some(TypedExpr {
+            expr: ExprIr::CallIndirect { callee, .. },
+            ..
+        }) = inner_init
+        else {
+            panic!("expected escaped outer closure call: {:?}", script.body);
+        };
+        assert!(matches!(
+            callee.expr,
+            ExprIr::Identifier(ref name) if name == "outer"
+        ));
+    }
+
+    #[test]
+    fn exact_context_specialization_preserves_escaped_callback_argument() {
+        let source = "function invoke(callback) { return callback(); } function make() { let x = 1; return () => x; } let callback = make(); invoke(callback);";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let callback_arg = script.body.statements.iter().find_map(|statement| {
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::CallIndirect { args, .. },
+                ..
+            }) = statement
+            else {
+                return None;
+            };
+            args.first()
+        });
+        assert!(matches!(
+            callback_arg,
+            Some(TypedExpr {
+                expr: ExprIr::Identifier(name),
+                ..
+            }) if name == "callback"
+        ));
+    }
+
+    #[test]
+    fn base_arrow_does_not_capture_derived_activation() {
+        let program = lower_script("class B { constructor() { (() => this)(); } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().unwrap();
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.flavor == FunctionFlavor::Arrow)
+            .unwrap();
+        assert!(!arrow.uses_super);
+        assert!(arrow.lexical_derived_activation.is_none());
+        assert!(!arrow
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == DERIVED_ACTIVATION_FUNCTION_NAME));
+    }
+
+    #[test]
+    fn ordinary_function_is_a_lexical_super_boundary() {
+        let source = "class A {} class B extends A { constructor() { (function () { return () => super(); })(); } }";
+        assert!(parse(source, ParseOptions::script()).is_err());
+    }
+
+    #[test]
+    fn infers_array_kind_for_direct_and_nested_default_subclasses() {
+        for source in [
+            "class Ar extends Array {} new Ar();",
+            "class A extends Array {} class B extends A {} new B();",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+                panic!("expected constructed instance");
+            };
+            assert_eq!(instance.kind, ValueKind::Array, "{source}");
+            assert!(matches!(
+                instance.heap_shape.as_deref(),
+                Some(HeapShape::Array(_))
+            ));
+        }
+
+        let ordinary = lower_script("class C {} new C();");
+        let script = ordinary.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+            panic!("expected constructed instance");
+        };
+        assert_eq!(instance.kind, ValueKind::Object);
+        assert!(matches!(
+            instance.heap_shape.as_deref(),
+            Some(HeapShape::Object(_))
+        ));
+    }
+
+    #[test]
+    fn preserves_private_brand_shape_for_array_subclass_instances() {
+        let program =
+            lower_script("class A extends Array { #x; has() { return #x in this; } } new A();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected class declaration");
+        };
+        let ExprIr::ClassDefinition(class) = &init.expr else {
+            panic!("expected class definition");
+        };
+        let private_name_id = *class
+            .private_name_ids
+            .get("x")
+            .expect("private brand should be assigned");
+        let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+            panic!("expected constructed instance");
+        };
+        let HeapShape::Array(shape) = instance.heap_shape.as_deref().expect("array shape") else {
+            panic!("expected ArrayShape");
+        };
+        assert!(shape
+            .properties
+            .contains_key(&private_brand_key(private_name_id)));
+    }
+
+    #[test]
+    fn array_subclass_overrides_lower_as_runtime_property_calls() {
+        let program = lower_script(
+            "class A extends Array {
+                push() { return 'custom push'; }
+                join() { return 'custom join'; }
+             }
+             const a = new A();
+             a.push(1);
+             a.join();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        for (statement, expected_key) in script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .take(2)
+            .rev()
+            .zip(["push", "join"])
+        {
+            let StatementIr::Expression(TypedExpr {
+                expr:
+                    ExprIr::CallIndirect {
+                        callee,
+                        this_arg: Some(this_arg),
+                        ..
+                    },
+                kind: ValueKind::String,
+                ..
+            }) = statement
+            else {
+                panic!("expected runtime indirect call for {expected_key}: {statement:?}");
+            };
+            assert!(matches!(
+                &callee.expr,
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::GetV,
+                    operands,
+                } if operands.len() == 2
+                    && matches!(&operands[1].expr, ExprIr::String(key) if key == expected_key)
+            ));
+            assert!(matches!(
+                this_arg.heap_shape.as_deref(),
+                Some(HeapShape::Array(shape)) if shape.prototype.is_some()
+            ));
+        }
+    }
+
+    #[test]
+    fn private_method_call_retains_brand_checked_private_read() {
+        let program = lower_script(
+            "class A extends Array {
+                #method() { return 1; }
+                call() { return this.#method(); }
+             }
+             new A().call();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "A.call")
+            .expect("class method should be lowered");
+        let StatementIr::Return(TypedExpr {
+            expr:
+                ExprIr::CallIndirect {
+                    callee,
+                    this_arg: Some(this_arg),
+                    ..
+                },
+            ..
+        }) = &function.body.statements[0]
+        else {
+            panic!("expected indirect private method call: {:?}", function.body);
+        };
+        assert!(matches!(
+            callee.expr,
+            ExprIr::PrivateRead {
+                target: _,
+                private_name_id: _
+            }
+        ));
+        assert!(matches!(this_arg.expr, ExprIr::This));
     }
 
     #[test]
@@ -839,10 +1657,63 @@ mod tests {
     }
 
     #[test]
+    fn lowers_only_colon_proto_properties_as_prototype_setters() {
+        fn object_literal(source: &str) -> TypedExpr {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.expect("script ir should exist");
+            let StatementIr::Expression(expr) = script.body.statements.last().expect("expression")
+            else {
+                panic!("expected object literal expression");
+            };
+            expr.clone()
+        }
+
+        let prototype_setter = object_literal("({ __proto__: { marker: 1 } });");
+        let ExprIr::ObjectLiteral(properties) = &prototype_setter.expr else {
+            panic!("expected object literal");
+        };
+        assert!(matches!(
+            properties.as_slice(),
+            [ObjectPropertyIr::PrototypeSetter { .. }]
+        ));
+        let Some(HeapShape::Object(shape)) = prototype_setter.heap_shape.as_deref() else {
+            panic!("expected object shape");
+        };
+        assert!(shape.prototype.is_some());
+        assert!(!shape.properties.contains_key("__proto__"));
+
+        let shorthand = object_literal("let __proto__ = 1; ({ __proto__ });");
+        let ExprIr::ObjectLiteral(properties) = &shorthand.expr else {
+            panic!("expected object literal");
+        };
+        assert!(matches!(
+            properties.as_slice(),
+            [ObjectPropertyIr::Data { .. }]
+        ));
+
+        let computed = object_literal("({ ['__proto__']: 1 });");
+        let ExprIr::ObjectLiteral(properties) = &computed.expr else {
+            panic!("expected object literal");
+        };
+        assert!(matches!(
+            properties.as_slice(),
+            [ObjectPropertyIr::Data { .. }]
+        ));
+
+        let method = object_literal("({ __proto__() {} });");
+        let ExprIr::ObjectLiteral(properties) = &method.expr else {
+            panic!("expected object literal");
+        };
+        assert!(matches!(
+            properties.as_slice(),
+            [ObjectPropertyIr::Method { .. }]
+        ));
+    }
+
+    #[test]
     fn lowers_fractional_array_keys_as_named_properties() {
-        let program = lower_script(
-            "const arr = [39, 42]; arr[1.1] = 'other prop'; arr[1.1];",
-        );
+        let program = lower_script("const arr = [39, 42]; arr[1.1] = 'other prop'; arr[1.1];");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
 
@@ -857,19 +1728,24 @@ mod tests {
         let StatementIr::Expression(read) = &script.body.statements[2] else {
             panic!("expected array property read");
         };
-        let ExprIr::PropertyRead { key, .. } = &read.expr else {
-            panic!("expected property read, got {:?}", read.expr);
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &read.expr
+        else {
+            panic!("expected GetV operation, got {:?}", read.expr);
         };
-        assert_eq!(key, &PropertyKeyIr::StaticString("1.1".to_string()));
-        assert_eq!(read.kind, ValueKind::String);
+        assert_eq!(*operation, SpecOperationIr::GetV);
+        assert_eq!(operands.len(), 2);
+        assert!(matches!(operands[1].expr, ExprIr::Number(_)));
+        assert_eq!(read.kind, ValueKind::Dynamic);
     }
 
     #[test]
     fn lowers_runtime_number_array_keys_through_to_property_key() {
         for key_init in ["1", "1.1", "-1", "NaN", "Infinity"] {
-            let source = format!(
-                "let key = {key_init}; let array = []; array[key] = 7; array[key];"
-            );
+            let source =
+                format!("let key = {key_init}; let array = []; array[key] = 7; array[key];");
             let program = lower_script(&source);
             assert!(program.is_wasm_supported(), "{source}");
             let script = program.script.as_ref().expect("script ir should exist");
@@ -888,12 +1764,18 @@ mod tests {
             let StatementIr::Expression(read) = &script.body.statements[3] else {
                 panic!("expected array property read for {source}");
             };
-            let ExprIr::PropertyRead { key, .. } = &read.expr else {
-                panic!("expected property read for {source}, got {:?}", read.expr);
+            let ExprIr::SpecOperation {
+                operation,
+                operands,
+            } = &read.expr
+            else {
+                panic!("expected GetV operation for {source}, got {:?}", read.expr);
             };
             assert!(
-                matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
-                "runtime numeric read key must use ToPropertyKey for {source}, got {key:?}"
+                *operation == SpecOperationIr::GetV
+                    && operands.len() == 2
+                    && operands[1].kind == ValueKind::Number,
+                "runtime numeric read key must use GetV for {source}, got {operands:?}"
             );
         }
     }
@@ -1201,7 +2083,8 @@ mod tests {
                 } => true,
                 ExprIr::ObjectLiteral(properties) => {
                     properties.iter().any(|property| match property {
-                        ObjectPropertyIr::Data { value, .. }
+                        ObjectPropertyIr::PrototypeSetter { value }
+                        | ObjectPropertyIr::Data { value, .. }
                         | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             has_reference_error_throw(value)
                         }
@@ -1274,6 +2157,21 @@ mod tests {
     }
 
     #[test]
+    fn infers_inherited_typed_array_to_string_target() {
+        let program = lower_script("Uint8Array.prototype.toString;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = script.body.statements.last().unwrap() else {
+            panic!("property read should remain the script result");
+        };
+        assert!(
+            expr.function_targets
+                .contains(&StandardBuiltinId::TypedArrayPrototypeToString.function_id()),
+            "unexpected property expression: {expr:?}"
+        );
+    }
+
+    #[test]
     fn lowers_script_class_closure_capture() {
         let program = lower_script("class C {} function f() { return C; } f();");
         assert!(program.is_wasm_supported());
@@ -1308,6 +2206,27 @@ mod tests {
             .captured_bindings
             .iter()
             .any(|binding| binding.name == "args"));
+    }
+
+    #[test]
+    fn lowers_script_global_update_from_class_constructor() {
+        let program = lower_script(
+            "var count = 0; class Base { constructor() { count++; } } class Derived extends Base { constructor() { (_ => super())(); } } new Derived();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let base_constructor = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Base")
+            .expect("base constructor should be lowered");
+        assert!(matches!(
+            base_constructor.body.statements.first(),
+            Some(StatementIr::Expression(TypedExpr {
+                expr: ExprIr::GlobalPropertyUpdate { name, .. },
+                ..
+            })) if name == "count"
+        ));
     }
 
     #[test]
@@ -1565,6 +2484,31 @@ mod tests {
     }
 
     #[test]
+    fn does_not_fold_stateful_regexp_literal_exec_or_test() {
+        let program = lower_script("/b/y.exec('ab'); /a/g.test('a');");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(exec) = &script.body.statements[0] else {
+            panic!("expected exec expression statement");
+        };
+        assert!(
+            matches!(exec.expr, ExprIr::CallMethod { .. }),
+            "sticky exec must retain runtime lastIndex semantics, got {:?}",
+            exec.expr
+        );
+
+        let StatementIr::Expression(test) = &script.body.statements[1] else {
+            panic!("expected test expression statement");
+        };
+        assert!(
+            matches!(test.expr, ExprIr::CallMethod { .. }),
+            "global test must retain runtime lastIndex semantics, got {:?}",
+            test.expr
+        );
+    }
+
+    #[test]
     fn lowers_optional_property_chain_as_one_ir_expression() {
         let program = lower_script("let a; a?.b;");
         assert!(program.is_wasm_supported());
@@ -1577,8 +2521,11 @@ mod tests {
         };
         assert!(matches!(target.expr, ExprIr::Identifier(_)));
         assert_eq!(chain.len(), 1);
-        assert_eq!(chain[0].key, PropertyKeyIr::StaticString("b".to_string()));
-        assert!(chain[0].shorted);
+        let OptionalChainOperationIr::Property { key, shorted } = &chain[0] else {
+            panic!("expected optional property operation");
+        };
+        assert_eq!(key, &PropertyKeyIr::StaticString("b".to_string()));
+        assert!(*shorted);
     }
 
     #[test]
@@ -1599,7 +2546,10 @@ mod tests {
             assert_eq!(
                 chain
                     .iter()
-                    .map(|access| access.shorted)
+                    .map(|operation| match operation {
+                        OptionalChainOperationIr::Property { shorted, .. }
+                        | OptionalChainOperationIr::Call { shorted, .. } => *shorted,
+                    })
                     .collect::<Vec<_>>(),
                 expected_flags,
                 "{source}"
@@ -1618,8 +2568,11 @@ mod tests {
         let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
             panic!("expected optional-property-chain IR expression");
         };
-        let PropertyKeyIr::StringExpr(key) = &chain[0].key else {
-            panic!("expected deferred computed key, got {:?}", chain[0].key);
+        let OptionalChainOperationIr::Property { key, .. } = &chain[0] else {
+            panic!("expected optional property operation, got {:?}", chain[0]);
+        };
+        let PropertyKeyIr::StringExpr(key) = key else {
+            panic!("expected deferred computed key, got {key:?}");
         };
         assert!(
             matches!(
@@ -1632,12 +2585,384 @@ mod tests {
     }
 
     #[test]
-    fn optional_call_is_recorded_as_wasm_aot_unsupported() {
-        let program = lower_script("let a; a?.();");
+    fn optional_call_is_retained_in_ordered_chain_ir() {
+        let program = lower_script("function arg() { return 1; } let fn; fn?.(arg());");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+            panic!("expected optional-call expression statement");
+        };
+        let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+            panic!("expected ordered optional-chain IR expression");
+        };
+        assert!(matches!(target.expr, ExprIr::Identifier(_)));
+        assert_eq!(chain.len(), 1);
+        let OptionalChainOperationIr::Call {
+            args,
+            receiver,
+            shorted,
+            boundary_before,
+        } = &chain[0]
+        else {
+            panic!("expected optional call operation, got {:?}", chain[0]);
+        };
+        assert!(*shorted);
+        assert_eq!(*receiver, OptionalChainCallReceiverIr::ReferenceOrUndefined);
+        assert!(!*boundary_before);
+        assert_eq!(args.len(), 1);
+        assert!(matches!(
+            args[0].expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+    }
+
+    #[test]
+    fn optional_method_calls_preserve_reference_and_shorted_flags() {
+        for (source, expected) in [
+            (
+                "let obj; obj?.method();",
+                vec![("property", true), ("call", false)],
+            ),
+            (
+                "let obj; obj.method?.();",
+                vec![("property", false), ("call", true)],
+            ),
+            (
+                "let obj; obj?.method?.().x;",
+                vec![("property", true), ("call", true), ("property", false)],
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}");
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(expr) = &script.body.statements[1] else {
+                panic!("expected optional-chain expression for {source}");
+            };
+            let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+                panic!("expected ordered optional-chain IR for {source}");
+            };
+            assert!(
+                matches!(target.expr, ExprIr::Identifier(_)),
+                "member-call base must be stored once for {source}, got {:?}",
+                target.expr
+            );
+            assert_eq!(chain.len(), expected.len(), "{source}");
+            assert_eq!(
+                chain
+                    .iter()
+                    .map(|operation| match operation {
+                        OptionalChainOperationIr::Property { shorted, .. } => {
+                            ("property", *shorted)
+                        }
+                        OptionalChainOperationIr::Call { shorted, .. } => ("call", *shorted),
+                    })
+                    .collect::<Vec<_>>(),
+                expected,
+                "{source}"
+            );
+            let OptionalChainOperationIr::Property { key, .. } = &chain[0] else {
+                unreachable!();
+            };
+            assert_eq!(key, &PropertyKeyIr::StaticString("method".to_string()));
+            if source.ends_with(".x;") {
+                let OptionalChainOperationIr::Property { key, .. } = &chain[2] else {
+                    unreachable!();
+                };
+                assert_eq!(key, &PropertyKeyIr::StaticString("x".to_string()));
+            }
+        }
+    }
+
+    #[test]
+    fn optional_member_call_keeps_effectful_base_once() {
+        let program =
+            lower_script("function base() { return { method() {} }; } base().method?.();");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = script.body.statements.last().unwrap() else {
+            panic!("expected optional-call expression statement");
+        };
+        let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+            panic!("expected ordered optional-chain IR expression");
+        };
+        assert!(matches!(
+            target.expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+        assert!(matches!(
+            chain.as_slice(),
+            [
+                OptionalChainOperationIr::Property {
+                    key: PropertyKeyIr::StaticString(key),
+                    shorted: false,
+                },
+                OptionalChainOperationIr::Call {
+                    args,
+                    receiver: OptionalChainCallReceiverIr::ReferenceOrUndefined,
+                    shorted: true,
+                    boundary_before: false,
+                },
+            ] if key == "method" && args.is_empty()
+        ));
+    }
+
+    #[test]
+    fn grouped_optional_chain_calls_mark_new_short_circuit_boundaries() {
+        for (source, expected_call_flags) in [
+            ("let a; (a?.b)();", vec![(false, true)]),
+            ("let a; (a?.b)?.();", vec![(true, true)]),
+            ("let a; ((a?.b)())();", vec![(false, true), (false, true)]),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(expr) = &script.body.statements[1] else {
+                panic!("expected grouped optional-chain expression for {source}");
+            };
+            let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+                panic!("expected flattened optional-chain IR for {source}");
+            };
+            assert!(matches!(target.expr, ExprIr::Identifier(_)), "{source}");
+            assert!(matches!(
+                chain.first(),
+                Some(OptionalChainOperationIr::Property {
+                    key: PropertyKeyIr::StaticString(key),
+                    shorted: true,
+                }) if key == "b"
+            ));
+            assert_eq!(
+                chain
+                    .iter()
+                    .filter_map(|operation| match operation {
+                        OptionalChainOperationIr::Call {
+                            shorted,
+                            boundary_before,
+                            ..
+                        } => Some((*shorted, *boundary_before)),
+                        OptionalChainOperationIr::Property { .. } => None,
+                    })
+                    .collect::<Vec<_>>(),
+                expected_call_flags,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn grouped_ordinary_call_keeps_arguments_after_optional_segment_boundary() {
+        let program = lower_script("function arg() { return 1; } let a; (a?.b)(arg());");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+            panic!("expected grouped optional-chain expression");
+        };
+        let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
+            panic!("expected flattened optional-chain IR");
+        };
+        let Some(OptionalChainOperationIr::Call {
+            args,
+            receiver: OptionalChainCallReceiverIr::ReferenceOrUndefined,
+            shorted: false,
+            boundary_before: true,
+        }) = chain.last()
+        else {
+            panic!("expected ordinary grouped call boundary, got {chain:?}");
+        };
+        assert!(matches!(
+            args.as_slice(),
+            [TypedExpr {
+                expr: ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn optional_primitive_method_calls_specialize_strict_this_as_primitive() {
+        for (source, function_name, expected_kind) in [
+            (
+                "String.prototype.q = function stringQ() { 'use strict'; return this === 'z'; }; 'z'?.q();",
+                "stringQ",
+                ValueKind::String,
+            ),
+            (
+                "Number.prototype.q = function numberQ() { 'use strict'; return this === 3; }; (3)?.q();",
+                "numberQ",
+                ValueKind::Number,
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script ir should exist");
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("missing {function_name} for {source}"));
+            let this_operand = function.body.statements.iter().find_map(|statement| {
+                let StatementIr::Return(TypedExpr {
+                    expr:
+                        ExprIr::SpecOperation {
+                            operation: SpecOperationIr::StrictEqualityComparison,
+                            operands,
+                        },
+                    ..
+                }) = statement
+                else {
+                    return None;
+                };
+                operands
+                    .iter()
+                    .find(|operand| matches!(operand.expr, ExprIr::This))
+            });
+            assert_eq!(
+                this_operand.map(|operand| operand.kind),
+                Some(expected_kind),
+                "strict this specialization for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn optional_factory_calls_converge_before_primitive_method_this_analysis() {
+        for (source, factory_name, function_name, expected_kind) in [
+            (
+                "String.prototype.q = function stringFactoryQ() { 'use strict'; return this === 's'; }; function makeString() { return 's'; } makeString?.().q();",
+                "makeString",
+                "stringFactoryQ",
+                ValueKind::String,
+            ),
+            (
+                "Number.prototype.q = function numberFactoryQ() { 'use strict'; return this === 3; }; function makeNumber() { return 3; } makeNumber?.().q();",
+                "makeNumber",
+                "numberFactoryQ",
+                ValueKind::Number,
+            ),
+            (
+                "Boolean.prototype.q = function booleanFactoryQ() { 'use strict'; return this === true; }; function makeBoolean() { return true; } makeBoolean?.().q();",
+                "makeBoolean",
+                "booleanFactoryQ",
+                ValueKind::Boolean,
+            ),
+            (
+                "BigInt.prototype.q = function bigintFactoryQ() { 'use strict'; return this === 3n; }; function makeBigInt() { return 3n; } makeBigInt?.().q();",
+                "makeBigInt",
+                "bigintFactoryQ",
+                ValueKind::BigInt,
+            ),
+            (
+                "Symbol.prototype.q = function symbolFactoryQ() { 'use strict'; return this === this; }; function makeSymbol() { return Symbol('marker'); } makeSymbol?.().q();",
+                "makeSymbol",
+                "symbolFactoryQ",
+                ValueKind::Symbol,
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script ir should exist");
+            let factory = script
+                .functions
+                .iter()
+                .find(|function| function.name == factory_name)
+                .unwrap_or_else(|| panic!("missing {factory_name} for {source}"));
+            assert_eq!(factory.return_kind, expected_kind, "factory return for {source}");
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("missing {function_name} for {source}"));
+            let this_operand = function.body.statements.iter().find_map(|statement| {
+                let StatementIr::Return(TypedExpr {
+                    expr:
+                        ExprIr::SpecOperation {
+                            operation: SpecOperationIr::StrictEqualityComparison,
+                            operands,
+                        },
+                    ..
+                }) = statement
+                else {
+                    return None;
+                };
+                operands
+                    .iter()
+                    .find(|operand| matches!(operand.expr, ExprIr::This))
+            });
+            assert_eq!(
+                this_operand.map(|operand| operand.kind),
+                Some(expected_kind),
+                "factory return must converge before method this analysis for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn optional_eval_call_remains_explicitly_unsupported() {
+        let program = lower_script("eval?.('source');");
         assert!(!program.is_wasm_supported());
-        assert!(program
-            .diagnostics
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("dynamic eval through optional call")
+        }));
+    }
+
+    #[test]
+    fn optional_super_method_call_uses_current_this_receiver() {
+        let source = "class Base { method() { return this; } } class Derived extends Base { call() { return super.method?.(); } }";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
             .iter()
-            .any(|diagnostic| { diagnostic.message.contains("optional chains with calls") }));
+            .find(|function| function.name == "Derived.call")
+            .expect("derived call method should be lowered");
+        let StatementIr::Return(expr) = &function.body.statements[0] else {
+            panic!(
+                "expected return statement, got {:?}",
+                function.body.statements
+            );
+        };
+        let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
+            panic!("expected optional super call IR, got {:?}", expr.expr);
+        };
+        assert!(matches!(
+            &target.expr,
+            ExprIr::SuperPropertyRead {
+                key: PropertyKeyIr::StaticString(key),
+            } if key == "method"
+        ));
+        assert!(matches!(
+            chain.as_slice(),
+            [OptionalChainOperationIr::Call {
+                args,
+                receiver: OptionalChainCallReceiverIr::CurrentThis,
+                shorted: true,
+                boundary_before: false,
+            }] if args.is_empty()
+        ));
+    }
+
+    #[test]
+    fn optional_private_call_remains_explicitly_unsupported() {
+        let source = "class C { #method() {} call() { return this.#method?.(); } }";
+        let program = lower_script(source);
+        assert!(!program.is_wasm_supported(), "{source}");
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("optional private call")),
+            "expected explicit optional private-call diagnostic: {:?}",
+            program.diagnostics
+        );
     }
 }

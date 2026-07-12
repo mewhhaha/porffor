@@ -27,7 +27,8 @@ rab.resize(3);
 sameArray(Array.prototype.map.call(fixed, function (value) { return value + 1; }), [], "fixed out");
 
 rab.resize(4);
-sameArray(Array.prototype.map.call(fixed, function (value) { return value + 1; }), [5, 7], "fixed in");
+// The byte discarded by the shrink is zero-filled when the buffer grows again.
+sameArray(Array.prototype.map.call(fixed, function (value) { return value + 1; }), [5, 1], "fixed in");
 
 let midBuffer = new ArrayBuffer(3, { maxByteLength: 4 });
 let mid = new Uint8Array(midBuffer);

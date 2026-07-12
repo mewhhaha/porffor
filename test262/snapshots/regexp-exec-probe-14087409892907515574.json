@@ -1,0 +1,778 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14087409892907515574,
+  "run_kind": "full",
+  "total": 79,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 65,
+    "Unsupported": 3,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 65,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/RegExp/prototype/exec/regexp-builtin-exec-v-u-flag.js",
+      "duration_ms": 15891
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/failure-lastindex-set.js",
+      "duration_ms": 9985
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/duplicate-named-indices-groups-properties.js",
+      "duration_ms": 9923
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A10.js",
+      "duration_ms": 9086
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/name.js",
+      "duration_ms": 9057
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A12.js",
+      "duration_ms": 7615
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/duplicate-named-groups-properties.js",
+      "duration_ms": 7147
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/success-lastindex-access.js",
+      "duration_ms": 6897
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T4.js",
+      "duration_ms": 6473
+    },
+    {
+      "path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T10.js",
+      "duration_ms": 6244
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/15.10.6.2-9-e-1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@274424)",
+      "detail_hash": 1775623801521644244,
+      "duration_ms": 6040
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A10.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@282528)",
+      "detail_hash": 13352616110373504941,
+      "duration_ms": 9086
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A11.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@239576)",
+      "detail_hash": 3372122612816474355,
+      "duration_ms": 4297
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A12.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256944)",
+      "detail_hash": 2888620777561216761,
+      "duration_ms": 7615
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@225504)",
+      "detail_hash": 12258619561260659958,
+      "duration_ms": 4356
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T10.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241384)",
+      "detail_hash": 16198402600805495724,
+      "duration_ms": 4649
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T11.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@252592)",
+      "detail_hash": 13429880740022193034,
+      "duration_ms": 4481
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T12.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@271144)",
+      "detail_hash": 16461994057184408524,
+      "duration_ms": 4495
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T13.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241376)",
+      "detail_hash": 2766101447890748532,
+      "duration_ms": 3956
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T14.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@244520)",
+      "detail_hash": 3219373343761608852,
+      "duration_ms": 3995
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T15.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@244328)",
+      "detail_hash": 10906528347143392489,
+      "duration_ms": 5086
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T16.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241864)",
+      "detail_hash": 657967121347072947,
+      "duration_ms": 4039
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T17.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241376)",
+      "detail_hash": 2766101447890748532,
+      "duration_ms": 3912
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T18.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241376)",
+      "detail_hash": 2766101447890748532,
+      "duration_ms": 3978
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T19.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241368)",
+      "detail_hash": 9631105734329788808,
+      "duration_ms": 4045
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242088)",
+      "detail_hash": 1463242889640743465,
+      "duration_ms": 3934
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T20.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241440)",
+      "detail_hash": 4650215858688006998,
+      "duration_ms": 3867
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T21.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242928)",
+      "detail_hash": 15252378701278960184,
+      "duration_ms": 4558
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242344)",
+      "detail_hash": 10197975033508930752,
+      "duration_ms": 4051
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@244352)",
+      "detail_hash": 15279785981648873211,
+      "duration_ms": 3961
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@247384)",
+      "detail_hash": 6012406033703237754,
+      "duration_ms": 3881
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T6.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242976)",
+      "detail_hash": 9535308679340477891,
+      "duration_ms": 4835
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T7.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(intostr)",
+      "detail_hash": 15188422716949497543,
+      "duration_ms": 5853
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T8.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(invalof)",
+      "detail_hash": 14514967545374036389,
+      "duration_ms": 6052
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T9.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@243088)",
+      "detail_hash": 15156094472503754,
+      "duration_ms": 4313
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@260344)",
+      "detail_hash": 3353912635407822736,
+      "duration_ms": 6084
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@286176)",
+      "detail_hash": 521384591665482012,
+      "duration_ms": 5937
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@260024)",
+      "detail_hash": 10058106974995939428,
+      "duration_ms": 6473
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@262536)",
+      "detail_hash": 15926011650991469963,
+      "duration_ms": 6169
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported boolean property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 16381161815956048546,
+      "duration_ms": 3477
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T8.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported string property `exec`. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 3167751707836945736,
+      "duration_ms": 3489
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T9.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: unsupported number property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 15259417211001837983,
+      "duration_ms": 3425
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242240)",
+      "detail_hash": 6470853432152713475,
+      "duration_ms": 3969
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@633960)",
+      "detail_hash": 6959023720650143874,
+      "duration_ms": 3941
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@633984)",
+      "detail_hash": 10287217486764577916,
+      "duration_ms": 3943
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@634008)",
+      "detail_hash": 17458349026691310963,
+      "duration_ms": 3920
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242184)",
+      "detail_hash": 14055442437611590027,
+      "duration_ms": 3857
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T6.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242192)",
+      "detail_hash": 11442006603477436832,
+      "duration_ms": 4169
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T7.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@243608)",
+      "detail_hash": 3265455152169194302,
+      "duration_ms": 4036
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241400)",
+      "detail_hash": 5217413331544228929,
+      "duration_ms": 4047
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T10.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241488)",
+      "detail_hash": 11783434100943040578,
+      "duration_ms": 4016
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T11.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@261344)",
+      "detail_hash": 8812282368332858138,
+      "duration_ms": 5987
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T12.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241512)",
+      "detail_hash": 675676986921843918,
+      "duration_ms": 4037
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241392)",
+      "detail_hash": 13233921289278064024,
+      "duration_ms": 4027
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241392)",
+      "detail_hash": 13233921289278064024,
+      "duration_ms": 4129
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241392)",
+      "detail_hash": 13233921289278064024,
+      "duration_ms": 4183
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241456)",
+      "detail_hash": 1187159665668835837,
+      "duration_ms": 4395
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T6.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241392)",
+      "detail_hash": 13233921289278064024,
+      "duration_ms": 4367
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T7.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@268192)",
+      "detail_hash": 4413844558570538059,
+      "duration_ms": 3883
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T8.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241400)",
+      "detail_hash": 5217413331544228929,
+      "duration_ms": 3955
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T9.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241400)",
+      "detail_hash": 5217413331544228929,
+      "duration_ms": 3999
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256536)",
+      "detail_hash": 3338010279463930686,
+      "duration_ms": 5588
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256048)",
+      "detail_hash": 7303958224112568811,
+      "duration_ms": 6106
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241016)",
+      "detail_hash": 9179171543378516114,
+      "duration_ms": 3601
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A6.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@239528)",
+      "detail_hash": 6228314607814257395,
+      "duration_ms": 4034
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A8.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@239752)",
+      "detail_hash": 12598868614984843712,
+      "duration_ms": 4003
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/S15.10.6.2_A9.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@239648)",
+      "detail_hash": 1040616673780104121,
+      "duration_ms": 4189
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/duplicate-named-groups-properties.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256200)",
+      "detail_hash": 12383386645607303771,
+      "duration_ms": 7147
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/duplicate-named-indices-groups-properties.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256200)",
+      "detail_hash": 12383386645607303771,
+      "duration_ms": 9923
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/failure-g-lastindex-reset.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@246408)",
+      "detail_hash": 9525932435389139105,
+      "duration_ms": 4602
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/failure-lastindex-access.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242504)",
+      "detail_hash": 16236086592352057977,
+      "duration_ms": 4037
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/failure-lastindex-set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256216)",
+      "detail_hash": 5961217112120157725,
+      "duration_ms": 9985
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@284904)",
+      "detail_hash": 15971014838261531421,
+      "duration_ms": 9057
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/regexp-builtin-exec-v-u-flag.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@260176)",
+      "detail_hash": 10617440734170150557,
+      "duration_ms": 15891
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/success-g-lastindex-no-access.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@242448)",
+      "detail_hash": 18159354912036042975,
+      "duration_ms": 3951
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/success-lastindex-access.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@257536)",
+      "detail_hash": 6679189595762825688,
+      "duration_ms": 6897
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/u-captured-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@241112)",
+      "detail_hash": 5743513840260224774,
+      "duration_ms": 5925
+    },
+    {
+      "test_path": "built-ins/RegExp/prototype/exec/u-lastindex-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@240848)",
+      "detail_hash": 12721128878932264952,
+      "duration_ms": 4719
+    }
+  ],
+  "completed_paths": [
+    "built-ins/RegExp/prototype/exec/15.10.6.2-9-e-1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A10.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A11.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A12.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T10.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T11.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T12.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T13.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T14.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T15.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T16.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T17.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T18.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T19.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T2.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T20.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T21.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T3.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T4.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T5.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T6.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T7.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T8.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A1_T9.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T10.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T2.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T3.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T4.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T5.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T6.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T7.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T8.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A2_T9.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T2.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T3.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T4.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T5.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T6.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A3_T7.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T10.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T11.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T12.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T2.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T3.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T4.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T5.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T6.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T7.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T8.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A4_T9.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T1.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T2.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A5_T3.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A6.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A7.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A8.js",
+    "built-ins/RegExp/prototype/exec/S15.10.6.2_A9.js",
+    "built-ins/RegExp/prototype/exec/duplicate-named-groups-properties.js",
+    "built-ins/RegExp/prototype/exec/duplicate-named-indices-groups-properties.js",
+    "built-ins/RegExp/prototype/exec/failure-g-lastindex-reset.js",
+    "built-ins/RegExp/prototype/exec/failure-lastindex-access.js",
+    "built-ins/RegExp/prototype/exec/failure-lastindex-set.js",
+    "built-ins/RegExp/prototype/exec/name.js",
+    "built-ins/RegExp/prototype/exec/not-a-constructor.js",
+    "built-ins/RegExp/prototype/exec/regexp-builtin-exec-v-u-flag.js",
+    "built-ins/RegExp/prototype/exec/success-g-lastindex-no-access.js",
+    "built-ins/RegExp/prototype/exec/success-lastindex-access.js",
+    "built-ins/RegExp/prototype/exec/u-captured-value.js",
+    "built-ins/RegExp/prototype/exec/u-lastindex-adv.js",
+    "built-ins/RegExp/prototype/exec/u-lastindex-value.js",
+    "built-ins/RegExp/prototype/exec/y-fail-lastindex-no-write.js",
+    "built-ins/RegExp/prototype/exec/y-fail-lastindex.js",
+    "built-ins/RegExp/prototype/exec/y-fail-return.js",
+    "built-ins/RegExp/prototype/exec/y-init-lastindex.js",
+    "built-ins/RegExp/prototype/exec/y-set-lastindex.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

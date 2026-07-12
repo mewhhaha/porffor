@@ -94,6 +94,30 @@ if (accessorCallCount !== 1) fail(4294967296);
 if (accessorThis !== explicitReceiver) fail(8589934592);
 if (accessorValue !== 6) fail(17179869184);
 
+var nonwritableLengthSource = [];
+Object.defineProperty(nonwritableLengthSource, "length", { writable: false });
+var lengthReceiver = {};
+if (Reflect.set(nonwritableLengthSource, "length", 1, lengthReceiver) !== false) {
+  fail(35184372088832);
+}
+if (Object.prototype.hasOwnProperty.call(lengthReceiver, "length")) {
+  fail(70368744177664);
+}
+
+var writableLengthSource = [];
+var ordinaryLengthReceiver = {};
+if (Reflect.set(writableLengthSource, "length", 1, ordinaryLengthReceiver) !== true) {
+  fail(140737488355328);
+}
+if (ordinaryLengthReceiver.length !== 1) fail(281474976710656);
+
+var nonwritableLengthReceiver = [];
+Object.defineProperty(nonwritableLengthReceiver, "length", { writable: false });
+if (Reflect.set(writableLengthSource, "length", 1, nonwritableLengthReceiver) !== false) {
+  fail(562949953421312);
+}
+if (nonwritableLengthReceiver.length !== 0) fail(1125899906842624);
+
 var threw = false;
 try {
   Reflect.set(null, "x", 1);
@@ -127,5 +151,58 @@ if (seenTarget !== true) fail(549755813888);
 if (seenKey !== true) fail(1099511627776);
 if (seenValue !== true) fail(2199023255552);
 if (seenReceiver !== true) fail(4398046511104);
+
+var nonExtensibleArray = [1, 2];
+Object.preventExtensions(nonExtensibleArray);
+var existingIndexSet = Reflect.set(nonExtensibleArray, "0", 3);
+var newIndexSet = Reflect.set(nonExtensibleArray, "2", 4);
+var namedArraySet = Reflect.set(nonExtensibleArray, "named", 5);
+var arraySymbolKey = Symbol("non-extensible-array");
+var symbolArraySet = Reflect.set(nonExtensibleArray, arraySymbolKey, 6);
+var sparseArray = [];
+sparseArray[1000001] = 1;
+Object.preventExtensions(sparseArray);
+var existingSparseSet = Reflect.set(sparseArray, "1000001", 2);
+var newSparseSet = Reflect.set(sparseArray, "1000002", 3);
+if (
+  existingIndexSet !== true ||
+  nonExtensibleArray[0] !== 3 ||
+  newIndexSet !== false ||
+  nonExtensibleArray.length !== 2 ||
+  namedArraySet !== false ||
+  Object.prototype.hasOwnProperty.call(nonExtensibleArray, "named") ||
+  symbolArraySet !== false ||
+  Object.prototype.hasOwnProperty.call(nonExtensibleArray, arraySymbolKey) ||
+  existingSparseSet !== true ||
+  sparseArray[1000001] !== 2 ||
+  newSparseSet !== false ||
+  sparseArray[1000002] !== undefined ||
+  sparseArray.length !== 1000002
+) {
+  fail(2251799813685248);
+}
+
+var descriptorArray = [1];
+Object.defineProperty(descriptorArray, "0", {
+  value: 1,
+  writable: true,
+  enumerable: false,
+  configurable: false
+});
+var descriptorIndexSet = Reflect.set(descriptorArray, "0", 2);
+var preservedIndexDesc = Object.getOwnPropertyDescriptor(descriptorArray, "0");
+var fixedLengthArray = [];
+Object.defineProperty(fixedLengthArray, "length", { writable: false });
+if (
+  descriptorIndexSet !== true ||
+  descriptorArray[0] !== 2 ||
+  preservedIndexDesc.writable !== true ||
+  preservedIndexDesc.enumerable !== false ||
+  preservedIndexDesc.configurable !== false ||
+  Reflect.set(fixedLengthArray, "0", 1) !== false ||
+  fixedLengthArray.length !== 0
+) {
+  fail(4503599627370496);
+}
 
 failures === 0;

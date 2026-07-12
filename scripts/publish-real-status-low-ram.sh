@@ -9,6 +9,8 @@ SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
 MAX_MATRIX_NODES="${MAX_MATRIX_NODES:-1}"
 README_PATH="${README_PATH:-}"
+MATRIX_TOTAL=""
+MATRIX_COMPLETED=0
 
 if [[ ! -x "$PORF_BIN" ]]; then
   echo "missing executable: $PORF_BIN" >&2
@@ -24,7 +26,9 @@ matrix_progress() {
     aggregate_path="$(ls "$SNAPSHOT_DIR"/"${SNAPSHOT_NAME}"-aggregate-*.json | head -n 1)"
   fi
 
-  AGGREGATE_PATH="$aggregate_path" SUITE_ROOT="$SUITE_ROOT" node - <<'NODE'
+  if [[ -z "$MATRIX_TOTAL" ]]; then
+    local inventory
+    inventory="$(AGGREGATE_PATH="$aggregate_path" SUITE_ROOT="$SUITE_ROOT" node - <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
@@ -131,6 +135,24 @@ if (aggregatePath && fs.existsSync(aggregatePath)) {
 
 console.log(`${completed} ${nodes.length}`);
 NODE
+    )"
+    read -r MATRIX_COMPLETED MATRIX_TOTAL <<<"$inventory"
+    return 0
+  fi
+
+  MATRIX_COMPLETED=0
+  if [[ -n "$aggregate_path" && -f "$aggregate_path" ]]; then
+    MATRIX_COMPLETED="$(AGGREGATE_PATH="$aggregate_path" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+aggregate = json.loads(Path(os.environ["AGGREGATE_PATH"]).read_text())
+completed = aggregate.get("completed_nodes", [])
+print(len(completed) if isinstance(completed, list) else 0)
+PY
+    )"
+  fi
 }
 
 current_test262_revision() {
@@ -244,13 +266,17 @@ while true; do
     did_reset_revision_mismatch=1
   fi
 
-  read -r completed total < <(matrix_progress)
+  matrix_progress
+  completed="$MATRIX_COMPLETED"
+  total="$MATRIX_TOTAL"
   echo "matrix_progress: ${completed}/${total}"
 
   if [[ "$did_reset_stale_failed_nodes" -eq 0 ]]; then
     reset_stale_failed_nodes_once
     did_reset_stale_failed_nodes=1
-    read -r completed total < <(matrix_progress)
+    matrix_progress
+    completed="$MATRIX_COMPLETED"
+    total="$MATRIX_TOTAL"
     echo "matrix_progress_after_stale_reset: ${completed}/${total}"
   fi
 

@@ -1563,11 +1563,13 @@ impl<'a> FunctionBuilder<'a> {
         seen_stack_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let helper_index = self.json_stringify_value_helper_function_index().ok_or_else(|| {
-            EmitError::unsupported(
+        let helper_index = self
+            .json_stringify_value_helper_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported(
                 "unsupported in porffor wasm-aot first slice: JSON.stringify helper without heap",
             )
-        })?;
+            })?;
         let result_tag_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(value_payload_local));
@@ -2049,7 +2051,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(token_local));
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
-        self.emit_json_indent_payload(gap_payload_local, indent_level_local, token_local, function)?;
+        self.emit_json_indent_payload(
+            gap_payload_local,
+            indent_level_local,
+            token_local,
+            function,
+        )?;
         self.emit_concat_string_payloads_local(output_local, token_local, function)?;
         function.instruction(&Instruction::LocalSet(output_local));
 
@@ -2942,9 +2949,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 3=replacer tag, 4=gap payload, 5=indent level, 6=seen-stack pointer.
     /// Results are the `(result, result_tag, completion, completion_aux)` tuple
     /// where a normal completion carries the serialized string payload.
-    pub(crate) fn compile_json_stringify_value_helper(
-        &mut self,
-    ) -> Result<Function, EmitError> {
+    pub(crate) fn compile_json_stringify_value_helper(&mut self) -> Result<Function, EmitError> {
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.push_scope();

@@ -25,6 +25,17 @@ checkMethod("trimRight", "trimEnd", 0, String.prototype.trimRight);
 check(String.prototype.trimLeft === String.prototype.trimStart);
 check(String.prototype.trimRight === String.prototype.trimEnd);
 
+var $262 = { createRealm: __porfCreateRealm };
+var otherRealm = $262.createRealm().global;
+check(typeof otherRealm.String.prototype.trimLeft === "function");
+check(typeof otherRealm.String.prototype.trimRight === "function");
+check(otherRealm.String.prototype.trimLeft === otherRealm.String.prototype.trimStart);
+check(otherRealm.String.prototype.trimRight === otherRealm.String.prototype.trimEnd);
+check(otherRealm.String.prototype.trimLeft.name === "trimStart");
+check(otherRealm.String.prototype.trimRight.name === "trimEnd");
+check(otherRealm.String.prototype.trimLeft.length === 0);
+check(otherRealm.String.prototype.trimRight.length === 0);
+
 check("abcdef".substr(1, 3) === "bcd");
 check("abcdef".substr(-2) === "ef");
 check("abcdef".substr(-20, 2) === "ab");
@@ -38,6 +49,20 @@ check("a\u{1D306}b".substr(1, 2) === "\u{1D306}");
 check("a\u{1D306}b".substr(3) === "b");
 check("a\u{1D306}b".substr(-1) === "b");
 check("a\u{1D306}b".substr(-3, 2) === "\u{1D306}");
+var astral = "\u{1D306}";
+check(astral.substr(0, 1) === "\ud834");
+check(astral.substr(1, 1) === "\udf06");
+check(astral.substr(0, 2) === astral);
+check(("x" + astral + "y").substr(1, 1) === "\ud834");
+check(("x" + astral + "y").substr(2, 1) === "\udf06");
+check(("x" + astral + "y").substr(1, 2) === astral);
+check(String.prototype.substr.call("\u00e9" + astral + "z", 1, 1) === "\ud834");
+check(String.prototype.substr.call("\u00e9" + astral + "z", 2, 1) === "\udf06");
+var loneSurrogates = "\ud834x\udf06";
+check(loneSurrogates.substr(0, 1) === "\ud834");
+check(loneSurrogates.substr(1, 1) === "x");
+check(loneSurrogates.substr(2, 1) === "\udf06");
+check(loneSurrogates.substr(0) === loneSurrogates);
 
 check(" \t\nabc\r ".trimStart() === "abc\r ");
 check(" \t\nabc\r ".trimLeft() === "abc\r ");

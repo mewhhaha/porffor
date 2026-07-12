@@ -586,6 +586,16 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::RegExpLegacyStaticGetter
         | StandardBuiltinId::RegExpLegacyStaticSetter
         | StandardBuiltinId::RegExpSpeciesGetter
+        | StandardBuiltinId::RegExpPrototypeFlagsGetter
+        | StandardBuiltinId::RegExpPrototypeSourceGetter
+        | StandardBuiltinId::RegExpPrototypeHasIndicesGetter
+        | StandardBuiltinId::RegExpPrototypeGlobalGetter
+        | StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter
+        | StandardBuiltinId::RegExpPrototypeMultilineGetter
+        | StandardBuiltinId::RegExpPrototypeDotAllGetter
+        | StandardBuiltinId::RegExpPrototypeUnicodeGetter
+        | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
+        | StandardBuiltinId::RegExpPrototypeStickyGetter
         | StandardBuiltinId::RegExpPrototypeSymbolMatch
         | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
         | StandardBuiltinId::RegExpPrototypeSymbolSearch
@@ -633,6 +643,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayIsArray
         | StandardBuiltinId::ArraySpeciesGetter
         | StandardBuiltinId::ArrayPrototypeConcat
+        | StandardBuiltinId::ArrayPrototypeJoin
+        | StandardBuiltinId::ArrayPrototypeSplice
         | StandardBuiltinId::ArrayPrototypeToLocaleString
         | StandardBuiltinId::ArrayPrototypeFlat
         | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -912,6 +924,47 @@ pub(crate) fn typed_array_realm_prototype_offset(builtin: StandardBuiltinId) -> 
         }
         StandardBuiltinId::BigUint64ArrayConstructor => {
             HEAP_FUNCTION_REALM_BIGUINT64_ARRAY_PROTOTYPE_OFFSET
+        }
+        _ => return None,
+    })
+}
+
+pub(crate) fn typed_array_realm_intrinsics_prototype_offset(
+    builtin: StandardBuiltinId,
+) -> Option<u64> {
+    Some(match builtin {
+        StandardBuiltinId::Float64ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Float32ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Int32ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Int16ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Int8ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Uint32ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_UINT32_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Uint16ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_UINT16_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Uint8ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_UINT8_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Uint8ClampedArrayConstructor => {
+            HEAP_REALM_INTRINSICS_UINT8_CLAMPED_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::BigInt64ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_BIGINT64_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::BigUint64ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_BIGUINT64_ARRAY_PROTOTYPE_OFFSET
         }
         _ => return None,
     })

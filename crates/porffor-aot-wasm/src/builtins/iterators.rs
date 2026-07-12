@@ -165,7 +165,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_tag_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
         function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_write(
+        self.emit_object_write_strict(
             regexp_payload_local,
             regexp_tag_local,
             key_local,

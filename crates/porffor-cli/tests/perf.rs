@@ -72,7 +72,11 @@ fn cold_exact_after_cache_prune_is_under_five_seconds() {
         .args(["cache", "prune"])
         .output()
         .expect("cache prune process should run");
-    assert!(prune.status.success(), "{}", String::from_utf8_lossy(&prune.stderr));
+    assert!(
+        prune.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prune.stderr)
+    );
 
     let started = Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
@@ -81,6 +85,10 @@ fn cold_exact_after_cache_prune_is_under_five_seconds() {
         .expect("cold exact process should run");
     let elapsed = started.elapsed();
     eprintln!("cold exact Wasmtime-AOT after cache prune: {elapsed:?}");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(elapsed <= COLD_LIMIT, "cold exact took {elapsed:?}");
 }

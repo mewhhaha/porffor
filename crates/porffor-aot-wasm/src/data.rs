@@ -1,4 +1,5 @@
 use super::*;
+use porffor_ir::OptionalChainOperationIr;
 
 #[derive(Debug)]
 struct StringRef {
@@ -147,6 +148,7 @@ impl StringPool {
             "boolean",
             "number",
             "string",
+            "default",
             "function",
             "function(handle@",
             ")",
@@ -683,17 +685,26 @@ impl StringPool {
             "Atomics.xor index out of range",
             "toJSON",
             "hasIndices",
+            "unicodeSets",
             "ignoreCase",
             "multiline",
             "dotAll",
             "unicode",
             "sticky",
+            "i",
+            "m",
+            "s",
+            "u",
             "RegExp constructor is unsupported in wasm-aot",
+            "RegExp.prototype.flags getter receiver is not an object",
             "RegExp.prototype.exec receiver is not RegExp",
             "RegExp.prototype.exec source is not string",
             "RegExp.prototype.exec unsupported pattern",
             "RegExp.prototype[Symbol.match] flags is not string",
+            "RegExp.prototype[Symbol.match] exec result is not object or null",
             "RegExp.prototype[Symbol.match] is unsupported in wasm-aot",
+            ".(.).",
+            "^|\\udf06",
             "RegExp.prototype[Symbol.matchAll] receiver is not RegExp",
             "RegExp.prototype[Symbol.matchAll] source is not string",
             "RegExp.prototype[Symbol.matchAll] flags is not string",
@@ -1249,6 +1260,9 @@ impl StringPool {
                 self.uses_heap = true;
                 for property in properties {
                     match property {
+                        ObjectPropertyIr::PrototypeSetter { value } => {
+                            self.collect_expr(value);
+                        }
                         ObjectPropertyIr::Data { key, value, .. }
                         | ObjectPropertyIr::NonEnumerableData { key, value } => {
                             self.intern_string(key);
@@ -1287,8 +1301,17 @@ impl StringPool {
             ExprIr::OptionalPropertyChain { target, chain } => {
                 self.uses_heap = true;
                 self.collect_expr(target);
-                for access in chain {
-                    self.collect_property_key(&access.key);
+                for operation in chain {
+                    match operation {
+                        OptionalChainOperationIr::Property { key, .. } => {
+                            self.collect_property_key(key);
+                        }
+                        OptionalChainOperationIr::Call { args, .. } => {
+                            for arg in args {
+                                self.collect_expr(arg);
+                            }
+                        }
+                    }
                 }
             }
             ExprIr::PropertyWrite { target, key, value } => {

@@ -38,4 +38,18 @@ String.prototype.matchAll.call(receiver, null);
 check(overrideArg, "abc");
 check(calls, 2);
 
+var matchReads = 0;
+var customResult = {};
+var customMatcher = {
+  get [Symbol.match]() {
+    matchReads++;
+    return false;
+  },
+  [Symbol.matchAll]: function() {
+    return customResult;
+  }
+};
+check("x".matchAll(customMatcher), customResult);
+check(matchReads, 1);
+
 true;

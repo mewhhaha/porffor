@@ -1,7 +1,6 @@
 use crate::{
     FunctionId, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
-    BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, SYMBOL_NAME,
-    BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
+    BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
     BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
@@ -25,10 +24,11 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
     BUILTIN_ATOMICS_ADD_FUNCTION_ID, BUILTIN_ATOMICS_AND_FUNCTION_ID,
@@ -154,10 +154,20 @@ use crate::{
     BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REGEXP_ESCAPE_FUNCTION_ID,
     BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_HAS_INDICES_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_IGNORE_CASE_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_MULTILINE_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_SOURCE_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_STICKY_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID,
-    BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID, BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID,
-    BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID, BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROWABLE_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROW_FUNCTION_ID,
@@ -187,9 +197,11 @@ use crate::{
     BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID,
-    BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID, BUILTIN_SYNTAX_ERROR_FUNCTION_ID,
-    BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
+    BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID, BUILTIN_SYMBOL_FOR_FUNCTION_ID,
+    BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
+    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID, BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID,
@@ -205,8 +217,9 @@ use crate::{
     HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
     IS_CONSTRUCTOR_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME, PRINT_NAME,
     PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME, SHARED_ARRAY_BUFFER_NAME,
-    STRING_NAME, SUPPRESSED_ERROR_NAME, SYNTAX_ERROR_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
-    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
+    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TYPE_ERROR_NAME,
+    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
+    UNESCAPE_NAME, URI_ERROR_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -317,6 +330,8 @@ pub enum StandardBuiltinId {
     ArrayIsArray,
     ArraySpeciesGetter,
     ArrayPrototypeConcat,
+    ArrayPrototypeJoin,
+    ArrayPrototypeSplice,
     ArrayPrototypeToLocaleString,
     ArrayPrototypeFlat,
     ArrayPrototypeFlatMap,
@@ -467,6 +482,16 @@ pub enum StandardBuiltinId {
     DatePrototypeToUtcString,
     RegExpConstructor,
     RegExpSpeciesGetter,
+    RegExpPrototypeFlagsGetter,
+    RegExpPrototypeSourceGetter,
+    RegExpPrototypeHasIndicesGetter,
+    RegExpPrototypeGlobalGetter,
+    RegExpPrototypeIgnoreCaseGetter,
+    RegExpPrototypeMultilineGetter,
+    RegExpPrototypeDotAllGetter,
+    RegExpPrototypeUnicodeGetter,
+    RegExpPrototypeUnicodeSetsGetter,
+    RegExpPrototypeStickyGetter,
     RegExpLegacyStaticGetter,
     RegExpLegacyStaticSetter,
     RegExpPrototypeSymbolMatch,
@@ -772,6 +797,8 @@ impl StandardBuiltinId {
             | Self::ArrayIsArray
             | Self::ArraySpeciesGetter
             | Self::ArrayPrototypeConcat
+            | Self::ArrayPrototypeJoin
+            | Self::ArrayPrototypeSplice
             | Self::ArrayPrototypeToLocaleString
             | Self::ArrayPrototypeFlat
             | Self::ArrayPrototypeFlatMap
@@ -930,6 +957,16 @@ impl StandardBuiltinId {
             | Self::DatePrototypeSetUtcMilliseconds
             | Self::DatePrototypeToUtcString
             | Self::RegExpSpeciesGetter
+            | Self::RegExpPrototypeFlagsGetter
+            | Self::RegExpPrototypeSourceGetter
+            | Self::RegExpPrototypeHasIndicesGetter
+            | Self::RegExpPrototypeGlobalGetter
+            | Self::RegExpPrototypeIgnoreCaseGetter
+            | Self::RegExpPrototypeMultilineGetter
+            | Self::RegExpPrototypeDotAllGetter
+            | Self::RegExpPrototypeUnicodeGetter
+            | Self::RegExpPrototypeUnicodeSetsGetter
+            | Self::RegExpPrototypeStickyGetter
             | Self::RegExpLegacyStaticGetter
             | Self::RegExpLegacyStaticSetter
             | Self::RegExpPrototypeSymbolMatch
@@ -1049,6 +1086,8 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => "Array.isArray",
             Self::ArraySpeciesGetter => "get Array [Symbol.species]",
             Self::ArrayPrototypeConcat => "Array.prototype.concat",
+            Self::ArrayPrototypeJoin => "Array.prototype.join",
+            Self::ArrayPrototypeSplice => "Array.prototype.splice",
             Self::ArrayPrototypeToLocaleString => "Array.prototype.toLocaleString",
             Self::ArrayPrototypeFlat => "Array.prototype.flat",
             Self::ArrayPrototypeFlatMap => "Array.prototype.flatMap",
@@ -1215,6 +1254,16 @@ impl StandardBuiltinId {
             Self::DatePrototypeToUtcString => "Date.prototype.toUTCString",
             Self::RegExpConstructor => REGEXP_NAME,
             Self::RegExpSpeciesGetter => "get RegExp [Symbol.species]",
+            Self::RegExpPrototypeFlagsGetter => "get RegExp.prototype.flags",
+            Self::RegExpPrototypeSourceGetter => "get RegExp.prototype.source",
+            Self::RegExpPrototypeHasIndicesGetter => "get RegExp.prototype.hasIndices",
+            Self::RegExpPrototypeGlobalGetter => "get RegExp.prototype.global",
+            Self::RegExpPrototypeIgnoreCaseGetter => "get RegExp.prototype.ignoreCase",
+            Self::RegExpPrototypeMultilineGetter => "get RegExp.prototype.multiline",
+            Self::RegExpPrototypeDotAllGetter => "get RegExp.prototype.dotAll",
+            Self::RegExpPrototypeUnicodeGetter => "get RegExp.prototype.unicode",
+            Self::RegExpPrototypeUnicodeSetsGetter => "get RegExp.prototype.unicodeSets",
+            Self::RegExpPrototypeStickyGetter => "get RegExp.prototype.sticky",
             Self::RegExpLegacyStaticGetter => "get RegExp legacy static",
             Self::RegExpLegacyStaticSetter => "set RegExp legacy static",
             Self::RegExpPrototypeSymbolMatch => "RegExp.prototype[Symbol.match]",
@@ -1461,6 +1510,8 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID.to_string(),
             Self::ArraySpeciesGetter => BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeConcat => BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeJoin => BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeSplice => BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeToLocaleString => {
                 BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
             }
@@ -1797,6 +1848,36 @@ impl StandardBuiltinId {
             }
             Self::RegExpConstructor => BUILTIN_REGEXP_FUNCTION_ID.to_string(),
             Self::RegExpSpeciesGetter => BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID.to_string(),
+            Self::RegExpPrototypeFlagsGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeSourceGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_SOURCE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeHasIndicesGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_HAS_INDICES_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeGlobalGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeIgnoreCaseGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_IGNORE_CASE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeMultilineGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_MULTILINE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeDotAllGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeUnicodeGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeUnicodeSetsGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeStickyGetter => {
+                BUILTIN_REGEXP_PROTOTYPE_STICKY_GETTER_FUNCTION_ID.to_string()
+            }
             Self::RegExpLegacyStaticGetter => {
                 BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID.to_string()
             }
@@ -2008,9 +2089,7 @@ impl StandardBuiltinId {
             }
             Self::SymbolPrototypeToString => "$builtin.Symbol.prototype.toString".to_string(),
             Self::SymbolPrototypeValueOf => "$builtin.Symbol.prototype.valueOf".to_string(),
-            Self::SymbolPrototypeToPrimitive => {
-                "$builtin.Symbol.prototype.toPrimitive".to_string()
-            }
+            Self::SymbolPrototypeToPrimitive => "$builtin.Symbol.prototype.toPrimitive".to_string(),
             Self::BooleanPrototypeToString => "$builtin.Boolean.prototype.toString".to_string(),
             Self::BooleanPrototypeValueOf => "$builtin.Boolean.prototype.valueOf".to_string(),
             Self::ErrorConstructor => BUILTIN_ERROR_FUNCTION_ID.to_string(),
@@ -2103,6 +2182,8 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID => Some(Self::ArrayIsArray),
             BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID => Some(Self::ArraySpeciesGetter),
             BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::ArrayPrototypeConcat),
+            BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID => Some(Self::ArrayPrototypeJoin),
+            BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID => Some(Self::ArrayPrototypeSplice),
             BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
                 Some(Self::ArrayPrototypeToLocaleString)
             }
@@ -2401,6 +2482,36 @@ impl StandardBuiltinId {
             }
             BUILTIN_REGEXP_FUNCTION_ID => Some(Self::RegExpConstructor),
             BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID => Some(Self::RegExpSpeciesGetter),
+            BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeFlagsGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_SOURCE_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeSourceGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_HAS_INDICES_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeHasIndicesGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeGlobalGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_IGNORE_CASE_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeIgnoreCaseGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_MULTILINE_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeMultilineGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeDotAllGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeUnicodeGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeUnicodeSetsGetter)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_STICKY_GETTER_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeStickyGetter)
+            }
             BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticGetter),
             BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticSetter),
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID => {
@@ -2563,9 +2674,7 @@ impl StandardBuiltinId {
             BUILTIN_SYMBOL_FUNCTION_ID => Some(Self::SymbolConstructor),
             BUILTIN_SYMBOL_FOR_FUNCTION_ID => Some(Self::SymbolFor),
             BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID => Some(Self::SymbolKeyFor),
-            "$builtin.Symbol.prototype.description" => {
-                Some(Self::SymbolPrototypeDescriptionGetter)
-            }
+            "$builtin.Symbol.prototype.description" => Some(Self::SymbolPrototypeDescriptionGetter),
             "$builtin.Symbol.prototype.toString" => Some(Self::SymbolPrototypeToString),
             "$builtin.Symbol.prototype.valueOf" => Some(Self::SymbolPrototypeValueOf),
             "$builtin.Symbol.prototype.toPrimitive" => Some(Self::SymbolPrototypeToPrimitive),
@@ -2691,6 +2800,8 @@ impl StandardBuiltinId {
             Self::ArrayIsArray,
             Self::ArraySpeciesGetter,
             Self::ArrayPrototypeConcat,
+            Self::ArrayPrototypeJoin,
+            Self::ArrayPrototypeSplice,
             Self::ArrayPrototypeToLocaleString,
             Self::ArrayPrototypeFlat,
             Self::ArrayPrototypeFlatMap,
@@ -2841,6 +2952,16 @@ impl StandardBuiltinId {
             Self::DatePrototypeToUtcString,
             Self::RegExpConstructor,
             Self::RegExpSpeciesGetter,
+            Self::RegExpPrototypeFlagsGetter,
+            Self::RegExpPrototypeSourceGetter,
+            Self::RegExpPrototypeHasIndicesGetter,
+            Self::RegExpPrototypeGlobalGetter,
+            Self::RegExpPrototypeIgnoreCaseGetter,
+            Self::RegExpPrototypeMultilineGetter,
+            Self::RegExpPrototypeDotAllGetter,
+            Self::RegExpPrototypeUnicodeGetter,
+            Self::RegExpPrototypeUnicodeSetsGetter,
+            Self::RegExpPrototypeStickyGetter,
             Self::RegExpLegacyStaticGetter,
             Self::RegExpLegacyStaticSetter,
             Self::RegExpPrototypeSymbolMatch,
@@ -3259,6 +3380,8 @@ impl StandardBuiltinId {
             Self::ArrayIsArray => Some("isArray"),
             Self::ArraySpeciesGetter => Some("get [Symbol.species]"),
             Self::ArrayPrototypeConcat => Some("concat"),
+            Self::ArrayPrototypeJoin => Some("join"),
+            Self::ArrayPrototypeSplice => Some("splice"),
             Self::ArrayPrototypeToLocaleString => Some("toLocaleString"),
             Self::ArrayPrototypeFlat => Some("flat"),
             Self::ArrayPrototypeFlatMap => Some("flatMap"),
@@ -3427,6 +3550,16 @@ impl StandardBuiltinId {
             Self::DatePrototypeToUtcString => Some("toUTCString"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
+            Self::RegExpPrototypeFlagsGetter => Some("get flags"),
+            Self::RegExpPrototypeSourceGetter => Some("get source"),
+            Self::RegExpPrototypeHasIndicesGetter => Some("get hasIndices"),
+            Self::RegExpPrototypeGlobalGetter => Some("get global"),
+            Self::RegExpPrototypeIgnoreCaseGetter => Some("get ignoreCase"),
+            Self::RegExpPrototypeMultilineGetter => Some("get multiline"),
+            Self::RegExpPrototypeDotAllGetter => Some("get dotAll"),
+            Self::RegExpPrototypeUnicodeGetter => Some("get unicode"),
+            Self::RegExpPrototypeUnicodeSetsGetter => Some("get unicodeSets"),
+            Self::RegExpPrototypeStickyGetter => Some("get sticky"),
             Self::RegExpLegacyStaticGetter => Some("get RegExp legacy static"),
             Self::RegExpLegacyStaticSetter => Some("set RegExp legacy static"),
             Self::RegExpPrototypeSymbolMatch => Some("[Symbol.match]"),

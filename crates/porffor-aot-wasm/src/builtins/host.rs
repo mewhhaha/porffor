@@ -1,5 +1,13 @@
 use super::super::*;
 
+fn created_realm_string_prototype_method_aliases(name: &str) -> &'static [&'static str] {
+    match name {
+        "trimStart" => &["trimLeft"],
+        "trimEnd" => &["trimRight"],
+        _ => &[],
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_host_print_builtin(
         &mut self,
@@ -2180,6 +2188,28 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "join",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeJoin.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.join`",
+                        )
+                    })?,
+            ),
+            (
+                "splice",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSplice.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.splice`",
+                        )
+                    })?,
+            ),
+            (
                 "flat",
                 self.functions
                     .get(&StandardBuiltinId::ArrayPrototypeFlat.function_id())
@@ -2283,6 +2313,33 @@ impl<'a> FunctionBuilder<'a> {
             .functions
             .get(&StandardBuiltinId::SymbolKeyFor.function_id())
             .cloned();
+        let symbol_prototype_method_metas = [
+            ("toString", StandardBuiltinId::SymbolPrototypeToString),
+            ("valueOf", StandardBuiltinId::SymbolPrototypeValueOf),
+        ]
+        .into_iter()
+        .map(|(name, builtin)| {
+            self.functions
+                .get(&builtin.function_id())
+                .cloned()
+                .map(|meta| (name, meta))
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        let symbol_to_primitive_meta = self
+            .functions
+            .get(&StandardBuiltinId::SymbolPrototypeToPrimitive.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Symbol.prototype[Symbol.toPrimitive]`",
+                )
+            })?;
         let number_static_method_metas = [
             (
                 "isInteger",
@@ -3220,10 +3277,52 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
+        for (offset, prototype_local) in [
+            (
+                HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+                array_prototype_local,
+            ),
+            (
+                HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+                number_prototype_local,
+            ),
+            (
+                HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+                string_prototype_local,
+            ),
+            (
+                HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+                boolean_prototype_local,
+            ),
+        ] {
+            self.emit_store_realm_intrinsic_prototype(
+                realm_record_local,
+                offset,
+                prototype_local,
+                function,
+            );
+        }
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(symbol_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(bigint_prototype_local));
+        for (offset, prototype_local) in [
+            (
+                HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+                symbol_prototype_local,
+            ),
+            (
+                HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+                bigint_prototype_local,
+            ),
+        ] {
+            self.emit_store_realm_intrinsic_prototype(
+                realm_record_local,
+                offset,
+                prototype_local,
+                function,
+            );
+        }
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(array_buffer_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
@@ -3279,6 +3378,12 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.emit_object_define_local_data(
@@ -3288,6 +3393,15 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
+            for alias in created_realm_string_prototype_method_aliases(name) {
+                self.emit_object_define_local_data(
+                    string_prototype_local,
+                    alias,
+                    method_payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
             self.release_temp_local(method_payload_local);
         }
         for (name, meta) in &array_prototype_method_metas {
@@ -3501,6 +3615,21 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             function.instruction(&Instruction::LocalSet(*prototype_local));
         }
+        for (builtin, prototype_local) in &typed_array_prototype_locals {
+            let intrinsic_offset = typed_array_realm_intrinsics_prototype_offset(*builtin)
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: missing typed array realm intrinsic prototype offset `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            self.emit_store_realm_intrinsic_prototype(
+                realm_record_local,
+                intrinsic_offset,
+                *prototype_local,
+                function,
+            );
+        }
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         for (builtin, prototype_local) in &typed_array_prototype_locals {
@@ -3662,6 +3791,12 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.emit_object_define_local_data(
@@ -3687,8 +3822,20 @@ impl<'a> FunctionBuilder<'a> {
             );
             self.store_i64_local_at_offset(
                 method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
                 HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
                 type_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
                 function,
             );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -4476,6 +4623,71 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
+        for (name, meta) in &symbol_prototype_method_metas {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+            self.emit_object_define_local_data(
+                symbol_prototype_local,
+                name,
+                method_payload_local,
+                symbol_member_tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        let symbol_to_primitive_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&symbol_to_primitive_meta, function)?;
+        function.instruction(&Instruction::LocalSet(symbol_to_primitive_payload_local));
+        self.emit_store_function_defining_realm(
+            symbol_to_primitive_payload_local,
+            realm_record_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            symbol_to_primitive_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            symbol_to_primitive_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            symbol_to_primitive_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(symbol_member_tag_local));
+        self.emit_object_define_local_data_with_flags(
+            symbol_prototype_local,
+            "Symbol.toPrimitive",
+            symbol_to_primitive_payload_local,
+            symbol_member_tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(symbol_to_primitive_payload_local);
         if let Some(for_meta) = &symbol_for_meta {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload(for_meta, function)?;

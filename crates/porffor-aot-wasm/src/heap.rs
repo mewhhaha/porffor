@@ -228,8 +228,9 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 24;
-pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 24;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 160;
+pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
+pub(crate) const HEAP_ARRAY_RECORD_SIZE: u64 = 272;
 #[allow(dead_code)]
 pub(crate) const HEAP_STRING_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
@@ -243,7 +244,7 @@ pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 64;
 #[allow(dead_code)]
 pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
 pub(crate) const SPARSE_ARRAY_DENSE_GROW_FACTOR: u64 = 16;
-pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 40;
+pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 48;
 // Arguments records reuse the generic array header (ptr/len/cap/prototype at
 // 0/8/16/24) and are also inspected by generic object paths (e.g.
 // `Object.prototype.toString`) that read the boxed-object cluster at
@@ -279,6 +280,8 @@ pub(crate) const HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET: u64 = 96;
 pub(crate) const HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 104;
 pub(crate) const HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 112;
 pub(crate) const HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET: u64 = 120;
+pub(crate) const HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET: u64 = 128;
+pub(crate) const HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET: u64 = 136;
 pub(crate) const HEAP_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_CAP_OFFSET: u64 = 16;
@@ -317,6 +320,45 @@ pub(crate) const HEAP_FUNCTION_DEFINING_REALM_OFFSET: u64 = 272;
 pub(crate) const HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET: u64 = 280;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 288;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 296;
+// Class function objects own this immutable context through
+// `HEAP_FUNCTION_ENV_HANDLE_OFFSET`.  It separates lexical scope from the
+// member's [[HomeObject]]; in particular, `super` must not derive its base
+// from the receiver supplied by an eventual detached call.
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET: u64 = 0;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET: u64 = 8;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_SIZE: u64 = 32;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "lexical_env",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "active_function",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "home_object_payload",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "home_object_tag",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
 pub(crate) const HEAP_REALM_ID_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_AGENT_ID_OFFSET: u64 = 8;
 pub(crate) const HEAP_REALM_GLOBAL_OBJECT_OFFSET: u64 = 16;
@@ -328,11 +370,31 @@ pub(crate) const HEAP_REALM_MODULE_REGISTRY_OFFSET: u64 = 56;
 pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET: u64 = 8;
 pub(crate) const HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET: u64 = 16;
+pub(crate) const HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET: u64 = 24;
+pub(crate) const HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET: u64 = 32;
+pub(crate) const HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET: u64 = 40;
+pub(crate) const HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET: u64 = 48;
+pub(crate) const HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET: u64 = 56;
+pub(crate) const HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET: u64 = 64;
+pub(crate) const HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET: u64 = 72;
+pub(crate) const HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET: u64 = 80;
+pub(crate) const HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET: u64 = 88;
+pub(crate) const HEAP_REALM_INTRINSICS_UINT32_ARRAY_PROTOTYPE_OFFSET: u64 = 96;
+pub(crate) const HEAP_REALM_INTRINSICS_UINT16_ARRAY_PROTOTYPE_OFFSET: u64 = 104;
+pub(crate) const HEAP_REALM_INTRINSICS_UINT8_ARRAY_PROTOTYPE_OFFSET: u64 = 112;
+pub(crate) const HEAP_REALM_INTRINSICS_UINT8_CLAMPED_ARRAY_PROTOTYPE_OFFSET: u64 = 120;
+pub(crate) const HEAP_REALM_INTRINSICS_BIGINT64_ARRAY_PROTOTYPE_OFFSET: u64 = 128;
+pub(crate) const HEAP_REALM_INTRINSICS_BIGUINT64_ARRAY_PROTOTYPE_OFFSET: u64 = 136;
+pub(crate) const HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET: u64 = 144;
+pub(crate) const HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET: u64 = 152;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_PAYLOAD_OFFSET: u64 = 24;
 pub(crate) const HEAP_BOUND_FUNCTION_ARGS_PAYLOAD_OFFSET: u64 = 32;
+// The bound function's own payload is retained so [[Construct]] can apply
+// BoundFunctionExoticObject's one-level `SameValue(F, newTarget)` rewrite.
+pub(crate) const HEAP_BOUND_FUNCTION_SELF_PAYLOAD_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_KEY_OFFSET: u64 = 0;
 pub(crate) const HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET: u64 = 8;
 pub(crate) const HEAP_OBJECT_DATA_TAG_OFFSET: u64 = 16;
@@ -344,6 +406,8 @@ pub(crate) const HEAP_OBJECT_SETTER_PAYLOAD_OFFSET: u64 = 56;
 pub(crate) const HEAP_ARRAY_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_ARRAY_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET: u64 = 16;
+pub(crate) const HEAP_ARRAY_SETTER_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_ARRAY_SETTER_PAYLOAD_OFFSET: u64 = 32;
 pub(crate) const HEAP_ARRAY_CONSTRUCTOR_TAG_OFFSET: u64 = 32;
 pub(crate) const HEAP_ARRAY_CONSTRUCTOR_PAYLOAD_OFFSET: u64 = 40;
 pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
@@ -372,11 +436,15 @@ pub(crate) const HEAP_ARRAY_PRESENT_INDEXES_CAP_OFFSET: u64 = 224;
 pub(crate) const HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET: u64 = 232;
 pub(crate) const HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET: u64 = 240;
 pub(crate) const HEAP_ARRAY_NAMED_PROPS_CAP_OFFSET: u64 = 248;
-pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_SIZE: u64 = 32;
+pub(crate) const HEAP_ARRAY_PROTOTYPE_TAG_OFFSET: u64 = 256;
+pub(crate) const HEAP_ARRAY_NON_EXTENSIBLE_OFFSET: u64 = 264;
+pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_SIZE: u64 = 48;
 pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_INDEX_OFFSET: u64 = 0;
 pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_PAYLOAD_OFFSET: u64 = 16;
-pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_DESCRIPTOR_KIND_OFFSET: u64 = 24;
+pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_SETTER_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_SETTER_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_ARRAY_PRESENT_ENTRY_DESCRIPTOR_KIND_OFFSET: u64 = 40;
 pub(crate) const HEAP_STRING_CODE_UNITS_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_STRING_BYTE_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_STRING_CODE_UNIT_LEN_OFFSET: u64 = 16;
@@ -436,6 +504,7 @@ pub(crate) const PROXY_HANDLER_PAYLOAD_MIN: u64 = BOXED_PRIMITIVE_KIND_SYMBOL + 
 pub(crate) const OBJECT_INTERNAL_BRAND_ERROR: u64 = 1;
 pub(crate) const OBJECT_INTERNAL_BRAND_RAW_JSON: u64 = 2;
 pub(crate) const OBJECT_INTERNAL_BRAND_TYPED_ARRAY: u64 = 3;
+pub(crate) const OBJECT_INTERNAL_BRAND_REGEXP: u64 = 4;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 pub(crate) const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -561,6 +630,20 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
         width: 8,
         pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "original_source_payload",
+        offset: HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "original_flags_payload",
+        offset: HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
     },
 ];
 
@@ -917,6 +1000,125 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%String.prototype%",
+        offset: HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Number.prototype%",
+        offset: HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Boolean.prototype%",
+        offset: HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Float64Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Float32Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Int32Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Int16Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Int8Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Uint32Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_UINT32_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Uint16Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_UINT16_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Uint8Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_UINT8_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Uint8ClampedArray.prototype%",
+        offset: HEAP_REALM_INTRINSICS_UINT8_CLAMPED_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%BigInt64Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_BIGINT64_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%BigUint64Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_BIGUINT64_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Symbol.prototype%",
+        offset: HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%BigInt.prototype%",
+        offset: HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -956,6 +1158,13 @@ pub(crate) const HEAP_BOUND_FUNCTION_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "bound-function",
+        name: "self_payload",
+        offset: HEAP_BOUND_FUNCTION_SELF_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -987,6 +1196,13 @@ pub(crate) const HEAP_ARRAY_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "array-object",
+        name: "prototype_tag",
+        offset: HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
     },
     HeapLayoutSlot {
         record: "array-object",
@@ -1184,6 +1400,13 @@ pub(crate) const HEAP_ARRAY_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: false,
     },
+    HeapLayoutSlot {
+        record: "array-object",
+        name: "non_extensible",
+        offset: HEAP_ARRAY_NON_EXTENSIBLE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
 ];
 
 #[allow(dead_code)]
@@ -1268,6 +1491,20 @@ pub(crate) const HEAP_ARRAY_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
         width: 8,
         pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "array-entry",
+        name: "setter_tag",
+        offset: HEAP_ARRAY_SETTER_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "array-entry",
+        name: "setter_payload",
+        offset: HEAP_ARRAY_SETTER_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
     },
 ];
 
@@ -2520,11 +2757,12 @@ mod tests {
         assert_eq!(MAX_SAFE_INTEGER, 9_007_199_254_740_991);
         assert_eq!(MAX_ARRAY_LENGTH, 4_294_967_295);
         assert_eq!(HEAP_ARRAY_HOLE_TAG, ValueKind::Dynamic.tag() as i64);
+        assert_eq!(HEAP_ARRAY_RECORD_SIZE, 272);
         assert_eq!(HEAP_STRING_RECORD_SIZE, 32);
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 24);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 160);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 64);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 64);
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);
@@ -2534,8 +2772,12 @@ mod tests {
     fn heap_layout_registry_has_no_slot_collisions() {
         assert_layout(HEAP_OBJECT_HEADER_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(HEAP_FUNCTION_OBJECT_LAYOUT, HEAP_FUNCTION_OBJECT_SIZE);
+        assert_layout(
+            HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT,
+            HEAP_CLASS_FUNCTION_CONTEXT_SIZE,
+        );
         assert_layout(HEAP_BOUND_FUNCTION_LAYOUT, HEAP_BOUND_FUNCTION_RECORD_SIZE);
-        assert_layout(HEAP_ARRAY_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(HEAP_ARRAY_OBJECT_LAYOUT, HEAP_ARRAY_RECORD_SIZE);
         assert_layout(HEAP_OBJECT_ENTRY_LAYOUT, HEAP_OBJECT_ENTRY_SIZE);
         assert_layout(HEAP_ARRAY_ENTRY_LAYOUT, HEAP_ARRAY_ENTRY_SIZE);
         assert_layout(HEAP_STRING_LAYOUT, HEAP_STRING_RECORD_SIZE);
@@ -2563,6 +2805,7 @@ mod tests {
         let pointer_slots = HEAP_OBJECT_HEADER_LAYOUT
             .iter()
             .chain(HEAP_FUNCTION_OBJECT_LAYOUT.iter())
+            .chain(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter())
             .chain(HEAP_BOUND_FUNCTION_LAYOUT.iter())
             .chain(HEAP_ARRAY_OBJECT_LAYOUT.iter())
             .chain(HEAP_OBJECT_ENTRY_LAYOUT.iter())
@@ -2582,10 +2825,18 @@ mod tests {
         assert!(HEAP_OBJECT_HEADER_LAYOUT.iter().any(|slot| {
             slot.name == "prototype_payload" && slot.offset == HEAP_PROTOTYPE_OFFSET && slot.pointer
         }));
+        assert!(HEAP_ARRAY_OBJECT_LAYOUT.iter().any(|slot| {
+            slot.name == "prototype_tag"
+                && slot.offset == HEAP_ARRAY_PROTOTYPE_TAG_OFFSET
+                && !slot.pointer
+        }));
         assert!(HEAP_FUNCTION_OBJECT_LAYOUT.iter().any(|slot| {
             slot.name == "env_handle"
                 && slot.offset == HEAP_FUNCTION_ENV_HANDLE_OFFSET
                 && slot.pointer
+        }));
+        assert!(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter().all(|slot| {
+            (slot.offset == HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET) == !slot.pointer
         }));
         assert!(HEAP_FUNCTION_OBJECT_LAYOUT.iter().any(|slot| {
             slot.name == "defining_realm"

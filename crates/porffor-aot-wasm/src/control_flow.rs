@@ -591,6 +591,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.set_completion_kind(CompletionKind::Return, function);
                     function.instruction(&Instruction::Br(self.depth_to(*target)));
                 } else {
+                    self.set_completion_kind(CompletionKind::Return, function);
                     self.normalize_derived_constructor_result(function)?;
                     self.set_completion_kind(CompletionKind::Normal, function);
                     self.emit_return_current_completion(function);
@@ -804,13 +805,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         let _outer_frame = self.push_control(ControlFrameKind::Block);
         function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
+        let _finally_frame = self.push_control(ControlFrameKind::Block);
         function.instruction(&Instruction::Block(BlockType::Empty));
         let catch_skip_frame = self.push_control(ControlFrameKind::Block);
         function.instruction(&Instruction::Block(BlockType::Empty));
         let catch_frame = self.push_control(ControlFrameKind::Block);
         self.throw_handler_stack.push(catch_frame);
-        self.finally_stack.push(finally_frame);
+        // `br` targets exit the selected block. In this layout, branching to
+        // `finally_frame` would therefore skip the finalizer itself. The
+        // catch-skip block instead ends immediately before the finalizer, so
+        // it is the continuation target for abrupt completions from either
+        // the try or catch body.
+        self.finally_stack.push(catch_skip_frame);
         self.push_scope();
         self.compile_block_contents(try_block, function)?;
         self.pop_scope();

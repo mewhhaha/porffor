@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use porffor_ir::DerivedConstructorActivationIr;
+
 use crate::functions::{
     emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
 };
@@ -93,6 +95,8 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) functions: &'a FunctionMetaRegistry,
     pub(crate) function_id: Option<FunctionId>,
     pub(crate) function_flavor: FunctionFlavor,
+    pub(crate) lexical_derived_activation: Option<&'a DerivedConstructorActivationIr>,
+    pub(crate) is_derived_constructor: bool,
     pub(crate) strict: bool,
     pub(crate) self_binding_name: Option<String>,
     pub(crate) script_global_bindings: BTreeMap<String, ScriptGlobalBindingKind>,
@@ -104,11 +108,11 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) total_binding_local_count: u32,
     pub(crate) temp_local_count: u32,
     pub(crate) current_env_local: u32,
+    pub(crate) class_function_context_local: u32,
     pub(crate) result_local: u32,
     pub(crate) result_tag_local: u32,
     pub(crate) completion_local: u32,
     pub(crate) completion_aux_local: u32,
-    pub(crate) derived_this_initialized_local: Option<u32>,
     pub(crate) scratch_local: u32,
     pub(crate) temp_local_base: u32,
     pub(crate) temp_stack_depth: u32,
@@ -1138,6 +1142,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             None,
             FunctionFlavor::Ordinary,
+            None,
             script.strict,
             None,
             script
@@ -1181,6 +1186,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(function.id.clone()),
             function.flavor,
+            function.lexical_derived_activation.as_ref(),
             function.strict,
             (!function.is_expression || function.is_named_expression)
                 .then(|| function.name.clone()),
@@ -1223,6 +1229,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(function_id),
             FunctionFlavor::Ordinary,
+            None,
             true,
             None,
             BTreeMap::new(),
@@ -1261,6 +1268,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             None,
             FunctionFlavor::Ordinary,
+            None,
             true,
             None,
             BTreeMap::new(),
@@ -1300,6 +1308,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(builtin.function_id()),
             FunctionFlavor::Ordinary,
+            None,
             true,
             None,
             BTreeMap::new(),
@@ -1327,6 +1336,7 @@ impl<'a> FunctionBuilder<'a> {
         functions: &'a FunctionMetaRegistry,
         function_id: Option<FunctionId>,
         function_flavor: FunctionFlavor,
+        lexical_derived_activation: Option<&'a DerivedConstructorActivationIr>,
         strict: bool,
         self_binding_name: Option<String>,
         script_global_bindings: BTreeMap<String, ScriptGlobalBindingKind>,
@@ -1362,9 +1372,8 @@ impl<'a> FunctionBuilder<'a> {
             + (hoisted_vars.len() as u32 * 2);
         let temp_local_count = count_block_temp_locals(body).max(2048) as u32;
         let current_env_local = param_local_count + total_binding_local_count;
-        let derived_this_initialized_local =
-            is_derived_constructor.then_some(current_env_local + 5);
-        let scratch_local = current_env_local + 5 + u32::from(is_derived_constructor);
+        let class_function_context_local = current_env_local + 5;
+        let scratch_local = class_function_context_local + 1;
         Self {
             body,
             params,
@@ -1374,6 +1383,8 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             function_id,
             function_flavor,
+            lexical_derived_activation,
+            is_derived_constructor,
             strict,
             self_binding_name,
             script_global_bindings,
@@ -1385,11 +1396,11 @@ impl<'a> FunctionBuilder<'a> {
             total_binding_local_count,
             temp_local_count,
             current_env_local,
+            class_function_context_local,
             result_local: current_env_local + 1,
             result_tag_local: current_env_local + 2,
             completion_local: current_env_local + 3,
             completion_aux_local: current_env_local + 4,
-            derived_this_initialized_local,
             scratch_local,
             temp_local_base: scratch_local + 1,
             temp_stack_depth: 0,
@@ -1510,10 +1521,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn local_count(&self) -> usize {
-        self.total_binding_local_count as usize
-            + 6
-            + usize::from(self.derived_this_initialized_local.is_some())
-            + self.temp_local_count as usize
+        self.total_binding_local_count as usize + 7 + self.temp_local_count as usize
     }
 
     pub(crate) const fn is_main(&self) -> bool {
@@ -1547,6 +1555,34 @@ impl<'a> FunctionBuilder<'a> {
         assert_eq!(local, expected);
     }
 
+    fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
+        let is_base_class_constructor = self.current_function_meta().is_some_and(|meta| {
+            meta.class_kind == ClassFunctionKind::Constructor && !meta.is_derived_constructor
+        });
+        if !is_base_class_constructor {
+            return;
+        }
+        let (Some(this_payload_local), Some(this_tag_local)) =
+            (self.this_payload_local, self.this_tag_local)
+        else {
+            return;
+        };
+
+        // Only a fall-through Normal completion is normalized here. Explicit
+        // Return and Throw completions remain visible to OrdinaryConstruct,
+        // which preserves object returns and selects the preallocated receiver
+        // for primitive returns.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(this_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
+    }
+
     fn compile(&mut self) -> Result<Function, EmitError> {
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
@@ -1561,10 +1597,6 @@ impl<'a> FunctionBuilder<'a> {
         self.bind_self_function(&mut function)?;
         self.bind_parameters(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
-        if let Some(derived_this_initialized_local) = self.derived_this_initialized_local {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(derived_this_initialized_local));
-        }
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         for name in self.hoisted_vars.clone() {
             let storage = if let Some(slot) = self.owned_env_slot(&name) {
@@ -1610,6 +1642,7 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.emit_statement_result(&mut function, ValueKind::Undefined);
         }
+        self.normalize_base_class_constructor_result(&mut function);
         self.normalize_derived_constructor_result(&mut function)?;
         self.pop_scope();
 
@@ -1764,18 +1797,22 @@ impl<'a> FunctionBuilder<'a> {
     /// plain `call`.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
-    /// 1=object tag, 2=key payload, 3=value payload, 4=value tag. Params 5/6 are
-    /// unused. On a setter/proxy throw the thrown value is surfaced through the
+    /// 1=object tag, 2=key payload, 3=value payload, 4=value tag, 5=calling
+    /// function strictness, 6=calling standard builtin's realm environment (or
+    /// zero). On a setter/proxy throw the thrown value is surfaced through the
     /// `(result, result_tag, completion, completion_aux)` result tuple.
     fn compile_object_write_helper(&mut self) -> Result<Function, EmitError> {
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.outline_object_write = false;
         // Helper parameter 5 carries the calling function's strictness (0 sloppy,
-        // nonzero strict). Parameter 6 stays reserved. Gate `[[Set]]` failure
-        // throws on this runtime flag rather than the helper's own (fixed) mode.
+        // nonzero strict). Parameter 6 carries a standard builtin's self-backed
+        // realm environment; other callers pass zero. This lets ArraySetLength
+        // create a RangeError in the calling builtin's Realm.
         self.object_write_strict_flag_local = Some(5);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
@@ -2100,7 +2137,14 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_is_extensible_i32_with_depth(0, 1, self.result_local, 4, 0, &mut function)?;
+        self.emit_object_is_extensible_i32_with_depth(
+            0,
+            1,
+            self.result_local,
+            4,
+            0,
+            &mut function,
+        )?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
@@ -2153,10 +2197,31 @@ impl<'a> FunctionBuilder<'a> {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.class_function_context_local));
             }
             ReturnAbi::MultiValue => {
                 function.instruction(&Instruction::LocalGet(0));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
+                if self
+                    .current_function_meta()
+                    .is_some_and(|meta| meta.class_kind != ClassFunctionKind::None)
+                {
+                    // Class functions receive an immutable context in their
+                    // env parameter. Lexical lookup resumes from its captured
+                    // environment, while the context preserves [[HomeObject]].
+                    function.instruction(&Instruction::LocalGet(self.current_env_local));
+                    function.instruction(&Instruction::LocalSet(self.class_function_context_local));
+                    self.load_i64_to_local_from_offset(
+                        self.current_env_local,
+                        HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
+                        self.current_env_local,
+                        function,
+                    );
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(self.class_function_context_local));
+                }
             }
         }
 
@@ -2195,6 +2260,12 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if self.function_flavor == FunctionFlavor::Ordinary {
+            if self.is_derived_constructor {
+                let activation = self
+                    .lexical_derived_activation
+                    .expect("derived constructor must have activation metadata");
+                self.initialize_derived_activation(activation, function)?;
+            }
             if let Some(slot) = self.owned_env_slot(LEXICAL_THIS_NAME) {
                 if self.is_main() {
                     self.release_temp_local(parent_env_local);
@@ -2235,8 +2306,124 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if let Some(slot) = self.owned_env_slot(LEXICAL_HOME_OBJECT_NAME) {
+                self.load_i64_to_local_from_offset(
+                    self.class_function_context_local,
+                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
+                    self.scratch_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    self.class_function_context_local,
+                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
+                    self.result_tag_local,
+                    function,
+                );
+                self.write_binding_from_locals(
+                    BindingStorage::EnvSlot { slot, hops: 0 },
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                );
+            }
         }
         self.release_temp_local(parent_env_local);
+        Ok(())
+    }
+
+    /// Seeds compiler-private derived-constructor activation slots in the
+    /// freshly allocated invocation environment.  This state must never live
+    /// in the function object's immutable lexical context: recursion and
+    /// re-entrant construction each require independent `this` status.
+    fn initialize_derived_activation(
+        &mut self,
+        activation: &DerivedConstructorActivationIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let this = self
+            .owned_env_slot(&activation.this_binding)
+            .ok_or_else(|| {
+                EmitError::unsupported("derived constructor activation owner has no `this` slot")
+            })?;
+        let status = self
+            .owned_env_slot(&activation.this_status_binding)
+            .ok_or_else(|| {
+                EmitError::unsupported("derived constructor activation owner has no status slot")
+            })?;
+        let new_target = self
+            .owned_env_slot(&activation.new_target_binding)
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "derived constructor activation owner has no new.target slot",
+                )
+            })?;
+        let active_function = self
+            .owned_env_slot(&activation.active_function_binding)
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "derived constructor activation owner has no active-function slot",
+                )
+            })?;
+        let (Some(new_target_payload), Some(new_target_tag)) =
+            (self.new_target_payload_local(), self.new_target_tag_local())
+        else {
+            return Err(EmitError::unsupported(
+                "derived constructor activation requires the multi-value call ABI",
+            ));
+        };
+
+        // `this` is deliberately initialized to an unobservable undefined
+        // value.  GetDerivedThis gates it on the false status slot.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.write_env_slot_from_locals(
+            this,
+            0,
+            self.scratch_local,
+            self.result_tag_local,
+            function,
+        );
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.write_env_slot_from_locals(
+            status,
+            0,
+            self.scratch_local,
+            self.result_tag_local,
+            function,
+        );
+        self.write_env_slot_from_locals(
+            new_target,
+            0,
+            new_target_payload,
+            new_target_tag,
+            function,
+        );
+
+        // Param 0 is the immutable function context.  The current functions
+        // ABI stores the executing function object in that context; later
+        // construct lowering consumes this activation slot rather than a
+        // mutable per-function context field.
+        self.load_i64_to_local_from_offset(
+            0,
+            HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.write_env_slot_from_locals(
+            active_function,
+            0,
+            self.scratch_local,
+            self.result_tag_local,
+            function,
+        );
         Ok(())
     }
 

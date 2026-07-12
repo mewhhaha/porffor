@@ -19,9 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 mod cache;
 
-pub use cache::{
-    cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus,
-};
+pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -140,11 +138,7 @@ fn compiler_fingerprint() -> &'static str {
     env!("PORFFOR_COMPILER_FINGERPRINT")
 }
 
-fn program_wasm_cache_key(
-    source: &str,
-    goal: ParseGoal,
-    options: &CompileOptions,
-) -> [u8; 32] {
+fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(compiler_fingerprint().as_bytes());
     hash.update(std::env::consts::ARCH.as_bytes());
@@ -217,7 +211,9 @@ fn memory_cached_wasm_module(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(index) = modules.iter().position(|(candidate, _)| *candidate == key) {
-            let entry = modules.remove(index).expect("module cache index should exist");
+            let entry = modules
+                .remove(index)
+                .expect("module cache index should exist");
             let module = entry.1.clone();
             modules.push_back(entry);
             return Ok((module, true));
@@ -292,9 +288,7 @@ fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
                 // confined to this opt-in CI/debug path because Cranelift
                 // marks stringly-typed compiler flags as an unsafe API.
                 unsafe {
-                    config.cranelift_flag_enable(
-                        "enable_incremental_compilation_cache_checks",
-                    );
+                    config.cranelift_flag_enable("enable_incremental_compilation_cache_checks");
                 }
             }
             // Instruments emitted Wasm with epoch checks at loop back-edges
@@ -583,7 +577,11 @@ impl Engine {
                     );
                 }
                 match self.run_with_wasm_bytes(&bytes, timeout_ms) {
-                    Err(err) if err.message().starts_with("wasmtime module validation failed:") => {
+                    Err(err)
+                        if err
+                            .message()
+                            .starts_with("wasmtime module validation failed:") =>
+                    {
                         // An incomplete/corrupted local artifact is a cache
                         // miss, never a product failure. Remove it and rebuild
                         // from the JavaScript source below.
@@ -629,7 +627,8 @@ impl Engine {
     }
 
     pub fn emit_wasm(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        run_on_sized_stack(|| match porffor_aot_wasm::emit(&unit.ir) {
+        run_on_sized_stack(|| {
+            match porffor_aot_wasm::emit(&unit.ir) {
             Ok(wasm) => Ok(Artifact {
                 kind: ArtifactKind::Wasm,
                 bytes: wasm.bytes,
@@ -639,6 +638,7 @@ impl Engine {
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
             ))),
+        }
         })
     }
 
@@ -658,14 +658,19 @@ impl Engine {
         unit: &CompilationUnit,
         target_triple: Option<&str>,
     ) -> Result<Artifact, EngineError> {
-        run_on_sized_stack(|| match porffor_backend_native::emit(&unit.ir, target_triple) {
-            Ok(native) => Ok(Artifact {
-                kind: ArtifactKind::Native,
-                bytes: Vec::new(),
-                description: format!("native artifact placeholder for {:?}", native.target_triple),
-            }),
-            Err(err) => Err(EngineError::new(err)),
-        })
+        run_on_sized_stack(
+            || match porffor_backend_native::emit(&unit.ir, target_triple) {
+                Ok(native) => Ok(Artifact {
+                    kind: ArtifactKind::Native,
+                    bytes: Vec::new(),
+                    description: format!(
+                        "native artifact placeholder for {:?}",
+                        native.target_triple
+                    ),
+                }),
+                Err(err) => Err(EngineError::new(err)),
+            },
+        )
     }
 
     pub fn inspect(&self, unit: &CompilationUnit) -> InspectionReport {
@@ -715,18 +720,12 @@ impl Engine {
             )
             .map_err(EngineError::from_parse_error)?;
             if trace {
-                eprintln!(
-                    "porffor wasm trace: parse: {:?}",
-                    parse_started.elapsed()
-                );
+                eprintln!("porffor wasm trace: parse: {:?}", parse_started.elapsed());
             }
             let lower_started = std::time::Instant::now();
             let ir = lower(&source);
             if trace {
-                eprintln!(
-                    "porffor wasm trace: lower: {:?}",
-                    lower_started.elapsed()
-                );
+                eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
             }
             if let Some(diagnostic) = ir
                 .diagnostics
@@ -884,8 +883,8 @@ impl Engine {
         ensure_wasm_epoch_ticker(&engine);
         let module_started = std::time::Instant::now();
         let function_cache_before = cranelift_function_cache().map(|cache| cache.counters());
-        let module_cache_before = wasmtime_module_cache()
-            .map(|cache| (cache.cache_hits(), cache.cache_misses()));
+        let module_cache_before =
+            wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
         let (module, memory_cache_hit) = memory_cached_wasm_module(&engine, bytes)?;
         let module_elapsed = module_started.elapsed();
         if trace_wasm {
@@ -905,13 +904,12 @@ impl Engine {
                     module_elapsed
                 );
             }
-            let module_cache_after = wasmtime_module_cache()
-                .map(|cache| (cache.cache_hits(), cache.cache_misses()));
+            let module_cache_after =
+                wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
             match (module_cache_before, module_cache_after) {
-                (Some(before), Some(after)) if after.0 > before.0 => eprintln!(
-                    "porffor wasm trace: module-cache hit: {:?}",
-                    module_elapsed
-                ),
+                (Some(before), Some(after)) if after.0 > before.0 => {
+                    eprintln!("porffor wasm trace: module-cache hit: {:?}", module_elapsed)
+                }
                 (Some(before), Some(after)) if after.1 > before.1 => {
                     eprintln!(
                         "porffor wasm trace: module-cache miss: {:?}",
@@ -1764,11 +1762,7 @@ mod tests {
                 },
             )
             .expect("a legitimately-finishing case must not be falsely killed by the timeout");
-        assert!(
-            outcome.note.contains("number("),
-            "note: {}",
-            outcome.note
-        );
+        assert!(outcome.note.contains("number("), "note: {}", outcome.note);
     }
 
     #[test]
@@ -1897,11 +1891,7 @@ mod tests {
                 },
             )
             .expect("destructured object parameter should compile and run");
-        assert!(
-            outcome.note.contains("number(42"),
-            "note: {}",
-            outcome.note
-        );
+        assert!(outcome.note.contains("number(42"), "note: {}", outcome.note);
     }
 
     #[test]

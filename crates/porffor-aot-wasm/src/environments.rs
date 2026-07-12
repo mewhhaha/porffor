@@ -470,25 +470,14 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match self.function_flavor {
             FunctionFlavor::Ordinary => {
-                if let Some(derived_this_initialized_local) = self.derived_this_initialized_local {
-                    function.instruction(&Instruction::LocalGet(derived_this_initialized_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_runtime_error(
-                        "ReferenceError",
-                        "must call super() before accessing `this`",
-                        self.result_local,
+                if self.lexical_derived_activation.is_some() {
+                    self.emit_get_derived_this_to_locals(
+                        self.scratch_local,
                         self.result_tag_local,
                         function,
                     )?;
-                    if !self.is_main() {
-                        self.emit_return_current_completion(function);
-                    } else if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::LocalGet(self.scratch_local));
+                    return Ok(());
                 }
                 if let Some(this_payload_local) = self.this_payload_local {
                     function.instruction(&Instruction::LocalGet(this_payload_local));
@@ -502,7 +491,14 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             FunctionFlavor::Arrow => {
-                if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
+                if self.lexical_derived_activation.is_some() {
+                    self.emit_get_derived_this_to_locals(
+                        self.scratch_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(self.scratch_local));
+                } else if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
                     self.read_binding_payload(storage, function);
                 } else {
                     function
@@ -521,25 +517,12 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match self.function_flavor {
             FunctionFlavor::Ordinary => {
-                if let Some(derived_this_initialized_local) = self.derived_this_initialized_local {
-                    function.instruction(&Instruction::LocalGet(derived_this_initialized_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_runtime_error(
-                        "ReferenceError",
-                        "must call super() before accessing `this`",
+                if self.lexical_derived_activation.is_some() {
+                    return self.emit_get_derived_this_to_locals(
                         payload_local,
                         tag_local,
                         function,
-                    )?;
-                    if !self.is_main() {
-                        self.emit_return_current_completion(function);
-                    } else if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
+                    );
                 }
                 if let (Some(this_payload_local), Some(this_tag_local)) =
                     (self.this_payload_local, self.this_tag_local)
@@ -561,7 +544,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             FunctionFlavor::Arrow => {
-                if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
+                if self.lexical_derived_activation.is_some() {
+                    self.emit_get_derived_this_to_locals(payload_local, tag_local, function)?;
+                } else if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
                     self.read_binding_to_locals(storage, payload_local, tag_local, function);
                 } else {
                     function
@@ -852,6 +837,143 @@ impl<'a> FunctionBuilder<'a> {
             .iter()
             .find(|binding| binding.name == name)
             .map(|binding| binding.slot)
+    }
+
+    /// Resolves a compiler-private derived-constructor activation binding.
+    /// The owner has an owned slot; arrows reach the same slot through their
+    /// recorded captured binding and hop count.
+    fn derived_activation_storage(&self, name: &str) -> Result<BindingStorage, EmitError> {
+        self.owned_env_slot(name)
+            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .or_else(|| self.lookup_binding(name))
+            .ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "derived constructor activation is missing compiler-private binding `{name}`"
+                ))
+            })
+    }
+
+    fn emit_derived_this_reference_error(
+        &mut self,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_throw_runtime_error(
+            "ReferenceError",
+            message,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        if let Some(target) = self.throw_handler_stack.last() {
+            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+        } else {
+            self.emit_return_current_completion(function);
+        }
+        Ok(())
+    }
+
+    /// Reads the live derived `this` after checking its per-invocation
+    /// initialization status.  The backing slot can be owned by the derived
+    /// constructor or captured by an arrow through environment hops.
+    pub(crate) fn emit_get_derived_this_to_locals(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation = self.lexical_derived_activation.ok_or_else(|| {
+            EmitError::unsupported("derived `this` requested without activation metadata")
+        })?;
+        let status = self.derived_activation_storage(&activation.this_status_binding)?;
+        let this = self.derived_activation_storage(&activation.this_binding)?;
+        let status_payload_local = self.reserve_temp_local();
+        let status_tag_local = self.reserve_temp_local();
+        self.read_binding_to_locals(status, status_payload_local, status_tag_local, function);
+        function.instruction(&Instruction::LocalGet(status_payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_derived_this_reference_error(
+            "must call super() before accessing `this`",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.read_binding_to_locals(this, payload_local, tag_local, function);
+        self.release_temp_local(status_tag_local);
+        self.release_temp_local(status_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_get_derived_new_target_to_locals(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation = self.lexical_derived_activation.ok_or_else(|| {
+            EmitError::unsupported("derived new.target requested without activation metadata")
+        })?;
+        let storage = self.derived_activation_storage(&activation.new_target_binding)?;
+        self.read_binding_to_locals(storage, payload_local, tag_local, function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_get_derived_active_function_to_locals(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation = self.lexical_derived_activation.ok_or_else(|| {
+            EmitError::unsupported("derived active function requested without activation metadata")
+        })?;
+        let storage = self.derived_activation_storage(&activation.active_function_binding)?;
+        self.read_binding_to_locals(storage, payload_local, tag_local, function);
+        Ok(())
+    }
+
+    /// Initializes a derived constructor's `this` exactly once.  A second
+    /// bind raises ReferenceError before any activation slot is overwritten.
+    pub(crate) fn emit_bind_derived_this_from_locals(
+        &mut self,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        error_payload_local: u32,
+        error_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation = self.lexical_derived_activation.ok_or_else(|| {
+            EmitError::unsupported("derived `this` bind requested without activation metadata")
+        })?;
+        let status = self.derived_activation_storage(&activation.this_status_binding)?;
+        let this = self.derived_activation_storage(&activation.this_binding)?;
+        let status_payload_local = self.reserve_temp_local();
+        let status_tag_local = self.reserve_temp_local();
+        self.read_binding_to_locals(status, status_payload_local, status_tag_local, function);
+        function.instruction(&Instruction::LocalGet(status_payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_derived_this_reference_error(
+            "super() called twice in derived constructor",
+            error_payload_local,
+            error_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.write_binding_from_locals(this, value_payload_local, value_tag_local, function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(status_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(status_tag_local));
+        self.write_binding_from_locals(status, status_payload_local, status_tag_local, function);
+        self.release_temp_local(status_tag_local);
+        self.release_temp_local(status_payload_local);
+        Ok(())
     }
 
     pub(crate) fn emit_global_property_read(

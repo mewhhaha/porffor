@@ -5,6 +5,13 @@ pub const JS_STRING_SURROGATE_SENTINEL: char = '\u{F0000}';
 pub const LEXICAL_THIS_NAME: &str = "$this";
 pub const LEXICAL_ARGUMENTS_NAME: &str = "$arguments";
 pub const LEXICAL_NEW_TARGET_NAME: &str = "$new.target";
+/// Compiler-private lexical `[[HomeObject]]` binding for arrows using `super`.
+pub const LEXICAL_HOME_OBJECT_NAME: &str = "$homeObject";
+/// Compiler-private environment bindings for lexical `super()` in arrows.
+pub const DERIVED_ACTIVATION_THIS_NAME: &str = "$derived.this";
+pub const DERIVED_ACTIVATION_THIS_STATUS_NAME: &str = "$derived.thisStatus";
+pub const DERIVED_ACTIVATION_NEW_TARGET_NAME: &str = "$derived.newTarget";
+pub const DERIVED_ACTIVATION_FUNCTION_NAME: &str = "$derived.activeFunction";
 pub(crate) const TDZ_BINDING_STORAGE_PREFIX: &str = "$tdz.";
 pub const GLOBAL_THIS_NAME: &str = "globalThis";
 pub const MATH_NAME: &str = "Math";
@@ -130,6 +137,8 @@ pub const BUILTIN_ARRAY_OF_FUNCTION_ID: &str = "$builtin.Array.of";
 pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
 pub const BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Array[Symbol.species].get";
 pub const BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.Array.prototype.concat";
+pub const BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID: &str = "$builtin.Array.prototype.join";
+pub const BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID: &str = "$builtin.Array.prototype.splice";
 pub const BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
     "$builtin.Array.prototype.toLocaleString";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID: &str = "$builtin.Array.prototype.flat";
@@ -369,6 +378,26 @@ pub const BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID: &str =
     "$builtin.Date.prototype.toUTCString";
 pub const BUILTIN_REGEXP_FUNCTION_ID: &str = "$builtin.RegExp";
 pub const BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.RegExp[Symbol.species].get";
+pub const BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.flags.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_SOURCE_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.source.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_HAS_INDICES_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.hasIndices.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.global.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_IGNORE_CASE_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.ignoreCase.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_MULTILINE_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.multiline.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.dotAll.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.unicode.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.unicodeSets.get";
+pub const BUILTIN_REGEXP_PROTOTYPE_STICKY_GETTER_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.sticky.get";
 pub const BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.get";
 pub const BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID: &str =

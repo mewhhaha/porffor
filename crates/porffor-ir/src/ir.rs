@@ -395,6 +395,9 @@ pub enum ClassFunctionKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
+    PrototypeSetter {
+        value: TypedExpr,
+    },
     Data {
         key: String,
         value: TypedExpr,
@@ -966,13 +969,13 @@ pub enum ExprIr {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
     },
-    /// A property-only optional chain.
+    /// An ordered optional chain of property accesses and calls.
     ///
-    /// Every key remains an expression in the chain so a backend can defer a
-    /// computed key until all preceding optional operations have succeeded.
+    /// Keys and call arguments remain expressions in the chain so a backend
+    /// can defer them until all preceding optional operations have succeeded.
     OptionalPropertyChain {
         target: Box<TypedExpr>,
-        chain: Vec<OptionalPropertyAccessIr>,
+        chain: Vec<OptionalChainOperationIr>,
     },
     PropertyWrite {
         target: Box<TypedExpr>,
@@ -1175,11 +1178,35 @@ pub enum ExprIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OptionalPropertyAccessIr {
-    pub key: PropertyKeyIr,
-    /// Whether this operation was introduced by `?.` and therefore
-    /// short-circuits the whole chain for a nullish receiver.
-    pub shorted: bool,
+pub enum OptionalChainOperationIr {
+    Property {
+        key: PropertyKeyIr,
+        /// Whether this operation was introduced by `?.` and therefore
+        /// short-circuits the whole chain for a nullish receiver.
+        shorted: bool,
+    },
+    Call {
+        args: Vec<TypedExpr>,
+        /// How the call's `this` value is recovered from the source Reference.
+        receiver: OptionalChainCallReceiverIr,
+        /// Whether this operation was introduced by `?.` and therefore
+        /// short-circuits the whole chain for a nullish callee.
+        shorted: bool,
+        /// Whether a parenthesized/grouped expression ended the preceding
+        /// short-circuit segment before this call, without discarding a
+        /// preceding property Reference used as the call receiver.
+        boundary_before: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionalChainCallReceiverIr {
+    /// Use the base retained by the immediately preceding property operation,
+    /// or `undefined` when the callee was not obtained from a property Reference.
+    ReferenceOrUndefined,
+    /// Use the surrounding function's current `this`, as required when calling
+    /// a function obtained from a `super` property Reference.
+    CurrentThis,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1250,6 +1277,16 @@ pub struct CapturedBindingIr {
     pub hops: u32,
 }
 
+/// Compiler-private per-invocation state for a derived constructor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivedConstructorActivationIr {
+    pub owner_function_id: FunctionId,
+    pub this_binding: String,
+    pub this_status_binding: String,
+    pub new_target_binding: String,
+    pub active_function_binding: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionIr {
     pub id: FunctionId,
@@ -1267,6 +1304,7 @@ pub struct FunctionIr {
     pub super_constructor_target: Option<FunctionId>,
     pub uses_super: bool,
     pub this_before_super: bool,
+    pub lexical_derived_activation: Option<DerivedConstructorActivationIr>,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
     pub is_nested: bool,
     pub is_expression: bool,
@@ -1985,6 +2023,9 @@ impl IrSummaryCounts {
                 self.objects += 1;
                 for property in properties {
                     match property {
+                        ObjectPropertyIr::PrototypeSetter { value } => {
+                            self.visit_expr(value);
+                        }
                         ObjectPropertyIr::Data {
                             value,
                             is_shorthand,
@@ -2053,17 +2094,35 @@ impl IrSummaryCounts {
                 self.visit_property_key(key);
             }
             ExprIr::OptionalPropertyChain { target, chain } => {
-                self.property_reads += chain.len();
                 self.visit_expr(target);
-                for access in chain {
-                    if matches!(access.key, PropertyKeyIr::ArrayLength) {
-                        self.array_lengths += 1;
+                let mut previous_was_property = false;
+                for operation in chain {
+                    match operation {
+                        OptionalChainOperationIr::Property { key, .. } => {
+                            self.property_reads += 1;
+                            if matches!(key, PropertyKeyIr::ArrayLength) {
+                                self.array_lengths += 1;
+                            }
+                            if matches!(key, PropertyKeyIr::StaticString(name) if name == "prototype")
+                            {
+                                self.prototype_reads += 1;
+                            }
+                            self.visit_property_key(key);
+                            previous_was_property = true;
+                        }
+                        OptionalChainOperationIr::Call { args, receiver, .. } => {
+                            self.calls += 1;
+                            self.indirect_calls += 1;
+                            self.method_calls += usize::from(
+                                previous_was_property
+                                    || *receiver == OptionalChainCallReceiverIr::CurrentThis,
+                            );
+                            for arg in args {
+                                self.visit_expr(arg);
+                            }
+                            previous_was_property = false;
+                        }
                     }
-                    if matches!(&access.key, PropertyKeyIr::StaticString(name) if name == "prototype")
-                    {
-                        self.prototype_reads += 1;
-                    }
-                    self.visit_property_key(&access.key);
                 }
             }
             ExprIr::PropertyWrite { target, key, value } => {

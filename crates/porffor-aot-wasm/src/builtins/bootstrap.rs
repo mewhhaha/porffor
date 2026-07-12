@@ -130,10 +130,15 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             } else {
+                let prototype_kind = if builtin == StandardBuiltinId::ArrayConstructor {
+                    ValueKind::Array
+                } else {
+                    ValueKind::Object
+                };
                 self.store_i64_const_at_offset(
                     object_local,
                     HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                    ValueKind::Object.tag() as u64,
+                    prototype_kind.tag() as u64,
                     function,
                 );
                 function.instruction(&Instruction::GlobalGet(prototype_global_index));
@@ -148,7 +153,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(prototype_global_index));
                 function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Const(prototype_kind.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
                 self.emit_object_define_data_with_configurable(
                     object_local,
@@ -613,6 +618,56 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
                 function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(object_local));
+                for (name, getter) in [
+                    ("source", StandardBuiltinId::RegExpPrototypeSourceGetter),
+                    (
+                        "hasIndices",
+                        StandardBuiltinId::RegExpPrototypeHasIndicesGetter,
+                    ),
+                    ("global", StandardBuiltinId::RegExpPrototypeGlobalGetter),
+                    (
+                        "ignoreCase",
+                        StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter,
+                    ),
+                    (
+                        "multiline",
+                        StandardBuiltinId::RegExpPrototypeMultilineGetter,
+                    ),
+                    ("dotAll", StandardBuiltinId::RegExpPrototypeDotAllGetter),
+                    ("unicode", StandardBuiltinId::RegExpPrototypeUnicodeGetter),
+                    (
+                        "unicodeSets",
+                        StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter,
+                    ),
+                    ("sticky", StandardBuiltinId::RegExpPrototypeStickyGetter),
+                    ("flags", StandardBuiltinId::RegExpPrototypeFlagsGetter),
+                ] {
+                    let getter_meta = self
+                        .functions
+                        .get(&getter.function_id())
+                        .cloned()
+                        .ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                                getter.debug_name()
+                            ))
+                        })?;
+                    function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_function_value_payload(&getter_meta, function)?;
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_accessor_property_with_flags(
+                        object_local,
+                        key_local,
+                        Some((payload_local, tag_local)),
+                        None,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
                 function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(
@@ -1187,15 +1242,6 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
                 function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(object_local));
-                self.emit_object_define_number_data_from_f64_const_with_flags(
-                    object_local,
-                    "length",
-                    0.0,
-                    true,
-                    false,
-                    false,
-                    function,
-                )?;
                 self.emit_object_define_function_global_data(
                     object_local,
                     "toString",
@@ -1206,6 +1252,29 @@ impl<'a> FunctionBuilder<'a> {
                     object_local,
                     "concat",
                     concat_meta,
+                    function,
+                )?;
+                let join_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeJoin.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.join`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "join", join_meta, function)?;
+                let splice_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSplice.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.splice`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "splice",
+                    splice_meta,
                     function,
                 )?;
                 let to_locale_string_meta = self
@@ -1556,41 +1625,33 @@ impl<'a> FunctionBuilder<'a> {
                             builtin.debug_name()
                         ))
                     })?;
-                    self.emit_object_define_function_data(
-                        object_local,
-                        builtin.string_prototype_method_name().unwrap(),
-                        meta,
-                        function,
-                    )?;
+                    match builtin {
+                        StandardBuiltinId::StringPrototypeTrimStart => {
+                            self.emit_object_define_function_data_with_aliases(
+                                object_local,
+                                "trimStart",
+                                &["trimLeft"],
+                                meta,
+                                function,
+                            )?;
+                        }
+                        StandardBuiltinId::StringPrototypeTrimEnd => {
+                            self.emit_object_define_function_data_with_aliases(
+                                object_local,
+                                "trimEnd",
+                                &["trimRight"],
+                                meta,
+                                function,
+                            )?;
+                        }
+                        _ => self.emit_object_define_function_data(
+                            object_local,
+                            builtin.string_prototype_method_name().unwrap(),
+                            meta,
+                            function,
+                        )?,
+                    }
                 }
-                let trim_start_meta = self
-                    .functions
-                    .get(&StandardBuiltinId::StringPrototypeTrimStart.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.trimStart`",
-                        )
-                    })?;
-                self.emit_object_define_function_data(
-                    object_local,
-                    "trimLeft",
-                    trim_start_meta,
-                    function,
-                )?;
-                let trim_end_meta = self
-                    .functions
-                    .get(&StandardBuiltinId::StringPrototypeTrimEnd.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.trimEnd`",
-                        )
-                    })?;
-                self.emit_object_define_function_data(
-                    object_local,
-                    "trimRight",
-                    trim_end_meta,
-                    function,
-                )?;
                 let values_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypeValues.function_id())
@@ -2142,6 +2203,14 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(prototype_object_local));
+                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(self.scratch_local));
+                self.emit_store_realm_intrinsic_prototype(
+                    self.scratch_local,
+                    HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+                    prototype_object_local,
+                    function,
+                );
                 self.store_i64_const_at_offset(
                     object_local,
                     HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
@@ -2310,7 +2379,12 @@ impl<'a> FunctionBuilder<'a> {
                     .get(&StandardBuiltinId::SymbolFor.function_id())
                     .cloned()
                 {
-                    self.emit_object_define_function_data(object_local, "for", &for_meta, function)?;
+                    self.emit_object_define_function_data(
+                        object_local,
+                        "for",
+                        &for_meta,
+                        function,
+                    )?;
                 }
                 if let Some(key_for_meta) = self
                     .functions
@@ -2362,9 +2436,8 @@ impl<'a> FunctionBuilder<'a> {
                     .get(&StandardBuiltinId::SymbolPrototypeDescriptionGetter.function_id())
                     .cloned()
                 {
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload("description"),
-                    ));
+                    function
+                        .instruction(&Instruction::I64Const(self.strings.payload("description")));
                     function.instruction(&Instruction::LocalSet(key_local));
                     self.emit_function_value_payload(&description_getter_meta, function)?;
                     function.instruction(&Instruction::LocalSet(payload_local));
@@ -2738,6 +2811,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::MathMin
             | StandardBuiltinId::MathMax
             | StandardBuiltinId::ArrayPrototypeConcat
+            | StandardBuiltinId::ArrayPrototypeJoin
+            | StandardBuiltinId::ArrayPrototypeSplice
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::ArrayPrototypeFlat
             | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -2869,6 +2944,16 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::StringPrototypePadStart
             | StandardBuiltinId::StringPrototypePadEnd
             | StandardBuiltinId::StringPrototypeRepeat
+            | StandardBuiltinId::RegExpPrototypeFlagsGetter
+            | StandardBuiltinId::RegExpPrototypeSourceGetter
+            | StandardBuiltinId::RegExpPrototypeHasIndicesGetter
+            | StandardBuiltinId::RegExpPrototypeGlobalGetter
+            | StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter
+            | StandardBuiltinId::RegExpPrototypeMultilineGetter
+            | StandardBuiltinId::RegExpPrototypeDotAllGetter
+            | StandardBuiltinId::RegExpPrototypeUnicodeGetter
+            | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
+            | StandardBuiltinId::RegExpPrototypeStickyGetter
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
             | StandardBuiltinId::RegExpPrototypeSymbolSearch
@@ -3718,6 +3803,21 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        let realm_intrinsic_offset = typed_array_realm_intrinsics_prototype_offset(builtin)
+            .ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing realm intrinsic prototype offset `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_intrinsic_prototype(
+            self.scratch_local,
+            realm_intrinsic_offset,
+            prototype_local,
+            function,
+        );
         self.release_temp_local(tag_local);
         self.release_temp_local(key_local);
         self.release_temp_local(prototype_local);
@@ -3899,12 +3999,41 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        // Array.prototype is itself an Array exotic object.  Allocate it with
+        // the array layout, then repair the allocator's default prototype
+        // (which would otherwise point back at the not-yet-initialized global).
+        let array_prototype_length_local = self.reserve_temp_local();
+        let array_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(array_prototype_length_local));
+        self.emit_alloc_array_payload_with_length(
+            array_prototype_length_local,
+            array_prototype_local,
             function,
         )?;
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.store_i64_local_at_offset(
+            array_prototype_local,
+            HEAP_PROTOTYPE_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            array_prototype_local,
+            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(array_prototype_local));
         function.instruction(&Instruction::GlobalSet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+        self.release_temp_local(array_prototype_local);
+        self.release_temp_local(array_prototype_length_local);
+        self.emit_store_current_realm_global_intrinsic(
+            ARRAY_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3933,24 +4062,44 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            NUMBER_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(STRING_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            STRING_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(BOOLEAN_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            SYMBOL_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -4160,7 +4309,29 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        let regexp_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalSet(regexp_prototype_local));
+        self.store_i64_const_at_offset(
+            regexp_prototype_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_REGEXP,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            regexp_prototype_local,
+            HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
+            self.strings.payload("(?:)") as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            regexp_prototype_local,
+            HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+            self.strings.payload("") as u64,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(regexp_prototype_local));
         function.instruction(&Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
+        self.release_temp_local(regexp_prototype_local);
         // These per-realm function-value globals cache the `@@match`/`@@matchAll`/
         // `@@search` methods and the shared Array/TypedArray `toString`. Their only
         // readers are inside constructor-init and builtin bodies that are

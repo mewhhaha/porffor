@@ -1,4 +1,5 @@
 use super::*;
+use porffor_ir::OptionalChainOperationIr;
 
 #[derive(Debug, Clone)]
 pub(crate) struct WasmFunctionMeta {
@@ -30,6 +31,142 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) super_constructor_target: Option<FunctionId>,
     pub(crate) uses_super: bool,
     pub(crate) this_before_super: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use porffor_front::{parse, ParseOptions};
+    use porffor_ir::lower;
+
+    fn lower_script(source: &str) -> ScriptIr {
+        let parsed = parse(source, ParseOptions::script()).expect("script should parse");
+        lower(&parsed).script.expect("script should lower")
+    }
+
+    #[test]
+    fn string_prototype_methods_root_the_constructor_bootstrap() {
+        for builtin in [
+            StandardBuiltinId::StringPrototypeToUpperCase,
+            StandardBuiltinId::StringPrototypeSlice,
+            StandardBuiltinId::StringPrototypeIncludes,
+            StandardBuiltinId::StringPrototypeCharAt,
+        ] {
+            assert!(builtin.string_prototype_method_name().is_some());
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::StringConstructor));
+        }
+    }
+
+    #[test]
+    fn string_call_result_chain_keeps_bootstrap_and_both_methods_live() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        for builtin in [
+            StandardBuiltinId::StringPrototypeToUpperCase,
+            StandardBuiltinId::StringPrototypeSlice,
+        ] {
+            plan.require_standard_builtin(builtin);
+        }
+
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::StringConstructor));
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::StringPrototypeToUpperCase));
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::StringPrototypeSlice));
+    }
+
+    #[test]
+    fn dynamic_symbol_string_and_value_methods_are_referenced_and_bootstrapped() {
+        for (name, builtin) in [
+            ("toString", StandardBuiltinId::SymbolPrototypeToString),
+            ("valueOf", StandardBuiltinId::SymbolPrototypeValueOf),
+        ] {
+            let key = PropertyKeyIr::StaticString(name.to_string());
+            assert!(optimized_call_method_references_function(
+                &key,
+                &builtin.function_id()
+            ));
+
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::SymbolConstructor));
+        }
+    }
+
+    #[test]
+    fn nested_dynamic_array_method_get_roots_materialized_builtin() {
+        let script = lower_script(
+            "var values = []; var key = {}; key[Symbol.toPrimitive] = function (hint) { values.push(hint); return 0; };",
+        );
+        assert!(script_references_standard_builtin(
+            &script,
+            StandardBuiltinId::ArrayPrototypePush
+        ));
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ArrayPrototypePush);
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ArrayConstructor));
+    }
+
+    #[test]
+    fn iterator_prototype_members_root_the_constructor_bootstrap() {
+        for builtin in [
+            StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::ArrayIteratorIdentity,
+            StandardBuiltinId::IteratorPrototypeMap,
+            StandardBuiltinId::IteratorPrototypeDrop,
+            StandardBuiltinId::IteratorPrototypeSymbolDispose,
+            StandardBuiltinId::IteratorPrototypeToStringTagGetter,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::IteratorConstructor));
+        }
+    }
+
+    #[test]
+    fn object_constructor_roots_symbol_to_primitive_bootstrap() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ObjectConstructor);
+
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::SymbolPrototypeToPrimitive));
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::SymbolConstructor));
+    }
+
+    #[test]
+    fn define_property_entry_points_root_generic_descriptor_lookup() {
+        for builtin in [
+            StandardBuiltinId::ObjectDefineProperty,
+            StandardBuiltinId::ReflectDefineProperty,
+            StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ObjectGetOwnPropertyDescriptor));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -137,13 +274,79 @@ impl RuntimeBootstrapPlan {
             StandardBuiltinId::URIErrorConstructor,
             StandardBuiltinId::ReferenceErrorConstructor,
         ] {
-            self.standard_roots.insert(builtin);
+            self.require_standard_builtin(builtin);
         }
     }
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
+        if builtin.string_prototype_method_name().is_some() {
+            // String.prototype methods are installed by the String
+            // constructor bootstrap block. Dynamic method calls can root the
+            // method body without otherwise rooting that installer.
+            self.standard_roots
+                .insert(StandardBuiltinId::StringConstructor);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ArrayPrototypeConcat
+                | StandardBuiltinId::ArrayPrototypeJoin
+                | StandardBuiltinId::ArrayPrototypeSplice
+                | StandardBuiltinId::TypedArrayPrototypeToString
+                | StandardBuiltinId::ArrayPrototypeToLocaleString
+                | StandardBuiltinId::ArrayPrototypeFlat
+                | StandardBuiltinId::ArrayPrototypeFlatMap
+                | StandardBuiltinId::ArrayPrototypeAt
+                | StandardBuiltinId::ArrayPrototypeIncludes
+                | StandardBuiltinId::ArrayPrototypeIndexOf
+                | StandardBuiltinId::ArrayPrototypeLastIndexOf
+                | StandardBuiltinId::ArrayPrototypeFind
+                | StandardBuiltinId::ArrayPrototypeFindIndex
+                | StandardBuiltinId::ArrayPrototypeFindLast
+                | StandardBuiltinId::ArrayPrototypeFindLastIndex
+                | StandardBuiltinId::ArrayPrototypeEvery
+                | StandardBuiltinId::ArrayPrototypeSome
+                | StandardBuiltinId::ArrayPrototypeForEach
+                | StandardBuiltinId::ArrayPrototypeFilter
+                | StandardBuiltinId::ArrayPrototypeMap
+                | StandardBuiltinId::ArrayPrototypeReduce
+                | StandardBuiltinId::ArrayPrototypeReduceRight
+                | StandardBuiltinId::ArrayPrototypePop
+                | StandardBuiltinId::ArrayPrototypePush
+                | StandardBuiltinId::ArrayPrototypeKeys
+                | StandardBuiltinId::ArrayPrototypeEntries
+                | StandardBuiltinId::ArrayPrototypeValues
+        ) {
+            // These properties are all installed by the Array constructor's
+            // bootstrap block. A dynamic GetV can make a method body reachable
+            // without otherwise referencing `Array`, so root the installer as
+            // well as the body.
+            self.standard_roots
+                .insert(StandardBuiltinId::ArrayConstructor);
+        }
+        if builtin == StandardBuiltinId::ArrayPrototypeSplice {
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectDefineProperty
+                | StandardBuiltinId::ReflectDefineProperty
+                | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
+        ) {
+            // These entry points dispatch through the generic descriptor
+            // builtin so exotic and nested-Proxy [[GetOwnProperty]] semantics
+            // are observed exactly once. Keep its real body rooted rather than
+            // calling a lazy stub.
+            self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
+        }
         match builtin {
+            StandardBuiltinId::ObjectConstructor => {
+                // Object boxing can expose a Symbol wrapper to ToPrimitive.
+                // Keep the real Symbol.prototype @@toPrimitive installed so
+                // the default hook (and any own-property override) remains
+                // observable through dynamic lookup.
+                self.require_standard_builtin(StandardBuiltinId::SymbolPrototypeToPrimitive);
+            }
             StandardBuiltinId::ReflectConstruct
             | StandardBuiltinId::ReflectApply
             | StandardBuiltinId::ReflectGet
@@ -226,15 +429,6 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::ArrayBufferConstructor);
             }
-            StandardBuiltinId::ArrayPrototypeReduce
-            | StandardBuiltinId::ArrayPrototypeReduceRight => {
-                // Array.prototype's method properties are installed by the
-                // Array constructor bootstrap block.  The reducer can be
-                // reached only through a dynamic method Get, so root that
-                // block as well as the body itself.
-                self.standard_roots
-                    .insert(StandardBuiltinId::ArrayConstructor);
-            }
             StandardBuiltinId::NumberPrototypeToFixed
             | StandardBuiltinId::NumberPrototypeToExponential
             | StandardBuiltinId::NumberPrototypeToPrecision
@@ -276,11 +470,6 @@ impl RuntimeBootstrapPlan {
                 // value with no direct call-site `FunctionId` reference.
                 self.standard_roots
                     .insert(StandardBuiltinId::SymbolConstructor);
-            }
-            StandardBuiltinId::StringPrototypeToString
-            | StandardBuiltinId::StringPrototypeValueOf => {
-                self.standard_roots
-                    .insert(StandardBuiltinId::StringConstructor);
             }
             StandardBuiltinId::BigIntPrototypeToString
             | StandardBuiltinId::BigIntPrototypeToLocaleString
@@ -368,6 +557,16 @@ impl RuntimeBootstrapPlan {
             }
             StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::RegExpSpeciesGetter
+            | StandardBuiltinId::RegExpPrototypeFlagsGetter
+            | StandardBuiltinId::RegExpPrototypeSourceGetter
+            | StandardBuiltinId::RegExpPrototypeHasIndicesGetter
+            | StandardBuiltinId::RegExpPrototypeGlobalGetter
+            | StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter
+            | StandardBuiltinId::RegExpPrototypeMultilineGetter
+            | StandardBuiltinId::RegExpPrototypeDotAllGetter
+            | StandardBuiltinId::RegExpPrototypeUnicodeGetter
+            | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
+            | StandardBuiltinId::RegExpPrototypeStickyGetter
             | StandardBuiltinId::RegExpLegacyStaticGetter
             | StandardBuiltinId::RegExpLegacyStaticSetter
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
@@ -375,6 +574,31 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::RegExpPrototypeSymbolSearch => {
                 self.standard_roots
                     .insert(StandardBuiltinId::RegExpConstructor);
+            }
+            StandardBuiltinId::ArrayIteratorIdentity
+            | StandardBuiltinId::IteratorFrom
+            | StandardBuiltinId::IteratorPrototypeToArray
+            | StandardBuiltinId::IteratorPrototypeForEach
+            | StandardBuiltinId::IteratorPrototypeEvery
+            | StandardBuiltinId::IteratorPrototypeSome
+            | StandardBuiltinId::IteratorPrototypeFind
+            | StandardBuiltinId::IteratorPrototypeReduce
+            | StandardBuiltinId::IteratorPrototypeMap
+            | StandardBuiltinId::IteratorPrototypeFilter
+            | StandardBuiltinId::IteratorPrototypeFlatMap
+            | StandardBuiltinId::IteratorPrototypeTake
+            | StandardBuiltinId::IteratorPrototypeDrop
+            | StandardBuiltinId::IteratorPrototypeConstructorGetter
+            | StandardBuiltinId::IteratorPrototypeConstructorSetter
+            | StandardBuiltinId::IteratorPrototypeSymbolDispose
+            | StandardBuiltinId::IteratorPrototypeToStringTagGetter
+            | StandardBuiltinId::IteratorPrototypeToStringTagSetter => {
+                // All public Iterator helpers are installed by the Iterator
+                // constructor bootstrap block. A method body can be retained
+                // through an iterator instance without the global `Iterator`
+                // binding otherwise being referenced.
+                self.standard_roots
+                    .insert(StandardBuiltinId::IteratorConstructor);
             }
             StandardBuiltinId::TypedArrayPrototypeBufferGetter
             | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
@@ -565,7 +789,8 @@ fn property_access_exposes_global_object(target: &TypedExpr, key: &PropertyKeyIr
 
 fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
     match property {
-        ObjectPropertyIr::Data { value, .. }
+        ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Data { value, .. }
         | ObjectPropertyIr::NonEnumerableData { value, .. }
         | ObjectPropertyIr::Method {
             function: value, ..
@@ -616,9 +841,14 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             expr_exposes_global_object(target)
-                || chain.iter().any(|access| {
-                    property_key_exposes_global_object(&access.key)
-                        || property_access_exposes_global_object(target, &access.key)
+                || chain.iter().any(|operation| match operation {
+                    OptionalChainOperationIr::Property { key, .. } => {
+                        property_key_exposes_global_object(key)
+                            || property_access_exposes_global_object(target, key)
+                    }
+                    OptionalChainOperationIr::Call { args, .. } => {
+                        args.iter().any(expr_exposes_global_object)
+                    }
                 })
         }
         ExprIr::PropertyWrite { target, key, value } => {
@@ -876,7 +1106,8 @@ fn collect_object_property_global_property_names(
     names: &mut BTreeSet<String>,
 ) {
     match property {
-        ObjectPropertyIr::Data { value, .. }
+        ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Data { value, .. }
         | ObjectPropertyIr::NonEnumerableData { value, .. }
         | ObjectPropertyIr::Method {
             function: value, ..
@@ -952,8 +1183,17 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             collect_expr_global_property_names(target, names);
-            for access in chain {
-                collect_property_key_global_property_names(&access.key, names);
+            for operation in chain {
+                match operation {
+                    OptionalChainOperationIr::Property { key, .. } => {
+                        collect_property_key_global_property_names(key, names);
+                    }
+                    OptionalChainOperationIr::Call { args, .. } => {
+                        for arg in args {
+                            collect_expr_global_property_names(arg, names);
+                        }
+                    }
+                }
             }
         }
         ExprIr::PropertyWrite { target, key, value } => {
@@ -1258,6 +1498,8 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::ArrayFrom
                 | StandardBuiltinId::ArrayOf
                 | StandardBuiltinId::ArrayPrototypeConcat
+                | StandardBuiltinId::ArrayPrototypeJoin
+                | StandardBuiltinId::ArrayPrototypeSplice
                 | StandardBuiltinId::ArrayPrototypeToLocaleString
                 | StandardBuiltinId::ArrayPrototypeFlat
                 | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -1668,7 +1910,8 @@ pub(crate) fn object_property_references_function(
     target: &FunctionId,
 ) -> bool {
     match property {
-        ObjectPropertyIr::Data { value, .. }
+        ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Data { value, .. }
         | ObjectPropertyIr::NonEnumerableData { value, .. }
         | ObjectPropertyIr::Method {
             function: value, ..
@@ -1710,13 +1953,22 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::NumberPrototypeToString.function_id() == *target
             || StandardBuiltinId::StringPrototypeToString.function_id() == *target
             || StandardBuiltinId::BooleanPrototypeToString.function_id() == *target
-            || StandardBuiltinId::BigIntPrototypeToString.function_id() == *target;
+            || StandardBuiltinId::BigIntPrototypeToString.function_id() == *target
+            || StandardBuiltinId::SymbolPrototypeToString.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeToString.function_id() == *target;
+    }
+    if name == "join" {
+        return StandardBuiltinId::ArrayPrototypeJoin.function_id() == *target;
+    }
+    if name == "splice" {
+        return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
     }
     if name == "valueOf" {
         return StandardBuiltinId::NumberPrototypeValueOf.function_id() == *target
             || StandardBuiltinId::StringPrototypeValueOf.function_id() == *target
             || StandardBuiltinId::BooleanPrototypeValueOf.function_id() == *target
-            || StandardBuiltinId::BigIntPrototypeValueOf.function_id() == *target;
+            || StandardBuiltinId::BigIntPrototypeValueOf.function_id() == *target
+            || StandardBuiltinId::SymbolPrototypeValueOf.function_id() == *target;
     }
     if name == "toFixed" {
         return StandardBuiltinId::NumberPrototypeToFixed.function_id() == *target;
@@ -1803,10 +2055,13 @@ pub(crate) fn optimized_call_method_references_function(
     }
     let builtin = match name.as_str() {
         "concat" => StandardBuiltinId::ArrayPrototypeConcat,
+        "join" => StandardBuiltinId::ArrayPrototypeJoin,
+        "splice" => StandardBuiltinId::ArrayPrototypeSplice,
         "flat" => StandardBuiltinId::ArrayPrototypeFlat,
         "flatMap" => StandardBuiltinId::ArrayPrototypeFlatMap,
         "reduce" => StandardBuiltinId::ArrayPrototypeReduce,
         "reduceRight" => StandardBuiltinId::ArrayPrototypeReduceRight,
+        "pop" => StandardBuiltinId::ArrayPrototypePop,
         "push" => StandardBuiltinId::ArrayPrototypePush,
         "from" => StandardBuiltinId::ArrayFrom,
         "of" => StandardBuiltinId::ArrayOf,
@@ -1861,29 +2116,51 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::SpreadArgument(value)
         | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_references_function(value, target),
-        ExprIr::SpecOperation { operands, .. } => operands
-            .iter()
-            .any(|operand| expr_references_function(operand, target)),
+        ExprIr::SpecOperation {
+            operation,
+            operands,
+        } => {
+            operands
+                .iter()
+                .any(|operand| expr_references_function(operand, target))
+                || matches!(
+                    operation,
+                    SpecOperationIr::Get | SpecOperationIr::GetV | SpecOperationIr::GetMethod
+                ) && operands.get(1).is_some_and(|key| {
+                    let ExprIr::String(name) = &key.expr else {
+                        return false;
+                    };
+                    optimized_call_method_references_function(
+                        &PropertyKeyIr::StaticString(name.clone()),
+                        target,
+                    )
+                })
+        }
         ExprIr::OptionalPropertyChain {
             target: object,
             chain,
         } => {
             expr_references_function(object, target)
-                || chain.iter().any(|access| {
-                    property_key_references_function(&access.key, target)
-                        || optimized_call_method_references_function(&access.key, target)
-                        || shape_data_references_function(
-                            object.heap_shape.as_deref(),
-                            &access.key,
-                            target,
-                        )
-                        || shape_accessor_references_function(
-                            object.heap_shape.as_deref(),
-                            &access.key,
-                            target,
-                            true,
-                            false,
-                        )
+                || chain.iter().any(|operation| match operation {
+                    OptionalChainOperationIr::Property { key, .. } => {
+                        property_key_references_function(key, target)
+                            || optimized_call_method_references_function(key, target)
+                            || shape_data_references_function(
+                                object.heap_shape.as_deref(),
+                                key,
+                                target,
+                            )
+                            || shape_accessor_references_function(
+                                object.heap_shape.as_deref(),
+                                key,
+                                target,
+                                true,
+                                false,
+                            )
+                    }
+                    OptionalChainOperationIr::Call { args, .. } => {
+                        args.iter().any(|arg| expr_references_function(arg, target))
+                    }
                 })
         }
         ExprIr::PropertyRead {
@@ -2392,6 +2669,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeReduce => 1,
         StandardBuiltinId::ArrayPrototypeReduceRight => 1,
         StandardBuiltinId::ArrayPrototypeConcat => 1,
+        StandardBuiltinId::ArrayPrototypeJoin => 1,
+        StandardBuiltinId::ArrayPrototypeSplice => 2,
         StandardBuiltinId::ArrayPrototypePop => 0,
         StandardBuiltinId::ArrayPrototypePush => 1,
         StandardBuiltinId::ArrayPrototypeKeys => 0,
@@ -2464,6 +2743,16 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::DataViewConstructor => 1,
         StandardBuiltinId::DateConstructor => 7,
         StandardBuiltinId::RegExpConstructor => 2,
+        StandardBuiltinId::RegExpPrototypeFlagsGetter => 0,
+        StandardBuiltinId::RegExpPrototypeSourceGetter
+        | StandardBuiltinId::RegExpPrototypeHasIndicesGetter
+        | StandardBuiltinId::RegExpPrototypeGlobalGetter
+        | StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter
+        | StandardBuiltinId::RegExpPrototypeMultilineGetter
+        | StandardBuiltinId::RegExpPrototypeDotAllGetter
+        | StandardBuiltinId::RegExpPrototypeUnicodeGetter
+        | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
+        | StandardBuiltinId::RegExpPrototypeStickyGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticSetter => 1,
         StandardBuiltinId::RegExpPrototypeSymbolMatch
@@ -3046,7 +3335,8 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         ExprIr::TypeOfUnresolvedIdentifier { .. } => false,
         ExprIr::NewTarget => false,
         ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
-            ObjectPropertyIr::Data { value, .. }
+            ObjectPropertyIr::PrototypeSetter { value }
+            | ObjectPropertyIr::Data { value, .. }
             | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_function_table(value),
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_function_table(key) || expr_uses_function_table(value)
@@ -3062,14 +3352,29 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
         ExprIr::OptionalPropertyChain { target, chain } => {
+            let mut chain_uses_function_table = false;
+            let mut has_call = false;
+            for operation in chain {
+                match operation {
+                    OptionalChainOperationIr::Property { key, .. } => {
+                        chain_uses_function_table |= match key {
+                            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                            PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                                expr_uses_function_table(expr.as_ref())
+                            }
+                        };
+                    }
+                    OptionalChainOperationIr::Call { args, .. } => {
+                        chain_uses_function_table |= args.iter().any(expr_uses_function_table);
+                        has_call = true;
+                    }
+                }
+            }
             matches!(target.kind, ValueKind::Object)
                 || expr_uses_function_table(target)
-                || chain.iter().any(|access| match &access.key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr.as_ref())
-                    }
-                })
+                || chain_uses_function_table
+                // The callee itself must be dynamically callable.
+                || has_call
         }
         ExprIr::PropertyRead { target, key } => {
             matches!(target.kind, ValueKind::Object)
@@ -3198,7 +3503,8 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         ExprIr::TypeOfUnresolvedIdentifier { .. } => false,
         ExprIr::NewTarget => false,
         ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
-            ObjectPropertyIr::Data { value, .. }
+            ObjectPropertyIr::PrototypeSetter { value }
+            | ObjectPropertyIr::Data { value, .. }
             | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_calls(value),
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_calls(key) || expr_uses_calls(value)
@@ -3214,13 +3520,25 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
         ExprIr::OptionalPropertyChain { target, chain } => {
-            expr_uses_calls(target)
-                || chain.iter().any(|access| match &access.key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr.as_ref())
+            let mut chain_uses_calls = false;
+            let mut has_call = false;
+            for operation in chain {
+                match operation {
+                    OptionalChainOperationIr::Property { key, .. } => {
+                        chain_uses_calls |= match key {
+                            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                            PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                                expr_uses_calls(expr.as_ref())
+                            }
+                        };
                     }
-                })
+                    OptionalChainOperationIr::Call { args, .. } => {
+                        chain_uses_calls |= args.iter().any(expr_uses_calls);
+                        has_call = true;
+                    }
+                }
+            }
+            expr_uses_calls(target) || chain_uses_calls || has_call
         }
         ExprIr::PropertyRead { target, key } => {
             expr_uses_calls(target)
@@ -3533,7 +3851,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             let child = properties
                 .iter()
                 .map(|property| match property {
-                    ObjectPropertyIr::Data { value, .. }
+                    ObjectPropertyIr::PrototypeSetter { value }
+                    | ObjectPropertyIr::Data { value, .. }
                     | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         count_expr_temp_locals(value)
                     }
@@ -3564,15 +3883,24 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::OptionalPropertyChain { target, chain } => {
             let child = chain
                 .iter()
-                .fold(count_expr_temp_locals(target), |acc, access| {
-                    acc.max(match &access.key {
-                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
-                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                            count_expr_temp_locals(expr.as_ref())
+                .fold(count_expr_temp_locals(target), |acc, operation| {
+                    acc.max(match operation {
+                        OptionalChainOperationIr::Property { key, .. } => match key {
+                            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                            PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                                count_expr_temp_locals(expr.as_ref())
+                            }
+                        },
+                        OptionalChainOperationIr::Call { args, .. } => {
+                            let arg_child =
+                                args.iter().map(count_expr_temp_locals).max().unwrap_or(0);
+                            arg_child.max(96 + args.len() * 2)
                         }
                     })
                 });
-            child.max(12)
+            // The chain emitter keeps receiver/reference/call locals live
+            // while evaluating keys and arguments.
+            child.max(24)
         }
         ExprIr::PropertyRead { target, key } => {
             let child = count_expr_temp_locals(target).max(match key {

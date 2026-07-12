@@ -1,7 +1,43 @@
 use super::*;
-use porffor_ir::OptionalPropertyAccessIr;
+use porffor_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr};
 
 impl<'a> FunctionBuilder<'a> {
+    /// Evaluate a super property's key expression without applying
+    /// ToPropertyKey yet. SuperProperty evaluation needs this raw value before
+    /// GetSuperBase/null checking; coercion is deliberately emitted by the
+    /// caller only after that check.
+    fn compile_super_property_key_expression_to_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match key {
+            PropertyKeyIr::StaticString(value) => {
+                function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            PropertyKeyIr::StringExpr(expr) => {
+                self.compile_expr_to_locals(expr, payload_local, tag_local, function)?;
+            }
+            PropertyKeyIr::ArrayIndex(expr) => {
+                self.compile_expr_payload(expr, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            PropertyKeyIr::ArrayLength => {
+                return Err(EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: object key kind",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn compile_expr_payload(
         &mut self,
         expr: &TypedExpr,
@@ -1193,8 +1229,23 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::SuperConstruct { args } => {
+                let ctor_payload_local = self.reserve_temp_local();
+                let ctor_tag_local = self.reserve_temp_local();
+                let new_target_payload_local = self.reserve_temp_local();
+                let new_target_tag_local = self.reserve_temp_local();
+                self.emit_prepare_super_construct_to_locals(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    ctor_payload_local,
+                    ctor_tag_local,
+                    function,
+                )?;
                 let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_super_construct_with_arg_vector(
+                self.emit_super_construct_with_prepared_arg_vector(
+                    ctor_payload_local,
+                    ctor_tag_local,
+                    new_target_payload_local,
+                    new_target_tag_local,
                     argc_local,
                     argv_local,
                     self.result_local,
@@ -1204,38 +1255,78 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.result_local));
                 self.release_temp_local(argv_local);
                 self.release_temp_local(argc_local);
+                self.release_temp_local(new_target_tag_local);
+                self.release_temp_local(new_target_payload_local);
+                self.release_temp_local(ctor_tag_local);
+                self.release_temp_local(ctor_payload_local);
             }
             ExprIr::SuperPropertyRead { key } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
+                let activation_receiver = self.lexical_derived_activation.is_some();
+                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
+                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
+                let (this_payload_local, this_tag_local) = if activation_receiver {
+                    let this_payload_local = self.reserve_temp_local();
+                    let this_tag_local = self.reserve_temp_local();
+                    self.emit_get_derived_this_to_locals(
+                        this_payload_local,
+                        this_tag_local,
+                        function,
+                    )?;
+                    (this_payload_local, this_tag_local)
+                } else if lexical_arrow_receiver {
+                    let this_payload_local = self.reserve_temp_local();
+                    let this_tag_local = self.reserve_temp_local();
+                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
+                    (this_payload_local, this_tag_local)
+                } else {
+                    let Some(this_payload_local) = self.this_payload_local else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: super outside class method",
+                        ));
+                    };
+                    let Some(this_tag_local) = self.this_tag_local else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: super outside class method",
+                        ));
+                    };
+                    (this_payload_local, this_tag_local)
+                };
+                let key_local = self.reserve_temp_local();
+                let key_tag_local = self.reserve_temp_local();
+                // Evaluate the raw key (including its side effects) before
+                // GetSuperBase; ToPropertyKey is intentionally deferred.
+                self.compile_super_property_key_expression_to_locals(
+                    key,
+                    key_local,
+                    key_tag_local,
+                    function,
+                )?;
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
                 self.emit_throw_if_null_super_base(
                     super_base_local,
                     super_base_tag_local,
                     function,
                 )?;
-                let Some(this_payload_local) = self.this_payload_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: super outside class method",
-                    ));
-                };
-                let Some(this_tag_local) = self.this_tag_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: super outside class method",
-                    ));
-                };
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.emit_object_read(
+                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+                self.emit_object_read_with_key_tag(
                     super_base_local,
                     super_base_tag_local,
                     this_payload_local,
                     this_tag_local,
                     key_local,
+                    Some(key_tag_local),
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
+                self.release_temp_local(key_tag_local);
                 self.release_temp_local(key_local);
+                if activation_receiver || lexical_arrow_receiver {
+                    self.release_temp_local(this_tag_local);
+                    self.release_temp_local(this_payload_local);
+                }
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
@@ -1695,24 +1786,36 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_optional_property_chain_to_locals(
         &mut self,
         target: &TypedExpr,
-        chain: &[OptionalPropertyAccessIr],
+        chain: &[OptionalChainOperationIr],
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let receiver_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
+        let reference_receiver_local = self.reserve_temp_local();
+        let reference_receiver_tag_local = self.reserve_temp_local();
+        let has_reference_local = self.reserve_temp_local();
+        let call_this_local = self.reserve_temp_local();
+        let call_this_tag_local = self.reserve_temp_local();
         self.compile_expr_to_locals(target, receiver_local, receiver_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             receiver_local,
             receiver_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(has_reference_local));
+        function.instruction(&Instruction::LocalGet(receiver_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(receiver_tag_local));
+        function.instruction(&Instruction::LocalSet(tag_local));
 
-        // Every access uses runtime tag dispatch. Besides handling the result
-        // of an earlier access, this is important for optional access on a
-        // statically primitive base: the property lookup still follows that
-        // primitive's boxed/prototype semantics after the nullish check.
+        // Every property access uses runtime tag dispatch. Besides handling
+        // the result of an earlier operation, this is important for optional
+        // access on a statically primitive base: the property lookup still
+        // follows that primitive's boxed/prototype semantics after the
+        // nullish check.
         let dynamic_receiver = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -1723,65 +1826,195 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::Undefined,
         );
 
-        // One enclosing block makes a shorted operation exit the complete
-        // contiguous chain. In particular, a computed key is emitted only
-        // after the corresponding nullish test.
+        // Each block is one contiguous short-circuit segment. A grouped call
+        // starts a fresh segment so a short in the preceding segment resumes
+        // at that call, while a short inside the fresh segment still skips all
+        // of its later operations. In particular, a computed key or optional
+        // call argument is emitted only after its corresponding nullish test.
         function.instruction(&Instruction::Block(BlockType::Empty));
         self.push_control(ControlFrameKind::Block);
-        for access in chain {
-            if access.shorted {
-                self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                // Leave both this `if` and the surrounding chain block.
-                function.instruction(&Instruction::Br(1));
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-            } else {
-                // Only `?.` short-circuits. A later ordinary property access
-                // (for example `base?.value.next`) still performs RequireObjectCoercible.
-                self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Cannot read properties of null or undefined",
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
+        for operation in chain {
+            match operation {
+                OptionalChainOperationIr::Property { key, shorted } => {
+                    if *shorted {
+                        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.push_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(payload_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(receiver_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(has_reference_local));
+                        // Leave both this `if` and the active chain segment.
+                        function.instruction(&Instruction::Br(1));
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                    } else {
+                        // Only `?.` short-circuits. A later ordinary property
+                        // access still performs RequireObjectCoercible.
+                        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.push_control(ControlFrameKind::If);
+                        self.emit_throw_runtime_error(
+                            TYPE_ERROR_NAME,
+                            "Cannot read properties of null or undefined",
+                            payload_local,
+                            tag_local,
+                            function,
+                        )?;
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            payload_local,
+                            tag_local,
+                            function,
+                        )?;
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                    }
+
+                    // Preserve the Reference base for a following call. The
+                    // property key/getter can then overwrite the current value
+                    // without losing the eventual call receiver.
+                    function.instruction(&Instruction::LocalGet(receiver_local));
+                    function.instruction(&Instruction::LocalSet(reference_receiver_local));
+                    function.instruction(&Instruction::LocalGet(receiver_tag_local));
+                    function.instruction(&Instruction::LocalSet(reference_receiver_tag_local));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(has_reference_local));
+
+                    self.compile_property_read_from_locals(
+                        &dynamic_receiver,
+                        key,
+                        receiver_local,
+                        receiver_tag_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+
+                    function.instruction(&Instruction::LocalGet(payload_local));
+                    function.instruction(&Instruction::LocalSet(receiver_local));
+                    function.instruction(&Instruction::LocalGet(tag_local));
+                    function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                }
+                OptionalChainOperationIr::Call {
+                    args,
+                    receiver,
+                    shorted,
+                    boundary_before,
+                } => {
+                    if *boundary_before {
+                        self.pop_control(ControlFrameKind::Block);
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::Block(BlockType::Empty));
+                        self.push_control(ControlFrameKind::Block);
+                    }
+
+                    if *shorted {
+                        // Optional call tests the callee before evaluating any
+                        // arguments and exits the active contiguous segment.
+                        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.push_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(payload_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(receiver_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(has_reference_local));
+                        function.instruction(&Instruction::Br(1));
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                    }
+
+                    // Arguments precede the callable check for a non-nullish
+                    // callee, including ordinary (non-shorted) call operations.
+                    let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+
+                    match receiver {
+                        OptionalChainCallReceiverIr::ReferenceOrUndefined => {
+                            function.instruction(&Instruction::I64Const(0));
+                            function.instruction(&Instruction::LocalSet(call_this_local));
+                            function.instruction(&Instruction::I64Const(
+                                ValueKind::Undefined.tag() as i64,
+                            ));
+                            function.instruction(&Instruction::LocalSet(call_this_tag_local));
+                            function.instruction(&Instruction::LocalGet(has_reference_local));
+                            function.instruction(&Instruction::I64Const(0));
+                            function.instruction(&Instruction::I64Ne);
+                            function.instruction(&Instruction::If(BlockType::Empty));
+                            self.push_control(ControlFrameKind::If);
+                            function.instruction(&Instruction::LocalGet(reference_receiver_local));
+                            function.instruction(&Instruction::LocalSet(call_this_local));
+                            function
+                                .instruction(&Instruction::LocalGet(reference_receiver_tag_local));
+                            function.instruction(&Instruction::LocalSet(call_this_tag_local));
+                            self.pop_control(ControlFrameKind::If);
+                            function.instruction(&Instruction::End);
+                        }
+                        OptionalChainCallReceiverIr::CurrentThis => {
+                            self.compile_this_to_locals(
+                                call_this_local,
+                                call_this_tag_local,
+                                function,
+                            )?;
+                        }
+                    }
+
+                    self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
+                        receiver_local,
+                        receiver_tag_local,
+                        call_this_local,
+                        call_this_tag_local,
+                        argc_local,
+                        argv_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    self.release_temp_local(argv_local);
+                    self.release_temp_local(argc_local);
+
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(has_reference_local));
+                    function.instruction(&Instruction::LocalGet(payload_local));
+                    function.instruction(&Instruction::LocalSet(receiver_local));
+                    function.instruction(&Instruction::LocalGet(tag_local));
+                    function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                }
             }
-
-            self.compile_property_read_from_locals(
-                &dynamic_receiver,
-                &access.key,
-                receiver_local,
-                receiver_tag_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-
-            function.instruction(&Instruction::LocalGet(payload_local));
-            function.instruction(&Instruction::LocalSet(receiver_local));
-            function.instruction(&Instruction::LocalGet(tag_local));
-            function.instruction(&Instruction::LocalSet(receiver_tag_local));
         }
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(call_this_tag_local);
+        self.release_temp_local(call_this_local);
+        self.release_temp_local(has_reference_local);
+        self.release_temp_local(reference_receiver_tag_local);
+        self.release_temp_local(reference_receiver_local);
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(receiver_local);
         Ok(())
@@ -2030,37 +2263,104 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
+            ExprIr::SuperConstruct { args } => {
+                let ctor_payload_local = self.reserve_temp_local();
+                let ctor_tag_local = self.reserve_temp_local();
+                let new_target_payload_local = self.reserve_temp_local();
+                let new_target_tag_local = self.reserve_temp_local();
+                self.emit_prepare_super_construct_to_locals(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    ctor_payload_local,
+                    ctor_tag_local,
+                    function,
+                )?;
+                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+                self.emit_super_construct_with_prepared_arg_vector(
+                    ctor_payload_local,
+                    ctor_tag_local,
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    argc_local,
+                    argv_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.release_temp_local(argv_local);
+                self.release_temp_local(argc_local);
+                self.release_temp_local(new_target_tag_local);
+                self.release_temp_local(new_target_payload_local);
+                self.release_temp_local(ctor_tag_local);
+                self.release_temp_local(ctor_payload_local);
+            }
             ExprIr::SuperPropertyRead { key } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
+                let activation_receiver = self.lexical_derived_activation.is_some();
+                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
+                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
+                let (this_payload_local, this_tag_local) = if activation_receiver {
+                    let this_payload_local = self.reserve_temp_local();
+                    let this_tag_local = self.reserve_temp_local();
+                    self.emit_get_derived_this_to_locals(
+                        this_payload_local,
+                        this_tag_local,
+                        function,
+                    )?;
+                    (this_payload_local, this_tag_local)
+                } else if lexical_arrow_receiver {
+                    let this_payload_local = self.reserve_temp_local();
+                    let this_tag_local = self.reserve_temp_local();
+                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
+                    (this_payload_local, this_tag_local)
+                } else {
+                    let Some(this_payload_local) = self.this_payload_local else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: super outside class method",
+                        ));
+                    };
+                    let Some(this_tag_local) = self.this_tag_local else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: super outside class method",
+                        ));
+                    };
+                    (this_payload_local, this_tag_local)
+                };
+                let key_local = self.reserve_temp_local();
+                let key_tag_local = self.reserve_temp_local();
+                // Evaluate the raw key (including its side effects) before
+                // GetSuperBase; ToPropertyKey is intentionally deferred.
+                self.compile_super_property_key_expression_to_locals(
+                    key,
+                    key_local,
+                    key_tag_local,
+                    function,
+                )?;
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
                 self.emit_throw_if_null_super_base(
                     super_base_local,
                     super_base_tag_local,
                     function,
                 )?;
-                let Some(this_payload_local) = self.this_payload_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: super outside class method",
-                    ));
-                };
-                let Some(this_tag_local) = self.this_tag_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: super outside class method",
-                    ));
-                };
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.emit_object_read(
+                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+                self.emit_object_read_with_key_tag(
                     super_base_local,
                     super_base_tag_local,
                     this_payload_local,
                     this_tag_local,
                     key_local,
+                    Some(key_tag_local),
                     payload_local,
                     tag_local,
                     function,
                 )?;
+                self.release_temp_local(key_tag_local);
                 self.release_temp_local(key_local);
+                if activation_receiver || lexical_arrow_receiver {
+                    self.release_temp_local(this_tag_local);
+                    self.release_temp_local(this_payload_local);
+                }
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
             }

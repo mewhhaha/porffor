@@ -1386,6 +1386,9 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_array_prototype_method_metadata_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_array_flat_map_custom_species_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_array_to_string_non_callable_join_case(&case.path) {
         return Some(source);
     }
@@ -11844,6 +11847,8 @@ fn rewrite_array_prototype_method_metadata_case(path: &str) -> Option<String> {
         ("indexOf", 1),
         ("lastIndexOf", 1),
         ("map", 1),
+        ("flat", 0),
+        ("flatMap", 1),
         ("some", 1),
         ("toString", 0),
     ] {
@@ -11893,6 +11898,116 @@ if (desc.configurable !== true) throw "Array.prototype.{method} name configurabl
     }
 
     None
+}
+
+fn rewrite_array_flat_map_custom_species_case(path: &str) -> Option<String> {
+    match path {
+        "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor.js" => {
+            Some(
+                r#"if (typeof Array.prototype.flatMap !== "function") {
+  throw "Array.prototype.flatMap is not callable";
+}
+
+var arr = [[42, 1], [42, 2]];
+var speciesGetterCalled = 0;
+var ctorCalled = 0;
+var ctorLength = -1;
+var ctorNewTarget;
+
+function ctor(len) {
+  ctorCalled = ctorCalled + 1;
+  ctorLength = len;
+  ctorNewTarget = new.target;
+}
+
+arr.constructor = {
+  get [Symbol.species]() {
+    speciesGetterCalled = speciesGetterCalled + 1;
+    return ctor;
+  }
+};
+
+var actual = arr.flatMap(function (element) { return element; });
+
+if (speciesGetterCalled !== 1) throw "flatMap species getter count";
+if (ctorCalled !== 1) throw "flatMap species constructor count";
+if (ctorLength !== 0) throw "flatMap species constructor length";
+if (ctorNewTarget !== ctor) throw "flatMap species constructor new.target";
+if (!(actual instanceof ctor)) throw "flatMap species result prototype";
+if (Object.getOwnPropertyDescriptor(actual, "length") !== undefined) {
+  throw "flatMap species result own length";
+}
+
+function __porfCheckFlatMapDataProperty(object, key, expected) {
+  var desc = Object.getOwnPropertyDescriptor(object, key);
+  if (desc === undefined) throw "flatMap result missing index " + key;
+  if (desc.value !== expected) throw "flatMap result index value " + key;
+  if (desc.writable !== true) throw "flatMap result index writable " + key;
+  if (desc.enumerable !== true) throw "flatMap result index enumerable " + key;
+  if (desc.configurable !== true) throw "flatMap result index configurable " + key;
+}
+
+__porfCheckFlatMapDataProperty(actual, "0", 42);
+__porfCheckFlatMapDataProperty(actual, "1", 1);
+__porfCheckFlatMapDataProperty(actual, "2", 42);
+__porfCheckFlatMapDataProperty(actual, "3", 2);
+"#
+                .to_string(),
+            )
+        }
+        "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor-poisoned-throws.js" => {
+            Some(
+                r#"if (typeof Array.prototype.flatMap !== "function") {
+  throw "Array.prototype.flatMap is not callable";
+}
+
+var arr = [];
+var sentinel = {};
+var speciesGetterCalled = 0;
+var ctorCalled = 0;
+var ctorLength = -1;
+var ctorNewTarget;
+var mapperCalled = 0;
+
+function ctor(len) {
+  ctorCalled = ctorCalled + 1;
+  ctorLength = len;
+  ctorNewTarget = new.target;
+  throw sentinel;
+}
+
+arr.constructor = {
+  get [Symbol.species]() {
+    speciesGetterCalled = speciesGetterCalled + 1;
+    return ctor;
+  }
+};
+
+var caught;
+var threw = false;
+try {
+  arr.flatMap(function (element) {
+    mapperCalled = mapperCalled + 1;
+    return element;
+  });
+} catch (error) {
+  threw = true;
+  caught = error;
+}
+
+if (!threw) throw "flatMap poisoned species did not throw";
+if (caught !== sentinel) throw "flatMap poisoned species changed abrupt value";
+if (speciesGetterCalled !== 1) throw "flatMap poisoned species getter count";
+if (ctorCalled !== 1) throw "flatMap poisoned species constructor count";
+if (ctorLength !== 0) throw "flatMap poisoned species constructor length";
+if (ctorNewTarget !== ctor) throw "flatMap poisoned species constructor new.target";
+if (mapperCalled !== 0) throw "flatMap mapper ran after poisoned species";
+"#
+                .to_string(),
+            )
+        }
+        _ => None,
+    }
 }
 
 fn rewrite_array_to_string_non_callable_join_case(path: &str) -> Option<String> {
@@ -18881,10 +18996,14 @@ fn rewrite_array_reduce_resizable_case(path: &str) -> Option<String> {
         return Some(rewrite_array_reduce_resizable_buffer_case(method, reverse));
     }
     if path.ends_with("resizable-buffer-grow-mid-iteration.js") {
-        return Some(rewrite_array_reduce_mid_iteration_case(method, reverse, false));
+        return Some(rewrite_array_reduce_mid_iteration_case(
+            method, reverse, false,
+        ));
     }
     if path.ends_with("resizable-buffer-shrink-mid-iteration.js") {
-        return Some(rewrite_array_reduce_mid_iteration_case(method, reverse, true));
+        return Some(rewrite_array_reduce_mid_iteration_case(
+            method, reverse, true,
+        ));
     }
 
     None
@@ -18893,7 +19012,11 @@ fn rewrite_array_reduce_resizable_case(path: &str) -> Option<String> {
 fn rewrite_array_reduce_callback_resize_case(method: &str, reverse: bool) -> String {
     let shrink_prevs = if reverse { "[262, 2]" } else { "[262, 0]" };
     let shrink_indices = if reverse { "[2, 0]" } else { "[0, 1]" };
-    let fallback_prevs = if reverse { "[262, 2, 1]" } else { "[262, 0, 1]" };
+    let fallback_prevs = if reverse {
+        "[262, 2, 1]"
+    } else {
+        "[262, 0, 1]"
+    };
     let fallback_indices = if reverse { "[2, 1, 0]" } else { "[0, 1, 2]" };
     let shrink_to = if reverse { "BPE" } else { "2 * BPE" };
     let grow_prevs = if reverse { "[262]" } else { "[262, 0]" };
@@ -18971,13 +19094,37 @@ function __porfCheckCallbackArrays(prevs, nexts, indices, arrays, expectedPrevs,
 }
 
 fn rewrite_array_reduce_resizable_buffer_case(method: &str, reverse: bool) -> String {
-    let (all, all_indices, fixed_offset, fixed_offset_indices, tracking_offset, tracking_offset_indices) =
-        if reverse {
-            ("[6, 4, 2, 0]", "[3, 2, 1, 0]", "[6, 4]", "[1, 0]", "[6, 4]", "[1, 0]")
-        } else {
-            ("[0, 2, 4, 6]", "[0, 1, 2, 3]", "[4, 6]", "[0, 1]", "[4, 6]", "[0, 1]")
-        };
-    let (three, three_indices) = if reverse { ("[4, 2, 0]", "[2, 1, 0]") } else { ("[0, 2, 4]", "[0, 1, 2]") };
+    let (
+        all,
+        all_indices,
+        fixed_offset,
+        fixed_offset_indices,
+        tracking_offset,
+        tracking_offset_indices,
+    ) = if reverse {
+        (
+            "[6, 4, 2, 0]",
+            "[3, 2, 1, 0]",
+            "[6, 4]",
+            "[1, 0]",
+            "[6, 4]",
+            "[1, 0]",
+        )
+    } else {
+        (
+            "[0, 2, 4, 6]",
+            "[0, 1, 2, 3]",
+            "[4, 6]",
+            "[0, 1]",
+            "[4, 6]",
+            "[0, 1]",
+        )
+    };
+    let (three, three_indices) = if reverse {
+        ("[4, 2, 0]", "[2, 1, 0]")
+    } else {
+        ("[0, 2, 4]", "[0, 1, 2]")
+    };
 
     format!(
         r#"var TA = Uint8Array;
@@ -19044,30 +19191,90 @@ __porfCollect(fixedLengthWithOffset, {fixed_offset}, {fixed_offset_indices}, "fi
 __porfCollect(lengthTracking, {reverse_all}, {reverse_all_indices}, "tracking grow");
 __porfCollect(lengthTrackingWithOffset, {reverse_tracking_offset}, {reverse_tracking_offset_indices}, "tracking offset grow");
 "#,
-        reverse_all = if reverse { "[10, 8, 6, 4, 2, 0]" } else { "[0, 2, 4, 6, 8, 10]" },
-        reverse_all_indices = if reverse { "[5, 4, 3, 2, 1, 0]" } else { "[0, 1, 2, 3, 4, 5]" },
-        reverse_tracking_offset = if reverse { "[10, 8, 6, 4]" } else { "[4, 6, 8, 10]" },
-        reverse_tracking_offset_indices = if reverse { "[3, 2, 1, 0]" } else { "[0, 1, 2, 3]" },
+        reverse_all = if reverse {
+            "[10, 8, 6, 4, 2, 0]"
+        } else {
+            "[0, 2, 4, 6, 8, 10]"
+        },
+        reverse_all_indices = if reverse {
+            "[5, 4, 3, 2, 1, 0]"
+        } else {
+            "[0, 1, 2, 3, 4, 5]"
+        },
+        reverse_tracking_offset = if reverse {
+            "[10, 8, 6, 4]"
+        } else {
+            "[4, 6, 8, 10]"
+        },
+        reverse_tracking_offset_indices = if reverse {
+            "[3, 2, 1, 0]"
+        } else {
+            "[0, 1, 2, 3]"
+        },
     )
 }
 
 fn rewrite_array_reduce_mid_iteration_case(method: &str, reverse: bool, shrinking: bool) -> String {
-    let all_values = if reverse { "[6, 4, 2, 0]" } else { "[0, 2, 4, 6]" };
-    let all_indices = if reverse { "[3, 2, 1, 0]" } else { "[0, 1, 2, 3]" };
+    let all_values = if reverse {
+        "[6, 4, 2, 0]"
+    } else {
+        "[0, 2, 4, 6]"
+    };
+    let all_indices = if reverse {
+        "[3, 2, 1, 0]"
+    } else {
+        "[0, 1, 2, 3]"
+    };
     let offset_values = if reverse { "[6, 4]" } else { "[4, 6]" };
     let offset_indices = if reverse { "[1, 0]" } else { "[0, 1]" };
-    let (fixed_values, fixed_indices, fixed_offset_values, fixed_offset_indices, tracking_values, tracking_indices, tracking_offset_values, tracking_offset_indices, extra_case) = if !shrinking {
-        (all_values, all_indices, offset_values, offset_indices, all_values, all_indices, offset_values, offset_indices, String::new())
+    let (
+        fixed_values,
+        fixed_indices,
+        fixed_offset_values,
+        fixed_offset_indices,
+        tracking_values,
+        tracking_indices,
+        tracking_offset_values,
+        tracking_offset_indices,
+        extra_case,
+    ) = if !shrinking {
+        (
+            all_values,
+            all_indices,
+            offset_values,
+            offset_indices,
+            all_values,
+            all_indices,
+            offset_values,
+            offset_indices,
+            String::new(),
+        )
     } else if reverse {
         (
-            "[6, 4]", "[3, 2]", "[6]", "[1]", all_values, all_indices, offset_values, offset_indices,
+            "[6, 4]",
+            "[3, 2]",
+            "[6]",
+            "[1]",
+            all_values,
+            all_indices,
+            offset_values,
+            offset_indices,
             r#"rab = __porfMakeBuffer();
 __porfRun(new TA(rab, 0), rab, 1, 2, [6, 2, 0], [3, 1, 0], "tracking shrink after one");
-"#.to_string(),
+"#
+            .to_string(),
         )
     } else {
         (
-            "[0, 2]", "[0, 1]", "[4]", "[0]", "[0, 2, 4]", "[0, 1, 2]", "[4]", "[0]", String::new(),
+            "[0, 2]",
+            "[0, 1]",
+            "[4]",
+            "[0]",
+            "[0, 2, 4]",
+            "[0, 1, 2]",
+            "[4]",
+            "[0]",
+            String::new(),
         )
     };
     let resize_elements = if shrinking { 3 } else { 5 };
@@ -20423,9 +20630,7 @@ fn execute_cases(
                     let checkpoint_snapshot = {
                         let mut guard = results.lock().expect("results mutex poisoned");
                         guard.push(result);
-                        if run_config.resume
-                            && guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0
-                        {
+                        if run_config.resume && guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
                             let mut snapshot_results = previously_completed.clone();
                             snapshot_results.extend(guard.iter().cloned());
                             Some(snapshot_results)
@@ -20932,7 +21137,8 @@ fn compile_negative_error_matches(
                 negative.phase.eq_ignore_ascii_case("parse")
             }
             porffor_front::ParseDiagnosticPhase::Early => {
-                negative.phase.eq_ignore_ascii_case("early")
+                negative.phase.eq_ignore_ascii_case("parse")
+                    || negative.phase.eq_ignore_ascii_case("early")
             }
         };
         return phase_matches
@@ -20940,7 +21146,10 @@ fn compile_negative_error_matches(
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
         let phase_matches = match diagnostic.phase {
-            IrDiagnosticPhase::Early => negative.phase.eq_ignore_ascii_case("early"),
+            IrDiagnosticPhase::Early => {
+                negative.phase.eq_ignore_ascii_case("parse")
+                    || negative.phase.eq_ignore_ascii_case("early")
+            }
             IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
         };
         return phase_matches
@@ -21416,12 +21625,11 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             case.path.starts_with("built-ins/Array/prototype/indexOf/");
         let supported_array_filter_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/filter/");
-        let supported_array_reduce_resizable_case = case
-            .path
-            .starts_with("built-ins/Array/prototype/reduce/")
-            || case
-                .path
-                .starts_with("built-ins/Array/prototype/reduceRight/");
+        let supported_array_reduce_resizable_case =
+            case.path.starts_with("built-ins/Array/prototype/reduce/")
+                || case
+                    .path
+                    .starts_with("built-ins/Array/prototype/reduceRight/");
         let supported_array_find_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/find/");
         let supported_array_find_index_resizable_case = case
@@ -24605,6 +24813,45 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             "structured early negative should pass, got {:?}",
             result.status
         );
+    }
+
+    #[test]
+    fn run_one_case_matches_parse_negative_with_parser_early_diagnostic() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/parse-negative-duplicate-proto.js");
+        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "parse".to_string(),
+            error_type: "SyntaxError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "parse negative should accept a parser early diagnostic, got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn run_one_case_rejects_parse_negative_with_wrong_error_type() {
+        let preludes = PreludeStore::default();
+        let mut case = synthetic_case("language/parse-negative-wrong-type.js");
+        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
+        case.negative = Some(NegativeExpectation {
+            phase: "parse".to_string(),
+            error_type: "TypeError".to_string(),
+        });
+
+        let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("parse negative with wrong error type should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::Parser);
+        assert!(failure.detail.contains("expected TypeError"));
+        assert!(failure
+            .detail
+            .contains("got E_OBJECT_DUPLICATE_PROTO SyntaxError"));
     }
 
     #[test]
@@ -27807,10 +28054,16 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             "indexOf",
             "lastIndexOf",
             "map",
+            "flat",
+            "flatMap",
             "some",
             "toString",
         ] {
-            let length = if method == "toString" { 0 } else { 1 };
+            let length = if matches!(method, "flat" | "toString") {
+                0
+            } else {
+                1
+            };
             for (file, expected_value) in [
                 (
                     "prop-desc.js",
@@ -27832,6 +28085,70 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
                 assert!(!materialized.source.contains("helper used"));
                 assert!(!materialized.source.contains("verifyProperty("));
                 assert!(materialized.source.contains(&expected_value));
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_array_flat_map_custom_species_uses_static_wasm_aot_rewrites() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "throw 'full assert used';\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, original_source, expected_fragments) in [
+            (
+                "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor.js",
+                "assert.sameValue(typeof Array.prototype.flatMap, 'function'); verifyProperty({}, '0', {});",
+                &[
+                    "speciesGetterCalled !== 1",
+                    "ctorNewTarget = new.target;",
+                    "ctorLength !== 0",
+                    "ctorNewTarget !== ctor",
+                    "actual instanceof ctor",
+                    "Object.getOwnPropertyDescriptor(actual, \"length\")",
+                    "desc.writable !== true",
+                    "desc.enumerable !== true",
+                    "desc.configurable !== true",
+                    "__porfCheckFlatMapDataProperty(actual, \"3\", 2)",
+                ][..],
+            ),
+            (
+                "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor-poisoned-throws.js",
+                "assert.throws(Test262Error, function() { verifyProperty({}, '0', {}); });",
+                &[
+                    "speciesGetterCalled !== 1",
+                    "ctorNewTarget = new.target;",
+                    "throw sentinel;",
+                    "caught !== sentinel",
+                    "ctorCalled !== 1",
+                    "ctorLength !== 0",
+                    "ctorNewTarget !== ctor",
+                    "mapperCalled !== 0",
+                ][..],
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec!["propertyHelper.js".to_string()];
+            case.original_source = original_source.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty());
+            assert!(!materialized.source.contains("full assert used"));
+            assert!(!materialized.source.contains("property helper used"));
+            assert!(!materialized.source.contains("assert."));
+            assert!(!materialized.source.contains("verifyProperty("));
+            for fragment in expected_fragments {
+                assert!(materialized.source.contains(fragment), "{path}: {fragment}");
             }
         }
     }
@@ -28857,7 +29174,8 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         let mut store = PreludeStore::default();
         store.insert(
             "testTypedArray.js".to_string(),
-            "function testWithTypedArrayConstructors() { throw 'typed helper used'; }\n".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed helper used'; }\n"
+                .to_string(),
             PreludeOrigin::VendoredHarness,
         );
         store.insert(
@@ -28875,12 +29193,20 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             (
                 "built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js",
                 "reduce",
-                vec!["var TA = Float64Array;", "var TA = Uint8ClampedArray;", "[262, 0]"],
+                vec![
+                    "var TA = Float64Array;",
+                    "var TA = Uint8ClampedArray;",
+                    "[262, 0]",
+                ],
             ),
             (
                 "built-ins/Array/prototype/reduceRight/callbackfn-resize-arraybuffer.js",
                 "reduceRight",
-                vec!["var TA = Float64Array;", "var TA = Uint8ClampedArray;", "[262, 2]"],
+                vec![
+                    "var TA = Float64Array;",
+                    "var TA = Uint8ClampedArray;",
+                    "[262, 2]",
+                ],
             ),
             (
                 "built-ins/Array/prototype/reduce/resizable-buffer.js",
@@ -28922,11 +29248,15 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
             case.features.insert("resizable-arraybuffer".to_string());
             case.original_source = "heavy helper source should be replaced".to_string();
 
-            let materialized = materialize_test(&case, &store).expect("materialization should work");
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
 
             assert!(materialized.used_preludes.is_empty(), "{path}");
             assert!(!materialized.source.contains("helper used"), "{path}");
-            assert!(!materialized.source.contains("heavy helper source"), "{path}");
+            assert!(
+                !materialized.source.contains("heavy helper source"),
+                "{path}"
+            );
             assert!(
                 materialized
                     .source
@@ -28934,7 +29264,10 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
                 "{path} method"
             );
             for fragment in expected_fragments {
-                assert!(materialized.source.contains(fragment), "{path} missing {fragment}");
+                assert!(
+                    materialized.source.contains(fragment),
+                    "{path} missing {fragment}"
+                );
             }
         }
     }

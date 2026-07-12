@@ -33,12 +33,22 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             expr_contains_this_before_super(target, state);
-            for access in chain {
-                match &access.key {
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_contains_this_before_super(expr, state);
+            for operation in chain {
+                match operation {
+                    OptionalChainOperationIr::Property { key, .. } => match key {
+                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                            expr_contains_this_before_super(expr, state);
+                        }
+                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+                    },
+                    OptionalChainOperationIr::Call { args, receiver, .. } => {
+                        if *receiver == OptionalChainCallReceiverIr::CurrentThis {
+                            state.this_before_super = true;
+                        }
+                        for arg in args {
+                            expr_contains_this_before_super(arg, state);
+                        }
                     }
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
                 }
             }
         }
@@ -146,7 +156,8 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         ExprIr::ObjectLiteral(properties) => {
             for property in properties {
                 match property {
-                    ObjectPropertyIr::Data { value, .. }
+                    ObjectPropertyIr::PrototypeSetter { value }
+                    | ObjectPropertyIr::Data { value, .. }
                     | ObjectPropertyIr::NonEnumerableData { value, .. }
                     | ObjectPropertyIr::Method {
                         function: value, ..
