@@ -1665,20 +1665,30 @@ Recent focused progress through `2026-07-12`:
   characters, ASCII-only `ignoreCase`, and one ordered alternation of two plain
   literals with leftmost-first/source-order selection. It also recognizes the
   generic `(?:literal|literal)\d?` shape, greedily consumes at most one ASCII
-  digit, and preserves the existing global/sticky `lastIndex` path. Exact real
-  Test262 `S15.10.6.2_A1_T12.js`, `S15.10.6.2_A1_T15.js`,
+  digit, and preserves the existing global/sticky `lastIndex` path. RegExp
+  literals whose source fits the new sequence grammar now also carry a
+  backend-neutral, fixed-width matcher program into Wasm: deduplicated,
+  aligned programs live in static data and run through one outlined helper.
+  This first program grammar covers exact ASCII atoms plus positive ASCII
+  character classes and ranges while preserving UTF-16 match indices,
+  global/sticky `lastIndex`, strict writes, and intrinsic literal construction.
+  Exact real Test262 `S15.10.6.2_A1_T12.js`,
+  `S15.10.6.2_A1_T13.js`, `S15.10.6.2_A1_T15.js`,
   `S15.10.6.2_A1_T16.js`, `S15.10.6.2_A1_T17.js`,
-  `S15.10.6.2_A1_T18.js`, `S15.10.6.2_A2_T7.js`,
+  `S15.10.6.2_A1_T18.js`,
+  `S15.10.6.2_A1_T20.js`, `S15.10.6.2_A1_T21.js`,
+  `S15.10.6.2_A2_T7.js`,
   `S15.10.6.2_A2_T8.js`, `S15.10.6.2_A2_T9.js`,
-  `S15.10.6.2_A3_T1.js`, `S15.10.6.2_A4_T1.js` through
+  `S15.10.6.2_A3_T1.js`, `S15.10.6.2_A3_T2.js`,
+  `S15.10.6.2_A4_T1.js` through
   `S15.10.6.2_A4_T12.js`, `S15.10.6.2_A5_T1.js` through
   `S15.10.6.2_A5_T3.js`, `name.js`, and `not-a-constructor.js` report `1/1`
-  each. The full exact `built-ins/RegExp/prototype/exec` leaf reports `58/79`
+  each. The full exact `built-ins/RegExp/prototype/exec` leaf reports `63/79`
   as of `2026-07-12` under
-  `XDG_CACHE_HOME=/tmp/porffor-cache-regexp-full-after-optional-digit ./target/release/porf test262 run built-ins/RegExp/prototype/exec --execution-backend wasm --threads 4 --timeout-ms 120000 --snapshot-dir /tmp/porffor-test262-focused --snapshot-name regexp-exec-after-optional-digit`;
-  character classes, captures/backtracking, broader quantifiers, Unicode
-  folding/property escapes, and other flag combinations remain explicit
-  failures rather than being counted as supported.
+  `XDG_CACHE_HOME=/tmp/porffor-xdg-regexp-exec-20260712 ./target/release/porf test262 run built-ins/RegExp/prototype/exec --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4 --snapshot-dir /tmp/porffor-test262-focused --snapshot-name regexp-exec-wasm-aot-20260712`;
+  captures/backtracking, broader quantifiers, class escapes/negation,
+  Unicode folding/property escapes, and other flag combinations remain
+  explicit failures rather than being counted as supported.
   `String.prototype.matchAll` now has focused Wasm-AOT coverage for the first
   metadata, literal-pattern, custom-hook, prototype-deletion, and Unicode
   global RegExp paths. Exact real Test262

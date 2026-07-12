@@ -75,8 +75,8 @@ pub use operations::{
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpProgram,
-    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
+    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_JUMP,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
 };
 
 pub use names::*;
@@ -2499,7 +2499,7 @@ mod tests {
 
     #[test]
     fn lowers_regexp_literals_as_intrinsic_leaves() {
-        let program = lower_script("/t[a-b|q-s]/g; /a+/;");
+        let program = lower_script("/t[a-b|q-s]/g; /a|b/;");
         let script = program.script.as_ref().expect("script ir should exist");
 
         let StatementIr::Expression(supported) = &script.body.statements[0] else {

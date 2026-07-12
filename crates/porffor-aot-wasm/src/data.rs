@@ -1,5 +1,5 @@
 use super::*;
-use porffor_ir::OptionalChainOperationIr;
+use porffor_ir::{OptionalChainOperationIr, RegExpProgram};
 
 #[derive(Debug)]
 struct StringRef {
@@ -7,10 +7,18 @@ struct StringRef {
     len: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RegExpProgramRef {
+    pub(crate) ptr: u32,
+    pub(crate) instruction_count: u32,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
     refs: BTreeMap<String, StringRef>,
+    regexp_programs: BTreeMap<Vec<u8>, RegExpProgramRef>,
+    pending_regexp_programs: Vec<(Vec<u8>, u32)>,
     pub(crate) uses_heap: bool,
 }
 
@@ -1089,6 +1097,7 @@ impl StringPool {
             pool.collect_block(&function.body);
         }
         pool.collect_block(&script.body);
+        pool.append_regexp_programs();
         pool
     }
 
@@ -1256,6 +1265,18 @@ impl StringPool {
             }
             ExprIr::String(value) => {
                 self.intern_string(value);
+            }
+            ExprIr::RegExpLiteral {
+                source,
+                flags,
+                program,
+            } => {
+                self.uses_heap = true;
+                self.intern_string(source);
+                self.intern_string(flags);
+                if let Some(program) = program {
+                    self.queue_regexp_program(program);
+                }
             }
             ExprIr::BigInt(_) => {}
             ExprIr::ObjectLiteral(properties) => {
@@ -1715,6 +1736,39 @@ impl StringPool {
         );
     }
 
+    fn queue_regexp_program(&mut self, program: &RegExpProgram) {
+        let encoded = program.encode();
+        if self.regexp_programs.contains_key(&encoded)
+            || self
+                .pending_regexp_programs
+                .iter()
+                .any(|(pending, _)| pending == &encoded)
+        {
+            return;
+        }
+        self.pending_regexp_programs
+            .push((encoded, program.instructions.len() as u32));
+    }
+
+    fn append_regexp_programs(&mut self) {
+        if self.pending_regexp_programs.is_empty() {
+            return;
+        }
+        let padding = (8 - self.bytes.len() % 8) % 8;
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        for (encoded, instruction_count) in self.pending_regexp_programs.drain(..) {
+            let ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+            self.bytes.extend_from_slice(&encoded);
+            self.regexp_programs.insert(
+                encoded,
+                RegExpProgramRef {
+                    ptr,
+                    instruction_count,
+                },
+            );
+        }
+    }
+
     pub(crate) fn runtime_bytes_for_string(value: &str) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(value.len());
         let mut chars = value.chars().peekable();
@@ -1781,6 +1835,13 @@ impl StringPool {
             .get(value)
             .unwrap_or_else(|| panic!("string `{value}` must exist in pool"));
         (((string.offset as u64) << 32) | string.len as u64) as i64
+    }
+
+    pub(crate) fn regexp_program(&self, program: &RegExpProgram) -> RegExpProgramRef {
+        *self
+            .regexp_programs
+            .get(&program.encode())
+            .expect("collected RegExp literal program must have static data")
     }
 }
 

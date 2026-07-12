@@ -7,6 +7,7 @@ mod host;
 mod iterators;
 mod json;
 mod reflect;
+mod regexp;
 mod standard;
 mod string;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [

@@ -1,5 +1,5 @@
 use super::*;
-use porffor_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr};
+use porffor_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
 impl<'a> FunctionBuilder<'a> {
     /// Evaluate a super property's key expression without applying
@@ -119,6 +119,13 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::String(value) => {
                 function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+            }
+            ExprIr::RegExpLiteral {
+                source,
+                flags,
+                program,
+            } => {
+                self.compile_regexp_literal_payload(source, flags, program.as_ref(), function)?;
             }
             ExprIr::FunctionValue(function_id) => {
                 if let Some(global_index) = StandardBuiltinId::from_function_id(function_id)
@@ -2017,6 +2024,86 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(reference_receiver_local);
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(receiver_local);
+        Ok(())
+    }
+
+    fn compile_regexp_literal_payload(
+        &mut self,
+        source: &str,
+        flags: &str,
+        program: Option<&RegExpProgram>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(REGEXP_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_REGEXP,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
+            self.strings.payload(source) as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+            self.strings.payload(flags) as u64,
+            function,
+        );
+        let (program_ptr, instruction_count) = program
+            .map(|program| {
+                let reference = self.strings.regexp_program(program);
+                (reference.ptr, reference.instruction_count)
+            })
+            .unwrap_or((0, 0));
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+            program_ptr as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            instruction_count as u64,
+            function,
+        );
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_data_with_configurable(
+            object_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            true,
+            false,
+            false,
+            function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(object_local));
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(object_local);
         Ok(())
     }
 

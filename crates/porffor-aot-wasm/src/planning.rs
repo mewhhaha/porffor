@@ -167,6 +167,25 @@ mod tests {
                 .contains(&StandardBuiltinId::ObjectGetOwnPropertyDescriptor));
         }
     }
+
+    #[test]
+    fn regexp_literal_roots_intrinsic_regexp_bootstrap() {
+        let script = lower_script("/a/;");
+        let StatementIr::Expression(literal) = &script.body.statements[0] else {
+            panic!("literal script should lower to an expression statement");
+        };
+
+        assert!(script_references_standard_builtin(
+            &script,
+            StandardBuiltinId::RegExpConstructor
+        ));
+        assert!(!should_stub_standard_builtin(
+            &script,
+            StandardBuiltinId::RegExpConstructor
+        ));
+        assert!(!expr_uses_calls(literal));
+        assert!(!expr_uses_function_table(literal));
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -931,6 +950,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
         | ExprIr::Arguments
@@ -1295,6 +1315,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
         | ExprIr::Arguments
@@ -2099,6 +2120,12 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         return true;
     }
     match &expr.expr {
+        ExprIr::RegExpLiteral { .. } => {
+            // A literal allocates directly and never calls the mutable global
+            // RegExp binding. It does, however, require the intrinsic
+            // constructor's bootstrap to initialize RegExp.prototype.
+            *target == StandardBuiltinId::RegExpConstructor.function_id()
+        }
         ExprIr::FunctionValue(function_id) => function_id == target,
         ExprIr::ObjectLiteral(properties) => properties
             .iter()
@@ -3467,6 +3494,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::RegExpLiteral { .. }
         | ExprIr::This
         | ExprIr::Identifier(_)
         | ExprIr::UpdateIdentifier { .. } => false,
@@ -3619,6 +3647,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
         | ExprIr::Identifier(_)
@@ -3884,6 +3913,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 .unwrap_or(0);
             child.max(6)
         }
+        ExprIr::RegExpLiteral { .. } => 7,
         ExprIr::OptionalPropertyChain { target, chain } => {
             let child = chain
                 .iter()

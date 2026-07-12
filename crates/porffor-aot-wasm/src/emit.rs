@@ -635,6 +635,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_object_read_proxy_helper()
         })
         .transpose()?;
+    let regexp_matcher_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_regexp_matcher_helper()
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -743,6 +760,8 @@ fn emit_script_with_forced_builtins(
         functions.function(JS_FUNCTION_TYPE_INDEX);
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // proxy-aware [[Get]] helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // sequence-only RegExp matcher helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
@@ -936,6 +955,11 @@ fn emit_script_with_forced_builtins(
                 .as_ref()
                 .expect("object-read-proxy helper must exist when heap is enabled"),
         );
+        code.function(
+            regexp_matcher_helper_function
+                .as_ref()
+                .expect("regexp matcher helper must exist when heap is enabled"),
+        );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
         {
@@ -975,7 +999,11 @@ fn emit_script_with_forced_builtins(
         format!("internal functions: {}", callable_function_count),
         format!(
             "runtime helper functions: {}",
-            if uses_heap { 15 } else { 0 }
+            if uses_heap {
+                20 + usize::from(uses_json_stringify)
+            } else {
+                0
+            }
         ),
         format!(
             "standard builtin bodies: {} real, {} shared-stubbed",
@@ -1512,12 +1540,19 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 18)
     }
 
+    /// Wasm function index of the sequence-only RegExp matcher helper.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn regexp_matcher_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 19)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 19)
+        self.heap_alloc_function_index.map(|base| base + 20)
     }
 
     pub(crate) fn local_count(&self) -> usize {

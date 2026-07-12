@@ -1016,6 +1016,46 @@ desc;
     }
 
     #[test]
+    fn regexp_program_data_is_aligned_deduplicated_and_before_the_heap() {
+        let artifact = emit_script("\",\"; /[a-c]/; /[a-c]/g;").expect("emit should work");
+        let data = data_segment_bytes(&artifact.bytes);
+        let encoded = porffor_ir::RegExpProgram::compile("[a-c]", "")
+            .expect("class program should compile")
+            .encode();
+        let offsets = data
+            .windows(encoded.len())
+            .enumerate()
+            .filter_map(|(offset, candidate)| (candidate == encoded).then_some(offset))
+            .collect::<Vec<_>>();
+
+        assert_eq!(offsets.len(), 1, "identical programs should share one blob");
+        let program_ptr = STATIC_DATA_OFFSET as usize + offsets[0];
+        assert_eq!(program_ptr % 8, 0, "program blob must be i64-aligned");
+        assert!(
+            contains_i64_const(&artifact.bytes, program_ptr as i64),
+            "literal allocation should embed the collected program pointer"
+        );
+        assert!(
+            contains_i64_const(
+                &artifact.bytes,
+                (encoded.len() / porffor_ir::REGEXP_INSTRUCTION_WIDTH) as i64,
+            ),
+            "literal allocation should embed the instruction count"
+        );
+        assert!(
+            contains_i64_const(
+                &artifact.bytes,
+                ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
+            ),
+            "appending program data must not move existing string payloads"
+        );
+        assert!(
+            global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)),
+            "heap must start after the appended program data"
+        );
+    }
+
+    #[test]
     fn large_static_string_data_increases_initial_memory_pages() {
         let source = format!("\"{}\";", "x".repeat(WASM_PAGE_SIZE as usize));
         let artifact = emit_script(&source).expect("emit should work");
