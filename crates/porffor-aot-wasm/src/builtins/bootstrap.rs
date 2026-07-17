@@ -256,6 +256,9 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.release_temp_local(prototype_object_local);
             }
+            StandardBuiltinId::PromiseConstructor
+            | StandardBuiltinId::PromiseResolveFunction
+            | StandardBuiltinId::PromiseRejectFunction => {}
             StandardBuiltinId::ObjectConstructor => {
                 let prototype_object_local = self.reserve_temp_local();
                 let has_own_property_meta = self
@@ -4637,6 +4640,12 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             SYMBOL_PROTOTYPE_GLOBAL_INDEX,
@@ -5190,6 +5199,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::BooleanConstructor,
                 BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::PromiseConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::PromiseConstructor,
+                PROMISE_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

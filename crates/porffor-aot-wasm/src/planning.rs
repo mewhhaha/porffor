@@ -3075,6 +3075,9 @@ pub(crate) fn function_length(params: &[FunctionParamIr]) -> u64 {
 pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
     match builtin {
         StandardBuiltinId::FunctionConstructor => 1,
+        StandardBuiltinId::PromiseConstructor
+        | StandardBuiltinId::PromiseResolveFunction
+        | StandardBuiltinId::PromiseRejectFunction => 1,
         StandardBuiltinId::EvalFunction => 1,
         StandardBuiltinId::FunctionPrototypeCall => 1,
         StandardBuiltinId::FunctionPrototypeApply => 2,

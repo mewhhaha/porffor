@@ -37,13 +37,13 @@ const MATRIX_STRATEGY_VERSION: u32 = 2;
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
 const MATRIX_RECURSION_THRESHOLD: usize = 500;
 const MATRIX_CHUNK_SIZE: usize = 250;
-// Resume path is used by low-RAM matrix publication. Checkpoint periodically
-// so a timed-out process never restarts a whole slow node, without paying the
-// O(n) summarize/sort/fs::write cost after every single case (which made
-// resume runs O(n^2) in the number of completed cases). A final checkpoint is
-// always written after the run completes, so normal exits never lose
-// progress; only an interrupt can lose up to `RESUME_CASE_CHECKPOINT_INTERVAL
-// - 1` already-completed cases.
+// Checkpoint periodically so an interrupted first run or low-RAM resume never
+// restarts a whole slow node, without paying the O(n)
+// summarize/sort/fs::write cost after every single case (which made resume
+// runs O(n^2) in the number of completed cases). A final checkpoint is always
+// written after a resume run completes, so normal resume exits never lose
+// progress; only an interrupt can lose up to
+// `RESUME_CASE_CHECKPOINT_INTERVAL - 1` already-completed cases.
 const RESUME_CASE_CHECKPOINT_INTERVAL: usize = 10;
 /// Matches the stack required by Porffor's Wasm-AOT current-thread execution
 /// entry. Test262 workers persist for many cases, so this avoids a nested
@@ -20537,6 +20537,9 @@ pub fn run_top_level_matrix(
     config: &SuiteConfig,
     run_config: RunConfig,
 ) -> Result<AggregateRunSummary, String> {
+    if run_config.max_matrix_nodes == Some(0) {
+        return Err("max_matrix_nodes must be at least 1".to_string());
+    }
     let nodes = load_or_build_run_matrix(config, run_config.execution_backend)?;
     let current_node_ids = nodes
         .iter()
@@ -21458,8 +21461,7 @@ fn execute_cases(
     // Resume mode used to run this loop fully single-threaded (ignoring
     // --threads / worker_count), which made resumed low-RAM matrix runs far
     // slower than fresh ones. It now shares the same worker pool as the
-    // non-resume path; `resume` only controls which cases were skipped above
-    // and how often the coordinator checkpoints progress below.
+    // non-resume path; `resume` only controls which cases were skipped above.
     let previously_completed: Vec<TestResult> = completed.into_values().collect();
 
     let queue = Arc::new(Mutex::new(remaining));
@@ -21469,6 +21471,10 @@ fn execute_cases(
     // checkpoint boundary" decision is race-safe: the length check happens
     // while still holding the lock that guards pushes into `results`.
     let checkpoint_error: Mutex<Option<String>> = Mutex::new(None);
+    // Workers can finish later checkpoints before earlier workers finish
+    // serializing theirs. Serialize checkpoint writes and retain the largest
+    // completed count so an older snapshot can never clobber newer progress.
+    let last_checkpoint_count = Mutex::new(0usize);
 
     thread::scope(|scope| {
         for _ in 0..worker_count {
@@ -21487,6 +21493,7 @@ fn execute_cases(
             };
             let previously_completed = &previously_completed;
             let checkpoint_error = &checkpoint_error;
+            let last_checkpoint_count = &last_checkpoint_count;
             thread::Builder::new()
                 .stack_size(TEST262_WORKER_STACK_SIZE)
                 .spawn_scoped(scope, move || loop {
@@ -21503,29 +21510,44 @@ fn execute_cases(
                     let checkpoint_snapshot = {
                         let mut guard = results.lock().expect("results mutex poisoned");
                         guard.push(result);
-                        if run_config.resume && guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
+                        if guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
                             let mut snapshot_results = previously_completed.clone();
                             snapshot_results.extend(guard.iter().cloned());
-                            Some(snapshot_results)
+                            Some((snapshot_results.len(), snapshot_results))
                         } else {
                             None
                         }
                     };
 
-                    if let Some(mut snapshot_results) = checkpoint_snapshot {
+                    if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
                         snapshot_results
                             .sort_by(|left, right| left.test_path.cmp(&right.test_path));
-                        if let Err(err) = write_resume_case_checkpoint(
+                        let mut last_written = last_checkpoint_count
+                            .lock()
+                            .expect("checkpoint count mutex poisoned");
+                        if completed_count <= *last_written {
+                            continue;
+                        }
+                        match write_resume_case_checkpoint(
                             &worker_config,
                             manifest,
                             &snapshot_results,
                             run_config,
                         ) {
-                            let mut error_guard = checkpoint_error
-                                .lock()
-                                .expect("checkpoint error mutex poisoned");
-                            if error_guard.is_none() {
-                                *error_guard = Some(err);
+                            Ok(()) => {
+                                *last_written = completed_count;
+                                eprintln!(
+                                    "test262 checkpoint: {completed_count}/{} cases",
+                                    cases.len()
+                                );
+                            }
+                            Err(err) => {
+                                let mut error_guard = checkpoint_error
+                                    .lock()
+                                    .expect("checkpoint error mutex poisoned");
+                                if error_guard.is_none() {
+                                    *error_guard = Some(err);
+                                }
                             }
                         }
                     }
@@ -21714,8 +21736,8 @@ fn run_one_case_in_child_process(
     };
 
     let duration_ms = start.elapsed().as_millis();
-    if status.is_none() {
-        return Ok(TestResult {
+    let child_result = if status.is_none() {
+        Ok(TestResult {
             test_path: case.path.clone(),
             status: TestStatus::Failed(classify_failure(
                 &case.path,
@@ -21723,20 +21745,37 @@ fn run_one_case_in_child_process(
                 format!("timeout exceeded after {}ms", duration_ms),
             )),
             duration_ms,
-        });
+        })
+    } else {
+        match load_previous_snapshot(config, &child_snapshot_name, child_manifest.manifest_hash) {
+            Ok(Some(snapshot)) => result_from_single_case_snapshot(case, snapshot, duration_ms),
+            Ok(None) => Err(format!(
+                "child case runner exited for {} without writing snapshot {}",
+                case.path,
+                child_snapshot_paths.json_path.display()
+            )),
+            Err(err) => Err(err),
+        }
+    };
+
+    for snapshot_path in [
+        &child_snapshot_paths.json_path,
+        &child_snapshot_paths.txt_path,
+    ] {
+        match fs::remove_file(snapshot_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(format!(
+                    "failed to remove child case snapshot {} after running {}: {err}",
+                    snapshot_path.display(),
+                    case.path
+                ));
+            }
+        }
     }
 
-    if let Some(snapshot) =
-        load_previous_snapshot(config, &child_snapshot_name, child_manifest.manifest_hash)?
-    {
-        return result_from_single_case_snapshot(case, snapshot, duration_ms);
-    }
-
-    Err(format!(
-        "child case runner exited for {} without writing snapshot {}",
-        case.path,
-        child_snapshot_paths.json_path.display()
-    ))
+    child_result
 }
 
 fn run_case_entry(
@@ -33670,6 +33709,46 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn execute_cases_first_run_writes_periodic_checkpoint() {
+        let config = fixture_config();
+        let cases = (0..11)
+            .map(|index| synthetic_case(&format!("checkpoint/case-{index}.js")))
+            .collect::<Vec<_>>();
+        let manifest = SuiteManifest {
+            pinned_revisions: pinned_revisions(&config),
+            manifest_hash: hash_manifest(&pinned_revisions(&config), &cases, Some("checkpoint")),
+            filter: Some("checkpoint".to_string()),
+            cases: cases.clone(),
+        };
+        let run_config = RunConfig {
+            snapshot_name: "first-run-checkpoint".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("first run should complete");
+        assert_eq!(results.len(), 11);
+
+        let paths =
+            snapshot_paths_for_name(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        let checkpoint = read_snapshot_file(&paths.json_path)
+            .expect("periodic first-run checkpoint should parse");
+        assert_eq!(checkpoint.run_kind, "resume-case-checkpoint");
+        assert_eq!(checkpoint.total, RESUME_CASE_CHECKPOINT_INTERVAL);
+        assert_eq!(
+            checkpoint.completed_paths.len(),
+            RESUME_CASE_CHECKPOINT_INTERVAL
+        );
+    }
+
+    #[test]
     fn execute_cases_runs_wasm_aot_cases_on_persistent_workers() {
         let config = fixture_config();
         let mut first_case = synthetic_case("persistent-worker/first.js");
@@ -33779,6 +33858,86 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    #[cfg(unix)]
+    fn forced_child_runner_removes_scratch_snapshot_after_importing_result() {
+        let snapshot_dir = unique_temp_path("child-runner-cleanup-snapshots");
+        fs::create_dir_all(&snapshot_dir).expect("snapshot dir should exist");
+        let case = synthetic_case("child-runner/imported-failure.js");
+        let config = SuiteConfig {
+            suite_root: PathBuf::from("unused-suite-root"),
+            local_harness_path: PathBuf::from("unused-harness"),
+            snapshot_dir: snapshot_dir.clone(),
+            timeout_ms: 1_000,
+            worker_count: 1,
+            case_runner_bin: None,
+        };
+        let run_config = RunConfig {
+            snapshot_name: "child-runner-cleanup".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let child_manifest = single_case_manifest(&config, &case);
+        let child_snapshot_name = format!(
+            "{}-case-{}",
+            run_config.snapshot_name,
+            hash_detail(&case.path)
+        );
+        let child_snapshot_paths =
+            snapshot_paths_for_name(&config, &child_snapshot_name, child_manifest.manifest_hash);
+        let expected_failure =
+            classify_failure(&case.path, FailureKind::Runtime, "sentinel child failure");
+        let child_snapshot = snapshot_from_summary(
+            &child_manifest,
+            "single-case-child".to_string(),
+            &summarize_results(&[TestResult {
+                test_path: case.path.clone(),
+                status: TestStatus::Failed(expected_failure.clone()),
+                duration_ms: 7,
+            }]),
+            ExecutionBackend::SpecExec,
+        );
+        let staged_json_path = snapshot_dir.join("staged-child-result.json");
+        let staged_txt_path = snapshot_dir.join("staged-child-result.txt");
+        fs::write(&staged_json_path, render_snapshot_json(&child_snapshot))
+            .expect("staged child snapshot should write");
+        fs::write(&staged_txt_path, "staged child summary")
+            .expect("staged child summary should write");
+
+        let runner_path = unique_temp_path("child-runner-cleanup-script");
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\ncp '{}' '{}'\ncp '{}' '{}'\n",
+                staged_json_path.display(),
+                child_snapshot_paths.json_path.display(),
+                staged_txt_path.display(),
+                child_snapshot_paths.txt_path.display()
+            ),
+        )
+        .expect("child runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("child runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("child runner permissions should update");
+        let config = SuiteConfig {
+            case_runner_bin: Some(runner_path),
+            ..config
+        };
+
+        let result = run_case_entry(&config, &PreludeStore::default(), &case, &run_config);
+
+        let TestStatus::Failed(imported_failure) = result.status else {
+            panic!("child failure should be imported");
+        };
+        assert_eq!(imported_failure.kind, expected_failure.kind);
+        assert_eq!(imported_failure.detail, expected_failure.detail);
+        assert!(!child_snapshot_paths.json_path.exists());
+        assert!(!child_snapshot_paths.txt_path.exists());
+    }
+
+    #[test]
     fn wasm_aot_preclassified_exclusion_does_not_spawn_child_runner() {
         let config = SuiteConfig {
             case_runner_bin: Some(PathBuf::from("missing-case-runner")),
@@ -33829,6 +33988,20 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(resumed.total, 190);
         assert_eq!(resumed.passed, 190);
         assert_eq!(resumed.failed, 0);
+    }
+
+    #[test]
+    fn report_all_rejects_zero_matrix_node_limit() {
+        let error = run_top_level_matrix(
+            &fixture_config(),
+            RunConfig {
+                max_matrix_nodes: Some(0),
+                ..RunConfig::default()
+            },
+        )
+        .expect_err("zero matrix node limit should be rejected");
+
+        assert_eq!(error, "max_matrix_nodes must be at least 1");
     }
 
     #[test]

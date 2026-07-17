@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-9.js",
-      "duration_ms": 3152
+      "duration_ms": 3264
     }
   ],
   "timeout_list": [],

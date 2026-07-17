@@ -4355,6 +4355,19 @@ impl<'a> ScriptLowerer<'a> {
                 Self::standard_error_instance_info(builtin).heap_shape,
                 Self::fresh_constructed_instance_info(),
             ),
+            StandardBuiltinId::PromiseConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Box::new(Self::empty_object_shape())),
+                Self::fresh_constructed_instance_info(),
+            ),
+            StandardBuiltinId::PromiseResolveFunction
+            | StandardBuiltinId::PromiseRejectFunction => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ErrorPrototypeToString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
@@ -18235,6 +18248,11 @@ impl<'a> ScriptLowerer<'a> {
                     None
                 }
             }
+            StandardBuiltinId::PromiseConstructor => Some(Self::value_info_from_shape(Some(
+                Box::new(Self::empty_object_shape()),
+            ))),
+            StandardBuiltinId::PromiseResolveFunction
+            | StandardBuiltinId::PromiseRejectFunction => Some(ValueInfo::undefined()),
             StandardBuiltinId::FunctionPrototypeCall => {
                 if let Some(this_arg) = args.first() {
                     if this_arg

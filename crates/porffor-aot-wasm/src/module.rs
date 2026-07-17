@@ -99,6 +99,8 @@ pub(crate) const PARSE_FLOAT_FUNCTION_GLOBAL_INDEX: u32 = 79;
 pub(crate) const REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX: u32 = 80;
 pub(crate) const ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX: u32 = 81;
 pub(crate) const STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 82;
+pub(crate) const PROMISE_PROTOTYPE_GLOBAL_INDEX: u32 = 83;
+pub(crate) const PROMISE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 84;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -450,6 +452,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%StringIteratorPrototype%",
         index: STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Promise.prototype",
+        index: PROMISE_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Promise",
+        index: PROMISE_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -466,6 +476,7 @@ pub(crate) fn canonical_host_function_global_index_by_name(name: &str) -> Option
 pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::PromiseConstructor => Some(PROMISE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {
             Some(AGGREGATE_ERROR_CONSTRUCTOR_GLOBAL_INDEX)
         }
@@ -887,7 +898,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::SymbolPrototypeDescriptionGetter
         | StandardBuiltinId::SymbolPrototypeToString
         | StandardBuiltinId::SymbolPrototypeValueOf
-        | StandardBuiltinId::SymbolPrototypeToPrimitive => None,
+        | StandardBuiltinId::SymbolPrototypeToPrimitive
+        | StandardBuiltinId::PromiseResolveFunction
+        | StandardBuiltinId::PromiseRejectFunction => None,
     }
 }
 
@@ -1147,6 +1160,7 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
     match builtin {
         StandardBuiltinId::ObjectConstructor => Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::PromiseConstructor => Some(PROMISE_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::NumberConstructor => Some(NUMBER_PROTOTYPE_GLOBAL_INDEX),

@@ -65,6 +65,7 @@ pub const NUMBER_NAME: &str = "Number";
 pub const STRING_NAME: &str = "String";
 pub const BOOLEAN_NAME: &str = "Boolean";
 pub const SYMBOL_NAME: &str = "Symbol";
+pub const PROMISE_NAME: &str = "Promise";
 pub const ERROR_NAME: &str = "Error";
 pub const EVAL_ERROR_NAME: &str = "EvalError";
 pub const AGGREGATE_ERROR_NAME: &str = "AggregateError";
@@ -563,6 +564,9 @@ pub const BUILTIN_STRING_PROTOTYPE_IS_WELL_FORMED_FUNCTION_ID: &str =
 pub const BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID: &str =
     "$builtin.String.prototype.toWellFormed";
 pub const BUILTIN_BOOLEAN_FUNCTION_ID: &str = "$builtin.Boolean";
+pub const BUILTIN_PROMISE_FUNCTION_ID: &str = "$builtin.Promise";
+pub const BUILTIN_PROMISE_RESOLVE_FUNCTION_ID: &str = "$builtin.PromiseResolveFunction";
+pub const BUILTIN_PROMISE_REJECT_FUNCTION_ID: &str = "$builtin.PromiseRejectFunction";
 pub const BUILTIN_ERROR_FUNCTION_ID: &str = "$builtin.Error";
 pub const BUILTIN_ERROR_IS_ERROR_FUNCTION_ID: &str = "$builtin.Error.isError";
 pub const BUILTIN_EVAL_ERROR_FUNCTION_ID: &str = "$builtin.EvalError";

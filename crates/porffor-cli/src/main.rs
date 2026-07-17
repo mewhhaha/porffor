@@ -163,7 +163,8 @@ test262 options:
                                          feature build of porffor-engine/porffor-cli
   --resume
   --snapshot-name NAME
-  --max-matrix-nodes N
+  --max-matrix-nodes N                report-all: process at most N new matrix
+                                        nodes in this invocation
   --readme-path PATH
 
 global options:
@@ -2740,10 +2741,13 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                 let value = args
                     .get(index)
                     .ok_or_else(|| "--max-matrix-nodes needs a value".to_string())?;
-                run_config.max_matrix_nodes =
-                    Some(value.parse::<usize>().map_err(|err| {
-                        format!("invalid --max-matrix-nodes value {value}: {err}")
-                    })?);
+                let limit = value.parse::<usize>().map_err(|err| {
+                    format!("invalid --max-matrix-nodes value {value}: {err}")
+                })?;
+                if limit == 0 {
+                    return Err("--max-matrix-nodes must be at least 1".to_string());
+                }
+                run_config.max_matrix_nodes = Some(limit);
             }
             "--readme-path" => {
                 index += 1;
@@ -2920,6 +2924,17 @@ mod tests {
             parsed.run_config.execution_backend,
             ExecutionBackend::WasmAot
         );
+    }
+
+    #[test]
+    fn parse_test262_args_rejects_zero_matrix_node_limit() {
+        let error = parse_test262_args(&[
+            "--max-matrix-nodes".to_string(),
+            "0".to_string(),
+        ])
+        .expect_err("zero matrix node limit should be rejected");
+
+        assert_eq!(error, "--max-matrix-nodes must be at least 1");
     }
 
     #[test]

@@ -3110,6 +3110,48 @@ clampedFirst.value + ":" + clampedFirst.done;
     }
 
     #[test]
+    fn wasm_backend_arguments_iterators_observe_length_truncation() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function mapped(a, b, c) {
+  let iterator = arguments[Symbol.iterator]();
+  iterator.next();
+  iterator.next();
+  arguments.length = 2;
+  let result = iterator.next();
+  return typeof result.value + ":" + result.done;
+}
+
+function unmapped(a, b, c) {
+  "use strict";
+  let iterator = arguments[Symbol.iterator]();
+  iterator.next();
+  iterator.next();
+  arguments.length = 2;
+  let result = iterator.next();
+  return typeof result.value + ":" + result.done;
+}
+
+mapped(2, 1, 3) + "|" + unmapped(2, 1, 3);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("arguments iterators should observe length truncation");
+        assert!(
+            outcome
+                .note
+                .contains("string(undefined:true|undefined:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_string_iterator_preserves_code_points_and_brand() {
         let outcome = engine()
             .run_script(
@@ -9797,7 +9839,7 @@ let sized = new Sub(7);
 
     #[test]
     fn wasm_backend_array_methods_use_observable_arguments_length() {
-        let source = "function check(a, b) { arguments[2] = 9; var flat = Array.prototype.flat.call(arguments); var flatMapped = Array.prototype.flatMap.call(arguments, function(value) { return [value]; }); var mapped = Array.prototype.map.call(arguments, function(value) { return value; }); var filtered = Array.prototype.filter.call(arguments, function() { return true; }); var every = Array.prototype.every.call(arguments, function(value) { return value > 10; }); var some = Array.prototype.some.call(arguments, function(value) { return value === 9; }); return flat.length + '|' + flatMapped.length + '|' + mapped.length + '|' + filtered.length + '|' + every + '|' + some; } check(12, 11);";
+        let source = "function check(a, b) { arguments[2] = 9; var flat = Array.prototype.flat.call(arguments); var flatMapped = Array.prototype.flatMap.call(arguments, function(value) { return [value]; }); var mapped = Array.prototype.map.call(arguments, function(value) { return value; }); var filtered = Array.prototype.filter.call(arguments, function() { return true; }); var every = Array.prototype.every.call(arguments, function(value) { return value > 10; }); var some = Array.prototype.some.call(arguments, function(value) { return value === 9; }); var index = Array.prototype.indexOf.call(arguments, 9); var lastIndex = Array.prototype.lastIndexOf.call(arguments, 9); return flat.length + '|' + flatMapped.length + '|' + mapped.length + '|' + filtered.length + '|' + every + '|' + some + '|' + index + '|' + lastIndex; } check(12, 11);";
         let outcome = engine()
             .run_script(
                 source,
@@ -9809,7 +9851,47 @@ let sized = new Sub(7);
             )
             .expect("Array methods should use the observable arguments length");
         assert!(
-            outcome.note.contains("string(2|2|2|2|true|false)"),
+            outcome.note.contains("string(2|2|2|2|true|false|-1|-1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_search_methods_stop_after_index_getter_throws() {
+        let source = "var forwardAccessed = false; var forward = []; Object.defineProperty(forward, '0', { get: function() { throw new TypeError(); } }); Object.defineProperty(forward, '1', { get: function() { forwardAccessed = true; return true; } }); var forwardCaught = false; try { forward.indexOf(true); } catch (error) { forwardCaught = error instanceof TypeError; } var reverseAccessed = false; var reverse = []; Object.defineProperty(reverse, '0', { get: function() { reverseAccessed = true; return true; } }); Object.defineProperty(reverse, '1', { get: function() { throw new TypeError(); } }); var reverseCaught = false; try { reverse.lastIndexOf(true); } catch (error) { reverseCaught = error instanceof TypeError; } forwardCaught + '|' + forwardAccessed + '|' + reverseCaught + '|' + reverseAccessed;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array search methods should propagate indexed getter exceptions");
+        assert!(
+            outcome.note.contains("string(true|false|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_stops_after_index_getter_throws() {
+        let source = "var token = {}; var accessed = false; var values = []; Object.defineProperty(values, '0', { get: function() { throw token; } }); Object.defineProperty(values, '1', { get: function() { accessed = true; return true; } }); var caught = false; try { values.concat([]); } catch (error) { caught = error === token; } caught + '|' + accessed;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.concat should propagate indexed getter exceptions");
+        assert!(
+            outcome.note.contains("string(true|false)"),
             "note: {}",
             outcome.note
         );
@@ -10714,6 +10796,88 @@ let sized = new Sub(7);
                 "source: {source}, err: {message}"
             );
         }
+    }
+
+    #[test]
+    fn wasm_backend_promise_constructor_calls_executor_synchronously() {
+        let source = r#"
+            let resolve;
+            let reject;
+            let calls = 0;
+            let promise = new Promise(function (onFulfilled, onRejected) {
+                calls += 1;
+                resolve = onFulfilled;
+                reject = onRejected;
+            });
+            calls === 1
+                && typeof promise === "object"
+                && Object.getPrototypeOf(promise) === Promise.prototype
+                && promise.constructor === Promise
+                && typeof resolve === "function"
+                && typeof reject === "function"
+                && resolve !== reject
+                && resolve.length === 1
+                && reject.length === 1
+                && resolve(42) === undefined
+                && reject(9) === undefined;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Promise constructor should run: {err:?}"));
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_promise_constructor_rejects_invalid_invocations() {
+        let source = r#"
+            let nonCallableThrows = false;
+            let missingNewThrows = false;
+            let prototypeAccessed = false;
+            let orderIsCorrect = false;
+            try { new Promise(1); } catch (error) {
+                nonCallableThrows = error instanceof TypeError;
+            }
+            try { Promise(function () {}); } catch (error) {
+                missingNewThrows = error instanceof TypeError;
+            }
+            let newTarget = (function () {}).bind();
+            Object.defineProperty(newTarget, "prototype", {
+                get: function () {
+                    prototypeAccessed = true;
+                    throw new Error();
+                }
+            });
+            try { Reflect.construct(Promise, [], newTarget); } catch (error) {
+                orderIsCorrect = error instanceof TypeError && !prototypeAccessed;
+            }
+            nonCallableThrows && missingNewThrows && orderIsCorrect;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("invalid Promise constructor uses should run: {err:?}"));
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]

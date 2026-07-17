@@ -1999,6 +1999,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::Uint8ClampedArrayConstructor,
             StandardBuiltinId::BigInt64ArrayConstructor,
             StandardBuiltinId::BigUint64ArrayConstructor,
+            StandardBuiltinId::PromiseConstructor,
         ]
         .into_iter()
         .filter_map(|builtin| {

@@ -925,18 +925,16 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_break_current_completion_if_throw(5, function);
         } else {
             // See the sparse-present path above: this branch is emitted only
             // while compiling the Proxy-call helper's internal argv snapshot.
-            self.emit_function_handle_call_with_throw_extra_depth(
+            self.emit_function_handle_call_without_throw_propagation(
                 getter_payload_local,
                 getter_tag_local,
                 Some((receiver_payload_local, Some(receiver_tag_local))),
                 &[],
                 payload_local,
                 tag_local,
-                6,
                 function,
             )?;
         }
@@ -8601,6 +8599,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            element_payload_local,
+            element_tag_local,
+            3,
+            function,
+        )?;
         self.emit_concat_create_target_property(
             target_payload_local,
             target_tag_local,
@@ -20574,10 +20578,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -20585,6 +20585,28 @@ impl<'a> FunctionBuilder<'a> {
             len_local,
             function,
         );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(receiver_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_length(
+            receiver_payload_local,
+            element_payload_local,
+            element_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            element_payload_local,
+            element_tag_local,
+            function,
+        )?;
+        self.emit_to_length_i64_from_value_locals(
+            element_tag_local,
+            element_payload_local,
+            len_local,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -20687,6 +20709,7 @@ impl<'a> FunctionBuilder<'a> {
             "Array.prototype.indexOf called on null or undefined",
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -20828,7 +20851,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
             element_payload_local,
             element_tag_local,
-            3,
+            6,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -20931,10 +20954,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -20942,6 +20961,28 @@ impl<'a> FunctionBuilder<'a> {
             len_local,
             function,
         );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(receiver_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_length(
+            receiver_payload_local,
+            element_payload_local,
+            element_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            element_payload_local,
+            element_tag_local,
+            function,
+        )?;
+        self.emit_to_length_i64_from_value_locals(
+            element_tag_local,
+            element_payload_local,
+            len_local,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -21044,6 +21085,7 @@ impl<'a> FunctionBuilder<'a> {
             "Array.prototype.lastIndexOf called on null or undefined",
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -21204,7 +21246,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
             element_payload_local,
             element_tag_local,
-            3,
+            6,
             function,
         )?;
         function.instruction(&Instruction::Else);

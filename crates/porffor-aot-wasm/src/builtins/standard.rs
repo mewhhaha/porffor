@@ -4397,6 +4397,15 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match builtin {
+            StandardBuiltinId::PromiseConstructor => {
+                self.emit_promise_constructor(function)?;
+            }
+            StandardBuiltinId::PromiseResolveFunction => {
+                self.emit_promise_resolving_function(PROMISE_STATE_FULFILLED, function);
+            }
+            StandardBuiltinId::PromiseRejectFunction => {
+                self.emit_promise_resolving_function(PROMISE_STATE_REJECTED, function);
+            }
             StandardBuiltinId::EvalFunction => {
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();
@@ -24991,12 +25000,8 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalSet(result_object_local));
                 function.instruction(&Instruction::LocalGet(array_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(array_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.load_i64_to_local_from_offset(
                     array_payload_local,

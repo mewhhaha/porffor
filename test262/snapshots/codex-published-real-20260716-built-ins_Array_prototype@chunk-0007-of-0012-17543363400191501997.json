@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17543363400191501997,
+  "run_kind": "resume-case-checkpoint",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-15.js",
+      "duration_ms": 8689
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-12.js",
+      "duration_ms": 8553
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-11.js",
+      "duration_ms": 8487
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-10.js",
+      "duration_ms": 8326
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-1.js",
+      "duration_ms": 8014
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-9.js",
+      "duration_ms": 3368
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-4.js",
+      "duration_ms": 3348
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-5.js",
+      "duration_ms": 3348
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-7.js",
+      "duration_ms": 3147
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-6.js",
+      "duration_ms": 3127
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-4.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-5.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-6.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-7.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-9.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-10.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-11.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-12.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-15.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

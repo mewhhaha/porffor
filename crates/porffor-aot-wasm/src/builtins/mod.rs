@@ -6,6 +6,7 @@ mod errors;
 mod host;
 mod iterators;
 mod json;
+mod promise;
 mod reflect;
 mod regexp;
 mod standard;

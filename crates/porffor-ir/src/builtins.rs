@@ -152,12 +152,13 @@ use crate::{
     BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_VALUES_FUNCTION_ID,
-    BUILTIN_PROXY_FUNCTION_ID, BUILTIN_PROXY_REVOCABLE_FUNCTION_ID,
-    BUILTIN_PROXY_REVOKE_FUNCTION_ID, BUILTIN_RANGE_ERROR_FUNCTION_ID,
-    BUILTIN_REFERENCE_ERROR_FUNCTION_ID, BUILTIN_REFLECT_APPLY_FUNCTION_ID,
-    BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID, BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID,
-    BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID, BUILTIN_REFLECT_GET_FUNCTION_ID,
-    BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_PROMISE_FUNCTION_ID, BUILTIN_PROMISE_REJECT_FUNCTION_ID,
+    BUILTIN_PROMISE_RESOLVE_FUNCTION_ID, BUILTIN_PROXY_FUNCTION_ID,
+    BUILTIN_PROXY_REVOCABLE_FUNCTION_ID, BUILTIN_PROXY_REVOKE_FUNCTION_ID,
+    BUILTIN_RANGE_ERROR_FUNCTION_ID, BUILTIN_REFERENCE_ERROR_FUNCTION_ID,
+    BUILTIN_REFLECT_APPLY_FUNCTION_ID, BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID,
+    BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID,
+    BUILTIN_REFLECT_GET_FUNCTION_ID, BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
     BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REFLECT_HAS_FUNCTION_ID,
     BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID, BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID,
     BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID, BUILTIN_REFLECT_SET_FUNCTION_ID,
@@ -238,10 +239,10 @@ use crate::{
     HOST_IS_CONSTRUCTOR_FUNCTION_ID, HOST_PARSE_FLOAT_FUNCTION_ID, HOST_PARSE_INT_FUNCTION_ID,
     HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
     IS_CONSTRUCTOR_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME, PRINT_NAME,
-    PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME, SHARED_ARRAY_BUFFER_NAME,
-    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TYPE_ERROR_NAME,
-    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
-    UNESCAPE_NAME, URI_ERROR_NAME,
+    PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
+    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
+    TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
+    UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -687,6 +688,9 @@ pub enum StandardBuiltinId {
     BooleanConstructor,
     BooleanPrototypeToString,
     BooleanPrototypeValueOf,
+    PromiseConstructor,
+    PromiseResolveFunction,
+    PromiseRejectFunction,
     SymbolConstructor,
     SymbolFor,
     SymbolKeyFor,
@@ -715,6 +719,8 @@ impl StandardBuiltinId {
     pub const fn global_name(self) -> Option<&'static str> {
         match self {
             Self::FunctionConstructor => Some(FUNCTION_NAME),
+            Self::PromiseConstructor => Some(PROMISE_NAME),
+            Self::PromiseResolveFunction | Self::PromiseRejectFunction => None,
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
             Self::SuppressedErrorConstructor => Some(SUPPRESSED_ERROR_NAME),
             Self::ObjectConstructor => Some(OBJECT_NAME),
@@ -1529,6 +1535,9 @@ impl StandardBuiltinId {
             Self::StringPrototypeIsWellFormed => "String.prototype.isWellFormed",
             Self::StringPrototypeToWellFormed => "String.prototype.toWellFormed",
             Self::BooleanConstructor => BOOLEAN_NAME,
+            Self::PromiseConstructor => PROMISE_NAME,
+            Self::PromiseResolveFunction => "Promise Resolve Function",
+            Self::PromiseRejectFunction => "Promise Reject Function",
             Self::SymbolConstructor => SYMBOL_NAME,
             Self::SymbolFor => "Symbol.for",
             Self::SymbolKeyFor => "Symbol.keyFor",
@@ -2281,6 +2290,9 @@ impl StandardBuiltinId {
                 BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID.to_string()
             }
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
+            Self::PromiseConstructor => BUILTIN_PROMISE_FUNCTION_ID.to_string(),
+            Self::PromiseResolveFunction => BUILTIN_PROMISE_RESOLVE_FUNCTION_ID.to_string(),
+            Self::PromiseRejectFunction => BUILTIN_PROMISE_REJECT_FUNCTION_ID.to_string(),
             Self::SymbolConstructor => BUILTIN_SYMBOL_FUNCTION_ID.to_string(),
             Self::SymbolFor => BUILTIN_SYMBOL_FOR_FUNCTION_ID.to_string(),
             Self::SymbolKeyFor => BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID.to_string(),
@@ -2923,6 +2935,9 @@ impl StandardBuiltinId {
                 Some(Self::StringPrototypeToWellFormed)
             }
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
+            BUILTIN_PROMISE_FUNCTION_ID => Some(Self::PromiseConstructor),
+            BUILTIN_PROMISE_RESOLVE_FUNCTION_ID => Some(Self::PromiseResolveFunction),
+            BUILTIN_PROMISE_REJECT_FUNCTION_ID => Some(Self::PromiseRejectFunction),
             BUILTIN_SYMBOL_FUNCTION_ID => Some(Self::SymbolConstructor),
             BUILTIN_SYMBOL_FOR_FUNCTION_ID => Some(Self::SymbolFor),
             BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID => Some(Self::SymbolKeyFor),
@@ -2983,6 +2998,7 @@ impl StandardBuiltinId {
             Self::GlobalIsNaN,
             Self::StringConstructor,
             Self::BooleanConstructor,
+            Self::PromiseConstructor,
             Self::SymbolConstructor,
             Self::ErrorConstructor,
             Self::EvalErrorConstructor,
@@ -3387,6 +3403,9 @@ impl StandardBuiltinId {
             Self::BooleanConstructor,
             Self::BooleanPrototypeToString,
             Self::BooleanPrototypeValueOf,
+            Self::PromiseConstructor,
+            Self::PromiseResolveFunction,
+            Self::PromiseRejectFunction,
             Self::SymbolConstructor,
             Self::SymbolFor,
             Self::SymbolKeyFor,
@@ -3417,6 +3436,7 @@ impl StandardBuiltinId {
             self,
             Self::FunctionConstructor
                 | Self::IteratorConstructor
+                | Self::PromiseConstructor
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
                 | Self::ProxyConstructor
@@ -4009,6 +4029,8 @@ impl StandardBuiltinId {
             Self::StringPrototypeIsWellFormed => Some("isWellFormed"),
             Self::StringPrototypeToWellFormed => Some("toWellFormed"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
+            Self::PromiseConstructor => Some(PROMISE_NAME),
+            Self::PromiseResolveFunction | Self::PromiseRejectFunction => Some(""),
             Self::SymbolConstructor => Some(SYMBOL_NAME),
             Self::SymbolFor => Some("for"),
             Self::SymbolKeyFor => Some("keyFor"),
