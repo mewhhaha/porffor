@@ -1,5 +1,5 @@
 use super::*;
-use porffor_ir::OptionalChainOperationIr;
+use porffor_ir::{ObjectDestructuringPatternIr, OptionalChainOperationIr};
 
 #[derive(Debug, Clone)]
 pub(crate) struct WasmFunctionMeta {
@@ -23,14 +23,35 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) table_index: u32,
     pub(crate) constructable: bool,
     pub(crate) strict: bool,
+    pub(crate) is_named_expression: bool,
     pub(crate) class_kind: ClassFunctionKind,
+    pub(crate) class_element_execution_kind: ClassElementExecutionKind,
     pub(crate) class_heritage_kind: ClassHeritageKind,
     pub(crate) is_static_class_member: bool,
     pub(crate) is_derived_constructor: bool,
     pub(crate) is_synthetic_default_derived_constructor: bool,
+    pub(crate) class_instance_element_plan: Option<ClassInstanceElementPlanIr>,
     pub(crate) super_constructor_target: Option<FunctionId>,
     pub(crate) uses_super: bool,
     pub(crate) this_before_super: bool,
+    pub(crate) captures_private_environment: bool,
+    pub(crate) needs_active_function_identity: bool,
+}
+
+impl WasmFunctionMeta {
+    pub(crate) const fn has_class_execution_context(&self) -> bool {
+        !matches!(self.class_kind, ClassFunctionKind::None)
+            || !matches!(
+                self.class_element_execution_kind,
+                ClassElementExecutionKind::None
+            )
+    }
+
+    pub(crate) const fn has_function_context(&self) -> bool {
+        self.needs_active_function_identity
+            || self.has_class_execution_context()
+            || self.captures_private_environment
+    }
 }
 
 #[cfg(test)]
@@ -45,8 +66,85 @@ mod tests {
     }
 
     #[test]
+    fn class_element_execution_metadata_requires_a_class_context() {
+        let script = lower_script(
+            "function ordinary() {} class C { instance = 1; static shared = 2; static {} method() {} }",
+        );
+        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], 0);
+        let meta_named = |name: &str| {
+            metas
+                .values()
+                .find(|meta| meta.name == name)
+                .unwrap_or_else(|| panic!("function meta `{name}` should exist"))
+        };
+
+        assert_eq!(
+            meta_named("C.field.instance").class_element_execution_kind,
+            ClassElementExecutionKind::InstanceFieldInitializer
+        );
+        assert_eq!(
+            meta_named("C.field.shared").class_element_execution_kind,
+            ClassElementExecutionKind::StaticFieldInitializer
+        );
+        assert_eq!(
+            meta_named("C.<static>").class_element_execution_kind,
+            ClassElementExecutionKind::StaticBlock
+        );
+        assert!(meta_named("C.field.instance").has_class_execution_context());
+        assert!(meta_named("C.field.shared").has_class_execution_context());
+        assert!(meta_named("C.<static>").has_class_execution_context());
+        assert!(meta_named("C.method").has_class_execution_context());
+        assert!(meta_named("C").has_class_execution_context());
+        assert!(!meta_named("ordinary").has_class_execution_context());
+    }
+
+    #[test]
+    fn nested_private_functions_use_a_non_class_function_context() {
+        let script = lower_script(
+            "class Base { get value() { return 1; } }
+             class C extends Base {
+                 #value = 2;
+                 method() {
+                     function ordinary(receiver) { return receiver.#value; }
+                     function middle() { return () => this.#value; }
+                     const arrow = () => super.value + this.#value;
+                     return [ordinary, middle, arrow];
+                 }
+             }",
+        );
+        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], 0);
+        let ordinary = script
+            .functions
+            .iter()
+            .find(|function| function.name == "ordinary")
+            .expect("nested ordinary function should be lowered");
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| {
+                function.flavor == FunctionFlavor::Arrow && function.captures_private_environment
+            })
+            .expect("nested arrow function should be lowered");
+        let middle = script
+            .functions
+            .iter()
+            .find(|function| function.name == "middle")
+            .expect("transitive private-environment function should be lowered");
+
+        for function in [ordinary, middle, arrow] {
+            assert!(function.captures_private_environment);
+            let meta = &metas[&function.id];
+            assert!(!meta.has_class_execution_context());
+            assert!(meta.has_function_context());
+        }
+    }
+
+    #[test]
     fn string_prototype_methods_root_the_constructor_bootstrap() {
         for builtin in [
+            StandardBuiltinId::StringPrototypeToLocaleLowerCase,
+            StandardBuiltinId::StringPrototypeToLocaleUpperCase,
+            StandardBuiltinId::StringPrototypeToLowerCase,
             StandardBuiltinId::StringPrototypeToUpperCase,
             StandardBuiltinId::StringPrototypeSlice,
             StandardBuiltinId::StringPrototypeIncludes,
@@ -66,6 +164,9 @@ mod tests {
     fn string_call_result_chain_keeps_bootstrap_and_both_methods_live() {
         let mut plan = RuntimeBootstrapPlan::default();
         for builtin in [
+            StandardBuiltinId::StringPrototypeToLocaleLowerCase,
+            StandardBuiltinId::StringPrototypeToLocaleUpperCase,
+            StandardBuiltinId::StringPrototypeToLowerCase,
             StandardBuiltinId::StringPrototypeToUpperCase,
             StandardBuiltinId::StringPrototypeSlice,
         ] {
@@ -81,6 +182,38 @@ mod tests {
         assert!(plan
             .standard_roots
             .contains(&StandardBuiltinId::StringPrototypeSlice));
+    }
+
+    #[test]
+    fn slice_method_references_array_and_string_builtins() {
+        let key = PropertyKeyIr::StaticString("slice".to_string());
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeSlice,
+            StandardBuiltinId::StringPrototypeSlice,
+        ] {
+            assert!(optimized_call_method_references_function(
+                &key,
+                &builtin.function_id()
+            ));
+        }
+    }
+
+    #[test]
+    fn sort_method_references_and_roots_the_array_builtin() {
+        let key = PropertyKeyIr::StaticString("sort".to_string());
+        assert!(optimized_call_method_references_function(
+            &key,
+            &StandardBuiltinId::ArrayPrototypeSort.function_id()
+        ));
+
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ArrayPrototypeSort);
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ArrayPrototypeSort));
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ArrayConstructor));
     }
 
     #[test]
@@ -152,11 +285,14 @@ mod tests {
     }
 
     #[test]
-    fn define_property_entry_points_root_generic_descriptor_lookup() {
+    fn descriptor_entry_points_root_generic_descriptor_lookup() {
         for builtin in [
             StandardBuiltinId::ObjectDefineProperty,
             StandardBuiltinId::ReflectDefineProperty,
             StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+            StandardBuiltinId::ObjectPrototypeLookupGetter,
+            StandardBuiltinId::ObjectPrototypeLookupSetter,
+            StandardBuiltinId::ObjectPrototypePropertyIsEnumerable,
         ] {
             let mut plan = RuntimeBootstrapPlan::default();
             plan.require_standard_builtin(builtin);
@@ -299,7 +435,14 @@ impl RuntimeBootstrapPlan {
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
-        if builtin.string_prototype_method_name().is_some() {
+        if builtin.string_prototype_method_name().is_some()
+            || matches!(
+                builtin,
+                StandardBuiltinId::StringFromCharCode
+                    | StandardBuiltinId::StringFromCodePoint
+                    | StandardBuiltinId::StringRaw
+            )
+        {
             // String.prototype methods are installed by the String
             // constructor bootstrap block. Dynamic method calls can root the
             // method body without otherwise rooting that installer.
@@ -310,12 +453,21 @@ impl RuntimeBootstrapPlan {
             builtin,
             StandardBuiltinId::ArrayPrototypeConcat
                 | StandardBuiltinId::ArrayPrototypeJoin
+                | StandardBuiltinId::ArrayPrototypeSlice
                 | StandardBuiltinId::ArrayPrototypeSplice
+                | StandardBuiltinId::ArrayPrototypeFill
+                | StandardBuiltinId::ArrayPrototypeSort
                 | StandardBuiltinId::TypedArrayPrototypeToString
                 | StandardBuiltinId::ArrayPrototypeToLocaleString
                 | StandardBuiltinId::ArrayPrototypeFlat
                 | StandardBuiltinId::ArrayPrototypeFlatMap
                 | StandardBuiltinId::ArrayPrototypeAt
+                | StandardBuiltinId::ArrayPrototypeToReversed
+                | StandardBuiltinId::ArrayPrototypeToSpliced
+                | StandardBuiltinId::ArrayPrototypeToSorted
+                | StandardBuiltinId::ArrayPrototypeWith
+                | StandardBuiltinId::ArrayPrototypeReverse
+                | StandardBuiltinId::ArrayPrototypeCopyWithin
                 | StandardBuiltinId::ArrayPrototypeIncludes
                 | StandardBuiltinId::ArrayPrototypeIndexOf
                 | StandardBuiltinId::ArrayPrototypeLastIndexOf
@@ -332,6 +484,8 @@ impl RuntimeBootstrapPlan {
                 | StandardBuiltinId::ArrayPrototypeReduceRight
                 | StandardBuiltinId::ArrayPrototypePop
                 | StandardBuiltinId::ArrayPrototypePush
+                | StandardBuiltinId::ArrayPrototypeShift
+                | StandardBuiltinId::ArrayPrototypeUnshift
                 | StandardBuiltinId::ArrayPrototypeKeys
                 | StandardBuiltinId::ArrayPrototypeEntries
                 | StandardBuiltinId::ArrayPrototypeValues
@@ -343,7 +497,10 @@ impl RuntimeBootstrapPlan {
             self.standard_roots
                 .insert(StandardBuiltinId::ArrayConstructor);
         }
-        if builtin == StandardBuiltinId::ArrayPrototypeSplice {
+        if matches!(
+            builtin,
+            StandardBuiltinId::ArrayPrototypeSlice | StandardBuiltinId::ArrayPrototypeSplice
+        ) {
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
         if matches!(
@@ -351,6 +508,9 @@ impl RuntimeBootstrapPlan {
             StandardBuiltinId::ObjectDefineProperty
                 | StandardBuiltinId::ReflectDefineProperty
                 | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
+                | StandardBuiltinId::ObjectPrototypeLookupGetter
+                | StandardBuiltinId::ObjectPrototypeLookupSetter
+                | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
         ) {
             // These entry points dispatch through the generic descriptor
             // builtin so exotic and nested-Proxy [[GetOwnProperty]] semantics
@@ -588,15 +748,23 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::RegExpPrototypeStickyGetter
             | StandardBuiltinId::RegExpLegacyStaticGetter
             | StandardBuiltinId::RegExpLegacyStaticSetter
+            | StandardBuiltinId::RegExpPrototypeCompile
             | StandardBuiltinId::RegExpPrototypeExec
+            | StandardBuiltinId::RegExpPrototypeTest
+            | StandardBuiltinId::RegExpPrototypeToString
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
-            | StandardBuiltinId::RegExpPrototypeSymbolSearch => {
+            | StandardBuiltinId::RegExpPrototypeSymbolReplace
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch
+            | StandardBuiltinId::RegExpPrototypeSymbolSplit => {
                 self.standard_roots
                     .insert(StandardBuiltinId::RegExpConstructor);
             }
             StandardBuiltinId::ArrayIteratorIdentity
             | StandardBuiltinId::IteratorFrom
+            | StandardBuiltinId::IteratorZip
+            | StandardBuiltinId::IteratorHelperNext
+            | StandardBuiltinId::IteratorHelperReturn
             | StandardBuiltinId::IteratorPrototypeToArray
             | StandardBuiltinId::IteratorPrototypeForEach
             | StandardBuiltinId::IteratorPrototypeEvery
@@ -669,6 +837,7 @@ fn block_exposes_global_object(block: &BlockIr) -> bool {
 fn statement_exposes_global_object(statement: &StatementIr) -> bool {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
@@ -705,6 +874,7 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
             test,
             update,
             body,
+            ..
         } => {
             init.as_ref().is_some_and(for_init_exposes_global_object)
                 || test.as_ref().is_some_and(expr_exposes_global_object)
@@ -733,9 +903,14 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         } => expr_exposes_global_object(iterable) || statement_exposes_global_object(body),
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             expr_exposes_global_object(discriminant)
+                || lexical_declarations
+                    .iter()
+                    .any(statement_exposes_global_object)
                 || cases.iter().any(|case| {
                     case.condition
                         .as_ref()
@@ -832,6 +1007,24 @@ fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
     }
 }
 
+fn array_destructuring_pattern_any_expression(
+    pattern: &ArrayDestructuringPatternIr,
+    mut predicate: impl FnMut(&TypedExpr) -> bool,
+) -> bool {
+    let mut found = false;
+    pattern.visit_expressions(&mut |expr| found |= predicate(expr));
+    found
+}
+
+fn object_destructuring_pattern_any_expression(
+    pattern: &ObjectDestructuringPatternIr,
+    mut predicate: impl FnMut(&TypedExpr) -> bool,
+) -> bool {
+    let mut found = false;
+    pattern.visit_expressions(&mut |expr| found |= predicate(expr));
+    found
+}
+
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
         ExprIr::Identifier(name) => name == GLOBAL_THIS_NAME,
@@ -859,6 +1052,13 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
         }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            property_access_exposes_global_object(target, key)
+                || property_key_exposes_global_object(key)
+                || expr_exposes_global_object(value)
+        }
         ExprIr::OptionalPropertyChain { target, chain } => {
             expr_exposes_global_object(target)
                 || chain.iter().any(|operation| match operation {
@@ -866,6 +1066,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                         property_key_exposes_global_object(key)
                             || property_access_exposes_global_object(target, key)
                     }
+                    OptionalChainOperationIr::PrivateProperty { .. } => false,
                     OptionalChainOperationIr::Call { args, .. } => {
                         args.iter().any(expr_exposes_global_object)
                     }
@@ -894,6 +1095,17 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::In { lhs, rhs } => {
             expr_exposes_global_object(lhs) || expr_exposes_global_object(rhs)
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            expr_exposes_global_object(value) || expr_exposes_global_object(body)
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            expr_exposes_global_object(value)
+                || array_destructuring_pattern_any_expression(pattern, expr_exposes_global_object)
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            expr_exposes_global_object(value)
+                || object_destructuring_pattern_any_expression(pattern, expr_exposes_global_object)
+        }
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -910,12 +1122,13 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             callee,
             this_arg,
             args,
+            ..
         } => {
             expr_exposes_global_object(callee)
                 || this_arg.as_deref().is_some_and(expr_exposes_global_object)
                 || args.iter().any(expr_exposes_global_object)
         }
-        ExprIr::Construct { callee, args } => {
+        ExprIr::Construct { callee, args, .. } => {
             expr_exposes_global_object(callee) || args.iter().any(expr_exposes_global_object)
         }
         ExprIr::CallMethod {
@@ -950,6 +1163,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -974,6 +1188,7 @@ fn collect_block_global_property_names(block: &BlockIr, names: &mut BTreeSet<Str
 fn collect_statement_global_property_names(statement: &StatementIr, names: &mut BTreeSet<String>) {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => {}
@@ -1014,6 +1229,7 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             test,
             update,
             body,
+            ..
         } => {
             if let Some(init) = init {
                 collect_for_init_global_property_names(init, names);
@@ -1052,9 +1268,14 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         }
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             collect_expr_global_property_names(discriminant, names);
+            for declaration in lexical_declarations {
+                collect_statement_global_property_names(declaration, names);
+            }
             for case in cases {
                 if let Some(condition) = &case.condition {
                     collect_expr_global_property_names(condition, names);
@@ -1202,6 +1423,13 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
         }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            collect_expr_global_property_names(target, names);
+            collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(value, names);
+        }
         ExprIr::OptionalPropertyChain { target, chain } => {
             collect_expr_global_property_names(target, names);
             for operation in chain {
@@ -1209,6 +1437,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                     OptionalChainOperationIr::Property { key, .. } => {
                         collect_property_key_global_property_names(key, names);
                     }
+                    OptionalChainOperationIr::PrivateProperty { .. } => {}
                     OptionalChainOperationIr::Call { args, .. } => {
                         for arg in args {
                             collect_expr_global_property_names(arg, names);
@@ -1242,6 +1471,72 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             collect_expr_global_property_names(lhs, names);
             collect_expr_global_property_names(rhs, names);
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            collect_expr_global_property_names(value, names);
+            collect_expr_global_property_names(body, names);
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            collect_expr_global_property_names(value, names);
+            pattern.visit_expressions(&mut |expr| collect_expr_global_property_names(expr, names));
+            fn collect_assignment_globals(
+                pattern: &ArrayDestructuringPatternIr,
+                names: &mut BTreeSet<String>,
+            ) {
+                for element in &pattern.elements {
+                    let target = match element {
+                        ArrayDestructuringElementIr::Elision => continue,
+                        ArrayDestructuringElementIr::Target { target, .. }
+                        | ArrayDestructuringElementIr::Rest { target } => target,
+                    };
+                    match target {
+                        DestructuringTargetIr::AssignmentIdentifier {
+                            name, global: true, ..
+                        } => {
+                            names.insert(name.clone());
+                        }
+                        DestructuringTargetIr::NestedArray(pattern) => {
+                            collect_assignment_globals(pattern, names)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            collect_assignment_globals(pattern, names);
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            collect_expr_global_property_names(value, names);
+            pattern.visit_expressions(&mut |expr| collect_expr_global_property_names(expr, names));
+            fn collect_target_globals(
+                target: &DestructuringTargetIr,
+                names: &mut BTreeSet<String>,
+            ) {
+                match target {
+                    DestructuringTargetIr::AssignmentIdentifier {
+                        name, global: true, ..
+                    } => {
+                        names.insert(name.clone());
+                    }
+                    DestructuringTargetIr::NestedArray(pattern) => {
+                        for element in &pattern.elements {
+                            match element {
+                                ArrayDestructuringElementIr::Elision => {}
+                                ArrayDestructuringElementIr::Target { target, .. }
+                                | ArrayDestructuringElementIr::Rest { target } => {
+                                    collect_target_globals(target, names);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for property in &pattern.properties {
+                collect_target_globals(&property.target, names);
+            }
+            if let Some(rest) = &pattern.rest {
+                collect_target_globals(rest, names);
+            }
+        }
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -1260,6 +1555,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             callee,
             this_arg,
             args,
+            ..
         } => {
             collect_expr_global_property_names(callee, names);
             if let Some(this_arg) = this_arg {
@@ -1269,7 +1565,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(arg, names);
             }
         }
-        ExprIr::Construct { callee, args } => {
+        ExprIr::Construct { callee, args, .. } => {
             collect_expr_global_property_names(callee, names);
             for arg in args {
                 collect_expr_global_property_names(arg, names);
@@ -1315,6 +1611,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -1388,6 +1685,7 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if (builtin == StandardBuiltinId::RegExpPrototypeExec
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatch
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+        || builtin == StandardBuiltinId::RegExpPrototypeSymbolReplace
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolSearch)
         && (script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeMatch)
             || script_references_standard_builtin(
@@ -1395,6 +1693,14 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
                 StandardBuiltinId::StringPrototypeMatchAll,
             )
             || script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeSearch)
+            || script_references_standard_builtin(
+                script,
+                StandardBuiltinId::StringPrototypeReplace,
+            )
+            || script_references_standard_builtin(
+                script,
+                StandardBuiltinId::StringPrototypeReplaceAll,
+            )
             || script_references_standard_builtin(script, StandardBuiltinId::RegExpConstructor)
             || script_references_standard_builtin(
                 script,
@@ -1417,6 +1723,7 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
             StandardBuiltinId::ArrayPrototypeEntries,
             StandardBuiltinId::ArrayPrototypeValues,
             StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::IteratorZip,
             StandardBuiltinId::IteratorPrototypeToArray,
             StandardBuiltinId::IteratorPrototypeForEach,
             StandardBuiltinId::IteratorPrototypeEvery,
@@ -1434,11 +1741,17 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     {
         return false;
     }
+    if builtin == StandardBuiltinId::StringIteratorNext
+        && script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeIterator)
+    {
+        return false;
+    }
     if builtin == StandardBuiltinId::ArrayPrototypeValues
         && [
             StandardBuiltinId::ArrayFrom,
             StandardBuiltinId::TypedArrayFrom,
             StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::IteratorZip,
             StandardBuiltinId::IteratorPrototypeFlatMap,
         ]
         .into_iter()
@@ -1522,7 +1835,10 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::ArrayOf
                 | StandardBuiltinId::ArrayPrototypeConcat
                 | StandardBuiltinId::ArrayPrototypeJoin
+                | StandardBuiltinId::ArrayPrototypeSlice
                 | StandardBuiltinId::ArrayPrototypeSplice
+                | StandardBuiltinId::ArrayPrototypeFill
+                | StandardBuiltinId::ArrayPrototypeSort
                 | StandardBuiltinId::ArrayPrototypeToLocaleString
                 | StandardBuiltinId::ArrayPrototypeFlat
                 | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -1535,6 +1851,8 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::ArrayPrototypeReduceRight
                 | StandardBuiltinId::ArrayPrototypePop
                 | StandardBuiltinId::ArrayPrototypePush
+                | StandardBuiltinId::ArrayPrototypeShift
+                | StandardBuiltinId::ArrayPrototypeUnshift
                 | StandardBuiltinId::ArrayPrototypeKeys
                 | StandardBuiltinId::ArrayPrototypeEntries
                 | StandardBuiltinId::ArrayPrototypeValues
@@ -1636,6 +1954,7 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::RegExpLegacyStaticSetter
                 | StandardBuiltinId::RegExpPrototypeSymbolMatch
                 | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+                | StandardBuiltinId::RegExpPrototypeSymbolReplace
                 | StandardBuiltinId::RegExpPrototypeSymbolSearch
                 | StandardBuiltinId::ReflectSet
                 | StandardBuiltinId::BigIntConstructor
@@ -1684,6 +2003,7 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::MathMin
                 | StandardBuiltinId::MathMax
                 | StandardBuiltinId::StringPrototypeCharAt
+                | StandardBuiltinId::StringPrototypeConcat
                 | StandardBuiltinId::StringPrototypeCharCodeAt
                 | StandardBuiltinId::StringPrototypeCodePointAt
                 | StandardBuiltinId::StringPrototypeAt
@@ -1717,6 +2037,11 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::StringPrototypeEndsWith
                 | StandardBuiltinId::StringPrototypeIncludes
                 | StandardBuiltinId::StringPrototypeStartsWith
+                | StandardBuiltinId::StringPrototypeNormalize
+                | StandardBuiltinId::StringPrototypeLocaleCompare
+                | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+                | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+                | StandardBuiltinId::StringPrototypeToLowerCase
                 | StandardBuiltinId::StringPrototypeToUpperCase
                 | StandardBuiltinId::StringPrototypeTrim
                 | StandardBuiltinId::StringPrototypeTrimStart
@@ -1744,6 +2069,7 @@ pub(crate) fn block_references_function(block: &BlockIr, target: &FunctionId) ->
 pub(crate) fn statement_references_function(statement: &StatementIr, target: &FunctionId) -> bool {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
@@ -1781,6 +2107,7 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
             test,
             update,
             body,
+            ..
         } => {
             init.as_ref()
                 .is_some_and(|init| for_init_references_function(init, target))
@@ -1818,9 +2145,14 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         }
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             expr_references_function(discriminant, target)
+                || lexical_declarations
+                    .iter()
+                    .any(|declaration| statement_references_function(declaration, target))
                 || cases.iter().any(|case| {
                     case.condition
                         .as_ref()
@@ -1986,6 +2318,12 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "splice" {
         return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
     }
+    if name == "fill" {
+        return StandardBuiltinId::ArrayPrototypeFill.function_id() == *target;
+    }
+    if name == "sort" {
+        return StandardBuiltinId::ArrayPrototypeSort.function_id() == *target;
+    }
     if name == "valueOf" {
         return StandardBuiltinId::NumberPrototypeValueOf.function_id() == *target
             || StandardBuiltinId::StringPrototypeValueOf.function_id() == *target
@@ -2043,6 +2381,9 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "drop" {
         return StandardBuiltinId::IteratorPrototypeDrop.function_id() == *target;
     }
+    if name == "zip" {
+        return StandardBuiltinId::IteratorZip.function_id() == *target;
+    }
     if name == "findIndex" {
         return StandardBuiltinId::ArrayPrototypeFindIndex.function_id() == *target;
     }
@@ -2068,30 +2409,71 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::ArrayPrototypeAt.function_id() == *target
             || StandardBuiltinId::StringPrototypeAt.function_id() == *target;
     }
+    if name == "toReversed" {
+        return StandardBuiltinId::ArrayPrototypeToReversed.function_id() == *target;
+    }
+    if name == "with" {
+        return StandardBuiltinId::ArrayPrototypeWith.function_id() == *target;
+    }
+    if name == "toSpliced" {
+        return StandardBuiltinId::ArrayPrototypeToSpliced.function_id() == *target;
+    }
+    if name == "toSorted" {
+        return StandardBuiltinId::ArrayPrototypeToSorted.function_id() == *target;
+    }
+    if name == "reverse" {
+        return StandardBuiltinId::ArrayPrototypeReverse.function_id() == *target;
+    }
+    if name == "copyWithin" {
+        return StandardBuiltinId::ArrayPrototypeCopyWithin.function_id() == *target;
+    }
     if name == "slice" {
-        return StandardBuiltinId::StringPrototypeSlice.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeSlice.function_id() == *target
+            || StandardBuiltinId::StringPrototypeSlice.function_id() == *target;
     }
     if name == "toLocaleString" {
         return StandardBuiltinId::ArrayPrototypeToLocaleString.function_id() == *target
             || StandardBuiltinId::NumberPrototypeToLocaleString.function_id() == *target
             || StandardBuiltinId::BigIntPrototypeToLocaleString.function_id() == *target;
     }
+    if name == "concat" {
+        return StandardBuiltinId::ArrayPrototypeConcat.function_id() == *target
+            || StandardBuiltinId::StringPrototypeConcat.function_id() == *target;
+    }
+    if name == "Symbol.iterator" {
+        return StandardBuiltinId::ArrayPrototypeValues.function_id() == *target
+            || StandardBuiltinId::StringPrototypeIterator.function_id() == *target;
+    }
+    if name == "next" {
+        return StandardBuiltinId::ArrayIteratorNext.function_id() == *target
+            || StandardBuiltinId::StringIteratorNext.function_id() == *target;
+    }
     let builtin = match name.as_str() {
-        "concat" => StandardBuiltinId::ArrayPrototypeConcat,
         "join" => StandardBuiltinId::ArrayPrototypeJoin,
+        "slice" => StandardBuiltinId::ArrayPrototypeSlice,
         "splice" => StandardBuiltinId::ArrayPrototypeSplice,
+        "fill" => StandardBuiltinId::ArrayPrototypeFill,
+        "sort" => StandardBuiltinId::ArrayPrototypeSort,
         "flat" => StandardBuiltinId::ArrayPrototypeFlat,
         "flatMap" => StandardBuiltinId::ArrayPrototypeFlatMap,
         "reduce" => StandardBuiltinId::ArrayPrototypeReduce,
         "reduceRight" => StandardBuiltinId::ArrayPrototypeReduceRight,
         "pop" => StandardBuiltinId::ArrayPrototypePop,
         "push" => StandardBuiltinId::ArrayPrototypePush,
+        "shift" => StandardBuiltinId::ArrayPrototypeShift,
+        "unshift" => StandardBuiltinId::ArrayPrototypeUnshift,
         "from" => StandardBuiltinId::ArrayFrom,
         "of" => StandardBuiltinId::ArrayOf,
         "at" => StandardBuiltinId::ArrayPrototypeAt,
+        "toReversed" => StandardBuiltinId::ArrayPrototypeToReversed,
+        "toSpliced" => StandardBuiltinId::ArrayPrototypeToSpliced,
+        "toSorted" => StandardBuiltinId::ArrayPrototypeToSorted,
+        "with" => StandardBuiltinId::ArrayPrototypeWith,
+        "reverse" => StandardBuiltinId::ArrayPrototypeReverse,
+        "copyWithin" => StandardBuiltinId::ArrayPrototypeCopyWithin,
         "keys" => StandardBuiltinId::ArrayPrototypeKeys,
         "entries" => StandardBuiltinId::ArrayPrototypeEntries,
-        "values" | "Symbol.iterator" => StandardBuiltinId::ArrayPrototypeValues,
+        "values" => StandardBuiltinId::ArrayPrototypeValues,
         "charAt" => StandardBuiltinId::StringPrototypeCharAt,
         "charCodeAt" => StandardBuiltinId::StringPrototypeCharCodeAt,
         "codePointAt" => StandardBuiltinId::StringPrototypeCodePointAt,
@@ -2101,14 +2483,23 @@ pub(crate) fn optimized_call_method_references_function(
         "padStart" => StandardBuiltinId::StringPrototypePadStart,
         "padEnd" => StandardBuiltinId::StringPrototypePadEnd,
         "repeat" => StandardBuiltinId::StringPrototypeRepeat,
+        "normalize" => StandardBuiltinId::StringPrototypeNormalize,
+        "localeCompare" => StandardBuiltinId::StringPrototypeLocaleCompare,
         "isWellFormed" => StandardBuiltinId::StringPrototypeIsWellFormed,
         "toWellFormed" => StandardBuiltinId::StringPrototypeToWellFormed,
         "search" => StandardBuiltinId::StringPrototypeSearch,
+        "compile" => StandardBuiltinId::RegExpPrototypeCompile,
         "exec" => StandardBuiltinId::RegExpPrototypeExec,
+        "test" => StandardBuiltinId::RegExpPrototypeTest,
         "Symbol.match" => StandardBuiltinId::RegExpPrototypeSymbolMatch,
         "Symbol.matchAll" => StandardBuiltinId::RegExpPrototypeSymbolMatchAll,
+        "Symbol.replace" => StandardBuiltinId::RegExpPrototypeSymbolReplace,
         "Symbol.search" => StandardBuiltinId::RegExpPrototypeSymbolSearch,
+        "Symbol.split" => StandardBuiltinId::RegExpPrototypeSymbolSplit,
         "startsWith" => StandardBuiltinId::StringPrototypeStartsWith,
+        "toLocaleLowerCase" => StandardBuiltinId::StringPrototypeToLocaleLowerCase,
+        "toLocaleUpperCase" => StandardBuiltinId::StringPrototypeToLocaleUpperCase,
+        "toLowerCase" => StandardBuiltinId::StringPrototypeToLowerCase,
         "toUpperCase" => StandardBuiltinId::StringPrototypeToUpperCase,
         _ => return false,
     };
@@ -2143,9 +2534,14 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::TypeOf { expr: value }
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::StringFromCharCode { code: value }
-        | ExprIr::SpreadArgument(value)
         | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_references_function(value, target),
+        ExprIr::SpreadArgument(value) => {
+            *target == StandardBuiltinId::ArrayPrototypeValues.function_id()
+                || *target == StandardBuiltinId::ArrayIteratorNext.function_id()
+                || *target == StandardBuiltinId::StringConstructor.function_id()
+                || expr_references_function(value, target)
+        }
         ExprIr::SpecOperation {
             operation,
             operands,
@@ -2188,6 +2584,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                                 false,
                             )
                     }
+                    OptionalChainOperationIr::PrivateProperty { .. } => false,
                     OptionalChainOperationIr::Call { args, .. } => {
                         args.iter().any(|arg| expr_references_function(arg, target))
                     }
@@ -2232,6 +2629,23 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     true,
                 )
         }
+        ExprIr::PropertyCompoundAssign {
+            target: object,
+            key,
+            value,
+            ..
+        } => {
+            expr_references_function(object, target)
+                || property_key_references_function(key, target)
+                || expr_references_function(value, target)
+                || shape_accessor_references_function(
+                    object.heap_shape.as_deref(),
+                    key,
+                    target,
+                    true,
+                    true,
+                )
+        }
         ExprIr::PropertyWrite {
             target: object,
             key,
@@ -2267,6 +2681,27 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::In { lhs, rhs } => {
             expr_references_function(lhs, target) || expr_references_function(rhs, target)
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            expr_references_function(value, target) || expr_references_function(body, target)
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            *target == StandardBuiltinId::ArrayPrototypeValues.function_id()
+                || *target == StandardBuiltinId::ArrayIteratorNext.function_id()
+                || *target == StandardBuiltinId::StringConstructor.function_id()
+                || expr_references_function(value, target)
+                || array_destructuring_pattern_any_expression(pattern, |expr| {
+                    expr_references_function(expr, target)
+                })
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            (pattern.rest.is_some()
+                && (*target == StandardBuiltinId::ReflectOwnKeys.function_id()
+                    || *target == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()))
+                || expr_references_function(value, target)
+                || object_destructuring_pattern_any_expression(pattern, |expr| {
+                    expr_references_function(expr, target)
+                })
+        }
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -2286,6 +2721,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             callee,
             this_arg,
             args,
+            ..
         } => {
             expr_references_function(callee, target)
                 || this_arg
@@ -2293,7 +2729,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     .is_some_and(|this_arg| expr_references_function(this_arg, target))
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
-        ExprIr::Construct { callee, args } => {
+        ExprIr::Construct { callee, args, .. } => {
             expr_references_function(callee, target)
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
@@ -2333,6 +2769,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::This
         | ExprIr::Arguments
         | ExprIr::Identifier(_)
@@ -2478,15 +2915,20 @@ pub(crate) fn build_function_metas(
                 table_index: callable_index,
                 constructable: function.constructable,
                 strict: function.strict,
+                is_named_expression: function.is_named_expression,
                 class_kind: function.class_kind,
+                class_element_execution_kind: function.class_element_execution_kind,
                 class_heritage_kind: function.class_heritage_kind,
                 is_static_class_member: function.is_static_class_member,
                 is_derived_constructor: function.is_derived_constructor,
                 is_synthetic_default_derived_constructor: function
                     .is_synthetic_default_derived_constructor,
+                class_instance_element_plan: function.class_instance_element_plan.clone(),
                 super_constructor_target: function.super_constructor_target.clone(),
                 uses_super: function.uses_super,
                 this_before_super: function.this_before_super,
+                captures_private_environment: function.captures_private_environment,
+                needs_active_function_identity: function.flavor == FunctionFlavor::Ordinary,
             },
         );
         callable_index += 1;
@@ -2519,14 +2961,19 @@ pub(crate) fn build_function_metas(
             table_index: callable_index,
             constructable: builtin.constructable(),
             strict: true,
+            is_named_expression: false,
             class_kind: ClassFunctionKind::None,
+            class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
             is_static_class_member: false,
             is_derived_constructor: false,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: None,
             uses_super: false,
             this_before_super: false,
+            captures_private_environment: false,
+            needs_active_function_identity: false,
         };
     let host_builtin_meta = |builtin: HostBuiltinId, callable_index: u32| WasmFunctionMeta {
         name: builtin.as_str().to_string(),
@@ -2540,14 +2987,19 @@ pub(crate) fn build_function_metas(
         table_index: callable_index,
         constructable: false,
         strict: true,
+        is_named_expression: false,
         class_kind: ClassFunctionKind::None,
+        class_element_execution_kind: ClassElementExecutionKind::None,
         class_heritage_kind: ClassHeritageKind::None,
         is_static_class_member: false,
         is_derived_constructor: false,
         is_synthetic_default_derived_constructor: false,
+        class_instance_element_plan: None,
         super_constructor_target: None,
         uses_super: false,
         this_before_super: false,
+        captures_private_environment: false,
+        needs_active_function_identity: false,
     };
 
     let mut shared_typed_array_constructor_callable_index = None;
@@ -2646,6 +3098,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectIsExtensible => 1,
         StandardBuiltinId::ObjectPreventExtensions => 1,
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
+        StandardBuiltinId::ObjectPrototypeLookupGetter => 1,
+        StandardBuiltinId::ObjectPrototypeLookupSetter => 1,
         StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => 1,
         StandardBuiltinId::ObjectPrototypeIsPrototypeOf => 1,
         StandardBuiltinId::SymbolConstructor => 0,
@@ -2684,6 +3138,12 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeFlat => 0,
         StandardBuiltinId::ArrayPrototypeFlatMap => 1,
         StandardBuiltinId::ArrayPrototypeAt => 1,
+        StandardBuiltinId::ArrayPrototypeToReversed => 0,
+        StandardBuiltinId::ArrayPrototypeToSpliced => 2,
+        StandardBuiltinId::ArrayPrototypeToSorted => 1,
+        StandardBuiltinId::ArrayPrototypeWith => 2,
+        StandardBuiltinId::ArrayPrototypeReverse => 0,
+        StandardBuiltinId::ArrayPrototypeCopyWithin => 2,
         StandardBuiltinId::ArrayPrototypeIncludes => 1,
         StandardBuiltinId::ArrayPrototypeIndexOf => 1,
         StandardBuiltinId::ArrayPrototypeLastIndexOf => 1,
@@ -2699,17 +3159,31 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeReduce => 1,
         StandardBuiltinId::ArrayPrototypeReduceRight => 1,
         StandardBuiltinId::ArrayPrototypeConcat => 1,
-        StandardBuiltinId::ArrayPrototypeJoin => 1,
+        StandardBuiltinId::StringPrototypeConcat => 1,
+        StandardBuiltinId::StringPrototypeLocaleCompare => 1,
+        StandardBuiltinId::ArrayPrototypeJoin | StandardBuiltinId::TypedArrayPrototypeJoin => 1,
+        StandardBuiltinId::ArrayPrototypeSlice => 2,
         StandardBuiltinId::ArrayPrototypeSplice => 2,
+        StandardBuiltinId::ArrayPrototypeFill => 1,
+        StandardBuiltinId::ArrayPrototypeSort => 1,
         StandardBuiltinId::ArrayPrototypePop => 0,
         StandardBuiltinId::ArrayPrototypePush => 1,
+        StandardBuiltinId::ArrayPrototypeShift => 0,
+        StandardBuiltinId::ArrayPrototypeUnshift => 1,
         StandardBuiltinId::ArrayPrototypeKeys => 0,
         StandardBuiltinId::ArrayPrototypeEntries => 0,
         StandardBuiltinId::ArrayPrototypeValues => 0,
         StandardBuiltinId::ArrayIteratorNext => 0,
         StandardBuiltinId::ArrayIteratorIdentity => 0,
+        StandardBuiltinId::StringIteratorNext => 0,
+        StandardBuiltinId::StringPrototypeIterator => 0,
         StandardBuiltinId::IteratorConstructor => 0,
         StandardBuiltinId::IteratorFrom => 1,
+        StandardBuiltinId::IteratorZip => 1,
+        StandardBuiltinId::IteratorZipNext => 0,
+        StandardBuiltinId::IteratorZipReturn => 0,
+        StandardBuiltinId::IteratorHelperNext => 0,
+        StandardBuiltinId::IteratorHelperReturn => 0,
         StandardBuiltinId::IteratorPrototypeToArray => 0,
         StandardBuiltinId::IteratorPrototypeForEach => 1,
         StandardBuiltinId::IteratorPrototypeEvery => 1,
@@ -2785,10 +3259,15 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::RegExpPrototypeStickyGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticGetter => 0,
         StandardBuiltinId::RegExpLegacyStaticSetter => 1,
+        StandardBuiltinId::RegExpPrototypeCompile => 2,
+        StandardBuiltinId::RegExpPrototypeToString => 0,
         StandardBuiltinId::RegExpPrototypeExec
+        | StandardBuiltinId::RegExpPrototypeTest
         | StandardBuiltinId::RegExpPrototypeSymbolMatch
         | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
         | StandardBuiltinId::RegExpPrototypeSymbolSearch => 1,
+        StandardBuiltinId::RegExpPrototypeSymbolReplace
+        | StandardBuiltinId::RegExpPrototypeSymbolSplit => 2,
         StandardBuiltinId::RegExpEscape => 1,
         StandardBuiltinId::JsonParse => 2,
         StandardBuiltinId::JsonStringify => 3,
@@ -2922,7 +3401,11 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::BigIntPrototypeValueOf
         | StandardBuiltinId::StringPrototypeToString
         | StandardBuiltinId::StringPrototypeValueOf
+        | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+        | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+        | StandardBuiltinId::StringPrototypeToLowerCase
         | StandardBuiltinId::StringPrototypeToUpperCase
+        | StandardBuiltinId::StringPrototypeNormalize
         | StandardBuiltinId::BooleanPrototypeToString
         | StandardBuiltinId::BooleanPrototypeValueOf => 0,
         StandardBuiltinId::BigIntAsIntN | StandardBuiltinId::BigIntAsUintN => 2,
@@ -2934,6 +3417,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::MathMax => 2,
         StandardBuiltinId::MathRandom => 0,
         StandardBuiltinId::StringConstructor
+        | StandardBuiltinId::StringFromCharCode
+        | StandardBuiltinId::StringFromCodePoint
+        | StandardBuiltinId::StringRaw
         | StandardBuiltinId::StringPrototypeCharAt
         | StandardBuiltinId::StringPrototypeCharCodeAt
         | StandardBuiltinId::StringPrototypeCodePointAt
@@ -3013,6 +3499,19 @@ pub(crate) fn function_param_types() -> Vec<ValType> {
 }
 
 pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
+    if matches!(
+        expr,
+        ExprIr::UpdateIdentifier {
+            value_kind: ValueKind::Dynamic,
+            ..
+        } | ExprIr::GlobalPropertyUpdate {
+            value_kind: ValueKind::Dynamic,
+            ..
+        }
+    ) {
+        return true;
+    }
+
     matches!(
         expr,
         ExprIr::Identifier(_)
@@ -3105,6 +3604,7 @@ pub(crate) fn block_uses_calls(block: &BlockIr) -> bool {
 pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
@@ -3158,6 +3658,7 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
             test,
             update,
             body,
+            ..
         } => {
             init.as_ref().map(for_init_uses_calls).unwrap_or(false)
                 || test.as_ref().map(expr_uses_calls).unwrap_or(false)
@@ -3184,9 +3685,12 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         } => expr_uses_calls(iterable) || statement_uses_calls(body),
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             expr_uses_calls(discriminant)
+                || lexical_declarations.iter().any(statement_uses_calls)
                 || cases.iter().any(|case| {
                     case.condition
                         .as_ref()
@@ -3215,6 +3719,7 @@ pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
 pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
@@ -3272,6 +3777,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
             test,
             update,
             body,
+            ..
         } => {
             init.as_ref()
                 .map(for_init_uses_function_table)
@@ -3303,9 +3809,14 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         } => expr_uses_function_table(iterable) || statement_uses_function_table(body),
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             expr_uses_function_table(discriminant)
+                || lexical_declarations
+                    .iter()
+                    .any(statement_uses_function_table)
                 || cases.iter().any(|case| {
                     case.condition
                         .as_ref()
@@ -3395,6 +3906,9 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                             }
                         };
                     }
+                    OptionalChainOperationIr::PrivateProperty { .. } => {
+                        chain_uses_function_table = true;
+                    }
                     OptionalChainOperationIr::Call { args, .. } => {
                         chain_uses_function_table |= args.iter().any(expr_uses_function_table);
                         has_call = true;
@@ -3438,6 +3952,19 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            matches!(target.kind, ValueKind::Object)
+                || expr_uses_function_table(target)
+                || expr_uses_function_table(value)
+                || match key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_function_table(expr)
+                    }
+                }
+        }
         ExprIr::DeleteProperty { target, key, .. } => {
             matches!(target.kind, ValueKind::Object)
                 || expr_uses_function_table(target)
@@ -3470,6 +3997,20 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                 || lhs.possible_kinds.contains(ValueKind::Object)
                 || rhs.possible_kinds.contains(ValueKind::Object)
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            expr_uses_function_table(value)
+                || expr_uses_function_table(body)
+                || value.possible_kinds.contains(ValueKind::Object)
+                || body.possible_kinds.contains(ValueKind::Object)
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            let _ = (value, pattern);
+            true
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            let _ = (value, pattern);
+            true
+        }
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -3480,7 +4021,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                 || expr_uses_function_table(else_expr)
         }
         ExprIr::CallNamed { args, .. } => args.iter().any(expr_uses_function_table),
-        ExprIr::SpreadArgument(value) => expr_uses_function_table(value),
+        ExprIr::SpreadArgument(_) => true,
         ExprIr::InstanceOf { lhs, rhs } => {
             expr_uses_function_table(lhs) || expr_uses_function_table(rhs)
         }
@@ -3494,6 +4035,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::This
         | ExprIr::Identifier(_)
@@ -3564,6 +4106,9 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                             }
                         };
                     }
+                    OptionalChainOperationIr::PrivateProperty { .. } => {
+                        chain_uses_calls = true;
+                    }
                     OptionalChainOperationIr::Call { args, .. } => {
                         chain_uses_calls |= args.iter().any(expr_uses_calls);
                         has_call = true;
@@ -3593,6 +4138,18 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         }
         ExprIr::PropertyUpdate { target, key, .. } => {
             expr_uses_calls(target)
+                || match key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_calls(expr)
+                    }
+                }
+        }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            expr_uses_calls(target)
+                || expr_uses_calls(value)
                 || match key {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
@@ -3631,6 +4188,13 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                 || lhs.possible_kinds.contains(ValueKind::Object)
                 || rhs.possible_kinds.contains(ValueKind::Object)
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            expr_uses_calls(value)
+                || expr_uses_calls(body)
+                || value.possible_kinds.contains(ValueKind::Object)
+                || body.possible_kinds.contains(ValueKind::Object)
+        }
+        ExprIr::ArrayDestructure { .. } | ExprIr::ObjectDestructure { .. } => true,
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -3647,6 +4211,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
         | ExprIr::This
@@ -3670,7 +4235,22 @@ pub(crate) fn count_block_temp_locals(block: &BlockIr) -> usize {
 
 pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     match statement {
+        StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    pattern,
+                    assignment: false,
+                    ..
+                },
+            ..
+        }) => {
+            let mut count = 0;
+            pattern
+                .visit_bindings(&mut |mode, _| count += usize::from(mode != BindingMode::Var) * 2);
+            count
+        }
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Var(_)
         | StatementIr::Expression(_)
         | StatementIr::Debugger
@@ -3685,21 +4265,27 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         StatementIr::Block(block) => count_block_lexicals(block),
         StatementIr::TryCatch {
             try_block,
+            catch_parameter_environment,
             catch_block,
             ..
-        } => count_block_lexicals(try_block) + 2 + count_block_lexicals(catch_block),
+        } => {
+            count_block_lexicals(try_block)
+                + usize::from(catch_parameter_environment.is_none()) * 2
+                + count_block_lexicals(catch_block)
+        }
         StatementIr::TryFinally {
             try_block,
             finally_block,
         } => count_block_lexicals(try_block) + count_block_lexicals(finally_block),
         StatementIr::TryCatchFinally {
             try_block,
+            catch_parameter_environment,
             catch_block,
             finally_block,
             ..
         } => {
             count_block_lexicals(try_block)
-                + 2
+                + usize::from(catch_parameter_environment.is_none()) * 2
                 + count_block_lexicals(catch_block)
                 + count_block_lexicals(finally_block)
         }
@@ -3720,24 +4306,109 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         StatementIr::For { init, body, .. } => {
             init.as_ref()
                 .map(|init| match init {
-                    ForInitIr::Lexical { .. } => 1,
-                    ForInitIr::LexicalBlock(bindings) => bindings.len(),
+                    ForInitIr::Lexical { .. } => 2,
+                    ForInitIr::LexicalBlock(bindings) => 2 * bindings.len(),
                     ForInitIr::Var(_) => 0,
                     ForInitIr::Expression(_) => 0,
                 })
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
         }
-        StatementIr::ForOfArray { body, .. }
-        | StatementIr::ForOfString { body, .. }
-        | StatementIr::ForOfIterator { body, .. }
-        | StatementIr::ForInArray { body, .. }
-        | StatementIr::ForInString { body, .. }
-        | StatementIr::ForInObject { body, .. } => 2 + count_statement_lexicals(body),
-        StatementIr::Switch { cases, .. } => cases
-            .iter()
-            .map(|case| count_block_lexicals(&case.body))
-            .sum(),
+        StatementIr::ForOfArray {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        }
+        | StatementIr::ForOfString {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        }
+        | StatementIr::ForOfIterator {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        }
+        | StatementIr::ForInArray {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        }
+        | StatementIr::ForInString {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        }
+        | StatementIr::ForInObject {
+            mode,
+            name,
+            body,
+            lexical_environment,
+            ..
+        } => {
+            let binding_locals =
+                if *mode == BindingMode::Var {
+                    0
+                } else if let Some(environment) = lexical_environment {
+                    let tdz_locals = 2 * environment
+                        .tdz_binding_names
+                        .iter()
+                        .filter(|name| {
+                            environment
+                                .tdz_environment
+                                .as_ref()
+                                .map(|tdz_environment| {
+                                    !tdz_environment
+                                        .bindings
+                                        .iter()
+                                        .any(|binding| binding.name == ***name)
+                                })
+                                .unwrap_or(true)
+                        })
+                        .count();
+                    let iteration_locals = if environment
+                        .iteration_environment
+                        .as_ref()
+                        .is_some_and(|iteration| {
+                            iteration
+                                .bindings
+                                .iter()
+                                .any(|binding| binding.name == *name)
+                        }) {
+                        0
+                    } else {
+                        2
+                    };
+                    tdz_locals + iteration_locals
+                } else {
+                    2
+                };
+            binding_locals + count_statement_lexicals(body)
+        }
+        StatementIr::Switch {
+            lexical_declarations,
+            cases,
+            ..
+        } => {
+            lexical_declarations
+                .iter()
+                .map(count_statement_lexicals)
+                .sum::<usize>()
+                + cases
+                    .iter()
+                    .map(|case| count_block_lexicals(&case.body))
+                    .sum::<usize>()
+        }
         StatementIr::Labelled { statement, .. } => count_statement_lexicals(statement),
     }
 }
@@ -3745,6 +4416,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
 pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => 0,
@@ -3807,6 +4479,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             test,
             update,
             body,
+            ..
         } => init
             .as_ref()
             .map(count_for_init_temp_locals)
@@ -3834,8 +4507,15 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .max(count_statement_temp_locals(body)),
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
+            let declaration_max = lexical_declarations
+                .iter()
+                .map(count_statement_temp_locals)
+                .max()
+                .unwrap_or(0);
             let case_max = cases
                 .iter()
                 .map(|case| {
@@ -3847,7 +4527,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                 })
                 .max()
                 .unwrap_or(0);
-            4 + count_expr_temp_locals(discriminant).max(case_max)
+            declaration_max.max(4 + count_expr_temp_locals(discriminant).max(case_max))
         }
         StatementIr::Labelled { statement, .. } => count_statement_temp_locals(statement),
     }
@@ -3869,6 +4549,11 @@ pub(crate) fn count_for_init_temp_locals(init: &ForInitIr) -> usize {
             .unwrap_or(0),
         ForInitIr::Expression(expr) => count_expr_temp_locals(expr),
     }
+}
+
+fn call_args_have_spread(args: &[TypedExpr]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
 }
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
@@ -3925,10 +4610,16 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                                 count_expr_temp_locals(expr.as_ref())
                             }
                         },
+                        OptionalChainOperationIr::PrivateProperty { .. } => 8,
                         OptionalChainOperationIr::Call { args, .. } => {
                             let arg_child =
                                 args.iter().map(count_expr_temp_locals).max().unwrap_or(0);
-                            arg_child.max(96 + args.len() * 2)
+                            let call_locals = if call_args_have_spread(args) {
+                                256
+                            } else {
+                                96 + args.len() * 2
+                            };
+                            arg_child.max(call_locals)
                         }
                     })
                 });
@@ -3976,6 +4667,19 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 }
             });
             child.max(14)
+        }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            let child = count_expr_temp_locals(target)
+                .max(count_expr_temp_locals(value))
+                .max(match key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        count_expr_temp_locals(expr)
+                    }
+                });
+            child.max(96)
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
@@ -4276,6 +4980,55 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max(count_expr_temp_locals(rhs))
             .max(96),
         ExprIr::Comma { lhs, rhs } => count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs)),
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            2 + count_expr_temp_locals(value).max(count_expr_temp_locals(body))
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            fn pattern_temp_locals(pattern: &ArrayDestructuringPatternIr) -> usize {
+                pattern
+                    .elements
+                    .iter()
+                    .map(|element| {
+                        let (target, default, rest) = match element {
+                            ArrayDestructuringElementIr::Elision => return 0,
+                            ArrayDestructuringElementIr::Target { target, default } => {
+                                (target, default.as_ref(), false)
+                            }
+                            ArrayDestructuringElementIr::Rest { target } => (target, None, true),
+                        };
+                        let target_locals = match target {
+                            DestructuringTargetIr::AssignmentProperty { target, key } => {
+                                4 + count_expr_temp_locals(target).max(match key {
+                                    DestructuringPropertyKeyIr::Static(_) => 0,
+                                    DestructuringPropertyKeyIr::Computed(key) => {
+                                        count_expr_temp_locals(key)
+                                    }
+                                })
+                            }
+                            DestructuringTargetIr::AssignmentPrivate { target, .. } => {
+                                11 + count_expr_temp_locals(target)
+                            }
+                            DestructuringTargetIr::NestedArray(pattern) => {
+                                32 + pattern_temp_locals(pattern)
+                            }
+                            DestructuringTargetIr::Binding { .. }
+                            | DestructuringTargetIr::AssignmentIdentifier { .. } => 0,
+                        };
+                        target_locals.max(default.map(count_expr_temp_locals).unwrap_or(0))
+                            + usize::from(rest) * 2
+                    })
+                    .max()
+                    .unwrap_or(0)
+            }
+            32 + count_expr_temp_locals(value).max(pattern_temp_locals(pattern))
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            let mut child_locals = count_expr_temp_locals(value);
+            pattern.visit_expressions(&mut |expr| {
+                child_locals = child_locals.max(count_expr_temp_locals(expr));
+            });
+            128 + pattern.properties.len() * 2 + child_locals
+        }
         ExprIr::Conditional {
             condition,
             then_expr,
@@ -4306,21 +5059,30 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .map(count_expr_temp_locals)
             .max()
             .unwrap_or(0)
-            .max(4 + args.len() * 2),
+            .max(if call_args_have_spread(args) {
+                192
+            } else {
+                4 + args.len() * 2
+            }),
         ExprIr::SpreadArgument(value) => count_expr_temp_locals(value).max(2),
         ExprIr::RuntimeThrow { .. } => 4,
         ExprIr::CallIndirect {
             callee,
             args,
             this_arg,
+            ..
         } => count_expr_temp_locals(callee)
             .max(this_arg.as_deref().map(count_expr_temp_locals).unwrap_or(0))
             .max(args.iter().map(count_expr_temp_locals).max().unwrap_or(0))
-            .max(64),
+            .max(if call_args_have_spread(args) { 192 } else { 64 }),
         ExprIr::JsonParseStaticReviver { reviver, .. } => count_expr_temp_locals(reviver).max(64),
-        ExprIr::Construct { callee, args } => count_expr_temp_locals(callee)
+        ExprIr::Construct { callee, args, .. } => count_expr_temp_locals(callee)
             .max(args.iter().map(count_expr_temp_locals).max().unwrap_or(0))
-            .max(10 + args.len() * 2),
+            .max(if call_args_have_spread(args) {
+                192
+            } else {
+                10 + args.len() * 2
+            }),
         ExprIr::CallMethod {
             receiver,
             key,
@@ -4335,7 +5097,11 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             count_expr_temp_locals(receiver)
                 .max(key_child)
                 .max(args.iter().map(count_expr_temp_locals).max().unwrap_or(0))
-                .max(16 + args.len() * 2)
+                .max(if call_args_have_spread(args) {
+                    192
+                } else {
+                    16 + args.len() * 2
+                })
         }
         ExprIr::InstanceOf { lhs, rhs } => count_expr_temp_locals(lhs)
             .max(count_expr_temp_locals(rhs))
@@ -4346,7 +5112,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .map(count_expr_temp_locals)
             .max()
             .unwrap_or(0)
-            .max(12),
+            .max(if call_args_have_spread(args) { 192 } else { 12 }),
         ExprIr::SuperPropertyRead { key } => match key {
             PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 8,
             PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
@@ -4376,6 +5142,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         | ExprIr::BigInt(_)
         | ExprIr::Symbol { .. }
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::FunctionValue(_)
         | ExprIr::This
         | ExprIr::Identifier(_) => 0,
@@ -4399,6 +5166,12 @@ pub(crate) fn collect_hoisted_vars_statement(
     names: &mut BTreeSet<String>,
 ) {
     match statement {
+        StatementIr::AnnexBFunctionCopy {
+            variable_storage_name,
+            ..
+        } => {
+            names.insert(variable_storage_name.clone());
+        }
         StatementIr::Var(declarators) => {
             for declarator in declarators {
                 names.insert(declarator.name.clone());
@@ -4490,6 +5263,21 @@ pub(crate) fn collect_hoisted_vars_statement(
             collect_hoisted_vars_block(try_block, names);
             collect_hoisted_vars_block(catch_block, names);
             collect_hoisted_vars_block(finally_block, names);
+        }
+        StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    pattern,
+                    assignment: false,
+                    ..
+                },
+            ..
+        }) => {
+            pattern.visit_bindings(&mut |mode, name| {
+                if mode == BindingMode::Var {
+                    names.insert(name.to_string());
+                }
+            });
         }
         StatementIr::Empty
         | StatementIr::Lexical { .. }

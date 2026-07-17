@@ -1,0 +1,104 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6576822801322332518,
+  "run_kind": "full",
+  "total": 6,
+  "passed": 3,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 3,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 3
+  },
+  "slowest_tests": [
+    {
+      "path": "language/statements/try/scope-catch-block-lex-close.js",
+      "duration_ms": 5158
+    },
+    {
+      "path": "language/statements/try/scope-catch-block-var-none.js",
+      "duration_ms": 4972
+    },
+    {
+      "path": "language/statements/try/scope-catch-param-lex-close.js",
+      "duration_ms": 4551
+    },
+    {
+      "path": "language/statements/try/scope-catch-param-lex-open.js",
+      "duration_ms": 2344
+    },
+    {
+      "path": "language/statements/try/scope-catch-block-lex-open.js",
+      "duration_ms": 1531
+    },
+    {
+      "path": "language/statements/try/scope-catch-param-var-none.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/statements/try/scope-catch-block-lex-open.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: destructuring binding. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 17279433961018633766,
+      "duration_ms": 1531
+    },
+    {
+      "test_path": "language/statements/try/scope-catch-param-lex-open.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: destructuring binding. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 17279433961018633766,
+      "duration_ms": 2344
+    },
+    {
+      "test_path": "language/statements/try/scope-catch-param-var-none.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "language/statements/try/scope-catch-block-lex-close.js",
+    "language/statements/try/scope-catch-block-lex-open.js",
+    "language/statements/try/scope-catch-block-var-none.js",
+    "language/statements/try/scope-catch-param-lex-close.js",
+    "language/statements/try/scope-catch-param-lex-open.js",
+    "language/statements/try/scope-catch-param-var-none.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

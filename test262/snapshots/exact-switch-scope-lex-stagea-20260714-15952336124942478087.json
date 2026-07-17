@@ -1,0 +1,124 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15952336124942478087,
+  "run_kind": "full",
+  "total": 10,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 3,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "language/statements/switch/scope-lex-let.js",
+      "duration_ms": 6602
+    },
+    {
+      "path": "language/statements/switch/scope-lex-const.js",
+      "duration_ms": 6350
+    },
+    {
+      "path": "language/statements/switch/scope-lex-class.js",
+      "duration_ms": 6024
+    },
+    {
+      "path": "language/statements/switch/scope-lex-open-dflt.js",
+      "duration_ms": 5182
+    },
+    {
+      "path": "language/statements/switch/scope-lex-close-dflt.js",
+      "duration_ms": 4894
+    },
+    {
+      "path": "language/statements/switch/scope-lex-open-case.js",
+      "duration_ms": 4500
+    },
+    {
+      "path": "language/statements/switch/scope-lex-close-case.js",
+      "duration_ms": 4278
+    },
+    {
+      "path": "language/statements/switch/scope-lex-generator.js",
+      "duration_ms": 3288
+    },
+    {
+      "path": "language/statements/switch/scope-lex-async-generator.js",
+      "duration_ms": 3166
+    },
+    {
+      "path": "language/statements/switch/scope-lex-async-function.js",
+      "duration_ms": 3157
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/statements/switch/scope-lex-async-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: function or class declaration. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8730988269038828269,
+      "duration_ms": 3157
+    },
+    {
+      "test_path": "language/statements/switch/scope-lex-async-generator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: function or class declaration. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8730988269038828269,
+      "duration_ms": 3166
+    },
+    {
+      "test_path": "language/statements/switch/scope-lex-generator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: function or class declaration. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8730988269038828269,
+      "duration_ms": 3288
+    }
+  ],
+  "completed_paths": [
+    "language/statements/switch/scope-lex-async-function.js",
+    "language/statements/switch/scope-lex-async-generator.js",
+    "language/statements/switch/scope-lex-class.js",
+    "language/statements/switch/scope-lex-close-case.js",
+    "language/statements/switch/scope-lex-close-dflt.js",
+    "language/statements/switch/scope-lex-const.js",
+    "language/statements/switch/scope-lex-generator.js",
+    "language/statements/switch/scope-lex-let.js",
+    "language/statements/switch/scope-lex-open-case.js",
+    "language/statements/switch/scope-lex-open-dflt.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

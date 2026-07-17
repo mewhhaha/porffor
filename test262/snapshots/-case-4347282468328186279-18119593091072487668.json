@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring-throws.js",
-      "duration_ms": 20722
+      "duration_ms": 6904
     }
   ],
   "timeout_list": [],

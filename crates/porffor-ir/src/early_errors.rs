@@ -41,6 +41,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                         }
                         PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
                     },
+                    OptionalChainOperationIr::PrivateProperty { .. } => {}
                     OptionalChainOperationIr::Call { args, receiver, .. } => {
                         if *receiver == OptionalChainCallReceiverIr::CurrentThis {
                             state.this_before_super = true;
@@ -80,6 +81,18 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(lhs, state);
             expr_contains_this_before_super(rhs, state);
         }
+        ExprIr::MaterializeBinding { value, body, .. } => {
+            expr_contains_this_before_super(value, state);
+            expr_contains_this_before_super(body, state);
+        }
+        ExprIr::ArrayDestructure { value, pattern, .. } => {
+            expr_contains_this_before_super(value, state);
+            pattern.visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
+        }
+        ExprIr::ObjectDestructure { value, pattern } => {
+            expr_contains_this_before_super(value, state);
+            pattern.visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
+        }
         ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
             expr_contains_this_before_super(lhs, state);
             expr_contains_this_before_super(rhs, state);
@@ -97,6 +110,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             callee,
             this_arg,
             args,
+            ..
         } => {
             expr_contains_this_before_super(callee, state);
             if let Some(this_arg) = this_arg {
@@ -109,7 +123,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         ExprIr::JsonParseStaticReviver { reviver, .. } => {
             expr_contains_this_before_super(reviver, state);
         }
-        ExprIr::Construct { callee, args } => {
+        ExprIr::Construct { callee, args, .. } => {
             expr_contains_this_before_super(callee, state);
             for arg in args {
                 expr_contains_this_before_super(arg, state);
@@ -134,6 +148,18 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 }
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
+        }
+        ExprIr::PropertyCompoundAssign {
+            target, key, value, ..
+        } => {
+            expr_contains_this_before_super(target, state);
+            match key {
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    expr_contains_this_before_super(expr, state);
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+            }
+            expr_contains_this_before_super(value, state);
         }
         ExprIr::DeleteProperty { target, key, .. } => {
             expr_contains_this_before_super(target, state);
@@ -187,7 +213,10 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             if let Some(heritage) = &class.heritage {
                 expr_contains_this_before_super(heritage, state);
             }
-            for method in &class.public_methods {
+            for definition in &class.element_plan.definitions {
+                let ClassElementDefinitionIr::PublicMethod(method) = definition else {
+                    continue;
+                };
                 match &method.key {
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_contains_this_before_super(expr, state);
@@ -198,6 +227,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         }
         ExprIr::FunctionValue(_)
         | ExprIr::String(_)
+        | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::Number(_)
         | ExprIr::BigInt(_)
@@ -236,6 +266,7 @@ fn statement_contains_this_before_super(
     }
     match statement {
         StatementIr::Empty
+        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => {}
@@ -295,6 +326,7 @@ fn statement_contains_this_before_super(
             test,
             update,
             body,
+            ..
         } => {
             if let Some(init) = init {
                 match init {
@@ -346,9 +378,14 @@ fn statement_contains_this_before_super(
         }
         StatementIr::Switch {
             discriminant,
+            lexical_declarations,
             cases,
+            ..
         } => {
             expr_contains_this_before_super(discriminant, state);
+            for declaration in lexical_declarations {
+                statement_contains_this_before_super(declaration, state);
+            }
             for case in cases {
                 if let Some(condition) = &case.condition {
                     expr_contains_this_before_super(condition, state);

@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-tostring-flags-throws.js",
-      "duration_ms": 26736
+      "duration_ms": 7748
     }
   ],
   "timeout_list": [],

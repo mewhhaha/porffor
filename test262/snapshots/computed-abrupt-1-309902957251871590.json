@@ -1,0 +1,86 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 309902957251871590,
+  "run_kind": "full",
+  "total": 6,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 5
+  },
+  "slowest_tests": [
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-toprimitive-returns-nonobject.js",
+      "duration_ms": 24854
+    },
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-toprimitive-returns-noncallable.js",
+      "duration_ms": 24327
+    },
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-tostring-err.js",
+      "duration_ms": 23806
+    },
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-valueof-err.js",
+      "duration_ms": 23285
+    },
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-referenceerror.js",
+      "duration_ms": 17557
+    },
+    {
+      "path": "language/statements/class/elements/evaluation-error/computed-name-toprimitive-err.js",
+      "duration_ms": 16050
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/statements/class/elements/evaluation-error/computed-name-referenceerror.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@258336)",
+      "detail_hash": 1614203698246734692,
+      "duration_ms": 17557
+    }
+  ],
+  "completed_paths": [
+    "language/statements/class/elements/evaluation-error/computed-name-referenceerror.js",
+    "language/statements/class/elements/evaluation-error/computed-name-toprimitive-err.js",
+    "language/statements/class/elements/evaluation-error/computed-name-toprimitive-returns-noncallable.js",
+    "language/statements/class/elements/evaluation-error/computed-name-toprimitive-returns-nonobject.js",
+    "language/statements/class/elements/evaluation-error/computed-name-tostring-err.js",
+    "language/statements/class/elements/evaluation-error/computed-name-valueof-err.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

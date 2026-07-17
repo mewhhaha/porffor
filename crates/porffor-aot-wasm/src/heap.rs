@@ -227,9 +227,11 @@ impl HeapLayoutSlot {
 pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 160;
+pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 208;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
+// Array offsets intentionally retain padding at boxed-object metadata positions:
+// some generic object paths can still receive an Array pointer after tag erasure.
 pub(crate) const HEAP_ARRAY_RECORD_SIZE: u64 = 272;
 #[allow(dead_code)]
 pub(crate) const HEAP_STRING_RECORD_SIZE: u64 = 32;
@@ -249,22 +251,23 @@ pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 48;
 // 0/8/16/24) and are also inspected by generic object paths (e.g.
 // `Object.prototype.toString`) that read the boxed-object cluster at
 // 32/40/48 and the internal brand / prototype-tag / proxy fields up to 72.
-// The arguments-specific fields therefore live past that cluster: while the
-// mapped count was always zero a collision with
-// `HEAP_OBJECT_BOXED_KIND_OFFSET` (32) was invisible, but a real mapped
-// count there makes every mapped arguments object classify as a boxed
-// primitive.
+// The arguments-specific fields therefore live past that cluster so mapped
+// arguments objects are not misclassified as boxed primitives.
 pub(crate) const HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
-pub(crate) const HEAP_ARGUMENTS_MAPPED_COUNT_OFFSET: u64 = 80;
+pub(crate) const HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET: u64 = 80;
 pub(crate) const HEAP_ARGUMENTS_ENV_HANDLE_OFFSET: u64 = 88;
-// `arguments.length` is ordinarily backed by the array-header length, but it
-// is configurable.  Keep an accessor override out-of-line from that header so
-// generic methods can perform its observable [[Get]] rather than treating the
-// internal count as the property value unconditionally.
+// The array-header length tracks the indexed backing extent independently of
+// the observable, configurable `arguments.length` value. Keep its descriptor
+// and accessor override out of line from that header as well.
 pub(crate) const HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET: u64 = 96;
 pub(crate) const HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET: u64 = 104;
 pub(crate) const HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET: u64 = 112;
-pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 120;
+pub(crate) const HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET: u64 = 120;
+pub(crate) const HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET: u64 = 128;
+pub(crate) const HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET: u64 = 136;
+pub(crate) const HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET: u64 = 144;
+pub(crate) const HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET: u64 = 152;
+pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 160;
 pub(crate) const HEAP_OBJECT_BOXED_KIND_OFFSET: u64 = 32;
 pub(crate) const HEAP_OBJECT_BOXED_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
@@ -288,6 +291,15 @@ pub(crate) const HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET: u64 = 136;
 pub(crate) const HEAP_REGEXP_PROGRAM_PTR_OFFSET: u64 = 144;
 /// Number of fixed-width instructions in the compiled RegExp program.
 pub(crate) const HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET: u64 = 152;
+/// Number of numbered captures in the immutable AOT-compiled RegExp program.
+pub(crate) const HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET: u64 = 160;
+/// Number of `Split` instructions in the immutable AOT-compiled program.
+pub(crate) const HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET: u64 = 168;
+/// Number of `Split` instructions that belong to a control-flow cycle.
+pub(crate) const HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET: u64 = 176;
+/// Absolute linear-memory address of immutable named-capture metadata for the
+/// compiled RegExp program. Zero means that no named-group table is attached.
+pub(crate) const HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET: u64 = 184;
 pub(crate) const HEAP_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_CAP_OFFSET: u64 = 16;
@@ -326,15 +338,95 @@ pub(crate) const HEAP_FUNCTION_DEFINING_REALM_OFFSET: u64 = 272;
 pub(crate) const HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET: u64 = 280;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 288;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 296;
-// Class function objects own this immutable context through
-// `HEAP_FUNCTION_ENV_HANDLE_OFFSET`.  It separates lexical scope from the
-// member's [[HomeObject]]; in particular, `super` must not derive its base
-// from the receiver supplied by an eventual detached call.
+// Function objects that need execution context state own this immutable
+// context through `HEAP_FUNCTION_ENV_HANDLE_OFFSET`. It separates lexical
+// scope from a member's [[HomeObject]]; in particular, `super` must not derive
+// its base from the receiver supplied by an eventual detached call.
 pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET: u64 = 0;
 pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET: u64 = 8;
 pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET: u64 = 24;
-pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_SIZE: u64 = 32;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET: u64 = 32;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET: u64 = 40;
+pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_SIZE: u64 = 48;
+pub(crate) const HEAP_PRIVATE_ENV_PARENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET: u64 = 8;
+pub(crate) const HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET: u64 = 16;
+pub(crate) const HEAP_PRIVATE_ENV_SLOT_SIZE: u64 = 8;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET: u64 = 0;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET: u64 = 8;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET: u64 = 16;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET: u64 = 24;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET: u64 = 32;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 40;
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_SIZE: u64 = 48;
+pub(crate) const PRIVATE_ELEMENT_KIND_BRAND: u64 = 0;
+pub(crate) const PRIVATE_ELEMENT_KIND_FIELD: u64 = 1;
+pub(crate) const PRIVATE_ELEMENT_KIND_SETTER: u64 = 2;
+pub(crate) const PRIVATE_ELEMENT_KIND_METHOD: u64 = 3;
+pub(crate) const PRIVATE_ELEMENT_KIND_GETTER: u64 = 4;
+#[allow(dead_code)]
+pub(crate) const HEAP_PRIVATE_ENV_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "private-environment",
+        name: "parent",
+        offset: HEAP_PRIVATE_ENV_PARENT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "private-environment",
+        name: "class_scope",
+        offset: HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+#[allow(dead_code)]
+pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "next",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "receiver",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "token",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "kind",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "value_tag",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "private-element-entry",
+        name: "value_payload",
+        offset: HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
 pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "class-function-context",
@@ -364,6 +456,20 @@ pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: false,
     },
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "field_keys",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "class-function-context",
+        name: "private_environment",
+        offset: HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 pub(crate) const HEAP_REALM_ID_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_AGENT_ID_OFFSET: u64 = 8;
@@ -373,6 +479,7 @@ pub(crate) const HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET: u64 = 32;
 pub(crate) const HEAP_REALM_INTRINSICS_OFFSET: u64 = 40;
 pub(crate) const HEAP_REALM_HOST_HOOKS_OFFSET: u64 = 48;
 pub(crate) const HEAP_REALM_MODULE_REGISTRY_OFFSET: u64 = 56;
+pub(crate) const HEAP_REALM_PRIVATE_ELEMENTS_OFFSET: u64 = 64;
 pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET: u64 = 8;
 pub(crate) const HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET: u64 = 16;
@@ -393,6 +500,12 @@ pub(crate) const HEAP_REALM_INTRINSICS_BIGINT64_ARRAY_PROTOTYPE_OFFSET: u64 = 12
 pub(crate) const HEAP_REALM_INTRINSICS_BIGUINT64_ARRAY_PROTOTYPE_OFFSET: u64 = 136;
 pub(crate) const HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET: u64 = 144;
 pub(crate) const HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET: u64 = 152;
+pub(crate) const HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET: u64 = 160;
+pub(crate) const HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET: u64 = 168;
+pub(crate) const HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET: u64 = 176;
+pub(crate) const HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET: u64 = 184;
+pub(crate) const HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET: u64 = 192;
+pub(crate) const HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET: u64 = 200;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -414,12 +527,7 @@ pub(crate) const HEAP_ARRAY_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET: u64 = 16;
 pub(crate) const HEAP_ARRAY_SETTER_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_ARRAY_SETTER_PAYLOAD_OFFSET: u64 = 32;
-pub(crate) const HEAP_ARRAY_CONSTRUCTOR_TAG_OFFSET: u64 = 32;
-pub(crate) const HEAP_ARRAY_CONSTRUCTOR_PAYLOAD_OFFSET: u64 = 40;
 pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
-pub(crate) const HEAP_ARRAY_CONSTRUCTOR_DESCRIPTOR_KIND_OFFSET: u64 = 56;
-pub(crate) const HEAP_ARRAY_CONSTRUCTOR_GETTER_TAG_OFFSET: u64 = 64;
-pub(crate) const HEAP_ARRAY_CONSTRUCTOR_GETTER_PAYLOAD_OFFSET: u64 = 72;
 pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET: u64 = 80;
 pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET: u64 = 88;
 pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET: u64 = 96;
@@ -491,12 +599,14 @@ pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 8;
 pub(crate) const ENV_SLOT_SIZE: u64 = 16;
 pub(crate) const ENV_SLOT_TAG_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const ENV_SLOT_UNINITIALIZED_TAG: i64 = -1;
 pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = 1;
 pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = 2;
 pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = 4;
 pub(crate) const OBJECT_DESCRIPTOR_ENUMERABLE: u64 = 8;
 pub(crate) const OBJECT_DESCRIPTOR_DATA: u64 = 0;
 pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = 16;
+pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = 32;
 pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 =
     OBJECT_DESCRIPTOR_CONFIGURABLE | OBJECT_DESCRIPTOR_WRITABLE | OBJECT_DESCRIPTOR_ENUMERABLE;
 pub(crate) const BOXED_PRIMITIVE_KIND_NONE: u64 = 0;
@@ -511,6 +621,12 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ERROR: u64 = 1;
 pub(crate) const OBJECT_INTERNAL_BRAND_RAW_JSON: u64 = 2;
 pub(crate) const OBJECT_INTERNAL_BRAND_TYPED_ARRAY: u64 = 3;
 pub(crate) const OBJECT_INTERNAL_BRAND_REGEXP: u64 = 4;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_ZIP_HELPER: u64 = 5;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_MAP_HELPER: u64 = 6;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_FILTER_HELPER: u64 = 7;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_FLAT_MAP_HELPER: u64 = 8;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_TAKE_HELPER: u64 = 9;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_DROP_HELPER: u64 = 10;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 pub(crate) const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -662,6 +778,34 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         record: "regexp-object-header",
         name: "program_instruction_count",
         offset: HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "program_capture_count",
+        offset: HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "program_split_count",
+        offset: HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "program_repeatable_split_count",
+        offset: HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "regexp-object-header",
+        name: "named_group_table_ptr",
+        offset: HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
         width: 8,
         pointer: false,
     },
@@ -995,6 +1139,13 @@ pub(crate) const HEAP_REALM_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-record",
+        name: "private_elements",
+        offset: HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -1139,6 +1290,48 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%IteratorHelperPrototype%",
+        offset: HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Iterator.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%WrapForValidIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%ThrowTypeError%",
+        offset: HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%RegExp.prototype%",
+        offset: HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%StringIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -1226,45 +1419,10 @@ pub(crate) const HEAP_ARRAY_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
     },
     HeapLayoutSlot {
         record: "array-object",
-        name: "constructor_tag",
-        offset: HEAP_ARRAY_CONSTRUCTOR_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "constructor_payload",
-        offset: HEAP_ARRAY_CONSTRUCTOR_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
         name: "is_concat_spreadable",
         offset: HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET,
         width: 8,
         pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "constructor_descriptor_kind",
-        offset: HEAP_ARRAY_CONSTRUCTOR_DESCRIPTOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "constructor_getter_tag",
-        offset: HEAP_ARRAY_CONSTRUCTOR_GETTER_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "constructor_getter_payload",
-        offset: HEAP_ARRAY_CONSTRUCTOR_GETTER_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
     },
     HeapLayoutSlot {
         record: "array-object",
@@ -1990,6 +2148,22 @@ pub(crate) const HEAP_ARRAY_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_STRING_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
+    HeapNamedSlot {
+        record: "string-iterator-object",
+        key: "$StringIterator.string",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "string-iterator-object",
+        key: "$StringIterator.index",
+        strong_reference: false,
+        scans_target: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
@@ -2160,13 +2334,67 @@ pub(crate) const HEAP_ITERATOR_HELPER_NAMED_SLOTS: &[HeapNamedSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipIterators",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipNextMethods",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipOpen",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipPadding",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipMode",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipDone",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipExecuting",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
+        key: "$IteratorZipStarted",
+        strong_reference: false,
+        scans_target: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_NAMED_SLOT_LAYOUTS: &[&[HeapNamedSlot]] = &[
     HEAP_ARRAY_BUFFER_NAMED_SLOTS,
     HEAP_DATA_VIEW_NAMED_SLOTS,
     HEAP_TYPED_ARRAY_NAMED_SLOTS,
     HEAP_ARRAY_ITERATOR_NAMED_SLOTS,
+    HEAP_STRING_ITERATOR_NAMED_SLOTS,
     HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS,
     HEAP_ITERATOR_HELPER_NAMED_SLOTS,
+    HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS,
 ];
 
 #[allow(dead_code)]
@@ -2781,8 +3009,8 @@ mod tests {
         assert_eq!(HEAP_STRING_RECORD_SIZE, 32);
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
-        assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 160);
+        assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 208);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 64);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 64);
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);
@@ -2796,7 +3024,12 @@ mod tests {
             HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT,
             HEAP_CLASS_FUNCTION_CONTEXT_SIZE,
         );
+        assert_layout(HEAP_PRIVATE_ENV_LAYOUT, HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET);
         assert_layout(HEAP_BOUND_FUNCTION_LAYOUT, HEAP_BOUND_FUNCTION_RECORD_SIZE);
+        assert_layout(
+            HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT,
+            HEAP_PRIVATE_ELEMENT_ENTRY_SIZE,
+        );
         assert_layout(HEAP_ARRAY_OBJECT_LAYOUT, HEAP_ARRAY_RECORD_SIZE);
         assert_layout(HEAP_OBJECT_ENTRY_LAYOUT, HEAP_OBJECT_ENTRY_SIZE);
         assert_layout(HEAP_ARRAY_ENTRY_LAYOUT, HEAP_ARRAY_ENTRY_SIZE);
@@ -2826,7 +3059,9 @@ mod tests {
             .iter()
             .chain(HEAP_FUNCTION_OBJECT_LAYOUT.iter())
             .chain(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter())
+            .chain(HEAP_PRIVATE_ENV_LAYOUT.iter())
             .chain(HEAP_BOUND_FUNCTION_LAYOUT.iter())
+            .chain(HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT.iter())
             .chain(HEAP_ARRAY_OBJECT_LAYOUT.iter())
             .chain(HEAP_OBJECT_ENTRY_LAYOUT.iter())
             .chain(HEAP_ARRAY_ENTRY_LAYOUT.iter())
@@ -2841,7 +3076,7 @@ mod tests {
             .chain(HEAP_ENVIRONMENT_LAYOUT.iter())
             .filter(|slot| slot.pointer)
             .count();
-        assert!(pointer_slots >= 60, "expected GC-visible pointer slots");
+        assert!(pointer_slots >= 64, "expected GC-visible pointer slots");
         assert!(HEAP_OBJECT_HEADER_LAYOUT.iter().any(|slot| {
             slot.name == "prototype_payload" && slot.offset == HEAP_PROTOTYPE_OFFSET && slot.pointer
         }));
@@ -2881,6 +3116,21 @@ mod tests {
         assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
             slot.name == "%Object.prototype%"
                 && slot.offset == HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%IteratorHelperPrototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Iterator.prototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%WrapForValidIteratorPrototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET
                 && slot.pointer
         }));
         assert!(HEAP_BIGINT_LAYOUT.iter().any(|slot| {
@@ -2929,6 +3179,30 @@ mod tests {
         assert!(HEAP_ITERATOR_HELPER_NAMED_SLOTS.iter().any(|slot| {
             slot.key == "$IteratorFlatMapInnerNext" && slot.strong_reference && slot.scans_target
         }));
+    }
+
+    #[test]
+    fn iterator_zip_state_slots_have_expected_gc_edges() {
+        for key in [
+            "$IteratorZipIterators",
+            "$IteratorZipNextMethods",
+            "$IteratorZipOpen",
+            "$IteratorZipPadding",
+        ] {
+            assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
+                .iter()
+                .any(|slot| { slot.key == key && slot.strong_reference && slot.scans_target }));
+        }
+        for key in [
+            "$IteratorZipDone",
+            "$IteratorZipExecuting",
+            "$IteratorZipStarted",
+            "$IteratorZipMode",
+        ] {
+            assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
+                .iter()
+                .any(|slot| { slot.key == key && !slot.strong_reference && !slot.scans_target }));
+        }
     }
 
     #[test]

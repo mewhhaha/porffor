@@ -628,10 +628,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_object_read(
+            target_payload_local,
+            target_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_string_local,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
@@ -1010,7 +1016,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_ordinary_set_result(
+        self.emit_ordinary_set_result_via_helper(
             proxy_target_payload_local,
             proxy_target_tag_local,
             receiver_payload_local,
@@ -1036,7 +1042,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_ordinary_set_result(
+        self.emit_ordinary_set_result_via_helper(
             target_payload_local,
             target_tag_local,
             receiver_payload_local,

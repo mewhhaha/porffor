@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-constructor.js",
-      "duration_ms": 54419
+      "duration_ms": 14981
     }
   ],
   "timeout_list": [],

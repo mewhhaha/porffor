@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-regexp-get-global-throws.js",
-      "duration_ms": 20958
+      "duration_ms": 8372
     }
   ],
   "timeout_list": [],

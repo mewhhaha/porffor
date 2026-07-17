@@ -225,6 +225,17 @@ Object.defineProperty(frozenAccessor, "x", {
 frozenAccessor.x = 6;
 let frozenAccessorDesc = Object.getOwnPropertyDescriptor(frozenAccessor, "x");
 
+let capturedSetterValue = 0;
+const capturedSetterTarget = {
+  set value(next) {
+    capturedSetterValue = next;
+  }
+};
+function invokeCapturedSetter() {
+  capturedSetterTarget.value = 41;
+}
+invokeCapturedSetter();
+
 let ok = true;
 if (desc.value !== 101) ok = false;
 if (desc.writable !== true) ok = false;
@@ -300,4 +311,5 @@ if (frozenAccessorDesc.get !== frozenGetter) ok = false;
 if (frozenAccessorDesc.set !== frozenSetter) ok = false;
 if (frozenAccessorDesc.enumerable !== true) ok = false;
 if (frozenAccessorDesc.configurable !== false) ok = false;
+if (capturedSetterValue !== 41) ok = false;
 ok;

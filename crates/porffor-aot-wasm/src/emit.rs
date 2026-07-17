@@ -25,6 +25,12 @@ pub(crate) enum ControlFrameKind {
     Loop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ControlTarget {
+    pub(crate) frame: usize,
+    pub(crate) environment_depth: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct IteratorCloseOnThrowLocals {
     pub(crate) iterator_payload_local: u32,
@@ -42,14 +48,14 @@ pub(crate) struct IteratorCloseOnThrowLocals {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopTargets {
-    pub(crate) continue_frame: usize,
+    pub(crate) continue_frame: ControlTarget,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct LabelTargets {
     pub(crate) name: String,
-    pub(crate) break_frame: usize,
-    pub(crate) continue_frame: Option<usize>,
+    pub(crate) break_frame: ControlTarget,
+    pub(crate) continue_frame: Option<ControlTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +69,12 @@ pub(crate) enum BindingStorage {
 pub(crate) enum ReturnAbi {
     MainExport,
     MultiValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OrdinarySetDataOnReceiverEmission {
+    Inline,
+    Outlined,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +121,8 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) temp_local_count: u32,
     pub(crate) current_env_local: u32,
     pub(crate) class_function_context_local: u32,
+    pub(crate) active_private_environment_locals: Vec<u32>,
+    pub(crate) named_function_context_local: u32,
     pub(crate) result_local: u32,
     pub(crate) result_tag_local: u32,
     pub(crate) completion_local: u32,
@@ -116,14 +130,15 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) scratch_local: u32,
     pub(crate) temp_local_base: u32,
     pub(crate) temp_stack_depth: u32,
+    pub(crate) environment_depth: u32,
     pub(crate) this_payload_local: Option<u32>,
     pub(crate) this_tag_local: Option<u32>,
     pub(crate) control_stack: Vec<ControlFrameKind>,
-    pub(crate) breakable_stack: Vec<usize>,
+    pub(crate) breakable_stack: Vec<ControlTarget>,
     pub(crate) loop_stack: Vec<LoopTargets>,
     pub(crate) label_stack: Vec<LabelTargets>,
-    pub(crate) throw_handler_stack: Vec<usize>,
-    pub(crate) finally_stack: Vec<usize>,
+    pub(crate) throw_handler_stack: Vec<ControlTarget>,
+    pub(crate) finally_stack: Vec<ControlTarget>,
     pub(crate) stub_standard_builtin_body: bool,
     pub(crate) runtime_bootstrap_plan: RuntimeBootstrapPlan,
     pub(crate) heap_alloc_function_index: Option<u32>,
@@ -146,10 +161,13 @@ pub(crate) struct FunctionBuilder<'a> {
     /// defines hundreds of data properties, so outlining this keeps the
     /// bootstrap-style functions well under Cranelift's per-function limit.
     pub(crate) outline_object_define_data: bool,
+    /// When false, `emit_function_handle_call_with_argv_inner` inlines the
+    /// plain function-call dispatcher instead of calling the shared helper.
+    /// Set false only while compiling that helper itself.
+    pub(crate) outline_function_call: bool,
     /// When false, `emit_function_or_proxy_call_with_argv_inner` inlines the
     /// proxy-aware call-dispatch state machine instead of calling the shared
-    /// helper. Only the proxy-enabled dispatch is outlined; the plain call path
-    /// stays inline. Set false only while compiling that helper itself.
+    /// helper. Set false only while compiling that helper itself.
     pub(crate) outline_proxy_call: bool,
     /// When false, `emit_function_or_proxy_construct_with_argv` inlines the
     /// proxy-aware construct-dispatch state machine instead of calling the
@@ -207,6 +225,12 @@ pub(crate) struct FunctionBuilder<'a> {
     /// module, and dynamic reads are the single most common operation, so
     /// outlining it is the dominant code-size win for realm modules.
     pub(crate) outline_object_read_proxy: bool,
+    pub(crate) outline_array_write: bool,
+    /// Controls whether the shared object-write helper emits receiver-side
+    /// ordinary data writes as calls to their dedicated runtime helper. Other
+    /// builders keep these writes inline so only the repeated copies inside the
+    /// already-outlined object-write state machine are extracted.
+    pub(crate) ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission,
     /// When `Some(local)`, `emit_object_write` is being emitted as the shared
     /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
     /// behavior from the runtime value of `local` (a helper parameter carrying
@@ -305,7 +329,8 @@ fn emit_script_with_forced_builtins(
         imported_function_count,
     ));
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
-    let string_pool = StringPool::collect(script, function_metas.metas());
+    let string_pool =
+        StringPool::collect(script, function_metas.metas(), &compiled_standard_builtins);
     let uses_function_table = true;
     let callable_function_count = script.functions.len()
         + emitted_standard_builtins.len()
@@ -652,6 +677,125 @@ fn emit_script_with_forced_builtins(
             builder.compile_regexp_matcher_helper()
         })
         .transpose()?;
+    let function_call_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_function_call_helper()
+        })
+        .transpose()?;
+    let dynamic_property_read_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_dynamic_property_read_helper()
+        })
+        .transpose()?;
+    let ordinary_set_data_on_receiver_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_ordinary_set_data_on_receiver_helper()
+        })
+        .transpose()?;
+    let ordinary_set_data_on_receiver_with_fallback_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_ordinary_set_data_on_receiver_with_fallback_helper()
+        })
+        .transpose()?;
+    let array_write_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_array_write_helper()
+        })
+        .transpose()?;
+    let ordinary_set_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_ordinary_set_helper(true)
+        })
+        .transpose()?;
+    let ordinary_set_without_receiver_fallback_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_ordinary_set_helper(false)
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -763,6 +907,20 @@ fn emit_script_with_forced_builtins(
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // sequence-only RegExp matcher helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
+        // plain function-call dispatcher helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // runtime-kind dynamic property-read helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // receiver-side OrdinarySet data-property helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // receiver-side OrdinarySet helper with generic write fallback.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // dense/sparse Array element-write helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // OrdinarySet helper with an explicit receiver.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // OrdinarySet helper without generic receiver write fallback.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
             functions.function(JS_FUNCTION_TYPE_INDEX);
@@ -854,7 +1012,7 @@ fn emit_script_with_forced_builtins(
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..16 {
+        for _ in 0..18 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -864,6 +1022,16 @@ fn emit_script_with_forced_builtins(
                 &ConstExpr::i64_const(0),
             );
         }
+    }
+    for _ in &string_pool.template_objects {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(0),
+        );
     }
 
     let mut code = CodeSection::new();
@@ -960,6 +1128,41 @@ fn emit_script_with_forced_builtins(
                 .as_ref()
                 .expect("regexp matcher helper must exist when heap is enabled"),
         );
+        code.function(
+            function_call_helper_function
+                .as_ref()
+                .expect("function-call helper must exist when heap is enabled"),
+        );
+        code.function(
+            dynamic_property_read_helper_function
+                .as_ref()
+                .expect("dynamic property-read helper must exist when heap is enabled"),
+        );
+        code.function(
+            ordinary_set_data_on_receiver_helper_function
+                .as_ref()
+                .expect("ordinary receiver-set helper must exist when heap is enabled"),
+        );
+        code.function(
+            ordinary_set_data_on_receiver_with_fallback_helper_function
+                .as_ref()
+                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
+        );
+        code.function(
+            array_write_helper_function
+                .as_ref()
+                .expect("array-write helper must exist when heap is enabled"),
+        );
+        code.function(
+            ordinary_set_helper_function
+                .as_ref()
+                .expect("ordinary-set helper must exist when heap is enabled"),
+        );
+        code.function(
+            ordinary_set_without_receiver_fallback_helper_function
+                .as_ref()
+                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
+        );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
         {
@@ -1000,7 +1203,7 @@ fn emit_script_with_forced_builtins(
         format!(
             "runtime helper functions: {}",
             if uses_heap {
-                20 + usize::from(uses_json_stringify)
+                24 + usize::from(uses_json_stringify)
             } else {
                 0
             }
@@ -1148,6 +1351,16 @@ fn emit_script_with_forced_builtins(
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) fn template_object_global_index(&self, site_id: u64) -> u32 {
+        let site_offset = self
+            .strings
+            .template_objects
+            .keys()
+            .position(|candidate| *candidate == site_id)
+            .expect("template object site must be collected") as u32;
+        GLOBAL_INDEX_REGISTRY.len() as u32 + site_offset
+    }
+
     fn new_main(
         script: &'a ScriptIr,
         strings: &'a StringPool,
@@ -1216,8 +1429,7 @@ impl<'a> FunctionBuilder<'a> {
             function.flavor,
             function.lexical_derived_activation.as_ref(),
             function.strict,
-            (!function.is_expression || function.is_named_expression)
-                .then(|| function.name.clone()),
+            function.is_named_expression.then(|| function.name.clone()),
             global_bindings
                 .iter()
                 .map(|binding| (binding.name.clone(), binding.kind))
@@ -1401,7 +1613,8 @@ impl<'a> FunctionBuilder<'a> {
         let temp_local_count = count_block_temp_locals(body).max(2048) as u32;
         let current_env_local = param_local_count + total_binding_local_count;
         let class_function_context_local = current_env_local + 5;
-        let scratch_local = class_function_context_local + 1;
+        let named_function_context_local = class_function_context_local + 1;
+        let scratch_local = named_function_context_local + 1;
         Self {
             body,
             params,
@@ -1425,6 +1638,8 @@ impl<'a> FunctionBuilder<'a> {
             temp_local_count,
             current_env_local,
             class_function_context_local,
+            active_private_environment_locals: Vec::new(),
+            named_function_context_local,
             result_local: current_env_local + 1,
             result_tag_local: current_env_local + 2,
             completion_local: current_env_local + 3,
@@ -1432,6 +1647,7 @@ impl<'a> FunctionBuilder<'a> {
             scratch_local,
             temp_local_base: scratch_local + 1,
             temp_stack_depth: 0,
+            environment_depth: 0,
             this_payload_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(1),
             this_tag_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(2),
             control_stack: Vec::new(),
@@ -1451,6 +1667,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_object_read: true,
             outline_object_write: true,
             outline_object_define_data: true,
+            outline_function_call: true,
             outline_proxy_call: true,
             outline_proxy_construct: true,
             outline_string_equality: true,
@@ -1461,6 +1678,8 @@ impl<'a> FunctionBuilder<'a> {
             outline_object_get_prototype_of: true,
             outline_object_is_extensible: true,
             outline_object_read_proxy: true,
+            outline_array_write: true,
+            ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
             object_write_strict_flag_local: None,
         }
     }
@@ -1547,16 +1766,59 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 19)
     }
 
+    /// Wasm function index of the shared plain function-call dispatcher.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn function_call_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 20)
+    }
+
+    /// Wasm function index of the runtime-kind dynamic property-read helper.
+    /// Unconditional (emitted whenever heap is used) so its fixed offset never
+    /// shifts.
+    pub(crate) fn dynamic_property_read_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 21)
+    }
+
+    /// Wasm function index of the receiver-side OrdinarySet data-property
+    /// helper. Unconditional (emitted whenever heap is used) so its fixed
+    /// offset never shifts.
+    pub(crate) fn ordinary_set_data_on_receiver_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 22)
+    }
+
+    pub(crate) fn ordinary_set_data_on_receiver_with_fallback_helper_function_index(
+        &self,
+    ) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 23)
+    }
+
+    /// Wasm function index of the shared dense/sparse Array element-write helper.
+    pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 24)
+    }
+
+    /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
+    pub(crate) fn ordinary_set_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 25)
+    }
+
+    pub(crate) fn ordinary_set_without_receiver_fallback_helper_function_index(
+        &self,
+    ) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 26)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 20)
+        self.heap_alloc_function_index.map(|base| base + 27)
     }
 
     pub(crate) fn local_count(&self) -> usize {
-        self.total_binding_local_count as usize + 7 + self.temp_local_count as usize
+        self.total_binding_local_count as usize + 8 + self.temp_local_count as usize
     }
 
     pub(crate) const fn is_main(&self) -> bool {
@@ -1628,12 +1890,40 @@ impl<'a> FunctionBuilder<'a> {
         self.init_current_env(&mut function)?;
         self.init_runtime_roots(&mut function)?;
         self.init_script_global_object(&mut function)?;
+        self.init_template_objects(&mut function)?;
         self.bind_captured_bindings(&mut function);
         self.bind_self_function(&mut function)?;
+        if let Some(constructor_meta) = self
+            .current_function_meta()
+            .filter(|meta| {
+                meta.class_kind == ClassFunctionKind::Constructor && !meta.is_derived_constructor
+            })
+            .cloned()
+        {
+            let this_payload_local = self
+                .this_payload_local
+                .expect("base class constructor must receive a this payload");
+            let this_tag_local = self
+                .this_tag_local
+                .expect("base class constructor must receive a this tag");
+            self.emit_initialize_instance_elements(
+                &constructor_meta,
+                self.class_function_context_local,
+                this_payload_local,
+                this_tag_local,
+                &mut function,
+            )?;
+        }
         self.bind_parameters(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         for name in self.hoisted_vars.clone() {
+            let reuses_parameter_binding = self.params.iter().any(|param| param.name == name);
+            let reuses_arguments_binding =
+                name == LEXICAL_ARGUMENTS_NAME && self.function_flavor == FunctionFlavor::Ordinary;
+            if reuses_parameter_binding || reuses_arguments_binding {
+                continue;
+            }
             let storage = if let Some(slot) = self.owned_env_slot(&name) {
                 BindingStorage::EnvSlot { slot, hops: 0 }
             } else {
@@ -1679,6 +1969,12 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.normalize_base_class_constructor_result(&mut function);
         self.normalize_derived_constructor_result(&mut function)?;
+        assert!(
+            self.next_binding_local <= self.current_env_local,
+            "binding local planner boundary {} exceeded by next local {}",
+            self.current_env_local,
+            self.next_binding_local
+        );
         self.pop_scope();
 
         match self.return_abi {
@@ -1703,6 +1999,136 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::End);
         Ok(function)
+    }
+
+    fn init_template_objects(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        if !self.is_main() {
+            return Ok(());
+        }
+
+        let templates = self
+            .strings
+            .template_objects
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for template in templates {
+            let raw_elements = template
+                .raw
+                .iter()
+                .cloned()
+                .map(|raw| {
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(raw))
+                })
+                .collect::<Vec<_>>();
+            let cooked_elements = template
+                .cooked
+                .iter()
+                .map(|cooked| match cooked {
+                    Some(cooked) => TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::String(cooked.clone()),
+                    ),
+                    None => TypedExpr::undefined(),
+                })
+                .collect::<Vec<_>>();
+
+            let raw_local = self.reserve_temp_local();
+            self.compile_array_literal_payload(&raw_elements, function)?;
+            function.instruction(&Instruction::LocalSet(raw_local));
+            self.freeze_template_array(raw_local, raw_elements.len(), function);
+
+            let cooked_local = self.reserve_temp_local();
+            self.compile_array_literal_payload(&cooked_elements, function)?;
+            function.instruction(&Instruction::LocalSet(cooked_local));
+
+            let key_local = self.reserve_temp_local();
+            let raw_tag_local = self.reserve_temp_local();
+            let false_local = self.reserve_temp_local();
+            function.instruction(&Instruction::I64Const(self.strings.payload("raw")));
+            function.instruction(&Instruction::LocalSet(key_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+            function.instruction(&Instruction::LocalSet(raw_tag_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(false_local));
+            self.emit_array_define_named_data_descriptor(
+                cooked_local,
+                key_local,
+                raw_local,
+                raw_tag_local,
+                false_local,
+                false_local,
+                false_local,
+                None,
+                None,
+                None,
+                None,
+                None,
+                function,
+            )?;
+            self.freeze_template_array(cooked_local, cooked_elements.len(), function);
+            function.instruction(&Instruction::LocalGet(cooked_local));
+            function.instruction(&Instruction::GlobalSet(
+                self.template_object_global_index(template.site_id),
+            ));
+
+            self.release_temp_local(false_local);
+            self.release_temp_local(raw_tag_local);
+            self.release_temp_local(key_local);
+            self.release_temp_local(cooked_local);
+            self.release_temp_local(raw_local);
+        }
+        Ok(())
+    }
+
+    fn freeze_template_array(
+        &mut self,
+        array_local: u32,
+        element_count: usize,
+        function: &mut Function,
+    ) {
+        let buffer_local = self.reserve_temp_local();
+        let entry_local = self.reserve_temp_local();
+        let descriptor_kind_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(array_local, HEAP_PTR_OFFSET, buffer_local, function);
+        for index in 0..element_count {
+            function.instruction(&Instruction::LocalGet(buffer_local));
+            function.instruction(&Instruction::I64Const(
+                (index as u64 * HEAP_ARRAY_ENTRY_SIZE) as i64,
+            ));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(entry_local));
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+                descriptor_kind_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+            function.instruction(&Instruction::I64Const(
+                !((OBJECT_DESCRIPTOR_CONFIGURABLE | OBJECT_DESCRIPTOR_WRITABLE) as i64),
+            ));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
+            self.store_i64_local_at_offset(
+                entry_local,
+                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+                descriptor_kind_local,
+                function,
+            );
+        }
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
+        self.emit_array_store_length_writable_descriptor(
+            array_local,
+            descriptor_kind_local,
+            function,
+        );
+        self.store_i64_const_at_offset(array_local, HEAP_CAP_OFFSET, 0, function);
+        self.store_i64_const_at_offset(array_local, HEAP_ARRAY_NON_EXTENSIBLE_OFFSET, 1, function);
+        self.release_temp_local(descriptor_kind_local);
+        self.release_temp_local(entry_local);
+        self.release_temp_local(buffer_local);
     }
 
     fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {
@@ -1840,6 +2266,7 @@ impl<'a> FunctionBuilder<'a> {
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.outline_object_write = false;
+        self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         // Helper parameter 5 carries the calling function's strictness (0 sloppy,
         // nonzero strict). Parameter 6 carries a standard builtin's self-backed
         // realm environment; other callers pass zero. This lets ArraySetLength
@@ -1853,6 +2280,182 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
         self.pop_scope();
         self.object_write_strict_flag_local = None;
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the receiver-side data-property step used by OrdinarySet.
+    /// This state machine is repeated several times inside the shared
+    /// object-write helper, so that helper calls this single outlined copy.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=receiver
+    /// payload, 1=receiver tag, 2=key payload, 3=key tag, 4=value payload,
+    /// 5=value tag, 6=calling realm environment. Results are the standard
+    /// `(result, result_tag, completion, aux)` tuple; on normal completion the
+    /// first result is the boolean success value.
+    fn compile_ordinary_set_data_on_receiver_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_ordinary_set_data_on_receiver_result_with_depth(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            self.result_local,
+            4,
+            false,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the receiver-side OrdinarySet step used when an exotic
+    /// receiver must fall back to its generic `[[Set]]` behavior.
+    fn compile_ordinary_set_data_on_receiver_with_fallback_helper(
+        &mut self,
+    ) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_ordinary_set_data_on_receiver_result_with_depth(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            self.result_local,
+            4,
+            true,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared Array element-write state machine. Argument-vector
+    /// construction and builtin internals use this path often enough that
+    /// inlining it can exceed Cranelift's per-function code-size limit.
+    /// Params: 0=array payload, 1=index, 2=value payload, 3=value tag,
+    /// 4=calling realm environment. Params 5/6 are unused.
+    fn compile_array_write_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_array_write = false;
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(4));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_array_write(0, 1, 2, 3, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles OrdinarySet with an explicit receiver once for callers such as
+    /// `Reflect.set`. The five tagged inputs are passed through the standard
+    /// argument vector in params 5/6.
+    fn compile_ordinary_set_helper(
+        &mut self,
+        allow_receiver_generic_write_fallback: bool,
+    ) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
+        let target_payload_local = self.reserve_temp_local();
+        let target_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let key_payload_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let realm_environment_local = self.reserve_temp_local();
+        let realm_environment_tag_local = self.reserve_temp_local();
+
+        self.push_scope();
+        self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, &mut function);
+        self.emit_builtin_arg_to_locals(
+            1,
+            receiver_payload_local,
+            receiver_tag_local,
+            &mut function,
+        );
+        self.emit_builtin_arg_to_locals(2, key_payload_local, key_tag_local, &mut function);
+        self.emit_builtin_arg_to_locals(3, value_payload_local, value_tag_local, &mut function);
+        self.emit_builtin_arg_to_locals(
+            4,
+            realm_environment_local,
+            realm_environment_tag_local,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_environment_local));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_ordinary_set_result_with_receiver_fallback(
+            target_payload_local,
+            target_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_payload_local,
+            key_tag_local,
+            value_payload_local,
+            value_tag_local,
+            self.result_local,
+            allow_receiver_generic_write_fallback,
+            &mut function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
+        self.pop_scope();
+
+        self.release_temp_local(realm_environment_tag_local);
+        self.release_temp_local(realm_environment_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_payload_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(target_tag_local);
+        self.release_temp_local(target_payload_local);
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalGet(self.completion_local));
@@ -1877,6 +2480,71 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
         self.pop_scope();
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared plain function-call dispatcher.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
+    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Param 6 is
+    /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
+    /// throws are surfaced through the completion rather than propagated.
+    fn compile_function_call_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_function_call = false;
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_function_handle_call_with_argv_inner(
+            0,
+            1,
+            Some((2, Some(3))),
+            4,
+            5,
+            self.result_local,
+            self.result_tag_local,
+            None,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(function)
+    }
+
+    /// Compiles the shared runtime-kind dynamic property-read dispatcher.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
+    /// 1=target tag, 2=receiver payload, 3=receiver tag, 4=property-key payload,
+    /// 5=property-key tag. Param 6 is unused. Results are the standard
+    /// `(result, result_tag, completion, aux)` tuple.
+    fn compile_dynamic_property_read_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_dynamic_property_read_with_key_locals(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
         Ok(function)
     }
@@ -2235,17 +2903,19 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(self.class_function_context_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.named_function_context_local));
             }
             ReturnAbi::MultiValue => {
                 function.instruction(&Instruction::LocalGet(0));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
                 if self
                     .current_function_meta()
-                    .is_some_and(|meta| meta.class_kind != ClassFunctionKind::None)
+                    .is_some_and(WasmFunctionMeta::has_function_context)
                 {
-                    // Class functions receive an immutable context in their
-                    // env parameter. Lexical lookup resumes from its captured
-                    // environment, while the context preserves [[HomeObject]].
+                    // Functions that need execution context state receive an
+                    // immutable context in their env parameter. Lexical lookup
+                    // resumes from the environment captured inside it.
                     function.instruction(&Instruction::LocalGet(self.current_env_local));
                     function.instruction(&Instruction::LocalSet(self.class_function_context_local));
                     self.load_i64_to_local_from_offset(
@@ -2257,6 +2927,22 @@ impl<'a> FunctionBuilder<'a> {
                 } else {
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::LocalSet(self.class_function_context_local));
+                }
+                if self
+                    .current_function_meta()
+                    .is_some_and(|meta| meta.is_named_expression)
+                {
+                    function.instruction(&Instruction::LocalGet(self.current_env_local));
+                    function.instruction(&Instruction::LocalSet(self.named_function_context_local));
+                    self.load_i64_to_local_from_offset(
+                        self.current_env_local,
+                        ENV_PARENT_OFFSET,
+                        self.current_env_local,
+                        function,
+                    );
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(self.named_function_context_local));
                 }
             }
         }
@@ -2283,7 +2969,7 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_const_at_offset(
                 self.current_env_local,
                 ENV_SLOT_BASE_OFFSET + binding.slot as u64 * ENV_SLOT_SIZE + ENV_SLOT_TAG_OFFSET,
-                ValueKind::Undefined.tag() as u64,
+                ENV_SLOT_UNINITIALIZED_TAG as u64,
                 function,
             );
             self.store_i64_const_at_offset(

@@ -17,8 +17,9 @@ use crate::{
     BUILTIN_ARRAY_FUNCTION_ID, BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID,
     BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID, BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID,
     BUILTIN_ARRAY_OF_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_FILL_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_FIND_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID,
@@ -28,19 +29,23 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SHIFT_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_SORT_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
-    BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
-    BUILTIN_ATOMICS_ADD_FUNCTION_ID, BUILTIN_ATOMICS_AND_FUNCTION_ID,
-    BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID,
-    BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID, BUILTIN_ATOMICS_LOAD_FUNCTION_ID,
-    BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID, BUILTIN_ATOMICS_OR_FUNCTION_ID,
-    BUILTIN_ATOMICS_PAUSE_FUNCTION_ID, BUILTIN_ATOMICS_STORE_FUNCTION_ID,
-    BUILTIN_ATOMICS_SUB_FUNCTION_ID, BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID,
-    BUILTIN_ATOMICS_WAIT_FUNCTION_ID, BUILTIN_ATOMICS_XOR_FUNCTION_ID,
-    BUILTIN_BIGINT64_ARRAY_FUNCTION_ID, BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID,
-    BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID, BUILTIN_BIGINT_FUNCTION_ID,
-    BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID,
+    BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID,
+    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ATOMICS_ADD_FUNCTION_ID,
+    BUILTIN_ATOMICS_AND_FUNCTION_ID, BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID,
+    BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID,
+    BUILTIN_ATOMICS_LOAD_FUNCTION_ID, BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID,
+    BUILTIN_ATOMICS_OR_FUNCTION_ID, BUILTIN_ATOMICS_PAUSE_FUNCTION_ID,
+    BUILTIN_ATOMICS_STORE_FUNCTION_ID, BUILTIN_ATOMICS_SUB_FUNCTION_ID,
+    BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID, BUILTIN_ATOMICS_WAIT_FUNCTION_ID,
+    BUILTIN_ATOMICS_XOR_FUNCTION_ID, BUILTIN_BIGINT64_ARRAY_FUNCTION_ID,
+    BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID, BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID,
+    BUILTIN_BIGINT_FUNCTION_ID, BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_BIGINT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_BIGINT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID, BUILTIN_BOOLEAN_FUNCTION_ID,
     BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID, BUILTIN_DATA_VIEW_FUNCTION_ID,
@@ -111,6 +116,7 @@ use crate::{
     BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FROM_FUNCTION_ID,
     BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FUNCTION_ID,
+    BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_SETTER_FUNCTION_ID,
@@ -124,12 +130,14 @@ use crate::{
     BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID,
     BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID,
-    BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID, BUILTIN_JSON_PARSE_FUNCTION_ID,
-    BUILTIN_JSON_RAW_JSON_FUNCTION_ID, BUILTIN_JSON_STRINGIFY_FUNCTION_ID,
-    BUILTIN_NUMBER_FUNCTION_ID, BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID,
-    BUILTIN_OBJECT_CREATE_FUNCTION_ID, BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID,
-    BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_OBJECT_FREEZE_FUNCTION_ID,
-    BUILTIN_OBJECT_FUNCTION_ID, BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_ITERATOR_ZIP_FUNCTION_ID, BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID,
+    BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID, BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID,
+    BUILTIN_JSON_PARSE_FUNCTION_ID, BUILTIN_JSON_RAW_JSON_FUNCTION_ID,
+    BUILTIN_JSON_STRINGIFY_FUNCTION_ID, BUILTIN_NUMBER_FUNCTION_ID,
+    BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID, BUILTIN_OBJECT_CREATE_FUNCTION_ID,
+    BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID, BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID,
+    BUILTIN_OBJECT_FREEZE_FUNCTION_ID, BUILTIN_OBJECT_FUNCTION_ID,
+    BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_SYMBOLS_FUNCTION_ID,
     BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID,
@@ -138,6 +146,8 @@ use crate::{
     BUILTIN_OBJECT_KEYS_FUNCTION_ID, BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID,
+    BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID,
+    BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
@@ -153,7 +163,7 @@ use crate::{
     BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID, BUILTIN_REFLECT_SET_FUNCTION_ID,
     BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REGEXP_ESCAPE_FUNCTION_ID,
     BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID,
-    BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID,
+    BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_DOT_ALL_GETTER_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_GLOBAL_GETTER_FUNCTION_ID,
@@ -164,7 +174,10 @@ use crate::{
     BUILTIN_REGEXP_PROTOTYPE_STICKY_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_SYMBOL_REPLACE_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SPLIT_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_TEST_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_TO_STRING_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID, BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
@@ -172,38 +185,47 @@ use crate::{
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROWABLE_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROW_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_MAX_BYTE_LENGTH_GETTER_FUNCTION_ID,
-    BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_SLICE_FUNCTION_ID, BUILTIN_STRING_FUNCTION_ID,
+    BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_SLICE_FUNCTION_ID,
+    BUILTIN_STRING_FROM_CHAR_CODE_FUNCTION_ID, BUILTIN_STRING_FROM_CODE_POINT_FUNCTION_ID,
+    BUILTIN_STRING_FUNCTION_ID, BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_ANCHOR_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_AT_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_BIG_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_BLINK_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_BOLD_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_FIXED_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_FONTCOLOR_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_FONTSIZE_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_INDEX_OF_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_CONCAT_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_ENDS_WITH_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_FIXED_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_FONTCOLOR_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_FONTSIZE_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_INDEX_OF_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_IS_WELL_FORMED_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_ITALICS_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_ITALICS_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_ITERATOR_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_LINK_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_LOCALE_COMPARE_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_MATCH_ALL_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_MATCH_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SMALL_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_STRIKE_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SUBSTRING_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_SUBSTR_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SUB_FUNCTION_ID,
-    BUILTIN_STRING_PROTOTYPE_SUP_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_NORMALIZE_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_PAD_END_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_PAD_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_REPEAT_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_SEARCH_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SLICE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_SMALL_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SPLIT_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_STRIKE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_SUBSTRING_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SUBSTR_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_SUB_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_SUP_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_TO_LOCALE_LOWER_CASE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_TO_LOCALE_UPPER_CASE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_TO_LOWER_CASE_FUNCTION_ID,
+    BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TRIM_END_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID,
     BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID,
-    BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID, BUILTIN_SYMBOL_FOR_FUNCTION_ID,
-    BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
+    BUILTIN_STRING_RAW_FUNCTION_ID, BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID,
+    BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
     BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID, BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_TYPE_ERROR_FUNCTION_ID,
@@ -303,6 +325,8 @@ pub enum StandardBuiltinId {
     ObjectIsExtensible,
     ObjectPreventExtensions,
     ObjectPrototypeHasOwnProperty,
+    ObjectPrototypeLookupGetter,
+    ObjectPrototypeLookupSetter,
     ObjectPrototypePropertyIsEnumerable,
     ObjectPrototypeIsPrototypeOf,
     ObjectPrototypeToString,
@@ -331,11 +355,19 @@ pub enum StandardBuiltinId {
     ArraySpeciesGetter,
     ArrayPrototypeConcat,
     ArrayPrototypeJoin,
+    ArrayPrototypeSlice,
     ArrayPrototypeSplice,
+    ArrayPrototypeSort,
     ArrayPrototypeToLocaleString,
     ArrayPrototypeFlat,
     ArrayPrototypeFlatMap,
     ArrayPrototypeAt,
+    ArrayPrototypeToReversed,
+    ArrayPrototypeToSpliced,
+    ArrayPrototypeToSorted,
+    ArrayPrototypeWith,
+    ArrayPrototypeReverse,
+    ArrayPrototypeCopyWithin,
     ArrayPrototypeIncludes,
     ArrayPrototypeIndexOf,
     ArrayPrototypeLastIndexOf,
@@ -352,13 +384,22 @@ pub enum StandardBuiltinId {
     ArrayPrototypeReduceRight,
     ArrayPrototypePop,
     ArrayPrototypePush,
+    ArrayPrototypeShift,
+    ArrayPrototypeUnshift,
+    ArrayPrototypeFill,
     ArrayPrototypeKeys,
     ArrayPrototypeEntries,
     ArrayPrototypeValues,
     ArrayIteratorNext,
     ArrayIteratorIdentity,
+    StringIteratorNext,
     IteratorConstructor,
     IteratorFrom,
+    IteratorZip,
+    IteratorZipNext,
+    IteratorZipReturn,
+    IteratorHelperNext,
+    IteratorHelperReturn,
     IteratorPrototypeToArray,
     IteratorPrototypeForEach,
     IteratorPrototypeEvery,
@@ -415,6 +456,7 @@ pub enum StandardBuiltinId {
     TypedArrayPrototypeByteOffsetGetter,
     TypedArrayPrototypeLengthGetter,
     TypedArrayPrototypeToString,
+    TypedArrayPrototypeJoin,
     TypedArrayPrototypeToLocaleString,
     TypedArrayFrom,
     TypedArrayOf,
@@ -494,10 +536,15 @@ pub enum StandardBuiltinId {
     RegExpPrototypeStickyGetter,
     RegExpLegacyStaticGetter,
     RegExpLegacyStaticSetter,
+    RegExpPrototypeCompile,
     RegExpPrototypeExec,
+    RegExpPrototypeTest,
+    RegExpPrototypeToString,
     RegExpPrototypeSymbolMatch,
     RegExpPrototypeSymbolMatchAll,
+    RegExpPrototypeSymbolReplace,
     RegExpPrototypeSymbolSearch,
+    RegExpPrototypeSymbolSplit,
     RegExpEscape,
     JsonParse,
     JsonStringify,
@@ -585,9 +632,13 @@ pub enum StandardBuiltinId {
     MathMin,
     MathMax,
     StringConstructor,
+    StringFromCharCode,
+    StringFromCodePoint,
+    StringRaw,
     StringPrototypeToString,
     StringPrototypeValueOf,
     StringPrototypeCharAt,
+    StringPrototypeConcat,
     StringPrototypeCharCodeAt,
     StringPrototypeCodePointAt,
     StringPrototypeAt,
@@ -621,6 +672,12 @@ pub enum StandardBuiltinId {
     StringPrototypeEndsWith,
     StringPrototypeIncludes,
     StringPrototypeStartsWith,
+    StringPrototypeNormalize,
+    StringPrototypeLocaleCompare,
+    StringPrototypeIterator,
+    StringPrototypeToLocaleLowerCase,
+    StringPrototypeToLocaleUpperCase,
+    StringPrototypeToLowerCase,
     StringPrototypeToUpperCase,
     StringPrototypeTrim,
     StringPrototypeTrimStart,
@@ -693,6 +750,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeToString
             | Self::StringPrototypeValueOf
             | Self::StringPrototypeCharAt
+            | Self::StringPrototypeConcat
             | Self::StringPrototypeCharCodeAt
             | Self::StringPrototypeCodePointAt
             | Self::StringPrototypeAt
@@ -726,6 +784,12 @@ impl StandardBuiltinId {
             | Self::StringPrototypeEndsWith
             | Self::StringPrototypeIncludes
             | Self::StringPrototypeStartsWith
+            | Self::StringPrototypeNormalize
+            | Self::StringPrototypeLocaleCompare
+            | Self::StringPrototypeIterator
+            | Self::StringPrototypeToLocaleLowerCase
+            | Self::StringPrototypeToLocaleUpperCase
+            | Self::StringPrototypeToLowerCase
             | Self::StringPrototypeToUpperCase
             | Self::StringPrototypeTrim
             | Self::StringPrototypeTrimStart
@@ -773,6 +837,8 @@ impl StandardBuiltinId {
             | Self::ObjectIsExtensible
             | Self::ObjectPreventExtensions
             | Self::ObjectPrototypeHasOwnProperty
+            | Self::ObjectPrototypeLookupGetter
+            | Self::ObjectPrototypeLookupSetter
             | Self::ObjectPrototypePropertyIsEnumerable
             | Self::ObjectPrototypeIsPrototypeOf
             | Self::ObjectPrototypeToString
@@ -799,11 +865,19 @@ impl StandardBuiltinId {
             | Self::ArraySpeciesGetter
             | Self::ArrayPrototypeConcat
             | Self::ArrayPrototypeJoin
+            | Self::ArrayPrototypeSlice
             | Self::ArrayPrototypeSplice
+            | Self::ArrayPrototypeSort
             | Self::ArrayPrototypeToLocaleString
             | Self::ArrayPrototypeFlat
             | Self::ArrayPrototypeFlatMap
             | Self::ArrayPrototypeAt
+            | Self::ArrayPrototypeToReversed
+            | Self::ArrayPrototypeToSpliced
+            | Self::ArrayPrototypeToSorted
+            | Self::ArrayPrototypeWith
+            | Self::ArrayPrototypeReverse
+            | Self::ArrayPrototypeCopyWithin
             | Self::ArrayPrototypeIncludes
             | Self::ArrayPrototypeIndexOf
             | Self::ArrayPrototypeLastIndexOf
@@ -820,12 +894,21 @@ impl StandardBuiltinId {
             | Self::ArrayPrototypeReduceRight
             | Self::ArrayPrototypePop
             | Self::ArrayPrototypePush
+            | Self::ArrayPrototypeShift
+            | Self::ArrayPrototypeUnshift
+            | Self::ArrayPrototypeFill
             | Self::ArrayPrototypeKeys
             | Self::ArrayPrototypeEntries
             | Self::ArrayPrototypeValues
             | Self::ArrayIteratorNext
             | Self::ArrayIteratorIdentity
+            | Self::StringIteratorNext
             | Self::IteratorFrom
+            | Self::IteratorZip
+            | Self::IteratorZipNext
+            | Self::IteratorZipReturn
+            | Self::IteratorHelperNext
+            | Self::IteratorHelperReturn
             | Self::IteratorPrototypeToArray
             | Self::IteratorPrototypeForEach
             | Self::IteratorPrototypeEvery
@@ -893,6 +976,7 @@ impl StandardBuiltinId {
             | Self::TypedArrayPrototypeByteOffsetGetter
             | Self::TypedArrayPrototypeLengthGetter
             | Self::TypedArrayPrototypeToString
+            | Self::TypedArrayPrototypeJoin
             | Self::TypedArrayPrototypeToLocaleString
             | Self::TypedArrayFrom
             | Self::TypedArrayOf
@@ -970,10 +1054,15 @@ impl StandardBuiltinId {
             | Self::RegExpPrototypeStickyGetter
             | Self::RegExpLegacyStaticGetter
             | Self::RegExpLegacyStaticSetter
+            | Self::RegExpPrototypeCompile
             | Self::RegExpPrototypeExec
+            | Self::RegExpPrototypeTest
+            | Self::RegExpPrototypeToString
             | Self::RegExpPrototypeSymbolMatch
             | Self::RegExpPrototypeSymbolMatchAll
+            | Self::RegExpPrototypeSymbolReplace
             | Self::RegExpPrototypeSymbolSearch
+            | Self::RegExpPrototypeSymbolSplit
             | Self::RegExpEscape
             | Self::JsonParse
             | Self::JsonStringify
@@ -1029,7 +1118,10 @@ impl StandardBuiltinId {
             | Self::MathTanh
             | Self::ErrorPrototypeToString
             | Self::ThrowTypeError
-            | Self::BoundFunctionInvoker => None,
+            | Self::BoundFunctionInvoker
+            | Self::StringFromCharCode
+            | Self::StringFromCodePoint
+            | Self::StringRaw => None,
             Self::EvalFunction => Some("eval"),
         }
     }
@@ -1061,6 +1153,8 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible => "Object.isExtensible",
             Self::ObjectPreventExtensions => "Object.preventExtensions",
             Self::ObjectPrototypeHasOwnProperty => "Object.prototype.hasOwnProperty",
+            Self::ObjectPrototypeLookupGetter => "Object.prototype.__lookupGetter__",
+            Self::ObjectPrototypeLookupSetter => "Object.prototype.__lookupSetter__",
             Self::ObjectPrototypePropertyIsEnumerable => "Object.prototype.propertyIsEnumerable",
             Self::ObjectPrototypeIsPrototypeOf => "Object.prototype.isPrototypeOf",
             Self::ObjectPrototypeToString => "Object.prototype.toString",
@@ -1089,11 +1183,19 @@ impl StandardBuiltinId {
             Self::ArraySpeciesGetter => "get Array [Symbol.species]",
             Self::ArrayPrototypeConcat => "Array.prototype.concat",
             Self::ArrayPrototypeJoin => "Array.prototype.join",
+            Self::ArrayPrototypeSlice => "Array.prototype.slice",
             Self::ArrayPrototypeSplice => "Array.prototype.splice",
+            Self::ArrayPrototypeSort => "Array.prototype.sort",
             Self::ArrayPrototypeToLocaleString => "Array.prototype.toLocaleString",
             Self::ArrayPrototypeFlat => "Array.prototype.flat",
             Self::ArrayPrototypeFlatMap => "Array.prototype.flatMap",
             Self::ArrayPrototypeAt => "Array.prototype.at",
+            Self::ArrayPrototypeToReversed => "Array.prototype.toReversed",
+            Self::ArrayPrototypeToSpliced => "Array.prototype.toSpliced",
+            Self::ArrayPrototypeToSorted => "Array.prototype.toSorted",
+            Self::ArrayPrototypeWith => "Array.prototype.with",
+            Self::ArrayPrototypeReverse => "Array.prototype.reverse",
+            Self::ArrayPrototypeCopyWithin => "Array.prototype.copyWithin",
             Self::ArrayPrototypeIncludes => "Array.prototype.includes",
             Self::ArrayPrototypeIndexOf => "Array.prototype.indexOf",
             Self::ArrayPrototypeLastIndexOf => "Array.prototype.lastIndexOf",
@@ -1110,13 +1212,22 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeReduceRight => "Array.prototype.reduceRight",
             Self::ArrayPrototypePop => "Array.prototype.pop",
             Self::ArrayPrototypePush => "Array.prototype.push",
+            Self::ArrayPrototypeShift => "Array.prototype.shift",
+            Self::ArrayPrototypeUnshift => "Array.prototype.unshift",
+            Self::ArrayPrototypeFill => "Array.prototype.fill",
             Self::ArrayPrototypeKeys => "Array.prototype.keys",
             Self::ArrayPrototypeEntries => "Array.prototype.entries",
             Self::ArrayPrototypeValues => "Array.prototype.values",
             Self::ArrayIteratorNext => "Array Iterator.prototype.next",
             Self::ArrayIteratorIdentity => "Array Iterator.prototype [Symbol.iterator]",
+            Self::StringIteratorNext => "String Iterator.prototype.next",
             Self::IteratorConstructor => "Iterator",
             Self::IteratorFrom => "Iterator.from",
+            Self::IteratorZip => "Iterator.zip",
+            Self::IteratorZipNext => "Iterator zip helper next",
+            Self::IteratorZipReturn => "Iterator zip helper return",
+            Self::IteratorHelperNext => "%IteratorHelperPrototype%.next",
+            Self::IteratorHelperReturn => "%IteratorHelperPrototype%.return",
             Self::IteratorPrototypeToArray => "Iterator.prototype.toArray",
             Self::IteratorPrototypeForEach => "Iterator.prototype.forEach",
             Self::IteratorPrototypeEvery => "Iterator.prototype.every",
@@ -1189,6 +1300,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteOffsetGetter => "get TypedArray.prototype.byteOffset",
             Self::TypedArrayPrototypeLengthGetter => "get TypedArray.prototype.length",
             Self::TypedArrayPrototypeToString => "TypedArray.prototype.toString",
+            Self::TypedArrayPrototypeJoin => "TypedArray.prototype.join",
             Self::TypedArrayPrototypeToLocaleString => "TypedArray.prototype.toLocaleString",
             Self::TypedArrayFrom => "TypedArray.from",
             Self::TypedArrayOf => "TypedArray.of",
@@ -1268,10 +1380,15 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter => "get RegExp.prototype.sticky",
             Self::RegExpLegacyStaticGetter => "get RegExp legacy static",
             Self::RegExpLegacyStaticSetter => "set RegExp legacy static",
+            Self::RegExpPrototypeCompile => "RegExp.prototype.compile",
             Self::RegExpPrototypeExec => "RegExp.prototype.exec",
+            Self::RegExpPrototypeTest => "RegExp.prototype.test",
+            Self::RegExpPrototypeToString => "RegExp.prototype.toString",
             Self::RegExpPrototypeSymbolMatch => "RegExp.prototype[Symbol.match]",
             Self::RegExpPrototypeSymbolMatchAll => "RegExp.prototype[Symbol.matchAll]",
+            Self::RegExpPrototypeSymbolReplace => "RegExp.prototype[Symbol.replace]",
             Self::RegExpPrototypeSymbolSearch => "RegExp.prototype[Symbol.search]",
+            Self::RegExpPrototypeSymbolSplit => "RegExp.prototype[Symbol.split]",
             Self::RegExpEscape => "RegExp.escape",
             Self::JsonParse => "JSON.parse",
             Self::JsonStringify => "JSON.stringify",
@@ -1359,9 +1476,13 @@ impl StandardBuiltinId {
             Self::MathMin => "Math.min",
             Self::MathMax => "Math.max",
             Self::StringConstructor => STRING_NAME,
+            Self::StringFromCharCode => "String.fromCharCode",
+            Self::StringFromCodePoint => "String.fromCodePoint",
+            Self::StringRaw => "String.raw",
             Self::StringPrototypeToString => "String.prototype.toString",
             Self::StringPrototypeValueOf => "String.prototype.valueOf",
             Self::StringPrototypeCharAt => "String.prototype.charAt",
+            Self::StringPrototypeConcat => "String.prototype.concat",
             Self::StringPrototypeCharCodeAt => "String.prototype.charCodeAt",
             Self::StringPrototypeCodePointAt => "String.prototype.codePointAt",
             Self::StringPrototypeAt => "String.prototype.at",
@@ -1395,6 +1516,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeEndsWith => "String.prototype.endsWith",
             Self::StringPrototypeIncludes => "String.prototype.includes",
             Self::StringPrototypeStartsWith => "String.prototype.startsWith",
+            Self::StringPrototypeNormalize => "String.prototype.normalize",
+            Self::StringPrototypeLocaleCompare => "String.prototype.localeCompare",
+            Self::StringPrototypeIterator => "String.prototype [Symbol.iterator]",
+            Self::StringPrototypeToLocaleLowerCase => "String.prototype.toLocaleLowerCase",
+            Self::StringPrototypeToLocaleUpperCase => "String.prototype.toLocaleUpperCase",
+            Self::StringPrototypeToLowerCase => "String.prototype.toLowerCase",
             Self::StringPrototypeToUpperCase => "String.prototype.toUpperCase",
             Self::StringPrototypeTrim => "String.prototype.trim",
             Self::StringPrototypeTrimStart => "String.prototype.trimStart",
@@ -1472,6 +1599,12 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeHasOwnProperty => {
                 BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID.to_string()
             }
+            Self::ObjectPrototypeLookupGetter => {
+                BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::ObjectPrototypeLookupSetter => {
+                BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID.to_string()
+            }
             Self::ObjectPrototypePropertyIsEnumerable => {
                 BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID.to_string()
             }
@@ -1514,13 +1647,29 @@ impl StandardBuiltinId {
             Self::ArraySpeciesGetter => BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeConcat => BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeJoin => BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeSlice => BUILTIN_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeSplice => BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeSort => BUILTIN_ARRAY_PROTOTYPE_SORT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeToLocaleString => {
                 BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
             }
             Self::ArrayPrototypeFlat => BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeFlatMap => BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeAt => BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeToReversed => {
+                BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeToSpliced => {
+                BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeToSorted => {
+                BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID.to_string()
+            }
+            Self::ArrayPrototypeWith => BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeReverse => BUILTIN_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeCopyWithin => {
+                BUILTIN_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID.to_string()
+            }
             Self::ArrayPrototypeIncludes => {
                 BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID.to_string()
             }
@@ -1549,13 +1698,22 @@ impl StandardBuiltinId {
             }
             Self::ArrayPrototypePop => BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID.to_string(),
             Self::ArrayPrototypePush => BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeShift => BUILTIN_ARRAY_PROTOTYPE_SHIFT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeUnshift => BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID.to_string(),
+            Self::ArrayPrototypeFill => BUILTIN_ARRAY_PROTOTYPE_FILL_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeKeys => BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeEntries => BUILTIN_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID.to_string(),
             Self::ArrayPrototypeValues => BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID.to_string(),
             Self::ArrayIteratorNext => BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID.to_string(),
             Self::ArrayIteratorIdentity => BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID.to_string(),
+            Self::StringIteratorNext => BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID.to_string(),
             Self::IteratorConstructor => BUILTIN_ITERATOR_FUNCTION_ID.to_string(),
             Self::IteratorFrom => BUILTIN_ITERATOR_FROM_FUNCTION_ID.to_string(),
+            Self::IteratorZip => BUILTIN_ITERATOR_ZIP_FUNCTION_ID.to_string(),
+            Self::IteratorZipNext => BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorZipReturn => BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID.to_string(),
+            Self::IteratorHelperNext => BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorHelperReturn => BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID.to_string(),
             Self::IteratorPrototypeToArray => {
                 BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID.to_string()
             }
@@ -1687,6 +1845,9 @@ impl StandardBuiltinId {
             }
             Self::TypedArrayPrototypeToString => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeJoin => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID.to_string()
             }
             Self::TypedArrayPrototypeToLocaleString => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
@@ -1887,15 +2048,28 @@ impl StandardBuiltinId {
             Self::RegExpLegacyStaticSetter => {
                 BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID.to_string()
             }
+            Self::RegExpPrototypeCompile => {
+                BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID.to_string()
+            }
             Self::RegExpPrototypeExec => BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID.to_string(),
+            Self::RegExpPrototypeTest => BUILTIN_REGEXP_PROTOTYPE_TEST_FUNCTION_ID.to_string(),
+            Self::RegExpPrototypeToString => {
+                BUILTIN_REGEXP_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
             Self::RegExpPrototypeSymbolMatch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID.to_string()
             }
             Self::RegExpPrototypeSymbolMatchAll => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID.to_string()
             }
+            Self::RegExpPrototypeSymbolReplace => {
+                BUILTIN_REGEXP_PROTOTYPE_SYMBOL_REPLACE_FUNCTION_ID.to_string()
+            }
             Self::RegExpPrototypeSymbolSearch => {
                 BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID.to_string()
+            }
+            Self::RegExpPrototypeSymbolSplit => {
+                BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SPLIT_FUNCTION_ID.to_string()
             }
             Self::RegExpEscape => BUILTIN_REGEXP_ESCAPE_FUNCTION_ID.to_string(),
             Self::JsonParse => BUILTIN_JSON_PARSE_FUNCTION_ID.to_string(),
@@ -1998,6 +2172,9 @@ impl StandardBuiltinId {
             Self::MathMin => "$builtin.Math.min".to_string(),
             Self::MathMax => "$builtin.Math.max".to_string(),
             Self::StringConstructor => BUILTIN_STRING_FUNCTION_ID.to_string(),
+            Self::StringFromCharCode => BUILTIN_STRING_FROM_CHAR_CODE_FUNCTION_ID.to_string(),
+            Self::StringFromCodePoint => BUILTIN_STRING_FROM_CODE_POINT_FUNCTION_ID.to_string(),
+            Self::StringRaw => BUILTIN_STRING_RAW_FUNCTION_ID.to_string(),
             Self::StringPrototypeToString => {
                 BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
             }
@@ -2005,6 +2182,7 @@ impl StandardBuiltinId {
                 BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
             Self::StringPrototypeCharAt => BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID.to_string(),
+            Self::StringPrototypeConcat => BUILTIN_STRING_PROTOTYPE_CONCAT_FUNCTION_ID.to_string(),
             Self::StringPrototypeCharCodeAt => {
                 BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID.to_string()
             }
@@ -2067,6 +2245,24 @@ impl StandardBuiltinId {
             }
             Self::StringPrototypeStartsWith => {
                 BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeNormalize => {
+                BUILTIN_STRING_PROTOTYPE_NORMALIZE_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeLocaleCompare => {
+                BUILTIN_STRING_PROTOTYPE_LOCALE_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeIterator => {
+                BUILTIN_STRING_PROTOTYPE_ITERATOR_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeToLocaleLowerCase => {
+                BUILTIN_STRING_PROTOTYPE_TO_LOCALE_LOWER_CASE_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeToLocaleUpperCase => {
+                BUILTIN_STRING_PROTOTYPE_TO_LOCALE_UPPER_CASE_FUNCTION_ID.to_string()
+            }
+            Self::StringPrototypeToLowerCase => {
+                BUILTIN_STRING_PROTOTYPE_TO_LOWER_CASE_FUNCTION_ID.to_string()
             }
             Self::StringPrototypeToUpperCase => {
                 BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID.to_string()
@@ -2153,6 +2349,12 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID => {
                 Some(Self::ObjectPrototypeHasOwnProperty)
             }
+            BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID => {
+                Some(Self::ObjectPrototypeLookupGetter)
+            }
+            BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID => {
+                Some(Self::ObjectPrototypeLookupSetter)
+            }
             BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID => {
                 Some(Self::ObjectPrototypePropertyIsEnumerable)
             }
@@ -2187,13 +2389,21 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID => Some(Self::ArraySpeciesGetter),
             BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::ArrayPrototypeConcat),
             BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID => Some(Self::ArrayPrototypeJoin),
+            BUILTIN_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID => Some(Self::ArrayPrototypeSlice),
             BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID => Some(Self::ArrayPrototypeSplice),
+            BUILTIN_ARRAY_PROTOTYPE_SORT_FUNCTION_ID => Some(Self::ArrayPrototypeSort),
             BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
                 Some(Self::ArrayPrototypeToLocaleString)
             }
             BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID => Some(Self::ArrayPrototypeFlat),
             BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID => Some(Self::ArrayPrototypeFlatMap),
             BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID => Some(Self::ArrayPrototypeAt),
+            BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID => Some(Self::ArrayPrototypeToReversed),
+            BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID => Some(Self::ArrayPrototypeToSpliced),
+            BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID => Some(Self::ArrayPrototypeToSorted),
+            BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID => Some(Self::ArrayPrototypeWith),
+            BUILTIN_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID => Some(Self::ArrayPrototypeReverse),
+            BUILTIN_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID => Some(Self::ArrayPrototypeCopyWithin),
             BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::ArrayPrototypeIncludes),
             BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID => Some(Self::ArrayPrototypeIndexOf),
             BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID => {
@@ -2216,13 +2426,22 @@ impl StandardBuiltinId {
             }
             BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID => Some(Self::ArrayPrototypePop),
             BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID => Some(Self::ArrayPrototypePush),
+            BUILTIN_ARRAY_PROTOTYPE_SHIFT_FUNCTION_ID => Some(Self::ArrayPrototypeShift),
+            BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID => Some(Self::ArrayPrototypeUnshift),
+            BUILTIN_ARRAY_PROTOTYPE_FILL_FUNCTION_ID => Some(Self::ArrayPrototypeFill),
             BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID => Some(Self::ArrayPrototypeKeys),
             BUILTIN_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID => Some(Self::ArrayPrototypeEntries),
             BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID => Some(Self::ArrayPrototypeValues),
             BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID => Some(Self::ArrayIteratorNext),
             BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID => Some(Self::ArrayIteratorIdentity),
+            BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID => Some(Self::StringIteratorNext),
             BUILTIN_ITERATOR_FUNCTION_ID => Some(Self::IteratorConstructor),
             BUILTIN_ITERATOR_FROM_FUNCTION_ID => Some(Self::IteratorFrom),
+            BUILTIN_ITERATOR_ZIP_FUNCTION_ID => Some(Self::IteratorZip),
+            BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID => Some(Self::IteratorZipNext),
+            BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID => Some(Self::IteratorZipReturn),
+            BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID => Some(Self::IteratorHelperNext),
+            BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID => Some(Self::IteratorHelperReturn),
             BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID => Some(Self::IteratorPrototypeToArray),
             BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::IteratorPrototypeForEach),
             BUILTIN_ITERATOR_PROTOTYPE_EVERY_FUNCTION_ID => Some(Self::IteratorPrototypeEvery),
@@ -2337,6 +2556,7 @@ impl StandardBuiltinId {
             BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeToString)
             }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID => Some(Self::TypedArrayPrototypeJoin),
             BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeToLocaleString)
             }
@@ -2518,15 +2738,24 @@ impl StandardBuiltinId {
             }
             BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticGetter),
             BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID => Some(Self::RegExpLegacyStaticSetter),
+            BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID => Some(Self::RegExpPrototypeCompile),
             BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID => Some(Self::RegExpPrototypeExec),
+            BUILTIN_REGEXP_PROTOTYPE_TEST_FUNCTION_ID => Some(Self::RegExpPrototypeTest),
+            BUILTIN_REGEXP_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::RegExpPrototypeToString),
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolMatch)
             }
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolMatchAll)
             }
+            BUILTIN_REGEXP_PROTOTYPE_SYMBOL_REPLACE_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeSymbolReplace)
+            }
             BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID => {
                 Some(Self::RegExpPrototypeSymbolSearch)
+            }
+            BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SPLIT_FUNCTION_ID => {
+                Some(Self::RegExpPrototypeSymbolSplit)
             }
             BUILTIN_REGEXP_ESCAPE_FUNCTION_ID => Some(Self::RegExpEscape),
             BUILTIN_JSON_PARSE_FUNCTION_ID => Some(Self::JsonParse),
@@ -2617,9 +2846,13 @@ impl StandardBuiltinId {
             "$builtin.Math.min" => Some(Self::MathMin),
             "$builtin.Math.max" => Some(Self::MathMax),
             BUILTIN_STRING_FUNCTION_ID => Some(Self::StringConstructor),
+            BUILTIN_STRING_FROM_CHAR_CODE_FUNCTION_ID => Some(Self::StringFromCharCode),
+            BUILTIN_STRING_FROM_CODE_POINT_FUNCTION_ID => Some(Self::StringFromCodePoint),
+            BUILTIN_STRING_RAW_FUNCTION_ID => Some(Self::StringRaw),
             BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::StringPrototypeToString),
             BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID => Some(Self::StringPrototypeValueOf),
             BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID => Some(Self::StringPrototypeCharAt),
+            BUILTIN_STRING_PROTOTYPE_CONCAT_FUNCTION_ID => Some(Self::StringPrototypeConcat),
             BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID => {
                 Some(Self::StringPrototypeCharCodeAt)
             }
@@ -2662,6 +2895,20 @@ impl StandardBuiltinId {
             BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID => Some(Self::StringPrototypeIncludes),
             BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID => {
                 Some(Self::StringPrototypeStartsWith)
+            }
+            BUILTIN_STRING_PROTOTYPE_NORMALIZE_FUNCTION_ID => Some(Self::StringPrototypeNormalize),
+            BUILTIN_STRING_PROTOTYPE_LOCALE_COMPARE_FUNCTION_ID => {
+                Some(Self::StringPrototypeLocaleCompare)
+            }
+            BUILTIN_STRING_PROTOTYPE_ITERATOR_FUNCTION_ID => Some(Self::StringPrototypeIterator),
+            BUILTIN_STRING_PROTOTYPE_TO_LOCALE_LOWER_CASE_FUNCTION_ID => {
+                Some(Self::StringPrototypeToLocaleLowerCase)
+            }
+            BUILTIN_STRING_PROTOTYPE_TO_LOCALE_UPPER_CASE_FUNCTION_ID => {
+                Some(Self::StringPrototypeToLocaleUpperCase)
+            }
+            BUILTIN_STRING_PROTOTYPE_TO_LOWER_CASE_FUNCTION_ID => {
+                Some(Self::StringPrototypeToLowerCase)
             }
             BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID => {
                 Some(Self::StringPrototypeToUpperCase)
@@ -2778,6 +3025,8 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible,
             Self::ObjectPreventExtensions,
             Self::ObjectPrototypeHasOwnProperty,
+            Self::ObjectPrototypeLookupGetter,
+            Self::ObjectPrototypeLookupSetter,
             Self::ObjectPrototypePropertyIsEnumerable,
             Self::ObjectPrototypeIsPrototypeOf,
             Self::ObjectPrototypeToString,
@@ -2806,11 +3055,19 @@ impl StandardBuiltinId {
             Self::ArraySpeciesGetter,
             Self::ArrayPrototypeConcat,
             Self::ArrayPrototypeJoin,
+            Self::ArrayPrototypeSlice,
             Self::ArrayPrototypeSplice,
+            Self::ArrayPrototypeSort,
             Self::ArrayPrototypeToLocaleString,
             Self::ArrayPrototypeFlat,
             Self::ArrayPrototypeFlatMap,
             Self::ArrayPrototypeAt,
+            Self::ArrayPrototypeToReversed,
+            Self::ArrayPrototypeToSpliced,
+            Self::ArrayPrototypeToSorted,
+            Self::ArrayPrototypeWith,
+            Self::ArrayPrototypeReverse,
+            Self::ArrayPrototypeCopyWithin,
             Self::ArrayPrototypeIncludes,
             Self::ArrayPrototypeIndexOf,
             Self::ArrayPrototypeLastIndexOf,
@@ -2827,13 +3084,22 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeReduceRight,
             Self::ArrayPrototypePop,
             Self::ArrayPrototypePush,
+            Self::ArrayPrototypeShift,
+            Self::ArrayPrototypeUnshift,
+            Self::ArrayPrototypeFill,
             Self::ArrayPrototypeKeys,
             Self::ArrayPrototypeEntries,
             Self::ArrayPrototypeValues,
             Self::ArrayIteratorNext,
             Self::ArrayIteratorIdentity,
+            Self::StringIteratorNext,
             Self::IteratorConstructor,
             Self::IteratorFrom,
+            Self::IteratorZip,
+            Self::IteratorZipNext,
+            Self::IteratorZipReturn,
+            Self::IteratorHelperNext,
+            Self::IteratorHelperReturn,
             Self::IteratorPrototypeToArray,
             Self::IteratorPrototypeForEach,
             Self::IteratorPrototypeEvery,
@@ -2890,6 +3156,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteOffsetGetter,
             Self::TypedArrayPrototypeLengthGetter,
             Self::TypedArrayPrototypeToString,
+            Self::TypedArrayPrototypeJoin,
             Self::TypedArrayPrototypeToLocaleString,
             Self::TypedArrayFrom,
             Self::TypedArrayOf,
@@ -2969,10 +3236,15 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter,
             Self::RegExpLegacyStaticGetter,
             Self::RegExpLegacyStaticSetter,
+            Self::RegExpPrototypeCompile,
             Self::RegExpPrototypeExec,
+            Self::RegExpPrototypeTest,
+            Self::RegExpPrototypeToString,
             Self::RegExpPrototypeSymbolMatch,
             Self::RegExpPrototypeSymbolMatchAll,
+            Self::RegExpPrototypeSymbolReplace,
             Self::RegExpPrototypeSymbolSearch,
+            Self::RegExpPrototypeSymbolSplit,
             Self::RegExpEscape,
             Self::JsonParse,
             Self::JsonStringify,
@@ -3060,9 +3332,13 @@ impl StandardBuiltinId {
             Self::MathMin,
             Self::MathMax,
             Self::StringConstructor,
+            Self::StringFromCharCode,
+            Self::StringFromCodePoint,
+            Self::StringRaw,
             Self::StringPrototypeToString,
             Self::StringPrototypeValueOf,
             Self::StringPrototypeCharAt,
+            Self::StringPrototypeConcat,
             Self::StringPrototypeCharCodeAt,
             Self::StringPrototypeCodePointAt,
             Self::StringPrototypeAt,
@@ -3096,6 +3372,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeEndsWith,
             Self::StringPrototypeIncludes,
             Self::StringPrototypeStartsWith,
+            Self::StringPrototypeNormalize,
+            Self::StringPrototypeLocaleCompare,
+            Self::StringPrototypeIterator,
+            Self::StringPrototypeToLocaleLowerCase,
+            Self::StringPrototypeToLocaleUpperCase,
+            Self::StringPrototypeToLowerCase,
             Self::StringPrototypeToUpperCase,
             Self::StringPrototypeTrim,
             Self::StringPrototypeTrimStart,
@@ -3216,6 +3498,7 @@ impl StandardBuiltinId {
                 | Self::ReflectSetPrototypeOf
                 | Self::ReflectOwnKeys
                 | Self::IteratorFrom
+                | Self::IteratorZip
                 | Self::ArrayFrom
                 | Self::ArrayOf
                 | Self::ArrayIsArray
@@ -3302,6 +3585,7 @@ impl StandardBuiltinId {
             Self::StringPrototypeToString => Some("toString"),
             Self::StringPrototypeValueOf => Some("valueOf"),
             Self::StringPrototypeCharAt => Some("charAt"),
+            Self::StringPrototypeConcat => Some("concat"),
             Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
             Self::StringPrototypeCodePointAt => Some("codePointAt"),
             Self::StringPrototypeAt => Some("at"),
@@ -3322,6 +3606,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
+            Self::StringPrototypeNormalize => Some("normalize"),
+            Self::StringPrototypeLocaleCompare => Some("localeCompare"),
+            Self::StringPrototypeIterator => Some("[Symbol.iterator]"),
+            Self::StringPrototypeToLocaleLowerCase => Some("toLocaleLowerCase"),
+            Self::StringPrototypeToLocaleUpperCase => Some("toLocaleUpperCase"),
+            Self::StringPrototypeToLowerCase => Some("toLowerCase"),
             Self::StringPrototypeToUpperCase => Some("toUpperCase"),
             Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
@@ -3359,6 +3649,8 @@ impl StandardBuiltinId {
             Self::ObjectIsExtensible => Some("isExtensible"),
             Self::ObjectPreventExtensions => Some("preventExtensions"),
             Self::ObjectPrototypeHasOwnProperty => Some("hasOwnProperty"),
+            Self::ObjectPrototypeLookupGetter => Some("__lookupGetter__"),
+            Self::ObjectPrototypeLookupSetter => Some("__lookupSetter__"),
             Self::ObjectPrototypePropertyIsEnumerable => Some("propertyIsEnumerable"),
             Self::ObjectPrototypeIsPrototypeOf => Some("isPrototypeOf"),
             Self::ObjectPrototypeToString => Some("toString"),
@@ -3387,11 +3679,19 @@ impl StandardBuiltinId {
             Self::ArraySpeciesGetter => Some("get [Symbol.species]"),
             Self::ArrayPrototypeConcat => Some("concat"),
             Self::ArrayPrototypeJoin => Some("join"),
+            Self::ArrayPrototypeSlice => Some("slice"),
             Self::ArrayPrototypeSplice => Some("splice"),
+            Self::ArrayPrototypeSort => Some("sort"),
             Self::ArrayPrototypeToLocaleString => Some("toLocaleString"),
             Self::ArrayPrototypeFlat => Some("flat"),
             Self::ArrayPrototypeFlatMap => Some("flatMap"),
             Self::ArrayPrototypeAt => Some("at"),
+            Self::ArrayPrototypeToReversed => Some("toReversed"),
+            Self::ArrayPrototypeToSpliced => Some("toSpliced"),
+            Self::ArrayPrototypeToSorted => Some("toSorted"),
+            Self::ArrayPrototypeWith => Some("with"),
+            Self::ArrayPrototypeReverse => Some("reverse"),
+            Self::ArrayPrototypeCopyWithin => Some("copyWithin"),
             Self::ArrayPrototypeIncludes => Some("includes"),
             Self::ArrayPrototypeIndexOf => Some("indexOf"),
             Self::ArrayPrototypeLastIndexOf => Some("lastIndexOf"),
@@ -3408,13 +3708,22 @@ impl StandardBuiltinId {
             Self::ArrayPrototypeReduceRight => Some("reduceRight"),
             Self::ArrayPrototypePop => Some("pop"),
             Self::ArrayPrototypePush => Some("push"),
+            Self::ArrayPrototypeShift => Some("shift"),
+            Self::ArrayPrototypeUnshift => Some("unshift"),
+            Self::ArrayPrototypeFill => Some("fill"),
             Self::ArrayPrototypeKeys => Some("keys"),
             Self::ArrayPrototypeEntries => Some("entries"),
             Self::ArrayPrototypeValues => Some("values"),
             Self::ArrayIteratorNext => Some("next"),
             Self::ArrayIteratorIdentity => Some("[Symbol.iterator]"),
+            Self::StringIteratorNext => Some("next"),
             Self::IteratorConstructor => Some("Iterator"),
             Self::IteratorFrom => Some("from"),
+            Self::IteratorZip => Some("zip"),
+            Self::IteratorZipNext => Some("next"),
+            Self::IteratorZipReturn => Some("return"),
+            Self::IteratorHelperNext => Some("next"),
+            Self::IteratorHelperReturn => Some("return"),
             Self::IteratorPrototypeToArray => Some("toArray"),
             Self::IteratorPrototypeForEach => Some("forEach"),
             Self::IteratorPrototypeEvery => Some("every"),
@@ -3489,6 +3798,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::TypedArrayPrototypeLengthGetter => Some("get length"),
             Self::TypedArrayPrototypeToString => Some("toString"),
+            Self::TypedArrayPrototypeJoin => Some("join"),
             Self::TypedArrayPrototypeToLocaleString => Some("toLocaleString"),
             Self::TypedArrayFrom => Some("from"),
             Self::TypedArrayOf => Some("of"),
@@ -3568,10 +3878,15 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeStickyGetter => Some("get sticky"),
             Self::RegExpLegacyStaticGetter => Some("get RegExp legacy static"),
             Self::RegExpLegacyStaticSetter => Some("set RegExp legacy static"),
+            Self::RegExpPrototypeCompile => Some("compile"),
             Self::RegExpPrototypeExec => Some("exec"),
+            Self::RegExpPrototypeTest => Some("test"),
+            Self::RegExpPrototypeToString => Some("toString"),
             Self::RegExpPrototypeSymbolMatch => Some("[Symbol.match]"),
             Self::RegExpPrototypeSymbolMatchAll => Some("[Symbol.matchAll]"),
+            Self::RegExpPrototypeSymbolReplace => Some("[Symbol.replace]"),
             Self::RegExpPrototypeSymbolSearch => Some("[Symbol.search]"),
+            Self::RegExpPrototypeSymbolSplit => Some("[Symbol.split]"),
             Self::RegExpEscape => Some("escape"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
@@ -3641,9 +3956,13 @@ impl StandardBuiltinId {
             Self::MathMin => Some("min"),
             Self::MathMax => Some("max"),
             Self::StringConstructor => Some(STRING_NAME),
+            Self::StringFromCharCode => Some("fromCharCode"),
+            Self::StringFromCodePoint => Some("fromCodePoint"),
+            Self::StringRaw => Some("raw"),
             Self::StringPrototypeToString => Some("toString"),
             Self::StringPrototypeValueOf => Some("valueOf"),
             Self::StringPrototypeCharAt => Some("charAt"),
+            Self::StringPrototypeConcat => Some("concat"),
             Self::StringPrototypeCharCodeAt => Some("charCodeAt"),
             Self::StringPrototypeCodePointAt => Some("codePointAt"),
             Self::StringPrototypeAt => Some("at"),
@@ -3677,6 +3996,12 @@ impl StandardBuiltinId {
             Self::StringPrototypeEndsWith => Some("endsWith"),
             Self::StringPrototypeIncludes => Some("includes"),
             Self::StringPrototypeStartsWith => Some("startsWith"),
+            Self::StringPrototypeNormalize => Some("normalize"),
+            Self::StringPrototypeLocaleCompare => Some("localeCompare"),
+            Self::StringPrototypeIterator => Some("[Symbol.iterator]"),
+            Self::StringPrototypeToLocaleLowerCase => Some("toLocaleLowerCase"),
+            Self::StringPrototypeToLocaleUpperCase => Some("toLocaleUpperCase"),
+            Self::StringPrototypeToLowerCase => Some("toLowerCase"),
             Self::StringPrototypeToUpperCase => Some("toUpperCase"),
             Self::StringPrototypeTrim => Some("trim"),
             Self::StringPrototypeTrimStart => Some("trimStart"),
@@ -3753,6 +4078,30 @@ mod tests {
             );
             assert!(!builtin.as_str().is_empty());
         }
+    }
+
+    #[test]
+    fn array_sort_builtin_id_round_trips_through_its_function_id() {
+        let builtin = StandardBuiltinId::ArrayPrototypeSort;
+        let function_id = builtin.function_id();
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.debug_name(), "Array.prototype.sort");
+        assert_eq!(builtin.native_function_name(), Some("sort"));
+    }
+
+    #[test]
+    fn array_shift_builtin_id_round_trips_through_its_function_id() {
+        let builtin = StandardBuiltinId::ArrayPrototypeShift;
+        let function_id = builtin.function_id();
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.debug_name(), "Array.prototype.shift");
+        assert_eq!(builtin.native_function_name(), Some("shift"));
     }
 
     #[test]

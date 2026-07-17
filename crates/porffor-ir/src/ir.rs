@@ -13,7 +13,41 @@ use crate::{
 };
 
 pub type FunctionId = String;
-pub type PrivateNameId = u32;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaticRegExpCompilation {
+    Program(RegExpProgram),
+    InvalidSyntax { message: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PrivateNameId {
+    class_scope: u32,
+    name_ordinal: u32,
+}
+
+impl PrivateNameId {
+    pub(crate) const fn new(class_scope: u32, name_ordinal: u32) -> Self {
+        Self {
+            class_scope,
+            name_ordinal,
+        }
+    }
+
+    pub const fn name_ordinal(self) -> u32 {
+        self.name_ordinal
+    }
+
+    pub const fn class_scope(self) -> u32 {
+        self.class_scope
+    }
+}
+
+impl std::fmt::Display for PrivateNameId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}.{}", self.class_scope, self.name_ordinal)
+    }
+}
 
 pub fn private_data_key(private_name_id: PrivateNameId) -> String {
     format!("$class.private.data.{private_name_id}")
@@ -393,6 +427,14 @@ pub enum ClassFunctionKind {
     Setter,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassElementExecutionKind {
+    None,
+    InstanceFieldInitializer,
+    StaticFieldInitializer,
+    StaticBlock,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
@@ -480,12 +522,31 @@ pub struct ClassPrivateMethodIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassFieldKeyIr {
+    Public(String),
+    ComputedPublic(u32),
+    Private(PrivateNameId),
+}
+
+impl ClassFieldKeyIr {
+    pub fn static_name(&self) -> Option<&str> {
+        match self {
+            Self::Public(name) => Some(name),
+            Self::ComputedPublic(_) | Self::Private(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassFieldInitIr {
-    pub key: Option<String>,
-    pub private_name_id: Option<PrivateNameId>,
+    pub key: ClassFieldKeyIr,
     pub init_function_id: Option<FunctionId>,
-    pub placement: ClassMethodPlacementIr,
-    pub is_private: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassInstanceElementPlanIr {
+    pub private_method_brands: Vec<PrivateNameId>,
+    pub fields: Vec<ClassFieldInitIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -494,16 +555,39 @@ pub struct ClassStaticBlockIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassElementDefinitionIr {
+    PublicMethod(ClassPublicMethodIr),
+    PrivateMethod(ClassPrivateMethodIr),
+    ComputedFieldKey { slot: u32, key: PropertyKeyIr },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassStaticElementIr {
+    Field(ClassFieldInitIr),
+    Block(ClassStaticBlockIr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassElementPlanIr {
+    pub definitions: Vec<ClassElementDefinitionIr>,
+    pub static_elements: Vec<ClassStaticElementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassNameBindingIr {
+    pub storage_name: String,
+    pub environment: LexicalEnvironmentIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
+    pub name_binding: Option<ClassNameBindingIr>,
     pub constructor_function_id: FunctionId,
     pub explicit_constructor: bool,
     pub heritage_kind: ClassHeritageKind,
     pub heritage: Option<Box<TypedExpr>>,
-    pub public_methods: Vec<ClassPublicMethodIr>,
-    pub private_methods: Vec<ClassPrivateMethodIr>,
-    pub fields: Vec<ClassFieldInitIr>,
-    pub static_blocks: Vec<ClassStaticBlockIr>,
+    pub element_plan: ClassElementPlanIr,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
 }
 
@@ -513,6 +597,137 @@ pub enum PropertyKeyIr {
     StringExpr(Box<TypedExpr>),
     ArrayIndex(Box<TypedExpr>),
     ArrayLength,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DestructuringPropertyKeyIr {
+    Static(String),
+    Computed(TypedExpr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DestructuringTargetIr {
+    Binding {
+        mode: BindingMode,
+        name: String,
+    },
+    AssignmentIdentifier {
+        name: String,
+        global: bool,
+        implicit: bool,
+        immutable: bool,
+    },
+    AssignmentProperty {
+        target: TypedExpr,
+        key: DestructuringPropertyKeyIr,
+    },
+    AssignmentPrivate {
+        target: TypedExpr,
+        private_name_id: PrivateNameId,
+    },
+    NestedArray(Box<ArrayDestructuringPatternIr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArrayDestructuringElementIr {
+    Elision,
+    Target {
+        target: DestructuringTargetIr,
+        default: Option<TypedExpr>,
+    },
+    Rest {
+        target: DestructuringTargetIr,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayDestructuringPatternIr {
+    pub elements: Vec<ArrayDestructuringElementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectDestructuringPropertyIr {
+    pub key: DestructuringPropertyKeyIr,
+    pub target: DestructuringTargetIr,
+    pub default: Option<TypedExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectDestructuringPatternIr {
+    pub properties: Vec<ObjectDestructuringPropertyIr>,
+    pub rest: Option<DestructuringTargetIr>,
+}
+
+impl ObjectDestructuringPatternIr {
+    pub fn visit_expressions(&self, visit: &mut impl FnMut(&TypedExpr)) {
+        for property in &self.properties {
+            if let DestructuringPropertyKeyIr::Computed(key) = &property.key {
+                visit(key);
+            }
+            visit_destructuring_target_expressions(&property.target, visit);
+            if let Some(default) = &property.default {
+                visit(default);
+            }
+        }
+        if let Some(rest) = &self.rest {
+            visit_destructuring_target_expressions(rest, visit);
+        }
+    }
+}
+
+fn visit_destructuring_target_expressions(
+    target: &DestructuringTargetIr,
+    visit: &mut impl FnMut(&TypedExpr),
+) {
+    match target {
+        DestructuringTargetIr::AssignmentProperty { target, key } => {
+            visit(target);
+            if let DestructuringPropertyKeyIr::Computed(key) = key {
+                visit(key);
+            }
+        }
+        DestructuringTargetIr::AssignmentPrivate { target, .. } => visit(target),
+        DestructuringTargetIr::NestedArray(pattern) => pattern.visit_expressions(visit),
+        DestructuringTargetIr::Binding { .. }
+        | DestructuringTargetIr::AssignmentIdentifier { .. } => {}
+    }
+}
+
+impl ArrayDestructuringPatternIr {
+    pub fn visit_expressions(&self, visit: &mut impl FnMut(&TypedExpr)) {
+        for element in &self.elements {
+            let (target, default) = match element {
+                ArrayDestructuringElementIr::Elision => continue,
+                ArrayDestructuringElementIr::Target { target, default } => {
+                    (target, default.as_ref())
+                }
+                ArrayDestructuringElementIr::Rest { target } => (target, None),
+            };
+            visit_destructuring_target_expressions(target, visit);
+            if let Some(default) = default {
+                visit(default);
+            }
+        }
+    }
+
+    pub fn visit_bindings(&self, visit: &mut impl FnMut(BindingMode, &str)) {
+        for element in &self.elements {
+            let target = match element {
+                ArrayDestructuringElementIr::Elision => continue,
+                ArrayDestructuringElementIr::Target { target, .. }
+                | ArrayDestructuringElementIr::Rest { target } => target,
+            };
+            match target {
+                DestructuringTargetIr::Binding { mode, name } => visit(*mode, name),
+                DestructuringTargetIr::NestedArray(pattern) => {
+                    pattern.visit_bindings(visit);
+                }
+                DestructuringTargetIr::AssignmentIdentifier { .. }
+                | DestructuringTargetIr::AssignmentProperty { .. }
+                | DestructuringTargetIr::AssignmentPrivate { .. } => {}
+            }
+        }
+    }
 }
 
 impl PropertyKeyIr {
@@ -996,6 +1211,12 @@ pub enum ExprIr {
         return_mode: UpdateReturnMode,
         value_kind: ValueKind,
     },
+    PropertyCompoundAssign {
+        target: Box<TypedExpr>,
+        key: PropertyKeyIr,
+        op: ArithmeticBinaryOp,
+        value: Box<TypedExpr>,
+    },
     UpdateIdentifier {
         name: String,
         op: NumericUpdateOp,
@@ -1084,6 +1305,7 @@ pub enum ExprIr {
         lhs: Box<TypedExpr>,
         rhs: Box<TypedExpr>,
     },
+    TemplateObject(TemplateObjectIr),
     CompareNumber {
         op: RelationalBinaryOp,
         lhs: Box<TypedExpr>,
@@ -1118,6 +1340,20 @@ pub enum ExprIr {
         lhs: Box<TypedExpr>,
         rhs: Box<TypedExpr>,
     },
+    MaterializeBinding {
+        name: String,
+        value: Box<TypedExpr>,
+        body: Box<TypedExpr>,
+    },
+    ArrayDestructure {
+        value: Box<TypedExpr>,
+        pattern: ArrayDestructuringPatternIr,
+        assignment: bool,
+    },
+    ObjectDestructure {
+        value: Box<TypedExpr>,
+        pattern: Box<ObjectDestructuringPatternIr>,
+    },
     CallNamed {
         name: String,
         args: Vec<TypedExpr>,
@@ -1136,6 +1372,10 @@ pub enum ExprIr {
         callee: Box<TypedExpr>,
         this_arg: Option<Box<TypedExpr>>,
         args: Vec<TypedExpr>,
+        /// The static compilation outcome for a direct, constant `RegExp` call.
+        /// This is metadata only: the ordinary call path still observes callee,
+        /// receiver, and argument evaluation before applying the outcome.
+        static_regexp_compilation: Option<StaticRegExpCompilation>,
     },
     JsonParseStaticReviver {
         value: JsonStaticValueIr,
@@ -1144,6 +1384,10 @@ pub enum ExprIr {
     Construct {
         callee: Box<TypedExpr>,
         args: Vec<TypedExpr>,
+        /// The static compilation outcome for a direct, constant `new RegExp` call.
+        /// This is metadata only: construction still observes callee and argument
+        /// evaluation before applying the outcome.
+        static_regexp_compilation: Option<StaticRegExpCompilation>,
     },
     ClassDefinition(Box<ClassDefinitionIr>),
     CallMethod {
@@ -1185,9 +1429,22 @@ pub enum ExprIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateObjectIr {
+    pub site_id: u64,
+    pub cooked: Vec<Option<String>>,
+    pub raw: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OptionalChainOperationIr {
     Property {
         key: PropertyKeyIr,
+        /// Whether this operation was introduced by `?.` and therefore
+        /// short-circuits the whole chain for a nullish receiver.
+        shorted: bool,
+    },
+    PrivateProperty {
+        private_name_id: PrivateNameId,
         /// Whether this operation was introduced by `?.` and therefore
         /// short-circuits the whole chain for a nullish receiver.
         shorted: bool,
@@ -1278,8 +1535,28 @@ pub struct OwnedEnvBindingIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LexicalEnvironmentIr {
+    pub bindings: Vec<OwnedEnvBindingIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForLexicalEnvironmentIr {
+    pub bindings: Vec<OwnedEnvBindingIr>,
+    pub per_iteration_slots: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForInOfEnvironmentIr {
+    pub tdz_environment: Option<LexicalEnvironmentIr>,
+    pub iteration_environment: Option<LexicalEnvironmentIr>,
+    pub tdz_binding_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedBindingIr {
     pub name: String,
+    pub source_name: String,
+    pub mode: BindingMode,
     pub slot: u32,
     pub hops: u32,
 }
@@ -1304,15 +1581,20 @@ pub struct FunctionIr {
     pub callable: bool,
     pub constructable: bool,
     pub class_kind: ClassFunctionKind,
+    pub class_element_execution_kind: ClassElementExecutionKind,
     pub class_heritage_kind: ClassHeritageKind,
     pub is_static_class_member: bool,
     pub is_derived_constructor: bool,
     pub is_synthetic_default_derived_constructor: bool,
+    pub class_instance_element_plan: Option<ClassInstanceElementPlanIr>,
     pub super_constructor_target: Option<FunctionId>,
     pub uses_super: bool,
     pub this_before_super: bool,
     pub lexical_derived_activation: Option<DerivedConstructorActivationIr>,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
+    /// Keeps the lexical private environment available to this function and
+    /// any nested function values it creates at runtime.
+    pub captures_private_environment: bool,
     pub is_nested: bool,
     pub is_expression: bool,
     pub is_named_expression: bool,
@@ -1336,6 +1618,11 @@ pub enum StatementIr {
         name: String,
         init: TypedExpr,
     },
+    AnnexBFunctionCopy {
+        source_name: String,
+        block_storage_name: String,
+        variable_storage_name: String,
+    },
     LexicalBlock(Vec<StatementIr>),
     Var(Vec<VarDeclaratorIr>),
     Expression(TypedExpr),
@@ -1358,45 +1645,54 @@ pub enum StatementIr {
         test: Option<TypedExpr>,
         update: Option<TypedExpr>,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForLexicalEnvironmentIr>,
     },
     ForOfArray {
         mode: BindingMode,
         name: String,
         iterable: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     ForOfString {
         mode: BindingMode,
         name: String,
         iterable: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     ForOfIterator {
         mode: BindingMode,
         name: String,
         iterable: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     ForInArray {
         mode: BindingMode,
         name: String,
         target: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     ForInString {
         mode: BindingMode,
         name: String,
         target: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     ForInObject {
         mode: BindingMode,
         name: String,
         target: TypedExpr,
         body: Box<StatementIr>,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
     },
     Switch {
         discriminant: TypedExpr,
+        lexical_environment: Option<LexicalEnvironmentIr>,
+        lexical_declarations: Vec<StatementIr>,
         cases: Vec<SwitchCaseIr>,
     },
     Labelled {
@@ -1409,6 +1705,7 @@ pub enum StatementIr {
         try_block: BlockIr,
         catch_name: String,
         catch_source_name: String,
+        catch_parameter_environment: Option<LexicalEnvironmentIr>,
         catch_block: BlockIr,
     },
     TryFinally {
@@ -1419,6 +1716,7 @@ pub enum StatementIr {
         try_block: BlockIr,
         catch_name: String,
         catch_source_name: String,
+        catch_parameter_environment: Option<LexicalEnvironmentIr>,
         catch_block: BlockIr,
         finally_block: BlockIr,
     },
@@ -1451,6 +1749,7 @@ impl StatementIr {
 pub struct BlockIr {
     pub statements: Vec<StatementIr>,
     pub result_kind: ValueKind,
+    pub lexical_environment: Option<LexicalEnvironmentIr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1594,7 +1893,10 @@ impl ProgramIr {
                     script
                         .global_bindings
                         .iter()
-                        .filter(|binding| matches!(binding.kind, ScriptGlobalBindingKind::BuiltinFunction(_)))
+                        .filter(|binding| matches!(
+                            binding.kind,
+                            ScriptGlobalBindingKind::BuiltinFunction(_)
+                        ))
                         .count(),
                     script
                         .global_bindings
@@ -1775,6 +2077,14 @@ struct IrSummaryCounts {
 
 impl IrSummaryCounts {
     fn visit_function(&mut self, function: &FunctionIr) {
+        if let Some(plan) = &function.class_instance_element_plan {
+            self.class_fields += plan.fields.len();
+            self.private_elements += plan
+                .fields
+                .iter()
+                .filter(|field| matches!(&field.key, ClassFieldKeyIr::Private(_)))
+                .count();
+        }
         if function.is_nested {
             self.nested_functions += 1;
         }
@@ -1820,7 +2130,7 @@ impl IrSummaryCounts {
     fn visit_statement(&mut self, statement: &StatementIr) {
         self.statements += 1;
         match statement {
-            StatementIr::Empty => {}
+            StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
             StatementIr::Lexical { mode, init, .. } => {
                 match mode {
                     BindingMode::Let => self.lets += 1,
@@ -1874,6 +2184,7 @@ impl IrSummaryCounts {
                 test,
                 update,
                 body,
+                ..
             } => {
                 self.fors += 1;
                 if let Some(init) = init {
@@ -1911,10 +2222,15 @@ impl IrSummaryCounts {
             }
             StatementIr::Switch {
                 discriminant,
+                lexical_declarations,
                 cases,
+                ..
             } => {
                 self.switches += 1;
                 self.visit_expr(discriminant);
+                for declaration in lexical_declarations {
+                    self.visit_statement(declaration);
+                }
                 for case in cases {
                     if let Some(condition) = &case.condition {
                         self.visit_expr(condition);
@@ -2089,6 +2405,9 @@ impl IrSummaryCounts {
                     self.visit_expr(element);
                 }
             }
+            ExprIr::TemplateObject(_) => {
+                self.arrays += 2;
+            }
             ExprIr::SpreadArgument(value) => {
                 self.visit_expr(value);
             }
@@ -2118,6 +2437,10 @@ impl IrSummaryCounts {
                                 self.prototype_reads += 1;
                             }
                             self.visit_property_key(key);
+                            previous_was_property = true;
+                        }
+                        OptionalChainOperationIr::PrivateProperty { .. } => {
+                            self.private_elements += 1;
                             previous_was_property = true;
                         }
                         OptionalChainOperationIr::Call { args, receiver, .. } => {
@@ -2158,6 +2481,16 @@ impl IrSummaryCounts {
                 }
                 self.visit_expr(target);
                 self.visit_property_key(key);
+            }
+            ExprIr::PropertyCompoundAssign {
+                target, key, value, ..
+            } => {
+                self.property_reads += 1;
+                self.property_writes += 1;
+                self.compound_assignments += 1;
+                self.visit_expr(target);
+                self.visit_property_key(key);
+                self.visit_expr(value);
             }
             ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
                 UpdateReturnMode::Prefix => self.prefix_updates += 1,
@@ -2334,6 +2667,20 @@ impl IrSummaryCounts {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
+            ExprIr::MaterializeBinding { value, body, .. } => {
+                self.visit_expr(value);
+                self.visit_expr(body);
+            }
+            ExprIr::ArrayDestructure { value, pattern, .. } => {
+                self.assignments += 1;
+                self.visit_expr(value);
+                pattern.visit_expressions(&mut |expr| self.visit_expr(expr));
+            }
+            ExprIr::ObjectDestructure { value, pattern } => {
+                self.assignments += 1;
+                self.visit_expr(value);
+                pattern.visit_expressions(&mut |expr| self.visit_expr(expr));
+            }
             ExprIr::Conditional {
                 condition,
                 then_expr,
@@ -2368,7 +2715,7 @@ impl IrSummaryCounts {
                 self.indirect_calls += 1;
                 self.visit_expr(reviver);
             }
-            ExprIr::Construct { callee, args } => {
+            ExprIr::Construct { callee, args, .. } => {
                 self.calls += 1;
                 self.indirect_calls += 1;
                 self.constructs += 1;
@@ -2384,15 +2731,31 @@ impl IrSummaryCounts {
                 self.class_extends += usize::from(class.heritage_kind != ClassHeritageKind::None);
                 self.null_heritage_classes +=
                     usize::from(class.heritage_kind == ClassHeritageKind::Null);
-                self.class_fields += class.fields.len();
-                self.private_elements +=
-                    class.fields.iter().filter(|field| field.is_private).count();
-                self.private_elements += class.private_methods.len();
-                self.static_blocks += class.static_blocks.len();
+                for static_element in &class.element_plan.static_elements {
+                    match static_element {
+                        ClassStaticElementIr::Field(field) => {
+                            self.class_fields += 1;
+                            self.private_elements +=
+                                usize::from(matches!(&field.key, ClassFieldKeyIr::Private(_)));
+                        }
+                        ClassStaticElementIr::Block(_) => self.static_blocks += 1,
+                    }
+                }
+                self.private_elements += class
+                    .element_plan
+                    .definitions
+                    .iter()
+                    .filter(|definition| {
+                        matches!(definition, ClassElementDefinitionIr::PrivateMethod(_))
+                    })
+                    .count();
                 if let Some(heritage) = &class.heritage {
                     self.visit_expr(heritage);
                 }
-                for method in &class.public_methods {
+                for definition in &class.element_plan.definitions {
+                    let ClassElementDefinitionIr::PublicMethod(method) = definition else {
+                        continue;
+                    };
                     self.visit_property_key(&method.key);
                 }
             }

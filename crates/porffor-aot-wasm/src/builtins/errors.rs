@@ -244,7 +244,11 @@ impl<'a> FunctionBuilder<'a> {
         let proxy_handler_payload_local = self.reserve_temp_local();
         let proxy_target_tag_local = self.reserve_temp_local();
 
-        self.compile_new_target_to_locals(new_target_payload_local, new_target_tag_local, function);
+        self.compile_new_target_to_locals(
+            new_target_payload_local,
+            new_target_tag_local,
+            function,
+        )?;
         function.instruction(&Instruction::LocalGet(new_target_payload_local));
         function.instruction(&Instruction::LocalSet(realm_source_payload_local));
         function.instruction(&Instruction::LocalGet(new_target_tag_local));
@@ -586,10 +590,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
         if !self.is_main() {
             self.emit_return_current_completion(function);
-        } else if let Some(target) = self.throw_handler_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + extra_depth));
-        } else if let Some(target) = self.finally_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + extra_depth));
+        } else if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, extra_depth, function);
         } else {
             self.emit_return_current_completion(function);
         }

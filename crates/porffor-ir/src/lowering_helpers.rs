@@ -29,10 +29,9 @@ pub(crate) fn collect_simple_parameter_names(
             return Vec::new();
         }
         let name = interner.resolve_expect(identifier.sym()).to_string();
-        if !seen.insert(name.clone()) {
-            return Vec::new();
+        if seen.insert(name.clone()) {
+            names.push(name);
         }
-        names.push(name);
     }
     names
 }
@@ -92,6 +91,72 @@ pub(crate) fn collect_binding_names(
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct SupportedBoundName {
+    pub(crate) source_name: String,
+    pub(crate) span: boa_ast::Span,
+}
+
+pub(crate) fn supported_bound_names(
+    interner: &Interner,
+    binding: &Binding,
+) -> Option<Vec<SupportedBoundName>> {
+    let identifiers = match binding {
+        Binding::Identifier(identifier) => vec![identifier],
+        Binding::Pattern(Pattern::Object(pattern)) => {
+            let mut identifiers = Vec::with_capacity(pattern.bindings().len());
+            for element in pattern.bindings() {
+                let ObjectPatternElement::SingleName { name, ident, .. } = element else {
+                    return None;
+                };
+                if !matches!(name, PropertyName::Literal(_)) {
+                    return None;
+                }
+                identifiers.push(ident);
+            }
+            identifiers
+        }
+        Binding::Pattern(Pattern::Array(pattern)) => {
+            fn collect<'a>(
+                pattern: &'a boa_ast::pattern::ArrayPattern,
+                identifiers: &mut Vec<&'a boa_ast::expression::Identifier>,
+            ) -> Option<()> {
+                for element in pattern.bindings() {
+                    match element {
+                        ArrayPatternElement::SingleName { ident, .. }
+                        | ArrayPatternElement::SingleNameRest { ident } => identifiers.push(ident),
+                        ArrayPatternElement::Pattern { pattern, .. }
+                        | ArrayPatternElement::PatternRest { pattern } => {
+                            let Pattern::Array(pattern) = pattern else {
+                                return None;
+                            };
+                            collect(pattern, identifiers)?;
+                        }
+                        ArrayPatternElement::Elision => {}
+                        ArrayPatternElement::PropertyAccess { .. }
+                        | ArrayPatternElement::PropertyAccessRest { .. } => return None,
+                    }
+                }
+                Some(())
+            }
+
+            let mut identifiers = Vec::with_capacity(pattern.bindings().len());
+            collect(pattern, &mut identifiers)?;
+            identifiers
+        }
+    };
+
+    Some(
+        identifiers
+            .into_iter()
+            .map(|identifier| SupportedBoundName {
+                source_name: interner.resolve_expect(identifier.sym()).to_string(),
+                span: identifier.span(),
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn function_declaration_key(function: &FunctionDeclaration) -> String {
     let span = function.linear_span();
     format!(
@@ -99,6 +164,63 @@ pub(crate) fn function_declaration_key(function: &FunctionDeclaration) -> String
         span.start().pos(),
         span.end().pos()
     )
+}
+
+pub(crate) fn statement_list_item_function_declaration(
+    item: &StatementListItem,
+) -> Option<&FunctionDeclaration> {
+    match item {
+        StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+            Declaration::FunctionDeclaration(function) => Some(function),
+            _ => None,
+        },
+        StatementListItem::Statement(statement) => match statement.as_ref() {
+            Statement::Labelled(labelled) => labelled_function_declaration(labelled),
+            _ => None,
+        },
+    }
+}
+
+pub(crate) fn annex_b_block_storage_name(
+    function: &FunctionDeclaration,
+    source_name: &str,
+) -> String {
+    let span = function.linear_span();
+    format!(
+        "$annexb.block.{}.{}.{}",
+        span.start().pos(),
+        span.end().pos(),
+        source_name
+    )
+}
+
+pub(crate) fn scoped_lexical_binding_storage_name(
+    source_name: &str,
+    span: boa_ast::Span,
+) -> String {
+    format!(
+        "$scoped.lex.{}.{}.{}.{}.{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number(),
+        source_name
+    )
+}
+
+pub(crate) fn class_name_binding_storage_name(source_name: &str, span: boa_ast::Span) -> String {
+    format!(
+        "$class.name.{}.{}.{}.{}.{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number(),
+        source_name
+    )
+}
+
+pub(crate) fn is_class_name_binding_storage_name(storage_name: &str) -> bool {
+    storage_name.starts_with("$class.name.")
 }
 
 pub(crate) fn is_supported_parameter_binding(binding: &Binding) -> bool {
@@ -113,7 +235,26 @@ pub(crate) fn is_supported_parameter_binding(binding: &Binding) -> bool {
                 }
             )
         }),
-        Binding::Pattern(Pattern::Array(_)) => false,
+        Binding::Pattern(Pattern::Array(pattern)) => {
+            fn is_supported_array_pattern(pattern: &boa_ast::pattern::ArrayPattern) -> bool {
+                pattern.bindings().iter().all(|element| match element {
+                    ArrayPatternElement::Elision
+                    | ArrayPatternElement::SingleName { .. }
+                    | ArrayPatternElement::SingleNameRest { .. } => true,
+                    ArrayPatternElement::Pattern { pattern, .. }
+                    | ArrayPatternElement::PatternRest { pattern } => {
+                        let Pattern::Array(pattern) = pattern else {
+                            return false;
+                        };
+                        is_supported_array_pattern(pattern)
+                    }
+                    ArrayPatternElement::PropertyAccess { .. }
+                    | ArrayPatternElement::PropertyAccessRest { .. } => false,
+                })
+            }
+
+            is_supported_array_pattern(pattern)
+        }
     }
 }
 
@@ -316,8 +457,46 @@ pub(crate) fn class_method_debug_key(key: &PropertyKeyIr) -> String {
     key.static_name().unwrap_or("<computed>").to_string()
 }
 
+pub(crate) fn class_field_debug_key(key: &ClassFieldKeyIr) -> String {
+    match key {
+        ClassFieldKeyIr::Public(name) => name.clone(),
+        ClassFieldKeyIr::ComputedPublic(slot) => format!("<computed:{slot}>"),
+        ClassFieldKeyIr::Private(private_name_id) => private_data_key(*private_name_id),
+    }
+}
+
 pub(crate) fn class_constructor_key(function: &FunctionExpression) -> String {
     format!("class-constructor:{}", function_expression_key(function))
+}
+
+pub(crate) fn class_default_constructor_key(span: boa_ast::LinearSpan) -> String {
+    format!(
+        "class-default-constructor:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn class_field_initializer_key(initializer: &Expression) -> String {
+    let span = initializer.span();
+    format!(
+        "class-field-initializer:{}:{}:{}:{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number()
+    )
+}
+
+pub(crate) fn class_static_block_key(block: &StaticBlockBody) -> String {
+    let span = block.statements().span();
+    format!(
+        "class-static-block:{}:{}:{}:{}",
+        span.start().line_number(),
+        span.start().column_number(),
+        span.end().line_number(),
+        span.end().column_number()
+    )
 }
 
 pub(crate) fn source_slice_from_positions(source_text: &str, start: usize, end: usize) -> String {

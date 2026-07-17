@@ -1,0 +1,270 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13633355558846083878,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 3,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 18,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 18,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 3
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/with/length.js",
+      "duration_ms": 15020
+    },
+    {
+      "path": "built-ins/Array/prototype/with/name.js",
+      "duration_ms": 14976
+    },
+    {
+      "path": "built-ins/Array/prototype/with/property-descriptor.js",
+      "duration_ms": 14225
+    },
+    {
+      "path": "built-ins/Array/prototype/with/index-casted-to-number.js",
+      "duration_ms": 10351
+    },
+    {
+      "path": "built-ins/Array/prototype/with/this-value-boolean.js",
+      "duration_ms": 10169
+    },
+    {
+      "path": "built-ins/Array/prototype/with/index-negative.js",
+      "duration_ms": 9399
+    },
+    {
+      "path": "built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+      "duration_ms": 9053
+    },
+    {
+      "path": "built-ins/Array/prototype/with/immutable.js",
+      "duration_ms": 9020
+    },
+    {
+      "path": "built-ins/Array/prototype/with/holes-not-preserved.js",
+      "duration_ms": 8983
+    },
+    {
+      "path": "built-ins/Array/prototype/with/length-tolength.js",
+      "duration_ms": 8891
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Array/prototype/with/frozen-this-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@257392)",
+      "detail_hash": 616601133682523033,
+      "duration_ms": 8840
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/holes-not-preserved.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@257176)",
+      "detail_hash": 5745921344337985584,
+      "duration_ms": 8983
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/ignores-species.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@247992)",
+      "detail_hash": 7697526128447535139,
+      "duration_ms": 4905
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/immutable.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256672)",
+      "detail_hash": 14758389380737652998,
+      "duration_ms": 9020
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/index-bigger-or-eq-than-length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@261064)",
+      "detail_hash": 6191022275370288333,
+      "duration_ms": 7558
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/index-casted-to-number.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256992)",
+      "detail_hash": 1939870634765983210,
+      "duration_ms": 10351
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/index-negative.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256984)",
+      "detail_hash": 10923878402129476140,
+      "duration_ms": 9399
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/index-smaller-than-minus-length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@257368)",
+      "detail_hash": 17290793847706173581,
+      "duration_ms": 7889
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@259512)",
+      "detail_hash": 362080140915274857,
+      "duration_ms": 9053
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/length-exceeding-array-length-limit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@266520)",
+      "detail_hash": 16154767210303276719,
+      "duration_ms": 8263
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/length-increased-while-iterating.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@258656)",
+      "detail_hash": 12476814155358937910,
+      "duration_ms": 8100
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/length-tolength.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@256344)",
+      "detail_hash": 17117871316079015167,
+      "duration_ms": 8891
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@286400)",
+      "detail_hash": 1315478756212903744,
+      "duration_ms": 15020
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@286400)",
+      "detail_hash": 1315478756212903744,
+      "duration_ms": 14976
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/negative-fractional-index-truncated-to-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@241608)",
+      "detail_hash": 11712616899122850841,
+      "duration_ms": 4389
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/no-get-replaced-index.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@263296)",
+      "detail_hash": 2175603455068907604,
+      "duration_ms": 7626
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/property-descriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@284224)",
+      "detail_hash": 5092168425175707033,
+      "duration_ms": 14225
+    },
+    {
+      "test_path": "built-ins/Array/prototype/with/this-value-boolean.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@258936)",
+      "detail_hash": 17389372033233503319,
+      "duration_ms": 10169
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Array/prototype/with/frozen-this-value.js",
+    "built-ins/Array/prototype/with/holes-not-preserved.js",
+    "built-ins/Array/prototype/with/ignores-species.js",
+    "built-ins/Array/prototype/with/immutable.js",
+    "built-ins/Array/prototype/with/index-bigger-or-eq-than-length.js",
+    "built-ins/Array/prototype/with/index-casted-to-number.js",
+    "built-ins/Array/prototype/with/index-negative.js",
+    "built-ins/Array/prototype/with/index-smaller-than-minus-length.js",
+    "built-ins/Array/prototype/with/index-throw-completion.js",
+    "built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+    "built-ins/Array/prototype/with/length-exceeding-array-length-limit.js",
+    "built-ins/Array/prototype/with/length-increased-while-iterating.js",
+    "built-ins/Array/prototype/with/length-tolength.js",
+    "built-ins/Array/prototype/with/length.js",
+    "built-ins/Array/prototype/with/name.js",
+    "built-ins/Array/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "built-ins/Array/prototype/with/no-get-replaced-index.js",
+    "built-ins/Array/prototype/with/not-a-constructor.js",
+    "built-ins/Array/prototype/with/property-descriptor.js",
+    "built-ins/Array/prototype/with/this-value-boolean.js",
+    "built-ins/Array/prototype/with/this-value-nullish.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

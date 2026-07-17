@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/species-regexp-get-unicode-throws.js",
-      "duration_ms": 20509
+      "duration_ms": 8393
     }
   ],
   "timeout_list": [],

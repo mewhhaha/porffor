@@ -63,6 +63,28 @@ check(nonGlobalCoercions, 1, "non-global coercion");
 var unicodeDot = /./ug;
 checkExec(unicodeDot.exec("𝌆"), "𝌆", 0, "𝌆", "unicode dot exec");
 check(unicodeDot.lastIndex, 2, "unicode dot lastIndex");
+checkExec(/𝌆/u.exec("x𝌆"), "𝌆", 1, "x𝌆", "unicode direct scalar");
+checkExec(/\uD834\uDF06/u.exec("x𝌆"), "𝌆", 1, "x𝌆", "unicode escaped pair");
+check(/\udf06/u.exec("\ud834\udf06"), null, "unicode search skips low surrogate");
+checkExec(/\udf06/u.exec("x\udf06"), "\udf06", 1, "x\udf06", "unicode lone surrogate");
+checkExec(/\udf06/.exec("\ud834\udf06"), "\udf06", 1, "\ud834\udf06", "non-unicode low code unit");
+
+var unicodeStickyScalar = /𝌆/uy;
+unicodeStickyScalar.lastIndex = 1;
+checkExec(unicodeStickyScalar.exec("𝌆"), "𝌆", 0, "𝌆", "unicode sticky low start scalar");
+check(unicodeStickyScalar.lastIndex, 2, "unicode sticky low start scalar lastIndex");
+var unicodeStickyLow = /\udf06/uy;
+unicodeStickyLow.lastIndex = 1;
+check(unicodeStickyLow.exec("\ud834\udf06"), null, "unicode sticky low start rejects low");
+check(unicodeStickyLow.lastIndex, 0, "unicode sticky low start reset");
+var unicodeGlobalScalar = /𝌆/ug;
+unicodeGlobalScalar.lastIndex = 1;
+checkExec(unicodeGlobalScalar.exec("𝌆"), "𝌆", 0, "𝌆", "unicode global low start scalar");
+check(unicodeGlobalScalar.lastIndex, 2, "unicode global low start scalar lastIndex");
+var unicodeGlobalLow = /\udf06/ug;
+unicodeGlobalLow.lastIndex = 1;
+check(unicodeGlobalLow.exec("\ud834\udf06"), null, "unicode global low start rejects low");
+check(unicodeGlobalLow.lastIndex, 0, "unicode global low start reset");
 
 check(/a/g.test("a"), true, "global test");
 check(/a/gy.test("ba"), false, "sticky global test");

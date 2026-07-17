@@ -1,4 +1,135 @@
 use super::*;
+use crate::emit::ControlTarget;
+use porffor_ir::ObjectDestructuringPatternIr;
+
+fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
+    if left.frame >= right.frame {
+        left
+    } else {
+        right
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn innermost_target_uses_the_later_control_frame() {
+        let outer = ControlTarget {
+            frame: 2,
+            environment_depth: 1,
+        };
+        let inner = ControlTarget {
+            frame: 5,
+            environment_depth: 3,
+        };
+
+        assert_eq!(innermost_target(outer, inner), inner);
+        assert_eq!(innermost_target(inner, outer), inner);
+    }
+
+    #[test]
+    fn environment_hops_is_the_depth_difference() {
+        assert_eq!(environment_hops(0, 0), 0);
+        assert_eq!(environment_hops(4, 1), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "control target environment must enclose the current environment")]
+    fn environment_hops_rejects_a_deeper_target() {
+        environment_hops(1, 2);
+    }
+
+    #[test]
+    fn finalizer_crosses_only_branches_to_outer_frames() {
+        let finalizer = ControlTarget {
+            frame: 4,
+            environment_depth: 0,
+        };
+        let outer_branch = ControlTarget {
+            frame: 1,
+            environment_depth: 0,
+        };
+        let inner_branch = ControlTarget {
+            frame: 6,
+            environment_depth: 0,
+        };
+
+        assert!(finalizer_crosses_branch(finalizer, outer_branch));
+        assert!(!finalizer_crosses_branch(finalizer, finalizer));
+        assert!(!finalizer_crosses_branch(finalizer, inner_branch));
+    }
+}
+
+fn environment_hops(current_depth: u32, target_depth: u32) -> u32 {
+    current_depth
+        .checked_sub(target_depth)
+        .expect("control target environment must enclose the current environment")
+}
+
+fn finalizer_crosses_branch(finalizer: ControlTarget, branch_target: ControlTarget) -> bool {
+    finalizer.frame > branch_target.frame
+}
+
+fn iteration_environment_owns_binding(
+    lexical_environment: Option<&ForInOfEnvironmentIr>,
+    name: &str,
+) -> bool {
+    lexical_environment
+        .and_then(|environment| environment.iteration_environment.as_ref())
+        .is_some_and(|environment| {
+            environment
+                .bindings
+                .iter()
+                .any(|binding| binding.name == name)
+        })
+}
+
+#[derive(Clone, Copy)]
+struct DestructuringIteratorLocals {
+    iterator_payload: u32,
+    iterator_tag: u32,
+    next_payload: u32,
+    next_tag: u32,
+    key: u32,
+    result_payload: u32,
+    result_tag: u32,
+    done_payload: u32,
+    done_tag: u32,
+    value_payload: u32,
+    value_tag: u32,
+    return_payload: u32,
+    return_tag: u32,
+    done: u32,
+    close_saved_payload: u32,
+    close_saved_tag: u32,
+    close_saved_completion: u32,
+    close_saved_aux: u32,
+}
+
+#[derive(Clone, Copy)]
+enum DestructuringIteratorStepKind {
+    Elision,
+    Value,
+}
+
+enum PreparedDestructuringTarget {
+    Direct,
+    Property {
+        target: TypedExpr,
+        target_payload: u32,
+        target_tag: u32,
+        key: DestructuringPropertyKeyIr,
+        key_payload: Option<u32>,
+        key_tag: Option<u32>,
+    },
+    Private {
+        target_payload: u32,
+        target_tag: u32,
+        private_name_id: PrivateNameId,
+    },
+}
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_statement_result(&self, function: &mut Function, kind: ValueKind) {
@@ -73,6 +204,14 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn emit_return_current_completion(&self, function: &mut Function) {
+        for _ in 0..self.environment_depth {
+            self.load_i64_to_local_from_offset(
+                self.current_env_local,
+                ENV_PARENT_OFFSET,
+                self.current_env_local,
+                function,
+            );
+        }
         match self.return_abi {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::LocalGet(self.result_tag_local));
@@ -104,6 +243,25 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_propagate_current_completion_if_throw(&mut self, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_propagate_current_throw(&self, function: &mut Function) {
+        if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, 0, function);
+        } else {
+            self.emit_return_current_completion(function);
+        }
     }
 
     pub(crate) fn emit_break_current_completion_if_throw(
@@ -160,8 +318,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_from_locals(payload_local, tag_local, function)?;
-        if let Some(target) = self.throw_handler_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 1 + extra_depth));
+        if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, 1 + extra_depth, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -197,41 +355,63 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_dispatch_branch_completion(
         &self,
-        targets: &[(u32, usize)],
+        targets: &[(u32, ControlTarget)],
         extra_depth: u32,
         function: &mut Function,
     ) {
-        for (target_id, frame) in targets {
+        for (target_id, branch_target) in targets {
             function.instruction(&Instruction::LocalGet(self.completion_aux_local));
             function.instruction(&Instruction::I64Const(*target_id as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Br(self.depth_to(*frame) + extra_depth));
+            let target = self
+                .active_finally_target_for_branch(*branch_target)
+                .unwrap_or(*branch_target);
+            self.emit_branch_to_target(target, extra_depth, function);
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::Unreachable);
     }
 
-    pub(crate) fn active_break_targets(&self) -> Vec<(u32, usize)> {
+    pub(crate) fn active_break_targets(&self) -> Vec<(u32, ControlTarget)> {
         let mut targets = Vec::new();
-        for frame in self.breakable_stack.iter().rev() {
-            let target_id = *frame as u32;
+        for target in self.breakable_stack.iter().rev() {
+            let target_id = target.frame as u32;
             if !targets.iter().any(|(id, _)| *id == target_id) {
-                targets.push((target_id, *frame));
+                targets.push((target_id, *target));
             }
         }
         targets
     }
 
-    pub(crate) fn active_continue_targets(&self) -> Vec<(u32, usize)> {
+    pub(crate) fn active_continue_targets(&self) -> Vec<(u32, ControlTarget)> {
         let mut targets = Vec::new();
         for target in self.loop_stack.iter().rev() {
-            let target_id = target.continue_frame as u32;
+            let target_id = target.continue_frame.frame as u32;
             if !targets.iter().any(|(id, _)| *id == target_id) {
                 targets.push((target_id, target.continue_frame));
             }
         }
         targets
+    }
+
+    pub(crate) fn active_throw_target(&self) -> Option<ControlTarget> {
+        match (self.throw_handler_stack.last(), self.finally_stack.last()) {
+            (Some(handler), Some(finalizer)) => Some(innermost_target(*handler, *finalizer)),
+            (Some(handler), None) => Some(*handler),
+            (None, Some(finalizer)) => Some(*finalizer),
+            (None, None) => None,
+        }
+    }
+
+    fn active_finally_target_for_branch(
+        &self,
+        branch_target: ControlTarget,
+    ) -> Option<ControlTarget> {
+        self.finally_stack
+            .last()
+            .copied()
+            .filter(|finalizer| finalizer_crosses_branch(*finalizer, branch_target))
     }
 
     pub(crate) fn emit_dispatch_current_completion(
@@ -250,10 +430,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(target) = self.throw_handler_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 1 + extra_depth));
-        } else if let Some(target) = self.finally_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 1 + extra_depth));
+        if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, 1 + extra_depth, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -262,8 +440,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(target) = self.finally_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 2 + extra_depth));
+        if let Some(target) = self.finally_stack.last().copied() {
+            self.emit_branch_to_target(target, 2 + extra_depth, function);
         } else {
             self.normalize_derived_constructor_result(function)?;
             self.set_completion_kind(CompletionKind::Normal, function);
@@ -274,23 +452,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_BREAK));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(target) = self.finally_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 3 + extra_depth));
-        } else {
-            let targets = self.active_break_targets();
-            self.emit_dispatch_branch_completion(&targets, 4 + extra_depth, function);
-        }
+        let targets = self.active_break_targets();
+        self.emit_dispatch_branch_completion(&targets, 4 + extra_depth, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(target) = self.finally_stack.last() {
-            function.instruction(&Instruction::Br(self.depth_to(*target) + 4 + extra_depth));
-        } else {
-            let targets = self.active_continue_targets();
-            self.emit_dispatch_branch_completion(&targets, 5 + extra_depth, function);
-        }
+        let targets = self.active_continue_targets();
+        self.emit_dispatch_branch_completion(&targets, 5 + extra_depth, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -298,10 +468,13 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn push_control(&mut self, kind: ControlFrameKind) -> usize {
-        let index = self.control_stack.len();
+    pub(crate) fn push_control(&mut self, kind: ControlFrameKind) -> ControlTarget {
+        let target = ControlTarget {
+            frame: self.control_stack.len(),
+            environment_depth: self.environment_depth,
+        };
         self.control_stack.push(kind);
-        index
+        target
     }
 
     pub(crate) fn pop_control(&mut self, expected: ControlFrameKind) {
@@ -317,15 +490,52 @@ impl<'a> FunctionBuilder<'a> {
         ));
     }
 
-    pub(crate) fn depth_to(&self, target_index: usize) -> u32 {
-        (self.control_stack.len() - 1 - target_index) as u32
+    pub(crate) fn depth_to(&self, target: ControlTarget) -> u32 {
+        (self.control_stack.len() - 1 - target.frame) as u32
+    }
+
+    fn emit_unwind_environments_to_target(&self, target: ControlTarget, function: &mut Function) {
+        for _ in 0..environment_hops(self.environment_depth, target.environment_depth) {
+            self.load_i64_to_local_from_offset(
+                self.current_env_local,
+                ENV_PARENT_OFFSET,
+                self.current_env_local,
+                function,
+            );
+        }
+    }
+
+    pub(crate) fn emit_branch_to_target(
+        &self,
+        target: ControlTarget,
+        extra_depth: u32,
+        function: &mut Function,
+    ) {
+        self.emit_unwind_environments_to_target(target, function);
+        function.instruction(&Instruction::Br(self.depth_to(target) + extra_depth));
+    }
+
+    pub(crate) fn emit_branch_if_to_target(
+        &self,
+        target: ControlTarget,
+        extra_depth: u32,
+        function: &mut Function,
+    ) {
+        if target.environment_depth == self.environment_depth {
+            function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_depth));
+            return;
+        }
+
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_branch_to_target(target, extra_depth + 1, function);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn push_labels(
         &mut self,
         labels: &[String],
-        break_frame: usize,
-        continue_frame: Option<usize>,
+        break_frame: ControlTarget,
+        continue_frame: Option<ControlTarget>,
     ) {
         for label in labels {
             self.label_stack.push(LabelTargets {
@@ -347,8 +557,15 @@ impl<'a> FunctionBuilder<'a> {
         block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(environment) = &block.lexical_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        self.initialize_direct_lexical_bindings(&block.statements, function);
         if block.statements.is_empty() {
             self.emit_statement_result(function, ValueKind::Undefined);
+            if block.lexical_environment.is_some() {
+                self.emit_leave_lexical_environment(function);
+            }
             return Ok(());
         }
 
@@ -356,7 +573,55 @@ impl<'a> FunctionBuilder<'a> {
             self.compile_statement(statement, function)?;
         }
 
+        if block.lexical_environment.is_some() {
+            self.emit_leave_lexical_environment(function);
+        }
+
         Ok(())
+    }
+
+    fn initialize_direct_lexical_bindings(
+        &mut self,
+        statements: &[StatementIr],
+        function: &mut Function,
+    ) {
+        for statement in statements {
+            match statement {
+                StatementIr::Lexical { mode, name, init } => {
+                    let storage = self
+                        .lookup_current_scope_binding(name)
+                        .or_else(|| self.lookup_binding(name))
+                        .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                    self.initialize_binding_uninitialized(storage, function);
+                }
+                StatementIr::LexicalBlock(statements) => {
+                    self.initialize_direct_lexical_bindings(statements, function);
+                }
+                StatementIr::Expression(TypedExpr {
+                    expr:
+                        ExprIr::ArrayDestructure {
+                            pattern,
+                            assignment: false,
+                            ..
+                        },
+                    ..
+                }) => {
+                    pattern.visit_bindings(&mut |mode, name| {
+                        if mode == BindingMode::Var {
+                            return;
+                        }
+                        let storage = self
+                            .lookup_current_scope_binding(name)
+                            .or_else(|| self.lookup_binding(name))
+                            .unwrap_or_else(|| {
+                                self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
+                            });
+                        self.initialize_binding_uninitialized(storage, function);
+                    });
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(crate) fn compile_statement(
@@ -369,7 +634,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             StatementIr::Lexical { mode, name, init } => {
-                let storage = self.allocate_binding(name.clone(), *mode, init.kind);
+                let storage = self
+                    .lookup_current_scope_binding(name)
+                    .or_else(|| self.lookup_binding(name))
+                    .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                self.initialize_binding_uninitialized(storage, function);
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.compile_expr_to_locals(init, value_local, tag_local, function)?;
@@ -377,6 +646,38 @@ impl<'a> FunctionBuilder<'a> {
                 self.write_binding_from_locals(storage, value_local, tag_local, function);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            StatementIr::AnnexBFunctionCopy {
+                source_name,
+                block_storage_name,
+                variable_storage_name,
+            } => {
+                let source = self.lookup_binding(block_storage_name).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "Annex B declaration `{source_name}` is missing block binding `{block_storage_name}`"
+                    ))
+                })?;
+                let target = self
+                    .lookup_owner_binding(variable_storage_name)
+                    .ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "Annex B declaration `{source_name}` is missing owner binding `{variable_storage_name}`"
+                        ))
+                    })?;
+                self.read_binding_to_locals(
+                    source,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.write_binding_from_locals(
+                    target,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                );
+                self.mirror_binding_to_global_object(variable_storage_name, target, function)?;
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             StatementIr::Expression(expr) => {
@@ -417,6 +718,16 @@ impl<'a> FunctionBuilder<'a> {
             }
             StatementIr::LexicalBlock(statements) => {
                 for statement in statements {
+                    let StatementIr::Lexical { mode, name, init } = statement else {
+                        continue;
+                    };
+                    let storage = self
+                        .lookup_current_scope_binding(name)
+                        .or_else(|| self.lookup_binding(name))
+                        .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                    self.initialize_binding_uninitialized(storage, function);
+                }
+                for statement in statements {
                     self.compile_statement(statement, function)?;
                 }
             }
@@ -447,10 +758,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.set_completion_kind(CompletionKind::Throw, function);
                 function.instruction(&Instruction::I64Const(-1));
                 function.instruction(&Instruction::LocalSet(self.completion_aux_local));
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target)));
-                } else if let Some(target) = self.finally_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target)));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 0, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -459,12 +768,14 @@ impl<'a> FunctionBuilder<'a> {
                 try_block,
                 catch_name,
                 catch_source_name,
+                catch_parameter_environment,
                 catch_block,
             } => {
                 self.compile_try_catch(
                     try_block,
                     catch_name,
                     catch_source_name,
+                    catch_parameter_environment.as_ref(),
                     catch_block,
                     function,
                 )?;
@@ -479,6 +790,7 @@ impl<'a> FunctionBuilder<'a> {
                 try_block,
                 catch_name,
                 catch_source_name,
+                catch_parameter_environment,
                 catch_block,
                 finally_block,
             } => {
@@ -486,6 +798,7 @@ impl<'a> FunctionBuilder<'a> {
                     try_block,
                     catch_name,
                     catch_source_name,
+                    catch_parameter_environment.as_ref(),
                     catch_block,
                     finally_block,
                     function,
@@ -520,12 +833,14 @@ impl<'a> FunctionBuilder<'a> {
                 test,
                 update,
                 body,
+                lexical_environment,
             } => {
                 self.compile_for(
                     init.as_ref(),
                     test.as_ref(),
                     update.as_ref(),
                     body,
+                    lexical_environment.as_ref(),
                     &[],
                     function,
                 )?;
@@ -535,47 +850,118 @@ impl<'a> FunctionBuilder<'a> {
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_array(*mode, name, iterable, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_of_array(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::ForOfString {
                 mode,
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_string(*mode, name, iterable, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_of_string(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::ForOfIterator {
                 mode,
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_iterator(*mode, name, iterable, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_of_iterator(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::ForInArray {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_array(*mode, name, target, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_in_array(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::ForInString {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_string(*mode, name, target, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_in_string(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::ForInObject {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_object(*mode, name, target, body, &[], function)?,
+                lexical_environment,
+            } => self.compile_for_in_object(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                &[],
+                function,
+            )?,
             StatementIr::Switch {
                 discriminant,
+                lexical_environment,
+                lexical_declarations,
                 cases,
             } => {
-                self.compile_switch(discriminant, cases, &[], function)?;
+                self.compile_switch(
+                    discriminant,
+                    lexical_environment.as_ref(),
+                    lexical_declarations,
+                    cases,
+                    &[],
+                    function,
+                )?;
             }
             StatementIr::Debugger => {
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             StatementIr::Return(value) => {
+                if self.strict
+                    && self.throw_handler_stack.is_empty()
+                    && self.finally_stack.is_empty()
+                    && !self.is_derived_constructor
+                {
+                    self.compile_return_position_expr(value, function)?;
+                    return Ok(());
+                }
                 self.compile_expr_to_locals(
                     value,
                     self.result_local,
@@ -587,9 +973,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.finally_stack.last() {
+                if let Some(target) = self.finally_stack.last().copied() {
                     self.set_completion_kind(CompletionKind::Return, function);
-                    function.instruction(&Instruction::Br(self.depth_to(*target)));
+                    self.emit_branch_to_target(target, 0, function);
                 } else {
                     self.set_completion_kind(CompletionKind::Return, function);
                     self.normalize_derived_constructor_result(function)?;
@@ -601,6 +987,121 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::Continue { label } => self.compile_continue(label.as_deref(), function)?,
         }
         Ok(())
+    }
+
+    fn compile_return_position_expr(
+        &mut self,
+        value: &TypedExpr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match &value.expr {
+            ExprIr::CallIndirect {
+                callee,
+                this_arg,
+                args,
+                static_regexp_compilation: None,
+            } if self.emit_tail_indirect_call(callee, this_arg.as_deref(), args, function)? => {}
+            ExprIr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.compile_expr_to_locals(
+                    condition,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.compile_truthy_tagged_i32(self.result_tag_local, self.result_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.compile_return_position_expr(then_expr, function)?;
+                function.instruction(&Instruction::Else);
+                self.compile_return_position_expr(else_expr, function)?;
+                function.instruction(&Instruction::End);
+            }
+            ExprIr::LogicalShortCircuit { op, lhs, rhs } => {
+                self.compile_expr_to_locals(
+                    lhs,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                match op {
+                    LogicalBinaryOp::Coalesce => {
+                        self.compile_nullish_tagged_i32(self.result_tag_local, function)?;
+                    }
+                    LogicalBinaryOp::And | LogicalBinaryOp::Or => {
+                        self.compile_truthy_tagged_i32(
+                            self.result_tag_local,
+                            self.result_local,
+                            function,
+                        )?;
+                    }
+                }
+                function.instruction(&Instruction::If(BlockType::Empty));
+                match op {
+                    LogicalBinaryOp::And | LogicalBinaryOp::Coalesce => {
+                        self.compile_return_position_expr(rhs, function)?;
+                    }
+                    LogicalBinaryOp::Or => self.emit_return_from_result_locals(function),
+                }
+                function.instruction(&Instruction::Else);
+                match op {
+                    LogicalBinaryOp::And | LogicalBinaryOp::Coalesce => {
+                        self.emit_return_from_result_locals(function);
+                    }
+                    LogicalBinaryOp::Or => {
+                        self.compile_return_position_expr(rhs, function)?;
+                    }
+                }
+                function.instruction(&Instruction::End);
+            }
+            ExprIr::Comma { lhs, rhs } => {
+                self.compile_expr_to_locals(
+                    lhs,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.compile_return_position_expr(rhs, function)?;
+            }
+            _ => {
+                self.compile_expr_to_locals(
+                    value,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_from_result_locals(function);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_return_from_result_locals(&self, function: &mut Function) {
+        self.set_completion_kind(CompletionKind::Return, function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_return_current_completion(function);
     }
 
     pub(crate) fn compile_labelled_statement(
@@ -632,12 +1133,14 @@ impl<'a> FunctionBuilder<'a> {
                 test,
                 update,
                 body,
+                lexical_environment,
             } => {
                 self.compile_for(
                     init.as_ref(),
                     test.as_ref(),
                     update.as_ref(),
                     body,
+                    lexical_environment.as_ref(),
                     labels,
                     function,
                 )?;
@@ -647,47 +1150,114 @@ impl<'a> FunctionBuilder<'a> {
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_array(*mode, name, iterable, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_of_array(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::ForOfString {
                 mode,
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_string(*mode, name, iterable, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_of_string(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::ForOfIterator {
                 mode,
                 name,
                 iterable,
                 body,
-            } => self.compile_for_of_iterator(*mode, name, iterable, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_of_iterator(
+                *mode,
+                name,
+                iterable,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::ForInArray {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_array(*mode, name, target, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_in_array(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::ForInString {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_string(*mode, name, target, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_in_string(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::ForInObject {
                 mode,
                 name,
                 target,
                 body,
-            } => self.compile_for_in_object(*mode, name, target, body, labels, function)?,
+                lexical_environment,
+            } => self.compile_for_in_object(
+                *mode,
+                name,
+                target,
+                body,
+                lexical_environment.as_ref(),
+                labels,
+                function,
+            )?,
             StatementIr::Switch {
                 discriminant,
+                lexical_environment,
+                lexical_declarations,
                 cases,
             } => {
-                self.compile_switch(discriminant, cases, labels, function)?;
+                self.compile_switch(
+                    discriminant,
+                    lexical_environment.as_ref(),
+                    lexical_declarations,
+                    cases,
+                    labels,
+                    function,
+                )?;
             }
             _ => {
-                return Err(EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: label on unsupported statement kind",
-                ));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                let break_frame = self.push_control(ControlFrameKind::Block);
+                self.push_labels(labels, break_frame, None);
+                self.compile_statement(statement, function)?;
+                self.pop_labels(labels.len());
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
             }
         }
         Ok(())
@@ -698,6 +1268,7 @@ impl<'a> FunctionBuilder<'a> {
         try_block: &BlockIr,
         catch_name: &str,
         catch_source_name: &str,
+        catch_parameter_environment: Option<&LexicalEnvironmentIr>,
         catch_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -714,7 +1285,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.push_scope();
-        let catch_storage = self.allocate_dynamic_binding_storage(catch_name);
+        if let Some(environment) = catch_parameter_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let catch_storage = self
+            .lookup_current_scope_binding(catch_name)
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -732,7 +1308,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.set_completion_kind(CompletionKind::Normal, function);
+        self.push_scope();
         self.compile_block_contents(catch_block, function)?;
+        self.pop_scope();
+        if catch_parameter_environment.is_some() {
+            self.emit_leave_lexical_environment(function);
+        }
         self.pop_scope();
         function.instruction(&Instruction::End);
         Ok(())
@@ -793,6 +1374,7 @@ impl<'a> FunctionBuilder<'a> {
         try_block: &BlockIr,
         catch_name: &str,
         catch_source_name: &str,
+        catch_parameter_environment: Option<&LexicalEnvironmentIr>,
         catch_block: &BlockIr,
         finally_block: &BlockIr,
         function: &mut Function,
@@ -821,12 +1403,17 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_block_contents(try_block, function)?;
         self.pop_scope();
         self.throw_handler_stack.pop();
-        function.instruction(&Instruction::Br(self.depth_to(catch_skip_frame)));
+        self.emit_branch_to_target(catch_skip_frame, 0, function);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
         self.push_scope();
-        let catch_storage = self.allocate_dynamic_binding_storage(catch_name);
+        if let Some(environment) = catch_parameter_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let catch_storage = self
+            .lookup_current_scope_binding(catch_name)
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -844,7 +1431,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.set_completion_kind(CompletionKind::Normal, function);
+        self.push_scope();
         self.compile_block_contents(catch_block, function)?;
+        self.pop_scope();
+        if catch_parameter_environment.is_some() {
+            self.emit_leave_lexical_environment(function);
+        }
         self.pop_scope();
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
@@ -927,8 +1519,6 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.compile_truthy_i32(condition, function)?;
@@ -947,23 +1537,33 @@ impl<'a> FunctionBuilder<'a> {
         test: Option<&TypedExpr>,
         update: Option<&TypedExpr>,
         body: &StatementIr,
+        lexical_environment: Option<&ForLexicalEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.push_scope();
-        if let Some(init) = init {
-            self.compile_for_init(init, function)?;
-        }
         self.emit_statement_result(function, ValueKind::Undefined);
         function.instruction(&Instruction::Block(BlockType::Empty));
         let break_frame = self.push_control(ControlFrameKind::Block);
         self.breakable_stack.push(break_frame);
+        let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            bindings: environment.bindings.clone(),
+        });
+        if let Some(environment) = &runtime_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        if let Some(init) = init {
+            self.compile_for_init(init, function)?;
+        }
+        if let Some(environment) = lexical_environment {
+            self.emit_replace_lexical_environment(environment, function)?;
+        }
         function.instruction(&Instruction::Loop(BlockType::Empty));
         let loop_frame = self.push_control(ControlFrameKind::Loop);
         if let Some(test) = test {
             self.compile_truthy_i32(test, function)?;
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+            self.emit_branch_if_to_target(break_frame, 0, function);
         }
         function.instruction(&Instruction::Block(BlockType::Empty));
         let continue_frame = self.push_control(ControlFrameKind::Block);
@@ -974,6 +1574,9 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        if let Some(environment) = lexical_environment {
+            self.emit_replace_lexical_environment(environment, function)?;
+        }
         if let Some(update) = update {
             self.compile_expr_payload(update, function)?;
             function.instruction(&Instruction::Drop);
@@ -984,6 +1587,9 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        if runtime_environment.is_some() {
+            self.end_lexical_environment_scope();
+        }
         self.pop_scope();
         Ok(())
     }
@@ -991,6 +1597,8 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_switch(
         &mut self,
         discriminant: &TypedExpr,
+        lexical_environment: Option<&LexicalEnvironmentIr>,
+        lexical_declarations: &[StatementIr],
         cases: &[SwitchCaseIr],
         labels: &[String],
         function: &mut Function,
@@ -1005,13 +1613,27 @@ impl<'a> FunctionBuilder<'a> {
             .find_map(|(index, case)| case.condition.is_none().then_some(index as i64));
 
         self.emit_statement_result(function, ValueKind::Undefined);
-        self.push_scope();
         self.compile_expr_to_locals(
             discriminant,
             discriminant_payload_local,
             discriminant_tag_local,
             function,
         )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            discriminant_payload_local,
+            discriminant_tag_local,
+            function,
+        )?;
+        self.push_scope();
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        for case in cases {
+            self.initialize_direct_lexical_bindings(&case.body.statements, function);
+        }
+        for declaration in lexical_declarations {
+            self.compile_statement(declaration, function)?;
+        }
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::LocalSet(selected_local));
 
@@ -1023,6 +1645,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(-1));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
             self.compile_switch_case_match(
                 discriminant,
                 discriminant_payload_local,
@@ -1030,10 +1653,16 @@ impl<'a> FunctionBuilder<'a> {
                 condition,
                 function,
             )?;
+            self.emit_propagate_throw_from_locals_if_needed(
+                self.scratch_local,
+                self.result_tag_local,
+                function,
+            )?;
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(index as i64));
             function.instruction(&Instruction::LocalSet(selected_local));
             function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
 
@@ -1077,6 +1706,9 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        if lexical_environment.is_some() {
+            self.emit_leave_lexical_environment(function);
+        }
         self.pop_scope();
         self.release_temp_local(active_local);
         self.release_temp_local(selected_local);
@@ -1125,8 +1757,12 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         if discriminant.kind != ValueKind::Dynamic && condition.kind != ValueKind::Dynamic {
-            self.compile_expr_payload(condition, function)?;
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
+            self.compile_expr_to_locals(
+                condition,
+                self.scratch_local,
+                self.result_tag_local,
+                function,
+            )?;
             match discriminant.kind {
                 ValueKind::Number => {
                     function.instruction(&Instruction::LocalGet(discriminant_payload_local));
@@ -1190,12 +1826,16 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?
         };
-        if let Some(target) = self.finally_stack.last() {
-            self.set_completion_kind_with_aux(CompletionKind::Break, break_frame as i64, function);
-            function.instruction(&Instruction::Br(self.depth_to(*target)));
+        if let Some(target) = self.active_finally_target_for_branch(break_frame) {
+            self.set_completion_kind_with_aux(
+                CompletionKind::Break,
+                break_frame.frame as i64,
+                function,
+            );
+            self.emit_branch_to_target(target, 0, function);
             return Ok(());
         }
-        function.instruction(&Instruction::Br(self.depth_to(break_frame)));
+        self.emit_branch_to_target(break_frame, 0, function);
         Ok(())
     }
 
@@ -1226,16 +1866,16 @@ impl<'a> FunctionBuilder<'a> {
                 })?
                 .continue_frame
         };
-        if let Some(target) = self.finally_stack.last() {
+        if let Some(target) = self.active_finally_target_for_branch(continue_frame) {
             self.set_completion_kind_with_aux(
                 CompletionKind::Continue,
-                continue_frame as i64,
+                continue_frame.frame as i64,
                 function,
             );
-            function.instruction(&Instruction::Br(self.depth_to(*target)));
+            self.emit_branch_to_target(target, 0, function);
             return Ok(());
         }
-        function.instruction(&Instruction::Br(self.depth_to(continue_frame)));
+        self.emit_branch_to_target(continue_frame, 0, function);
         Ok(())
     }
 
@@ -1246,16 +1886,29 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match init {
             ForInitIr::Lexical { mode, name, init } => {
-                let storage = self.allocate_binding(name.clone(), *mode, init.kind);
+                let storage = self
+                    .lookup_current_scope_binding(name)
+                    .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                self.initialize_binding_uninitialized(storage, function);
                 self.compile_expr_to_binding(init, storage, function)?;
             }
             ForInitIr::LexicalBlock(bindings) => {
                 for binding in bindings {
-                    let storage = self.allocate_binding(
-                        binding.name.clone(),
-                        binding.mode,
-                        binding.init.kind,
-                    );
+                    let storage = self
+                        .lookup_current_scope_binding(&binding.name)
+                        .unwrap_or_else(|| {
+                            self.allocate_binding(
+                                binding.name.clone(),
+                                binding.mode,
+                                binding.init.kind,
+                            )
+                        });
+                    self.initialize_binding_uninitialized(storage, function);
+                }
+                for binding in bindings {
+                    let storage = self
+                        .lookup_current_scope_binding(&binding.name)
+                        .expect("for lexical binding should be allocated");
                     self.compile_expr_to_binding(&binding.init, storage, function)?;
                 }
             }
@@ -1420,6 +2073,7 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         iterable: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1431,24 +2085,35 @@ impl<'a> FunctionBuilder<'a> {
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
 
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
+        }
+        self.compile_expr_to_locals(iterable, array_local, array_tag_local, function)?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+
         self.push_scope();
-        let storage = if mode == BindingMode::Var {
-            self.lookup_binding(name).ok_or_else(|| {
+        let storage_without_environment = if mode == BindingMode::Var {
+            Some(self.lookup_binding(name).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: unbound for-of var `{name}`"
                 ))
-            })?
+            })?)
+        } else if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
         } else {
-            self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
+            None
         };
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
-                .insert(name.to_string(), storage);
+                .insert(
+                    name.to_string(),
+                    storage_without_environment.expect("for-of var storage must exist"),
+                );
         }
-        self.compile_expr_to_locals(iterable, array_local, array_tag_local, function)?;
-        let iteration_env_source_local = self.capture_iteration_env_source(mode, name, function);
         self.emit_array_length(array_local, len_payload_local, len_tag_local, function);
         function.instruction(&Instruction::LocalGet(len_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
@@ -1473,7 +2138,15 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         );
-        self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+        if let Some(environment) =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("for-of lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -1485,7 +2158,12 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -1496,12 +2174,7 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
         self.pop_scope();
-
-        if let Some(iteration_env_source_local) = iteration_env_source_local {
-            self.release_temp_local(iteration_env_source_local);
-        }
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(index_local);
@@ -1518,6 +2191,7 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         iterable: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1534,28 +2208,40 @@ impl<'a> FunctionBuilder<'a> {
         let char_pos_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
 
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
+        }
+        self.compile_expr_to_locals(iterable, string_payload_local, string_tag_local, function)?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+
         self.push_scope();
-        let storage = if mode == BindingMode::Var {
-            self.lookup_binding(name).ok_or_else(|| {
+        let storage_without_environment = if mode == BindingMode::Var {
+            Some(self.lookup_binding(name).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: unbound for-of var `{name}`"
                 ))
-            })?
+            })?)
+        } else if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(name.to_string(), mode, ValueKind::String))
         } else {
-            self.allocate_binding(name.to_string(), mode, ValueKind::String)
+            None
         };
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
-                .insert(name.to_string(), storage);
+                .insert(
+                    name.to_string(),
+                    storage_without_environment.expect("for-of var storage must exist"),
+                );
         }
-
-        self.compile_expr_to_locals(iterable, string_payload_local, string_tag_local, function)?;
         function.instruction(&Instruction::LocalGet(string_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of target is not iterable",
@@ -1563,10 +2249,10 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        let iteration_env_source_local = self.capture_iteration_env_source(mode, name, function);
         self.emit_unpack_string_payload(
             string_payload_local,
             buffer_local,
@@ -1607,7 +2293,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(byte_local));
         self.emit_pack_string_payload(char_offset_local, byte_local, function);
         function.instruction(&Instruction::LocalSet(value_payload_local));
-        self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+        if let Some(environment) =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("for-of lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, value_payload_local, string_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -1619,7 +2313,12 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(advance_local));
         function.instruction(&Instruction::I64Add);
@@ -1630,12 +2329,7 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
         self.pop_scope();
-
-        if let Some(iteration_env_source_local) = iteration_env_source_local {
-            self.release_temp_local(iteration_env_source_local);
-        }
         self.release_temp_local(value_payload_local);
         self.release_temp_local(char_pos_local);
         self.release_temp_local(char_offset_local);
@@ -1657,6 +2351,7 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         iterable: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1679,33 +2374,49 @@ impl<'a> FunctionBuilder<'a> {
         let saved_tag_local = self.reserve_temp_local();
         let saved_completion_local = self.reserve_temp_local();
         let saved_aux_local = self.reserve_temp_local();
+        let close_saved_payload_local = self.reserve_temp_local();
+        let close_saved_tag_local = self.reserve_temp_local();
+        let close_saved_completion_local = self.reserve_temp_local();
+        let close_saved_aux_local = self.reserve_temp_local();
 
-        self.push_scope();
-        let storage = if mode == BindingMode::Var {
-            self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: unbound for-of var `{name}`"
-                ))
-            })?
-        } else {
-            self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
-        };
-        if mode == BindingMode::Var {
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(name.to_string(), storage);
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
         }
-
         self.compile_expr_to_locals(
             iterable,
             iterable_payload_local,
             iterable_tag_local,
             function,
         )?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+
+        self.push_scope();
+        let storage_without_environment = if mode == BindingMode::Var {
+            Some(self.lookup_binding(name).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: unbound for-of var `{name}`"
+                ))
+            })?)
+        } else if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
+        } else {
+            None
+        };
+        if mode == BindingMode::Var {
+            self.binding_scopes
+                .last_mut()
+                .expect("binding scope stack must exist")
+                .insert(
+                    name.to_string(),
+                    storage_without_environment.expect("for-of var storage must exist"),
+                );
+        }
         self.emit_is_heap_object_like_tag_i32(iterable_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of target is not iterable",
@@ -1713,7 +2424,8 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(
@@ -1739,6 +2451,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator method must be callable",
@@ -1746,7 +2459,8 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_function_handle_call(
@@ -1766,6 +2480,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator method must return object",
@@ -1773,7 +2488,8 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(self.strings.payload("next")));
@@ -1788,11 +2504,12 @@ impl<'a> FunctionBuilder<'a> {
             next_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(next_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator next must be callable",
@@ -1800,10 +2517,10 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        let iteration_env_source_local = self.capture_iteration_env_source(mode, name, function);
         self.emit_statement_result(function, ValueKind::Undefined);
         function.instruction(&Instruction::Block(BlockType::Empty));
         let break_frame = self.push_control(ControlFrameKind::Block);
@@ -1820,10 +2537,11 @@ impl<'a> FunctionBuilder<'a> {
             result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator next result must be object",
@@ -1831,7 +2549,8 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(self.strings.payload("done")));
@@ -1846,7 +2565,7 @@ impl<'a> FunctionBuilder<'a> {
             done_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
         function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
 
@@ -1862,8 +2581,16 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+        self.emit_propagate_current_completion_if_throw(function);
+        if let Some(environment) =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("for-of lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
 
@@ -1878,6 +2605,8 @@ impl<'a> FunctionBuilder<'a> {
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        self.pop_labels(labels.len());
+        self.loop_stack.pop();
 
         self.save_current_completion(
             saved_payload_local,
@@ -1886,6 +2615,25 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
+        function.instruction(&Instruction::LocalGet(saved_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(saved_aux_local));
+        function.instruction(&Instruction::I64Const(continue_frame.frame as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::LocalSet(saved_completion_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(saved_completion_local));
+        function.instruction(&Instruction::LocalSet(self.completion_local));
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         self.emit_iterator_close_condition_i32(
             saved_completion_local,
             saved_aux_local,
@@ -1893,6 +2641,36 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        function.instruction(&Instruction::LocalGet(saved_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.restore_saved_completion(
+            saved_payload_local,
+            saved_tag_local,
+            saved_completion_local,
+            saved_aux_local,
+            function,
+        );
+        self.emit_iterator_close_preserving_current_throw(
+            IteratorCloseOnThrowLocals {
+                iterator_payload_local,
+                iterator_tag_local,
+                key_local,
+                return_payload_local: method_payload_local,
+                return_tag_local: method_tag_local,
+                result_payload_local,
+                result_tag_local,
+                saved_payload_local: close_saved_payload_local,
+                saved_tag_local: close_saved_tag_local,
+                saved_completion_local: close_saved_completion_local,
+                saved_aux_local: close_saved_aux_local,
+            },
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         self.emit_iterator_close(
             iterator_payload_local,
             iterator_tag_local,
@@ -1903,7 +2681,14 @@ impl<'a> FunctionBuilder<'a> {
             result_tag_local,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(saved_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.restore_saved_completion(
             saved_payload_local,
             saved_tag_local,
@@ -1911,7 +2696,7 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Ne);
@@ -1919,8 +2704,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
         function.instruction(&Instruction::End);
 
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
@@ -1929,12 +2712,11 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
         self.pop_scope();
-
-        if let Some(iteration_env_source_local) = iteration_env_source_local {
-            self.release_temp_local(iteration_env_source_local);
-        }
+        self.release_temp_local(close_saved_aux_local);
+        self.release_temp_local(close_saved_completion_local);
+        self.release_temp_local(close_saved_tag_local);
+        self.release_temp_local(close_saved_payload_local);
         self.release_temp_local(saved_aux_local);
         self.release_temp_local(saved_completion_local);
         self.release_temp_local(saved_tag_local);
@@ -1957,11 +2739,1070 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn compile_object_destructure_to_locals(
+        &mut self,
+        value: &TypedExpr,
+        pattern: &ObjectDestructuringPatternIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let source_payload = self.reserve_temp_local();
+        let source_tag = self.reserve_temp_local();
+        let source_object_payload = self.reserve_temp_local();
+        let source_object_tag = self.reserve_temp_local();
+        let property_value_payload = self.reserve_temp_local();
+        let property_value_tag = self.reserve_temp_local();
+        let mut excluded_keys = Vec::with_capacity(pattern.properties.len());
+
+        self.compile_expr_to_locals(value, source_payload, source_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(source_payload, source_tag, function)?;
+        self.compile_nullish_tagged_i32(source_tag, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot destructure undefined or null",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_value_to_object_locals(
+            source_payload,
+            source_tag,
+            source_object_payload,
+            source_object_tag,
+            function,
+        )?;
+
+        for property in &pattern.properties {
+            let key_payload = self.reserve_temp_local();
+            let key_tag = self.reserve_temp_local();
+            match &property.key {
+                DestructuringPropertyKeyIr::Static(key) => {
+                    function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+                    function.instruction(&Instruction::LocalSet(key_payload));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(key_tag));
+                }
+                DestructuringPropertyKeyIr::Computed(key) => {
+                    self.compile_expr_to_locals(key, key_payload, key_tag, function)?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        key_payload,
+                        key_tag,
+                        function,
+                    )?;
+                    self.emit_value_to_property_key_locals(key_payload, key_tag, function)?;
+                }
+            }
+            let prepared = self.prepare_destructuring_target(&property.target, function)?;
+            self.emit_object_read(
+                source_object_payload,
+                source_object_tag,
+                source_object_payload,
+                source_object_tag,
+                key_payload,
+                property_value_payload,
+                property_value_tag,
+                function,
+            )?;
+            self.emit_propagate_current_completion_if_throw(function);
+            if let Some(default) = &property.default {
+                function.instruction(&Instruction::LocalGet(property_value_tag));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.push_control(ControlFrameKind::If);
+                self.compile_expr_to_locals(
+                    default,
+                    property_value_payload,
+                    property_value_tag,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    property_value_payload,
+                    property_value_tag,
+                    function,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+            self.put_destructuring_target(
+                &property.target,
+                prepared,
+                property_value_payload,
+                property_value_tag,
+                function,
+            )?;
+            excluded_keys.push((key_payload, key_tag));
+        }
+
+        if let Some(rest) = &pattern.rest {
+            let prepared = self.prepare_destructuring_target(rest, function)?;
+            self.emit_copy_data_properties_rest(
+                source_object_payload,
+                source_object_tag,
+                &excluded_keys,
+                property_value_payload,
+                property_value_tag,
+                function,
+            )?;
+            self.put_destructuring_target(
+                rest,
+                prepared,
+                property_value_payload,
+                property_value_tag,
+                function,
+            )?;
+        }
+
+        function.instruction(&Instruction::LocalGet(source_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(source_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        for (key_payload, key_tag) in excluded_keys.into_iter().rev() {
+            self.release_temp_local(key_tag);
+            self.release_temp_local(key_payload);
+        }
+        self.release_temp_local(property_value_tag);
+        self.release_temp_local(property_value_payload);
+        self.release_temp_local(source_object_tag);
+        self.release_temp_local(source_object_payload);
+        self.release_temp_local(source_tag);
+        self.release_temp_local(source_payload);
+        Ok(())
+    }
+
+    fn emit_copy_data_properties_rest(
+        &mut self,
+        source_payload: u32,
+        source_tag: u32,
+        excluded_keys: &[(u32, u32)],
+        target_payload: u32,
+        target_tag: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let own_keys_meta = self
+            .functions
+            .get(&StandardBuiltinId::ReflectOwnKeys.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.ownKeys`",
+                )
+            })?;
+        let get_own_descriptor_meta = self
+            .functions
+            .get(&StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Reflect.getOwnPropertyDescriptor`",
+                )
+            })?;
+        let keys_payload = self.reserve_temp_local();
+        let keys_tag = self.reserve_temp_local();
+        let keys_length = self.reserve_temp_local();
+        let key_index = self.reserve_temp_local();
+        let key_payload = self.reserve_temp_local();
+        let key_tag = self.reserve_temp_local();
+        let descriptor_payload = self.reserve_temp_local();
+        let descriptor_tag = self.reserve_temp_local();
+        let enumerable_key = self.reserve_temp_local();
+        let enumerable_payload = self.reserve_temp_local();
+        let enumerable_tag = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(target_payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(target_tag));
+
+        self.emit_direct_js_call(
+            &own_keys_meta,
+            None,
+            &[(source_payload, source_tag)],
+            keys_payload,
+            keys_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(keys_payload, keys_tag, function)?;
+        self.load_i64_to_local_from_offset(keys_payload, HEAP_LEN_OFFSET, keys_length, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(key_index));
+        function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
+        function.instruction(&Instruction::LocalSet(enumerable_key));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        let copy_break = self.push_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        let copy_loop = self.push_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::LocalGet(key_index));
+        function.instruction(&Instruction::LocalGet(keys_length));
+        function.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(copy_break, 0, function);
+        self.emit_array_read(keys_payload, key_index, key_payload, key_tag, function);
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        let skip_key = self.push_control(ControlFrameKind::Block);
+        for (excluded_payload, excluded_tag) in excluded_keys {
+            self.emit_tagged_payload_same_value_i32(
+                key_tag,
+                key_payload,
+                *excluded_tag,
+                *excluded_payload,
+                function,
+            )?;
+            self.emit_branch_if_to_target(skip_key, 0, function);
+        }
+
+        self.emit_direct_js_call(
+            &get_own_descriptor_meta,
+            None,
+            &[(source_payload, source_tag), (key_payload, key_tag)],
+            descriptor_payload,
+            descriptor_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            descriptor_payload,
+            descriptor_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(descriptor_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_branch_if_to_target(skip_key, 0, function);
+
+        self.emit_object_read(
+            descriptor_payload,
+            descriptor_tag,
+            descriptor_payload,
+            descriptor_tag,
+            enumerable_key,
+            enumerable_payload,
+            enumerable_tag,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.compile_truthy_tagged_i32(enumerable_tag, enumerable_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_branch_if_to_target(skip_key, 0, function);
+
+        self.emit_object_read(
+            source_payload,
+            source_tag,
+            source_payload,
+            source_tag,
+            key_payload,
+            enumerable_payload,
+            enumerable_tag,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.emit_object_define_enumerable_data(
+            target_payload,
+            key_payload,
+            enumerable_payload,
+            enumerable_tag,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(key_index));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(key_index));
+        self.emit_branch_to_target(copy_loop, 0, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(enumerable_tag);
+        self.release_temp_local(enumerable_payload);
+        self.release_temp_local(enumerable_key);
+        self.release_temp_local(descriptor_tag);
+        self.release_temp_local(descriptor_payload);
+        self.release_temp_local(key_tag);
+        self.release_temp_local(key_payload);
+        self.release_temp_local(key_index);
+        self.release_temp_local(keys_length);
+        self.release_temp_local(keys_tag);
+        self.release_temp_local(keys_payload);
+        Ok(())
+    }
+
+    pub(crate) fn compile_array_destructure_to_locals(
+        &mut self,
+        value: &TypedExpr,
+        pattern: &ArrayDestructuringPatternIr,
+        assignment: bool,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let source_payload = self.reserve_temp_local();
+        let source_tag = self.reserve_temp_local();
+        self.compile_expr_to_locals(value, source_payload, source_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(source_payload, source_tag, function)?;
+        self.compile_array_destructure_from_value_locals(
+            value.value_info(),
+            source_payload,
+            source_tag,
+            pattern,
+            function,
+        )?;
+        if assignment {
+            function.instruction(&Instruction::LocalGet(source_payload));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::LocalGet(source_tag));
+            function.instruction(&Instruction::LocalSet(tag_local));
+        } else {
+            self.emit_undefined_payload(function);
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+        }
+        self.release_temp_local(source_tag);
+        self.release_temp_local(source_payload);
+        Ok(())
+    }
+
+    fn compile_array_destructure_from_value_locals(
+        &mut self,
+        value_info: ValueInfo,
+        source_payload: u32,
+        source_tag: u32,
+        pattern: &ArrayDestructuringPatternIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let method_payload = self.reserve_temp_local();
+        let method_tag = self.reserve_temp_local();
+        let locals = DestructuringIteratorLocals {
+            iterator_payload: self.reserve_temp_local(),
+            iterator_tag: self.reserve_temp_local(),
+            next_payload: self.reserve_temp_local(),
+            next_tag: self.reserve_temp_local(),
+            key: self.reserve_temp_local(),
+            result_payload: self.reserve_temp_local(),
+            result_tag: self.reserve_temp_local(),
+            done_payload: self.reserve_temp_local(),
+            done_tag: self.reserve_temp_local(),
+            value_payload: self.reserve_temp_local(),
+            value_tag: self.reserve_temp_local(),
+            return_payload: self.reserve_temp_local(),
+            return_tag: self.reserve_temp_local(),
+            done: self.reserve_temp_local(),
+            close_saved_payload: self.reserve_temp_local(),
+            close_saved_tag: self.reserve_temp_local(),
+            close_saved_completion: self.reserve_temp_local(),
+            close_saved_aux: self.reserve_temp_local(),
+        };
+
+        self.emit_get_iterator_from_value_locals(
+            value_info,
+            source_payload,
+            source_tag,
+            method_payload,
+            method_tag,
+            locals,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(locals.done));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        let exit_target = self.push_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        let abrupt_target = self.push_control(ControlFrameKind::Block);
+        self.finally_stack.push(abrupt_target);
+        for element in &pattern.elements {
+            self.compile_array_destructuring_element(element, locals, function)?;
+        }
+        self.finally_stack.pop();
+
+        function.instruction(&Instruction::LocalGet(locals.done));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_iterator_close(
+            locals.iterator_payload,
+            locals.iterator_tag,
+            locals.key,
+            locals.return_payload,
+            locals.return_tag,
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_branch_to_target(exit_target, 0, function);
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(locals.done));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_iterator_close_preserving_current_throw(
+            IteratorCloseOnThrowLocals {
+                iterator_payload_local: locals.iterator_payload,
+                iterator_tag_local: locals.iterator_tag,
+                key_local: locals.key,
+                return_payload_local: locals.return_payload,
+                return_tag_local: locals.return_tag,
+                result_payload_local: locals.result_payload,
+                result_tag_local: locals.result_tag,
+                saved_payload_local: locals.close_saved_payload,
+                saved_tag_local: locals.close_saved_tag,
+                saved_completion_local: locals.close_saved_completion,
+                saved_aux_local: locals.close_saved_aux,
+            },
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_propagate_current_completion_if_throw(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        for local in [
+            locals.close_saved_aux,
+            locals.close_saved_completion,
+            locals.close_saved_tag,
+            locals.close_saved_payload,
+            locals.done,
+            locals.return_tag,
+            locals.return_payload,
+            locals.value_tag,
+            locals.value_payload,
+            locals.done_tag,
+            locals.done_payload,
+            locals.result_tag,
+            locals.result_payload,
+            locals.key,
+            locals.next_tag,
+            locals.next_payload,
+            locals.iterator_tag,
+            locals.iterator_payload,
+            method_tag,
+            method_payload,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_get_iterator_from_value_locals(
+        &mut self,
+        value_info: ValueInfo,
+        source_payload: u32,
+        source_tag: u32,
+        method_payload: u32,
+        method_tag: u32,
+        locals: DestructuringIteratorLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if value_info.kind == ValueKind::Array {
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload("Symbol.iterator"),
+            ));
+            function.instruction(&Instruction::LocalSet(locals.key));
+            self.emit_object_read(
+                source_payload,
+                source_tag,
+                source_payload,
+                source_tag,
+                locals.key,
+                method_payload,
+                method_tag,
+                function,
+            )?;
+        } else {
+            let source_name = "$array.destructure.source";
+            self.push_scope();
+            self.binding_scopes
+                .last_mut()
+                .expect("binding scope stack must exist")
+                .insert(
+                    source_name.to_string(),
+                    BindingStorage::Dynamic {
+                        tag_local: source_tag,
+                        payload_local: source_payload,
+                    },
+                );
+            let source =
+                TypedExpr::from_info(value_info, ExprIr::Identifier(source_name.to_string()));
+            let method = TypedExpr::from_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+                ExprIr::PropertyRead {
+                    target: Box::new(source),
+                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
+                },
+            );
+            self.compile_expr_to_locals(&method, method_payload, method_tag, function)?;
+            self.pop_scope();
+        }
+        self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
+        self.emit_is_callable_i32(method_tag, method_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "destructuring value is not iterable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(method_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_function_handle_call(
+            method_payload,
+            method_tag,
+            Some((source_payload, Some(source_tag))),
+            &[],
+            locals.iterator_payload,
+            locals.iterator_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            method_payload,
+            method_tag,
+            source_payload,
+            source_tag,
+            &[],
+            locals.iterator_payload,
+            locals.iterator_tag,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.iterator_payload,
+            locals.iterator_tag,
+            function,
+        )?;
+        self.emit_is_heap_object_like_tag_i32(locals.iterator_tag, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "destructuring iterator method must return object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+        function.instruction(&Instruction::LocalSet(locals.key));
+        self.emit_object_read(
+            locals.iterator_payload,
+            locals.iterator_tag,
+            locals.iterator_payload,
+            locals.iterator_tag,
+            locals.key,
+            locals.next_payload,
+            locals.next_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.next_payload,
+            locals.next_tag,
+            function,
+        )?;
+        Ok(())
+    }
+
+    fn compile_array_destructuring_element(
+        &mut self,
+        element: &ArrayDestructuringElementIr,
+        locals: DestructuringIteratorLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match element {
+            ArrayDestructuringElementIr::Elision => {
+                function.instruction(&Instruction::LocalGet(locals.done));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.push_control(ControlFrameKind::If);
+                self.emit_destructuring_iterator_step(
+                    locals,
+                    DestructuringIteratorStepKind::Elision,
+                    function,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+            ArrayDestructuringElementIr::Target { target, default } => {
+                let prepared = self.prepare_destructuring_target(target, function)?;
+                self.emit_undefined_payload(function);
+                function.instruction(&Instruction::LocalSet(locals.value_payload));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(locals.value_tag));
+                function.instruction(&Instruction::LocalGet(locals.done));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.push_control(ControlFrameKind::If);
+                self.emit_destructuring_iterator_step(
+                    locals,
+                    DestructuringIteratorStepKind::Value,
+                    function,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                if let Some(default) = default {
+                    function.instruction(&Instruction::LocalGet(locals.value_tag));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.push_control(ControlFrameKind::If);
+                    self.compile_expr_to_locals(
+                        default,
+                        locals.value_payload,
+                        locals.value_tag,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        locals.value_payload,
+                        locals.value_tag,
+                        function,
+                    )?;
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                }
+                self.put_destructuring_target(
+                    target,
+                    prepared,
+                    locals.value_payload,
+                    locals.value_tag,
+                    function,
+                )?;
+            }
+            ArrayDestructuringElementIr::Rest { target } => {
+                let prepared = self.prepare_destructuring_target(target, function)?;
+                let rest_payload = self.reserve_temp_local();
+                self.compile_array_literal_payload(&[], function)?;
+                function.instruction(&Instruction::LocalSet(rest_payload));
+                let rest_index = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(rest_index));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                let rest_break = self.push_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                let rest_loop = self.push_control(ControlFrameKind::Loop);
+                function.instruction(&Instruction::LocalGet(locals.done));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                self.emit_branch_if_to_target(rest_break, 0, function);
+                self.emit_destructuring_iterator_step(
+                    locals,
+                    DestructuringIteratorStepKind::Value,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(locals.done));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                self.emit_branch_if_to_target(rest_break, 0, function);
+                self.emit_array_write(
+                    rest_payload,
+                    rest_index,
+                    locals.value_payload,
+                    locals.value_tag,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(rest_index));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(rest_index));
+                self.emit_branch_to_target(rest_loop, 0, function);
+                self.pop_control(ControlFrameKind::Loop);
+                function.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                function.instruction(&Instruction::LocalSet(locals.value_tag));
+                function.instruction(&Instruction::LocalGet(rest_payload));
+                function.instruction(&Instruction::LocalSet(locals.value_payload));
+                self.release_temp_local(rest_index);
+                self.release_temp_local(rest_payload);
+                self.put_destructuring_target(
+                    target,
+                    prepared,
+                    locals.value_payload,
+                    locals.value_tag,
+                    function,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_destructuring_iterator_step(
+        &mut self,
+        locals: DestructuringIteratorLocals,
+        step_kind: DestructuringIteratorStepKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        function.instruction(&Instruction::LocalGet(locals.next_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_function_handle_call(
+            locals.next_payload,
+            locals.next_tag,
+            Some((locals.iterator_payload, Some(locals.iterator_tag))),
+            &[],
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            locals.next_payload,
+            locals.next_tag,
+            locals.iterator_payload,
+            locals.iterator_tag,
+            &[],
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "destructuring iterator next result must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+        function.instruction(&Instruction::LocalSet(locals.key));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        self.emit_object_read(
+            locals.result_payload,
+            locals.result_tag,
+            locals.result_payload,
+            locals.result_tag,
+            locals.key,
+            locals.done_payload,
+            locals.done_tag,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        self.compile_truthy_tagged_i32(locals.done_tag, locals.done_payload, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(locals.done));
+        self.emit_undefined_payload(function);
+        function.instruction(&Instruction::LocalSet(locals.value_payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(locals.value_tag));
+        function.instruction(&Instruction::Else);
+        if matches!(step_kind, DestructuringIteratorStepKind::Value) {
+            function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+            function.instruction(&Instruction::LocalSet(locals.key));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(locals.done));
+            self.emit_object_read(
+                locals.result_payload,
+                locals.result_tag,
+                locals.result_payload,
+                locals.result_tag,
+                locals.key,
+                locals.value_payload,
+                locals.value_tag,
+                function,
+            )?;
+            self.emit_propagate_current_completion_if_throw(function);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(locals.done));
+        }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn prepare_destructuring_target(
+        &mut self,
+        target: &DestructuringTargetIr,
+        function: &mut Function,
+    ) -> Result<PreparedDestructuringTarget, EmitError> {
+        if let DestructuringTargetIr::AssignmentPrivate {
+            target,
+            private_name_id,
+        } = target
+        {
+            let target_payload = self.reserve_temp_local();
+            let target_tag = self.reserve_temp_local();
+            self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
+            self.emit_propagate_throw_from_locals_if_needed(target_payload, target_tag, function)?;
+            return Ok(PreparedDestructuringTarget::Private {
+                target_payload,
+                target_tag,
+                private_name_id: *private_name_id,
+            });
+        }
+
+        let DestructuringTargetIr::AssignmentProperty { target, key } = target else {
+            return Ok(PreparedDestructuringTarget::Direct);
+        };
+
+        let target_payload = self.reserve_temp_local();
+        let target_tag = self.reserve_temp_local();
+        self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(target_payload, target_tag, function)?;
+        let (key_payload, key_tag) = match key {
+            DestructuringPropertyKeyIr::Static(_) => (None, None),
+            DestructuringPropertyKeyIr::Computed(key) => {
+                let key_payload = self.reserve_temp_local();
+                let key_tag = self.reserve_temp_local();
+                self.compile_expr_to_locals(key, key_payload, key_tag, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(key_payload, key_tag, function)?;
+                (Some(key_payload), Some(key_tag))
+            }
+        };
+        Ok(PreparedDestructuringTarget::Property {
+            target: target.clone(),
+            target_payload,
+            target_tag,
+            key: key.clone(),
+            key_payload,
+            key_tag,
+        })
+    }
+
+    fn put_destructuring_target(
+        &mut self,
+        target: &DestructuringTargetIr,
+        prepared: PreparedDestructuringTarget,
+        value_payload: u32,
+        value_tag: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match target {
+            DestructuringTargetIr::Binding { mode, name } => {
+                let storage = self
+                    .lookup_current_scope_binding(name)
+                    .or_else(|| self.lookup_binding(name))
+                    .unwrap_or_else(|| {
+                        self.allocate_binding(name.clone(), *mode, ValueKind::Dynamic)
+                    });
+                self.write_binding_from_locals(storage, value_payload, value_tag, function);
+                self.mirror_binding_to_global_object(name, storage, function)?;
+            }
+            DestructuringTargetIr::AssignmentIdentifier {
+                name,
+                global,
+                implicit: _,
+                immutable,
+            } => {
+                if *immutable {
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "assignment to immutable destructuring target",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_current_throw(function);
+                    return Ok(());
+                }
+                if *global {
+                    self.emit_global_property_write(name, value_payload, value_tag, function)?;
+                } else {
+                    let storage = self.lookup_binding(name).ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in porffor wasm-aot first slice: unbound destructuring assignment `{name}`"
+                        ))
+                    })?;
+                    self.write_binding_from_locals(storage, value_payload, value_tag, function);
+                    self.mirror_binding_to_global_object(name, storage, function)?;
+                }
+            }
+            DestructuringTargetIr::AssignmentProperty { .. } => {
+                let PreparedDestructuringTarget::Property {
+                    target,
+                    target_payload,
+                    target_tag,
+                    key,
+                    key_payload,
+                    key_tag,
+                } = prepared
+                else {
+                    unreachable!("property destructuring target must be prepared")
+                };
+                let target_name = "$array.destructure.target";
+                let value_name = "$array.destructure.value";
+                let key_name = "$array.destructure.key";
+                self.push_scope();
+                let scope = self
+                    .binding_scopes
+                    .last_mut()
+                    .expect("binding scope stack must exist");
+                scope.insert(
+                    target_name.to_string(),
+                    BindingStorage::Dynamic {
+                        tag_local: target_tag,
+                        payload_local: target_payload,
+                    },
+                );
+                scope.insert(
+                    value_name.to_string(),
+                    BindingStorage::Dynamic {
+                        tag_local: value_tag,
+                        payload_local: value_payload,
+                    },
+                );
+                if let (Some(key_payload), Some(key_tag)) = (key_payload, key_tag) {
+                    scope.insert(
+                        key_name.to_string(),
+                        BindingStorage::Dynamic {
+                            tag_local: key_tag,
+                            payload_local: key_payload,
+                        },
+                    );
+                }
+                let target_expr = TypedExpr::from_info(
+                    target.value_info(),
+                    ExprIr::Identifier(target_name.to_string()),
+                );
+                let property_key = match key {
+                    DestructuringPropertyKeyIr::Static(name) => PropertyKeyIr::StaticString(name),
+                    DestructuringPropertyKeyIr::Computed(key) => {
+                        let raw_key = TypedExpr::from_info(
+                            key.value_info(),
+                            ExprIr::Identifier(key_name.to_string()),
+                        );
+                        PropertyKeyIr::StringExpr(Box::new(TypedExpr::spec_to_property_key(
+                            raw_key,
+                        )))
+                    }
+                };
+                let value_expr = TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::Identifier(value_name.to_string()),
+                );
+                self.compile_property_write_to_locals(
+                    &target_expr,
+                    &property_key,
+                    &value_expr,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_current_completion_if_throw(function);
+                self.pop_scope();
+                if let Some(key_tag) = key_tag {
+                    self.release_temp_local(key_tag);
+                }
+                if let Some(key_payload) = key_payload {
+                    self.release_temp_local(key_payload);
+                }
+                self.release_temp_local(target_tag);
+                self.release_temp_local(target_payload);
+            }
+            DestructuringTargetIr::AssignmentPrivate { .. } => {
+                let PreparedDestructuringTarget::Private {
+                    target_payload,
+                    target_tag,
+                    private_name_id,
+                } = prepared
+                else {
+                    unreachable!("private destructuring target must be prepared")
+                };
+                self.emit_private_write_from_locals(
+                    target_payload,
+                    target_tag,
+                    private_name_id,
+                    value_payload,
+                    value_tag,
+                    function,
+                )?;
+                self.release_temp_local(target_tag);
+                self.release_temp_local(target_payload);
+            }
+            DestructuringTargetIr::NestedArray(pattern) => {
+                self.compile_array_destructure_from_value_locals(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    value_payload,
+                    value_tag,
+                    pattern,
+                    function,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_iterator_close_condition_i32(
         &self,
         completion_local: u32,
         aux_local: u32,
-        current_continue_frame: usize,
+        current_continue_target: ControlTarget,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::LocalGet(completion_local));
@@ -1979,7 +3820,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(aux_local));
-        function.instruction(&Instruction::I64Const(current_continue_frame as i64));
+        function.instruction(&Instruction::I64Const(current_continue_target.frame as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Or);
@@ -1998,6 +3839,10 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::I64Const(self.strings.payload("return")));
         function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_undefined_payload(function);
+        function.instruction(&Instruction::LocalSet(return_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(return_tag_local));
         self.emit_object_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -2008,7 +3853,7 @@ impl<'a> FunctionBuilder<'a> {
             return_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(return_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -2017,10 +3862,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        self.push_control(ControlFrameKind::If);
+        self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "IteratorClose return method must be callable",
@@ -2028,8 +3874,14 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(return_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_function_handle_call(
             return_payload_local,
             return_tag_local,
@@ -2039,10 +3891,25 @@ impl<'a> FunctionBuilder<'a> {
             result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
+        function.instruction(&Instruction::Else);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            return_payload_local,
+            return_tag_local,
+            iterator_payload_local,
+            iterator_tag_local,
+            &[],
+            result_payload_local,
+            result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "IteratorClose return result must be object",
@@ -2050,8 +3917,10 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_exhaust_static_generator_iterator_if_marked(
             iterator_payload_local,
@@ -2116,44 +3985,31 @@ impl<'a> FunctionBuilder<'a> {
             close.saved_aux_local,
             function,
         );
+        self.emit_iterator_close_preserving_saved_throw(close, function)
+    }
+
+    pub(crate) fn emit_iterator_close_preserving_saved_throw(
+        &mut self,
+        close: IteratorCloseOnThrowLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("return")));
-        function.instruction(&Instruction::LocalSet(close.key_local));
-        self.emit_object_read(
-            close.iterator_payload_local,
-            close.iterator_tag_local,
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        let close_frame = self.push_control(ControlFrameKind::Block);
+        self.finally_stack.push(close_frame);
+        self.emit_iterator_close(
             close.iterator_payload_local,
             close.iterator_tag_local,
             close.key_local,
             close.return_payload_local,
             close.return_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(close.return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_without_throw_propagation(
-            close.return_payload_local,
-            close.return_tag_local,
-            Some((close.iterator_payload_local, Some(close.iterator_tag_local))),
-            &[],
             close.result_payload_local,
             close.result_tag_local,
             function,
         )?;
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_exhaust_static_generator_iterator_if_marked(
-            close.iterator_payload_local,
-            close.iterator_tag_local,
-            close.key_local,
-            function,
-        )?;
         self.restore_saved_completion(
             close.saved_payload_local,
             close.saved_tag_local,
@@ -2201,10 +4057,19 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         target: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.compile_for_in_object(mode, name, target, body, labels, function)
+        self.compile_for_in_object(
+            mode,
+            name,
+            target,
+            body,
+            lexical_environment,
+            labels,
+            function,
+        )
     }
 
     pub(crate) fn compile_for_in_string(
@@ -2213,6 +4078,7 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         target: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -2227,25 +4093,35 @@ impl<'a> FunctionBuilder<'a> {
         let key_tag_local = self.reserve_temp_local();
         let index_number_payload_local = self.reserve_temp_local();
 
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
+        }
+        self.compile_expr_to_locals(target, target_payload_local, target_tag_local, function)?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+
         self.push_scope();
-        let storage = if mode == BindingMode::Var {
-            self.lookup_binding(name).ok_or_else(|| {
+        let storage_without_environment = if mode == BindingMode::Var {
+            Some(self.lookup_binding(name).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: unbound for-in var `{name}`"
                 ))
-            })?
+            })?)
+        } else if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(name.to_string(), mode, ValueKind::String))
         } else {
-            self.allocate_binding(name.to_string(), mode, ValueKind::String)
+            None
         };
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
-                .insert(name.to_string(), storage);
+                .insert(
+                    name.to_string(),
+                    storage_without_environment.expect("for-in var storage must exist"),
+                );
         }
-
-        self.compile_expr_to_locals(target, target_payload_local, target_tag_local, function)?;
-        let iteration_env_source_local = self.capture_iteration_env_source(mode, name, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(string_payload_local));
         function.instruction(&Instruction::LocalGet(target_tag_local));
@@ -2308,7 +4184,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(key_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(key_tag_local));
-        self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+        if let Some(environment) =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("for-in lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -2320,7 +4204,12 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -2331,12 +4220,7 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
         self.pop_scope();
-
-        if let Some(iteration_env_source_local) = iteration_env_source_local {
-            self.release_temp_local(iteration_env_source_local);
-        }
         self.release_temp_local(index_number_payload_local);
         self.release_temp_local(key_tag_local);
         self.release_temp_local(key_payload_local);
@@ -2618,7 +4502,7 @@ impl<'a> FunctionBuilder<'a> {
             enumerable_keys_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(enumerable_keys_len_local));
         function.instruction(&Instruction::LocalGet(enumerable_keys_tag_local));
@@ -2650,7 +4534,7 @@ impl<'a> FunctionBuilder<'a> {
             own_names_tag_local,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        self.emit_propagate_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(own_names_len_local));
         function.instruction(&Instruction::LocalGet(own_names_tag_local));
@@ -2707,6 +4591,7 @@ impl<'a> FunctionBuilder<'a> {
         name: &str,
         target: &TypedExpr,
         body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -2723,25 +4608,35 @@ impl<'a> FunctionBuilder<'a> {
         let index_number_payload_local = self.reserve_temp_local();
         let should_iterate_local = self.reserve_temp_local();
 
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
+        }
+        self.compile_expr_to_locals(target, object_local, object_tag_local, function)?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+
         self.push_scope();
-        let storage = if mode == BindingMode::Var {
-            self.lookup_binding(name).ok_or_else(|| {
+        let storage_without_environment = if mode == BindingMode::Var {
+            Some(self.lookup_binding(name).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: unbound for-in var `{name}`"
                 ))
-            })?
+            })?)
+        } else if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(name.to_string(), mode, ValueKind::String))
         } else {
-            self.allocate_binding(name.to_string(), mode, ValueKind::String)
+            None
         };
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
-                .insert(name.to_string(), storage);
+                .insert(
+                    name.to_string(),
+                    storage_without_environment.expect("for-in var storage must exist"),
+                );
         }
-
-        self.compile_expr_to_locals(target, object_local, object_tag_local, function)?;
-        let iteration_env_source_local = self.capture_iteration_env_source(mode, name, function);
         self.emit_statement_result(function, ValueKind::Undefined);
         if target.kind != ValueKind::Dynamic {
             self.emit_for_in_object_key_snapshot(
@@ -2751,7 +4646,7 @@ impl<'a> FunctionBuilder<'a> {
                 entry_tag_local,
                 function,
             )?;
-            self.emit_return_current_completion_if_throw(function);
+            self.emit_propagate_current_completion_if_throw(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(len_local));
             function.instruction(&Instruction::LocalGet(entry_tag_local));
@@ -2778,7 +4673,15 @@ impl<'a> FunctionBuilder<'a> {
                 key_tag_local,
                 function,
             );
-            self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+            if let Some(environment) = lexical_environment
+                .and_then(|environment| environment.iteration_environment.as_ref())
+            {
+                self.emit_enter_lexical_environment(environment, function)?;
+            }
+            let storage = self
+                .lookup_current_scope_binding(name)
+                .or(storage_without_environment)
+                .expect("for-in lexical storage must be allocated before assignment");
             self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
             self.mirror_binding_to_global_object(name, storage, function)?;
             function.instruction(&Instruction::Block(BlockType::Empty));
@@ -2790,7 +4693,12 @@ impl<'a> FunctionBuilder<'a> {
             self.loop_stack.pop();
             self.pop_control(ControlFrameKind::Block);
             function.instruction(&Instruction::End);
-            self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+            if lexical_environment
+                .and_then(|environment| environment.iteration_environment.as_ref())
+                .is_some()
+            {
+                self.emit_leave_lexical_environment(function);
+            }
             function.instruction(&Instruction::LocalGet(index_local));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
@@ -2801,12 +4709,7 @@ impl<'a> FunctionBuilder<'a> {
             self.breakable_stack.pop();
             self.pop_control(ControlFrameKind::Block);
             function.instruction(&Instruction::End);
-            self.emit_exit_iteration_env(iteration_env_source_local, name, function);
             self.pop_scope();
-
-            if let Some(iteration_env_source_local) = iteration_env_source_local {
-                self.release_temp_local(iteration_env_source_local);
-            }
             self.release_temp_local(should_iterate_local);
             self.release_temp_local(index_number_payload_local);
             self.release_temp_local(key_tag_local);
@@ -2824,6 +4727,7 @@ impl<'a> FunctionBuilder<'a> {
         if target.kind == ValueKind::Dynamic {
             self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
         }
         self.load_i64_to_local_from_offset(object_local, HEAP_PTR_OFFSET, buffer_local, function);
         self.load_i64_to_local_from_offset(object_local, HEAP_LEN_OFFSET, len_local, function);
@@ -2923,7 +4827,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.push_control(ControlFrameKind::If);
-        self.emit_enter_iteration_env(iteration_env_source_local, function)?;
+        if let Some(environment) =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("for-in lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -2935,7 +4847,12 @@ impl<'a> FunctionBuilder<'a> {
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(index_local));
@@ -2949,14 +4866,10 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         if target.kind == ValueKind::Dynamic {
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_exit_iteration_env(iteration_env_source_local, name, function);
         self.pop_scope();
-
-        if let Some(iteration_env_source_local) = iteration_env_source_local {
-            self.release_temp_local(iteration_env_source_local);
-        }
         self.release_temp_local(should_iterate_local);
         self.release_temp_local(index_number_payload_local);
         self.release_temp_local(key_tag_local);

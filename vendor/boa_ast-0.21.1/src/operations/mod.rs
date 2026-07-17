@@ -2301,7 +2301,7 @@ impl<'ast> Visitor<'ast> for TopLevelVarScopedDeclarationsVisitor<'_> {
     }
 }
 
-/// Returns a list function declaration names that are directly contained in a statement lists
+/// Returns function declarations that are directly contained in statement lists of
 /// `Block`, `CaseClause` or `DefaultClause`.
 /// If the function declaration would cause an early error it is not included in the list.
 ///
@@ -2314,20 +2314,36 @@ impl<'ast> Visitor<'ast> for TopLevelVarScopedDeclarationsVisitor<'_> {
 /// [spec1]: https://tc39.es/ecma262/#sec-web-compat-globaldeclarationinstantiation
 /// [spec2]: https://tc39.es/ecma262/#sec-web-compat-evaldeclarationinstantiation
 #[must_use]
-pub fn annex_b_function_declarations_names<'a, N>(node: &'a N) -> Vec<Sym>
+pub fn annex_b_function_declarations<'a, N>(node: &'a N) -> Vec<&'a FunctionDeclaration>
 where
     &'a N: Into<NodeRef<'a>>,
 {
     let mut declarations = Vec::new();
-    let _ = AnnexBFunctionDeclarationNamesVisitor(&mut declarations).visit(node.into());
+    let _ = AnnexBFunctionDeclarationsVisitor(&mut declarations).visit(node.into());
     declarations
 }
 
-/// The [`Visitor`] used for [`annex_b_function_declarations_names`].
-#[derive(Debug)]
-struct AnnexBFunctionDeclarationNamesVisitor<'a>(&'a mut Vec<Sym>);
+/// Returns the names of the declarations from [`annex_b_function_declarations`].
+#[must_use]
+pub fn annex_b_function_declarations_names<'a, N>(node: &'a N) -> Vec<Sym>
+where
+    &'a N: Into<NodeRef<'a>>,
+{
+    let mut names = FxHashSet::default();
+    annex_b_function_declarations(node)
+        .into_iter()
+        .map(|function| function.name().sym())
+        .filter(|name| names.insert(*name))
+        .collect()
+}
 
-impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
+/// The [`Visitor`] used for [`annex_b_function_declarations`].
+#[derive(Debug)]
+struct AnnexBFunctionDeclarationsVisitor<'ast, 'declarations>(
+    &'declarations mut Vec<&'ast FunctionDeclaration>,
+);
+
+impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationsVisitor<'ast, '_> {
     type BreakTy = Infallible;
 
     fn visit_statement_list(&mut self, node: &'ast StatementList) -> ControlFlow<Self::BreakTy> {
@@ -2362,68 +2378,112 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
     }
 
     fn visit_block(&mut self, node: &'ast crate::statement::Block) -> ControlFlow<Self::BreakTy> {
-        self.visit_annex_b_statement_list(node.statement_list())
+        self.visit_annex_b_block_statement_list(node.statement_list())
     }
 
     fn visit_switch(&mut self, node: &'ast crate::statement::Switch) -> ControlFlow<Self::BreakTy> {
+        let mut declarations = Vec::new();
+        let mut direct_functions = Vec::new();
+        let mut direct_function_names = FxHashSet::default();
+        let mut blocked_names = FxHashSet::default();
+
         for case in node.cases() {
-            self.visit_annex_b_statement_list(case.body())?;
+            for item in case.body().statements() {
+                match item {
+                    StatementListItem::Statement(statement) => {
+                        declarations
+                            .extend(collect_annex_b_function_declarations(statement.as_ref()));
+                    }
+                    StatementListItem::Declaration(declaration) => {
+                        if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
+                            direct_functions.push(function);
+                            direct_function_names.insert(function.name().sym());
+                            declarations.push(function);
+                        }
+                    }
+                }
+            }
+
+            blocked_names.extend(
+                lexically_declared_names_legacy(case.body())
+                    .into_iter()
+                    .filter_map(|(name, is_function)| (!is_function).then_some(name)),
+            );
         }
-        if let Some(default) = node.default() {
-            self.visit_annex_b_statement_list(default)?;
-        }
+
+        declarations.retain(|function| {
+            let name = function.name().sym();
+            !blocked_names.contains(&name)
+                && (!direct_function_names.contains(&name)
+                    || direct_functions
+                        .iter()
+                        .any(|direct| core::ptr::eq(*direct, *function)))
+        });
+        self.0.extend(declarations);
 
         ControlFlow::Continue(())
     }
 
     fn visit_try(&mut self, node: &'ast crate::statement::Try) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.block())?;
+        self.0
+            .extend(collect_annex_b_function_declarations(node.block()));
         if let Some(catch) = node.catch() {
-            self.visit(catch.block())?;
+            let mut declarations = collect_annex_b_function_declarations(catch.block());
 
             if let Some(Binding::Pattern(pattern)) = catch.parameter() {
                 let bound_names = bound_names(pattern);
 
-                self.0.retain(|name| !bound_names.contains(name));
+                declarations.retain(|function| !bound_names.contains(&function.name().sym()));
             }
+
+            self.0.extend(declarations);
         }
         if let Some(finally) = node.finally() {
-            self.visit(finally.block())?;
+            self.0
+                .extend(collect_annex_b_function_declarations(finally.block()));
         }
         ControlFlow::Continue(())
     }
 
     fn visit_if(&mut self, node: &'ast crate::statement::If) -> ControlFlow<Self::BreakTy> {
+        self.0
+            .extend(collect_annex_b_function_declarations(node.body()));
         if let Some(node) = node.else_node() {
-            self.visit(node)?;
+            self.0.extend(collect_annex_b_function_declarations(node));
         }
-        self.visit(node.body())
+        ControlFlow::Continue(())
     }
 
     fn visit_do_while_loop(
         &mut self,
         node: &'ast crate::statement::DoWhileLoop,
     ) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.body())
+        self.0
+            .extend(collect_annex_b_function_declarations(node.body()));
+        ControlFlow::Continue(())
     }
 
     fn visit_while_loop(
         &mut self,
         node: &'ast crate::statement::WhileLoop,
     ) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.body())
+        self.0
+            .extend(collect_annex_b_function_declarations(node.body()));
+        ControlFlow::Continue(())
     }
 
     fn visit_for_loop(
         &mut self,
         node: &'ast crate::statement::ForLoop,
     ) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.body())?;
+        let mut declarations = collect_annex_b_function_declarations(node.body());
 
         if let Some(ForLoopInitializer::Lexical(node)) = node.init() {
             let bound_names = bound_names(&node.declaration);
-            self.0.retain(|name| !bound_names.contains(name));
+            declarations.retain(|function| !bound_names.contains(&function.name().sym()));
         }
+
+        self.0.extend(declarations);
 
         ControlFlow::Continue(())
     }
@@ -2432,19 +2492,21 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
         &mut self,
         node: &'ast crate::statement::ForInLoop,
     ) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.body())?;
+        let mut declarations = collect_annex_b_function_declarations(node.body());
 
         if let IterableLoopInitializer::Let(node)
         | IterableLoopInitializer::Using(node)
         | IterableLoopInitializer::AwaitUsing(node) = node.initializer()
         {
             let bound_names = bound_names(node);
-            self.0.retain(|name| !bound_names.contains(name));
+            declarations.retain(|function| !bound_names.contains(&function.name().sym()));
         }
         if let IterableLoopInitializer::Const(node) = node.initializer() {
             let bound_names = bound_names(node);
-            self.0.retain(|name| !bound_names.contains(name));
+            declarations.retain(|function| !bound_names.contains(&function.name().sym()));
         }
+
+        self.0.extend(declarations);
 
         ControlFlow::Continue(())
     }
@@ -2453,19 +2515,21 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
         &mut self,
         node: &'ast crate::statement::ForOfLoop,
     ) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.body())?;
+        let mut declarations = collect_annex_b_function_declarations(node.body());
 
         if let IterableLoopInitializer::Let(node)
         | IterableLoopInitializer::Using(node)
         | IterableLoopInitializer::AwaitUsing(node) = node.initializer()
         {
             let bound_names = bound_names(node);
-            self.0.retain(|name| !bound_names.contains(name));
+            declarations.retain(|function| !bound_names.contains(&function.name().sym()));
         }
         if let IterableLoopInitializer::Const(node) = node.initializer() {
             let bound_names = bound_names(node);
-            self.0.retain(|name| !bound_names.contains(name));
+            declarations.retain(|function| !bound_names.contains(&function.name().sym()));
         }
+
+        self.0.extend(declarations);
 
         ControlFlow::Continue(())
     }
@@ -2475,30 +2539,27 @@ impl<'ast> Visitor<'ast> for AnnexBFunctionDeclarationNamesVisitor<'_> {
         node: &'ast crate::statement::Labelled,
     ) -> ControlFlow<Self::BreakTy> {
         if let LabelledItem::Statement(node) = node.item() {
-            self.visit(node)?;
+            self.0.extend(collect_annex_b_function_declarations(node));
         }
         ControlFlow::Continue(())
     }
 
     fn visit_with(&mut self, node: &'ast With) -> ControlFlow<Self::BreakTy> {
-        self.visit(node.statement())
+        self.0
+            .extend(collect_annex_b_function_declarations(node.statement()));
+        ControlFlow::Continue(())
     }
 }
 
-impl AnnexBFunctionDeclarationNamesVisitor<'_> {
-    fn visit_annex_b_statement_list(&mut self, list: &StatementList) -> ControlFlow<Infallible> {
+impl<'ast> AnnexBFunctionDeclarationsVisitor<'ast, '_> {
+    fn visit_annex_b_statement_list(
+        &mut self,
+        list: &'ast StatementList,
+    ) -> ControlFlow<Infallible> {
+        let mut declarations = Vec::new();
         for item in list.statements() {
             if let StatementListItem::Statement(statement) = item {
-                self.visit(statement.as_ref())?;
-            }
-        }
-
-        let mut direct_function_names = Vec::new();
-        for item in list.statements() {
-            if let StatementListItem::Declaration(declaration) = item
-                && let Declaration::FunctionDeclaration(function) = declaration.as_ref()
-            {
-                direct_function_names.push(function.name().sym());
+                declarations.extend(collect_annex_b_function_declarations(statement.as_ref()));
             }
         }
 
@@ -2507,17 +2568,63 @@ impl AnnexBFunctionDeclarationNamesVisitor<'_> {
             .filter_map(|(name, is_function)| (!is_function).then_some(name))
             .collect::<FxHashSet<_>>();
 
-        self.0.retain(|name| {
-            !blocked_names.contains(name) && !direct_function_names.iter().any(|direct| direct == name)
+        declarations.retain(|function| {
+            let name = function.name().sym();
+            !blocked_names.contains(&name)
         });
-        self.0.extend(
-            direct_function_names
-                .into_iter()
-                .filter(|name| !blocked_names.contains(name)),
-        );
+        self.0.extend(declarations);
 
         ControlFlow::Continue(())
     }
+
+    fn visit_annex_b_block_statement_list(
+        &mut self,
+        list: &'ast StatementList,
+    ) -> ControlFlow<Infallible> {
+        let mut declarations = Vec::new();
+        let mut direct_functions = Vec::new();
+        let mut direct_function_names = FxHashSet::default();
+        for item in list.statements() {
+            match item {
+                StatementListItem::Statement(statement) => {
+                    declarations.extend(collect_annex_b_function_declarations(statement.as_ref()));
+                }
+                StatementListItem::Declaration(declaration) => {
+                    if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
+                        direct_functions.push(function);
+                        direct_function_names.insert(function.name().sym());
+                        declarations.push(function);
+                    }
+                }
+            }
+        }
+
+        let blocked_names = lexically_declared_names_legacy(list)
+            .into_iter()
+            .filter_map(|(name, is_function)| (!is_function).then_some(name))
+            .collect::<FxHashSet<_>>();
+
+        declarations.retain(|function| {
+            let name = function.name().sym();
+            !blocked_names.contains(&name)
+                && (!direct_function_names.contains(&name)
+                    || direct_functions
+                        .iter()
+                        .any(|direct| core::ptr::eq(*direct, *function)))
+        });
+        self.0.extend(declarations);
+
+        ControlFlow::Continue(())
+    }
+}
+
+fn collect_annex_b_function_declarations<'ast, N>(node: &'ast N) -> Vec<&'ast FunctionDeclaration>
+where
+    &'ast N: Into<NodeRef<'ast>>,
+{
+    let mut declarations = Vec::new();
+    let _ = AnnexBFunctionDeclarationsVisitor(&mut declarations).visit(node.into());
+    declarations
 }
 
 /// Returns `true` if the given statement returns a value.

@@ -1,0 +1,155 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11374343618813182054,
+  "run_kind": "full",
+  "total": 32,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 72307
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/get-length-uses-internal-arraylength.js",
+      "duration_ms": 53425
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/custom-separator-result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 45840
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 44247
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/detached-buffer.js",
+      "duration_ms": 12522
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/coerced-separator-shrink.js",
+      "duration_ms": 11434
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/detached-buffer-during-fromIndex-returns-single-comma.js",
+      "duration_ms": 11346
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-this-out-of-bounds.js",
+      "duration_ms": 8866
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/coerced-separator-grow.js",
+      "duration_ms": 8350
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-separator.js",
+      "duration_ms": 8348
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/BigInt/detached-buffer-during-fromIndex-returns-single-comma.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1550192)",
+      "detail_hash": 2785962689596616885,
+      "duration_ms": 11346
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/BigInt/get-length-uses-internal-arraylength.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1443144)",
+      "detail_hash": 4569301783114757590,
+      "duration_ms": 53425
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/detached-buffer-during-fromIndex-returns-single-comma.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1550184)",
+      "detail_hash": 4718725878690787981,
+      "duration_ms": 4938
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1445408)",
+      "detail_hash": 3834634688823053992,
+      "duration_ms": 6812
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/join/BigInt/custom-separator-result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/BigInt/detached-buffer-during-fromIndex-returns-single-comma.js",
+    "built-ins/TypedArray/prototype/join/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/join/BigInt/empty-instance-empty-string.js",
+    "built-ins/TypedArray/prototype/join/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/join/BigInt/result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-separator-symbol.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-separator.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/join/coerced-separator-grow.js",
+    "built-ins/TypedArray/prototype/join/coerced-separator-shrink.js",
+    "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-value.js",
+    "built-ins/TypedArray/prototype/join/detached-buffer-during-fromIndex-returns-single-comma.js",
+    "built-ins/TypedArray/prototype/join/detached-buffer.js",
+    "built-ins/TypedArray/prototype/join/empty-instance-empty-string.js",
+    "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/join/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/join/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/join/length.js",
+    "built-ins/TypedArray/prototype/join/name.js",
+    "built-ins/TypedArray/prototype/join/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/join/prop-desc.js",
+    "built-ins/TypedArray/prototype/join/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-value.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-separator-symbol.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-separator.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/join/separator-tostring-once-after-resized.js",
+    "built-ins/TypedArray/prototype/join/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/join/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

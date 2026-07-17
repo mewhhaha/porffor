@@ -84,7 +84,7 @@ function __porfAssertCompareArray(actual, expected, message) {
     var index = 0;
     while (index < actual.length) {
       if (!__porfAssertIsSameValue(actual[index], expected[index])) {
-        throw message || 'Expected arrays to contain the same values';
+        throw message || 'Expected arrays to contain the same values at ' + index + ': ' + __porfAssertToString(actual[index]) + ' !== ' + __porfAssertToString(expected[index]);
       }
       index = index + 1;
     }

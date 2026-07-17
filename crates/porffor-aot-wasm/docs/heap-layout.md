@@ -79,11 +79,24 @@ offsets are consumed by emitters.
 Some runtime records are ordinary objects with well-known metadata properties
 rather than fixed-offset byte records. `HEAP_NAMED_SLOT_LAYOUTS` records these
 properties for ArrayBuffer, DataView, TypedArray, ArrayIterator,
-RegExpStringIterator and iterator-helper objects. Named slots mark whether a
+StringIterator, RegExpStringIterator and iterator-helper objects. Named slots mark whether a
 property is a strong reference and whether the referenced target is a
 tagged/object graph that should be scanned. ArrayBuffer backing-store addresses
 are strong references to raw bytes, but the bytes themselves are not scanned as
 tagged values.
+
+Iterator.zip helpers keep their mutable state in an inaccessible ordinary
+state object. A helper with the `OBJECT_INTERNAL_BRAND_ITERATOR_ZIP_HELPER`
+brand holds that state's pointer in its `boxed_payload` header slot while its
+`boxed_kind` remains `NONE`; the state object's eight named slots are registered
+as `HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS`. This branded header reference is a
+strong edge, and the state object owns the iterator, next-method, open-array
+and padding-array edges that must be scanned.
+
+Iterator helper instances use one of the six exact-object internal brands for
+zip, map, filter, flatMap, take and drop. These unforgeable header brands select
+the shared `%IteratorHelperPrototype%` methods without consulting observable
+properties on the helper object.
 
 Raw byte spans are represented separately from pointer-bearing records.
 `HEAP_RAW_BYTE_SPAN_LAYOUTS` records ArrayBuffer backing stores, string

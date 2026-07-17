@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+icu_properties = "2.0.2"
 porffor-ir = { path = "../porffor-ir" }
 wasm-encoder = "0.245.1"
 

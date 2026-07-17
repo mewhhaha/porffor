@@ -21,6 +21,9 @@ fn main() {
         collect_files(input, &mut files);
     }
     files.sort();
+    for path in &files {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 
     let mut digest = Sha256::new();
     digest.update(b"porffor-program-cache-compiler-v1");

@@ -74,32 +74,14 @@ pub(crate) struct LoweredScript {
     pub(crate) diagnostics: Vec<IrDiagnostic>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PrivateStorageKind {
-    Field,
-    Method,
-    Getter,
-    Setter,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PrivateElementBinding {
-    pub(crate) private_name_id: PrivateNameId,
-    pub(crate) placement: ClassMethodPlacementIr,
-    pub(crate) storage: PrivateStorageKind,
-}
-
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ClassLoweringContext {
-    pub(crate) name: Option<String>,
     pub(crate) private_name_ids: BTreeMap<String, PrivateNameId>,
-    pub(crate) private_bindings: BTreeMap<String, PrivateElementBinding>,
     pub(crate) heritage_kind: ClassHeritageKind,
     pub(crate) super_base_shape: Option<Box<HeapShape>>,
     pub(crate) super_constructor_target: Option<FunctionId>,
     pub(crate) is_static: bool,
     pub(crate) is_derived_constructor: bool,
-    pub(crate) map_self_name_to_this: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -495,6 +477,8 @@ pub(crate) struct ScriptLowerer<'a> {
     source_text: &'a str,
     current_owner_id: String,
     scopes: Vec<BTreeMap<String, BindingInfo>>,
+    direct_lexical_scopes: Vec<bool>,
+    tdz_scopes: Vec<BTreeSet<String>>,
     var_bindings: BTreeMap<String, VarBindingInfo>,
     function_signatures: BTreeMap<FunctionId, FunctionSignature>,
     visible_function_names: BTreeMap<String, FunctionId>,
@@ -510,6 +494,10 @@ pub(crate) struct ScriptLowerer<'a> {
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    /// Facts written by this lowerer (or one of its nested lowerers).
+    nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
+    /// Script-global facts learned before this lowerer was entered.
+    known_nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     array_prototype_mutated: bool,
     number_prototype_to_string_deleted: bool,
     number_prototype_match_is_string_match: bool,
@@ -543,7 +531,6 @@ pub(crate) struct ScriptLowerer<'a> {
     generated_functions: Vec<FunctionIr>,
     next_generated_function_index: usize,
     next_temp_binding_index: usize,
-    next_private_name_id: PrivateNameId,
     is_prepass: bool,
     active_direct_call_propagations: BTreeSet<FunctionId>,
     exact_context_callback_targets: BTreeMap<FunctionId, ExactHelperContextId>,
@@ -552,6 +539,7 @@ pub(crate) struct ScriptLowerer<'a> {
     exact_context_function_observations: BTreeMap<ExactCallbackContextKey, FunctionSignature>,
     exact_context_function_specializations: BTreeMap<ExactCallbackContextKey, FunctionId>,
     class_context: Option<ClassLoweringContext>,
+    private_environment_id: Option<PrivateEnvironmentId>,
     active_with_objects: Vec<TypedExpr>,
     error_proto_to_strings: usize,
 }
@@ -1201,9 +1189,30 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
+            "compile".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeCompile.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "exec".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeExec.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "test".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeTest.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeToString.function_id(),
                 false,
             )),
         );
@@ -1222,9 +1231,23 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "Symbol.replace".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeSymbolReplace.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "Symbol.search".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "Symbol.split".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::RegExpPrototypeSymbolSplit.function_id(),
                 false,
             )),
         );
@@ -1340,6 +1363,7 @@ impl<'a> ScriptLowerer<'a> {
             ("keys", StandardBuiltinId::ArrayPrototypeKeys),
             ("entries", StandardBuiltinId::ArrayPrototypeEntries),
             ("toString", StandardBuiltinId::TypedArrayPrototypeToString),
+            ("join", StandardBuiltinId::TypedArrayPrototypeJoin),
             (
                 "toLocaleString",
                 StandardBuiltinId::TypedArrayPrototypeToLocaleString,
@@ -1399,12 +1423,20 @@ impl<'a> ScriptLowerer<'a> {
         for builtin in [
             StandardBuiltinId::ArrayPrototypeConcat,
             StandardBuiltinId::ArrayPrototypeJoin,
+            StandardBuiltinId::ArrayPrototypeSlice,
             StandardBuiltinId::ArrayPrototypeSplice,
+            StandardBuiltinId::ArrayPrototypeSort,
             StandardBuiltinId::TypedArrayPrototypeToString,
             StandardBuiltinId::ArrayPrototypeToLocaleString,
             StandardBuiltinId::ArrayPrototypeFlat,
             StandardBuiltinId::ArrayPrototypeFlatMap,
             StandardBuiltinId::ArrayPrototypeAt,
+            StandardBuiltinId::ArrayPrototypeToReversed,
+            StandardBuiltinId::ArrayPrototypeToSpliced,
+            StandardBuiltinId::ArrayPrototypeToSorted,
+            StandardBuiltinId::ArrayPrototypeWith,
+            StandardBuiltinId::ArrayPrototypeReverse,
+            StandardBuiltinId::ArrayPrototypeCopyWithin,
             StandardBuiltinId::ArrayPrototypeIncludes,
             StandardBuiltinId::ArrayPrototypeIndexOf,
             StandardBuiltinId::ArrayPrototypeLastIndexOf,
@@ -1421,6 +1453,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeReduceRight,
             StandardBuiltinId::ArrayPrototypePop,
             StandardBuiltinId::ArrayPrototypePush,
+            StandardBuiltinId::ArrayPrototypeShift,
+            StandardBuiltinId::ArrayPrototypeUnshift,
+            StandardBuiltinId::ArrayPrototypeFill,
             StandardBuiltinId::ArrayPrototypeKeys,
             StandardBuiltinId::ArrayPrototypeEntries,
             StandardBuiltinId::ArrayPrototypeValues,
@@ -1601,6 +1636,7 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypeToString,
                 StandardBuiltinId::StringPrototypeValueOf,
                 StandardBuiltinId::StringPrototypeCharAt,
+                StandardBuiltinId::StringPrototypeConcat,
                 StandardBuiltinId::StringPrototypeCharCodeAt,
                 StandardBuiltinId::StringPrototypeCodePointAt,
                 StandardBuiltinId::StringPrototypeAt,
@@ -1626,6 +1662,11 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::StringPrototypePadStart,
                 StandardBuiltinId::StringPrototypePadEnd,
                 StandardBuiltinId::StringPrototypeRepeat,
+                StandardBuiltinId::StringPrototypeNormalize,
+                StandardBuiltinId::StringPrototypeLocaleCompare,
+                StandardBuiltinId::StringPrototypeToLocaleLowerCase,
+                StandardBuiltinId::StringPrototypeToLocaleUpperCase,
+                StandardBuiltinId::StringPrototypeToLowerCase,
                 StandardBuiltinId::StringPrototypeToUpperCase,
                 StandardBuiltinId::StringPrototypeTrim,
                 StandardBuiltinId::StringPrototypeTrimStart,
@@ -1920,6 +1961,13 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: BTreeSet::new(),
                         }),
                     );
+                    object.properties.insert(
+                        "fromCodePoint".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::StringFromCodePoint.function_id(),
+                            false,
+                        )),
+                    );
                 }
                 StandardBuiltinId::BooleanConstructor => {
                     object.properties.insert(
@@ -2093,6 +2141,13 @@ impl<'a> ScriptLowerer<'a> {
                         "from".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             StandardBuiltinId::IteratorFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "zip".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::IteratorZip.function_id(),
                             false,
                         )),
                     );
@@ -2488,6 +2543,32 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    fn iterator_helper_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "next".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorHelperNext,
+            )),
+        );
+        properties.insert(
+            "return".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorHelperReturn,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::String)),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_prototype_shape()),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn iterator_from_wrapper_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         properties.insert(
@@ -2505,110 +2586,54 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn iterator_take_helper_shape() -> Box<HeapShape> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "next".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorTakeNext,
-            )),
-        );
-        properties.insert(
-            "return".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorTakeReturn,
-            )),
-        );
         Box::new(HeapShape::Object(ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn iterator_zip_helper_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
     }
 
     fn iterator_drop_helper_shape() -> Box<HeapShape> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "next".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorDropNext,
-            )),
-        );
-        properties.insert(
-            "return".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorDropReturn,
-            )),
-        );
         Box::new(HeapShape::Object(ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
     }
 
     fn iterator_map_helper_shape() -> Box<HeapShape> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "next".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorMapNext,
-            )),
-        );
-        properties.insert(
-            "return".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorMapReturn,
-            )),
-        );
         Box::new(HeapShape::Object(ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
     }
 
     fn iterator_filter_helper_shape() -> Box<HeapShape> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "next".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorFilterNext,
-            )),
-        );
-        properties.insert(
-            "return".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorFilterReturn,
-            )),
-        );
         Box::new(HeapShape::Object(ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
     }
 
     fn iterator_flat_map_helper_shape() -> Box<HeapShape> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "next".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorFlatMapNext,
-            )),
-        );
-        properties.insert(
-            "return".to_string(),
-            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                StandardBuiltinId::IteratorFlatMapReturn,
-            )),
-        );
         Box::new(HeapShape::Object(ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
@@ -3017,6 +3042,14 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Box::new(Self::empty_object_shape())),
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ObjectPrototypeLookupGetter
+            | StandardBuiltinId::ObjectPrototypeLookupSetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Function)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ObjectGetOwnPropertyNames
             | StandardBuiltinId::ObjectGetOwnPropertySymbols
             | StandardBuiltinId::ObjectKeys
@@ -3061,7 +3094,8 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::AtomicsNotify
             | StandardBuiltinId::StringPrototypeIndexOf
-            | StandardBuiltinId::StringPrototypeLastIndexOf => (
+            | StandardBuiltinId::StringPrototypeLastIndexOf
+            | StandardBuiltinId::StringPrototypeLocaleCompare => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
                 None,
@@ -3268,6 +3302,12 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IteratorZip => (
+                ValueKind::Object,
+                Self::object_like_kind_set(),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayIsArray => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
@@ -3349,9 +3389,19 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ArrayPrototypeSlice => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Array)
+                    .union(KindSet::from_kind(ValueKind::Object))
+                    .union(KindSet::from_kind(ValueKind::Function))
+                    .union(KindSet::from_kind(ValueKind::Arguments)),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayPrototypeJoin
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeJoin
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
@@ -3373,6 +3423,42 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeAt => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeToReversed => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeWith => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeToSpliced => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeToSorted => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeReverse => (
+                ValueKind::Dynamic,
+                Self::object_like_kind_set(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeCopyWithin => (
+                ValueKind::Dynamic,
+                Self::object_like_kind_set(),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -3461,7 +3547,25 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::ArrayPrototypeShift => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeFill | StandardBuiltinId::ArrayPrototypeSort => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::ArrayPrototypePush => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ArrayPrototypeUnshift => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
                 None,
@@ -3469,7 +3573,8 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::ArrayPrototypeKeys
             | StandardBuiltinId::ArrayPrototypeEntries
-            | StandardBuiltinId::ArrayPrototypeValues => (
+            | StandardBuiltinId::ArrayPrototypeValues
+            | StandardBuiltinId::StringPrototypeIterator => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::array_iterator_instance_shape()),
@@ -3536,6 +3641,38 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorPrototypeMap,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorZipNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorZipNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorZipReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorZipReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorHelperNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorHelperNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorHelperReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorHelperReturn,
                 )),
                 ValueInfo::undefined(),
             ),
@@ -3695,7 +3832,7 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Box::new(Self::empty_object_shape())),
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::ArrayIteratorNext => (
+            StandardBuiltinId::ArrayIteratorNext | StandardBuiltinId::StringIteratorNext => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Box::new(Self::empty_object_shape())),
@@ -4052,9 +4189,28 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 Self::boxed_primitive_instance_info(ValueInfo::new(ValueKind::String)),
             ),
+            StandardBuiltinId::StringFromCharCode => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringFromCodePoint => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::StringRaw => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::StringPrototypeToString
             | StandardBuiltinId::StringPrototypeValueOf
             | StandardBuiltinId::StringPrototypeCharAt
+            | StandardBuiltinId::StringPrototypeConcat
             | StandardBuiltinId::StringPrototypeCharCodeAt
             | StandardBuiltinId::StringPrototypeCodePointAt
             | StandardBuiltinId::StringPrototypeAnchor
@@ -4076,6 +4232,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypePadStart
             | StandardBuiltinId::StringPrototypePadEnd
             | StandardBuiltinId::StringPrototypeRepeat
+            | StandardBuiltinId::StringPrototypeNormalize
+            | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+            | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+            | StandardBuiltinId::StringPrototypeToLowerCase
             | StandardBuiltinId::StringPrototypeToUpperCase
             | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
@@ -4088,14 +4248,24 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::RegExpPrototypeTest => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::StringPrototypeMatch
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
+            | StandardBuiltinId::RegExpPrototypeCompile
             | StandardBuiltinId::RegExpPrototypeExec
+            | StandardBuiltinId::RegExpPrototypeToString
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
-            | StandardBuiltinId::RegExpPrototypeSymbolSearch => (
+            | StandardBuiltinId::RegExpPrototypeSymbolReplace
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch
+            | StandardBuiltinId::RegExpPrototypeSymbolSplit => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
                 None,
@@ -4249,11 +4419,23 @@ impl<'a> ScriptLowerer<'a> {
         info
     }
 
-    fn current_private_binding(&self, name: PrivateName) -> Option<PrivateElementBinding> {
+    fn current_private_name_id(&self, name: PrivateName) -> Option<PrivateNameId> {
         let key = private_name_key(self.interner, name);
-        self.class_context
-            .as_ref()
-            .and_then(|context| context.private_bindings.get(&key).copied())
+        self.analysis
+            .resolve_private_name(self.private_environment_id, &key)
+            .map(|(_, private_name_id)| private_name_id)
+    }
+
+    fn lower_class_property_key(
+        &mut self,
+        expression: &Expression,
+        private_environment_id: Option<PrivateEnvironmentId>,
+    ) -> Option<PropertyKeyIr> {
+        let enclosing_private_environment_id = self.private_environment_id;
+        self.private_environment_id = private_environment_id;
+        let key = self.lower_dynamic_object_property_key(expression);
+        self.private_environment_id = enclosing_private_environment_id;
+        key
     }
 
     fn target_has_private_brand(
@@ -4289,7 +4471,11 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lexical_storage_name(&mut self, source_name: &str) -> String {
-        let shadows_scope_binding = self.has_scope_binding(source_name);
+        let shadows_scope_binding = self.scopes.iter().rev().any(|scope| {
+            scope
+                .get(source_name)
+                .is_some_and(|binding| !Self::is_tdz_binding_storage_name(&binding.storage_name))
+        });
         let shadows_var_binding = self
             .var_bindings
             .get(source_name)
@@ -4301,26 +4487,11 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn alloc_private_name_id(&mut self) -> PrivateNameId {
-        let id = self.next_private_name_id;
-        self.next_private_name_id += 1;
-        id
-    }
-
-    fn ensure_private_name_id(
-        &mut self,
-        private_name_ids: &mut BTreeMap<String, PrivateNameId>,
-        name: PrivateName,
-    ) -> (String, PrivateNameId) {
-        let key = private_name_key(self.interner, name);
-        let private_name_id = if let Some(private_name_id) = private_name_ids.get(&key).copied() {
-            private_name_id
-        } else {
-            let private_name_id = self.alloc_private_name_id();
-            private_name_ids.insert(key.clone(), private_name_id);
-            private_name_id
-        };
-        (key, private_name_id)
+    fn direct_lexical_storage_name(&mut self, source_name: &str, span: boa_ast::Span) -> String {
+        if self.direct_lexical_scopes.last().copied().unwrap_or(false) {
+            return scoped_lexical_binding_storage_name(source_name, span);
+        }
+        self.lexical_storage_name(source_name)
     }
 
     fn new(
@@ -4329,12 +4500,18 @@ impl<'a> ScriptLowerer<'a> {
         source_text: &'a str,
         current_owner_id: String,
     ) -> Self {
+        let private_environment_id = analysis
+            .owner_plans
+            .get(&current_owner_id)
+            .and_then(|owner| owner.private_environment_id);
         Self {
             interner,
             analysis,
             source_text,
             current_owner_id,
             scopes: vec![BTreeMap::new()],
+            direct_lexical_scopes: vec![false],
+            tdz_scopes: vec![BTreeSet::new()],
             var_bindings: BTreeMap::new(),
             function_signatures: BTreeMap::new(),
             visible_function_names: BTreeMap::new(),
@@ -4503,6 +4680,8 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 properties
             },
+            nested_script_global_value_infos: BTreeMap::new(),
+            known_nested_script_global_value_infos: BTreeMap::new(),
             // Array.prototype is mutable and can escape through dynamic code
             // such as Object.getPrototypeOf([]). Until specialization carries
             // a runtime/version guard, default to the generic observable path.
@@ -4539,7 +4718,6 @@ impl<'a> ScriptLowerer<'a> {
             generated_functions: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
-            next_private_name_id: 0,
             is_prepass: false,
             active_direct_call_propagations: BTreeSet::new(),
             exact_context_callback_targets: BTreeMap::new(),
@@ -4548,6 +4726,7 @@ impl<'a> ScriptLowerer<'a> {
             exact_context_function_observations: BTreeMap::new(),
             exact_context_function_specializations: BTreeMap::new(),
             class_context: None,
+            private_environment_id,
             active_with_objects: Vec::new(),
             error_proto_to_strings: 0,
         }
@@ -4803,18 +4982,30 @@ impl<'a> ScriptLowerer<'a> {
         );
         prepass.function_signatures = self.function_signatures.clone();
         prepass.is_prepass = true;
-        prepass.hoist_statement_items(script.statements().statements());
+        prepass.hoist_root_statement_items(script.statements().statements());
         let _ = prepass.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
         );
+        // Function bodies are skipped by the body prepass. Lower every planned
+        // body once here so nested script-global writes are known before the
+        // final function pass (whose order follows source order).
+        for function_id in &self.analysis.function_order {
+            let plan = self
+                .analysis
+                .function_plans
+                .get(function_id)
+                .expect("function plan must exist");
+            let _ = prepass.lower_function(plan, None, None);
+        }
         self.function_signatures = prepass.function_signatures;
         self.exact_context_function_observations = prepass.exact_context_function_observations;
         self.exact_context_callback_observations = prepass.exact_context_callback_observations;
         self.global_properties = prepass.global_properties;
         self.var_bindings = prepass.var_bindings;
+        self.nested_script_global_value_infos = prepass.nested_script_global_value_infos;
         self.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
-        self.hoist_statement_items(script.statements().statements());
+        self.hoist_root_statement_items(script.statements().statements());
         if lower_trace {
             eprintln!("porffor lower trace: prepass: {:?}", tp.elapsed());
         }
@@ -5843,11 +6034,24 @@ impl<'a> ScriptLowerer<'a> {
         items: &[StatementListItem],
         root_functions: &[PendingFunction<'a>],
     ) -> BlockIr {
+        let root_function_bindings = root_functions
+            .iter()
+            .map(|function| (function.name.clone(), function.id.clone()))
+            .collect::<Vec<_>>();
+        self.lower_root_statement_items_with_function_bindings(items, &root_function_bindings)
+    }
+
+    fn lower_root_statement_items_with_function_bindings(
+        &mut self,
+        items: &[StatementListItem],
+        root_functions: &[(String, FunctionId)],
+    ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
+        self.prepare_annex_b_function_bindings();
         self.prepare_static_generator_declarations(items);
-        self.prepare_root_function_bindings(root_functions);
+        self.prepare_root_function_binding_ids(root_functions);
         statements.extend(self.root_function_init_statements(root_functions));
 
         for item in items {
@@ -5873,6 +6077,7 @@ impl<'a> ScriptLowerer<'a> {
         BlockIr {
             statements,
             result_kind,
+            lexical_environment: None,
         }
     }
 
@@ -5880,21 +6085,25 @@ impl<'a> ScriptLowerer<'a> {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
-        for item in items {
-            let StatementListItem::Declaration(declaration) = item else {
-                continue;
-            };
-            let Declaration::FunctionDeclaration(function) = declaration.as_ref() else {
-                continue;
-            };
-            statements.push(self.lower_function_declaration(function));
-        }
+        statements.extend(self.lower_block_function_declarations(items));
 
         for item in items {
+            if let StatementListItem::Declaration(declaration) = item {
+                if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
+                    if let Some(copy) = self.lower_annex_b_function_copy(function) {
+                        statements.push(copy);
+                    }
+                    continue;
+                }
+            }
             if matches!(
                 item,
-                StatementListItem::Declaration(declaration)
-                    if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_))
+                StatementListItem::Statement(statement)
+                    if matches!(
+                        statement.as_ref(),
+                        Statement::Labelled(labelled)
+                            if labelled_function_declaration(labelled).is_some()
+                    )
             ) {
                 continue;
             }
@@ -5906,35 +6115,114 @@ impl<'a> ScriptLowerer<'a> {
         BlockIr {
             statements,
             result_kind,
+            lexical_environment: None,
+        }
+    }
+
+    fn lower_block_function_declarations(
+        &mut self,
+        items: &[StatementListItem],
+    ) -> Vec<StatementIr> {
+        let mut last_function_by_name = BTreeMap::new();
+        for item in items {
+            let Some(function) = statement_list_item_function_declaration(item) else {
+                continue;
+            };
+            last_function_by_name.insert(function_name(self.interner, function, None), function);
+        }
+
+        last_function_by_name
+            .into_values()
+            .map(|function| self.lower_function_declaration(function))
+            .collect()
+    }
+
+    fn lower_statement_items_without_function_initialization(
+        &mut self,
+        items: &[StatementListItem],
+    ) -> BlockIr {
+        let mut statements = Vec::new();
+        let mut result_kind = ValueKind::Undefined;
+        for item in items {
+            if let StatementListItem::Declaration(declaration) = item {
+                if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
+                    if let Some(copy) = self.lower_annex_b_function_copy(function) {
+                        statements.push(copy);
+                    }
+                    continue;
+                }
+            }
+            if matches!(
+                item,
+                StatementListItem::Statement(statement)
+                    if matches!(
+                        statement.as_ref(),
+                        Statement::Labelled(labelled)
+                            if labelled_function_declaration(labelled).is_some()
+                    )
+            ) {
+                continue;
+            }
+            let (statement, kind) = self.lower_statement_list_item(item);
+            statements.push(statement);
+            result_kind = kind;
+        }
+        BlockIr {
+            statements,
+            result_kind,
+            lexical_environment: None,
+        }
+    }
+
+    fn prepare_annex_b_function_bindings(&mut self) {
+        let names = self
+            .analysis
+            .annex_b_function_plans
+            .values()
+            .filter(|plan| {
+                plan.owner_id == self.current_owner_id && plan.copy_to_variable_environment
+            })
+            .map(|plan| plan.source_name.clone())
+            .collect::<BTreeSet<_>>();
+        for name in names {
+            self.hoist_var_name(name);
         }
     }
 
     fn prepare_root_function_bindings(&mut self, root_functions: &[PendingFunction<'a>]) {
+        let root_function_bindings = root_functions
+            .iter()
+            .map(|function| (function.name.clone(), function.id.clone()))
+            .collect::<Vec<_>>();
+        self.prepare_root_function_binding_ids(&root_function_bindings);
+    }
+
+    fn prepare_root_function_binding_ids(&mut self, root_functions: &[(String, FunctionId)]) {
         self.visible_function_names.clear();
-        for function in root_functions {
-            let bare_function_info = self.function_value_info(&function.id);
+        for (name, function_id) in root_functions {
+            let bare_function_info = self.function_value_info(function_id);
             let function_info = self
-                .lookup_global_property(&function.name)
+                .lookup_global_property(name)
                 .filter(|info| {
-                    info.kind == ValueKind::Function && info.function_targets.contains(&function.id)
+                    info.kind == ValueKind::Function && info.function_targets.contains(function_id)
                 })
                 .unwrap_or(bare_function_info);
             self.visible_function_names
-                .insert(function.name.clone(), function.id.clone());
+                .insert(name.clone(), function_id.clone());
             self.set_global_property_value_info_with_source(
-                function.name.clone(),
+                name.clone(),
                 function_info.clone(),
                 GlobalPropertySource::GlobalWrite,
             );
             self.declare_binding(
-                function.name.clone(),
+                name.clone(),
                 BindingInfo {
-                    mode: BindingMode::Const,
-                    storage_name: function.name.clone(),
+                    mode: BindingMode::Let,
+                    storage_name: name.clone(),
                     kind: ValueKind::Function,
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
                     heap_shape: function_info.heap_shape,
-                    function_targets: BTreeSet::from([function.id.clone()]),
+                    function_targets: BTreeSet::from([function_id.clone()]),
                 },
             );
         }
@@ -5942,16 +6230,16 @@ impl<'a> ScriptLowerer<'a> {
 
     fn root_function_init_statements(
         &mut self,
-        root_functions: &[PendingFunction<'a>],
+        root_functions: &[(String, FunctionId)],
     ) -> Vec<StatementIr> {
         root_functions
             .iter()
-            .map(|function| StatementIr::Lexical {
-                mode: BindingMode::Const,
-                name: function.name.clone(),
+            .map(|(name, function_id)| StatementIr::Lexical {
+                mode: BindingMode::Let,
+                name: name.clone(),
                 init: TypedExpr::from_info(
-                    self.function_value_info(&function.id),
-                    ExprIr::FunctionValue(function.id.clone()),
+                    self.function_value_info(function_id),
+                    ExprIr::FunctionValue(function_id.clone()),
                 ),
             })
             .collect()
@@ -6012,7 +6300,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             Statement::Empty => (StatementIr::Empty, ValueKind::Undefined),
             Statement::Block(block) => {
-                self.push_scope();
+                self.push_direct_lexical_scope();
                 let block_ir = self.lower_block(block);
                 self.pop_scope();
                 let kind = block_ir.result_kind;
@@ -6056,7 +6344,124 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &Block) -> BlockIr {
-        self.lower_statement_items(block.statement_list().statements())
+        self.predeclare_block_lexical_bindings(block.statement_list().statements());
+        let mut lowered = self.lower_statement_items(block.statement_list().statements());
+        lowered.lexical_environment = self.lower_materialized_lexical_environment(
+            self.analysis
+                .block_environment_ids
+                .get(&(block as *const Block as usize))
+                .copied(),
+        );
+        lowered
+    }
+
+    fn lower_materialized_lexical_environment(
+        &self,
+        environment_id: Option<EnvironmentId>,
+    ) -> Option<LexicalEnvironmentIr> {
+        environment_id
+            .and_then(|environment_id| {
+                self.analysis
+                    .materialized_stage_a_environment(environment_id)
+            })
+            .filter(|environment| !environment.owned_env_slots.is_empty())
+            .map(|environment| LexicalEnvironmentIr {
+                bindings: environment
+                    .owned_env_slots
+                    .iter()
+                    .map(|(name, slot)| OwnedEnvBindingIr {
+                        name: name.clone(),
+                        slot: *slot,
+                    })
+                    .collect(),
+            })
+    }
+
+    fn lower_runtime_lexical_environment(
+        &self,
+        environment_id: Option<EnvironmentId>,
+    ) -> Option<LexicalEnvironmentIr> {
+        environment_id
+            .and_then(|environment_id| self.analysis.materialized_environment(environment_id))
+            .filter(|environment| self.analysis.environment_has_runtime_storage(environment))
+            .map(|environment| LexicalEnvironmentIr {
+                bindings: environment
+                    .owned_env_slots
+                    .iter()
+                    .map(|(name, slot)| OwnedEnvBindingIr {
+                        name: name.clone(),
+                        slot: *slot,
+                    })
+                    .collect(),
+            })
+    }
+
+    fn lower_for_lexical_environment(
+        &self,
+        for_loop: &ForLoop,
+        init: Option<&ForInitIr>,
+    ) -> Option<ForLexicalEnvironmentIr> {
+        let environment_id = self
+            .analysis
+            .for_lexical_environment_ids
+            .get(&(for_loop as *const ForLoop as usize))
+            .copied()?;
+        let environment = self.analysis.materialized_environment(environment_id)?;
+        if !self.analysis.environment_has_runtime_storage(environment) {
+            return None;
+        }
+        let per_iteration_names = match init {
+            Some(ForInitIr::Lexical {
+                mode: BindingMode::Let,
+                name,
+                ..
+            }) => BTreeSet::from([name.clone()]),
+            Some(ForInitIr::LexicalBlock(bindings)) => bindings
+                .iter()
+                .filter(|binding| binding.mode == BindingMode::Let)
+                .map(|binding| binding.name.clone())
+                .collect(),
+            _ => BTreeSet::new(),
+        };
+        Some(ForLexicalEnvironmentIr {
+            bindings: environment
+                .owned_env_slots
+                .iter()
+                .map(|(name, slot)| OwnedEnvBindingIr {
+                    name: name.clone(),
+                    slot: *slot,
+                })
+                .collect(),
+            per_iteration_slots: environment
+                .owned_env_slots
+                .iter()
+                .filter_map(|(name, slot)| per_iteration_names.contains(name).then_some(*slot))
+                .collect(),
+        })
+    }
+
+    fn lower_for_in_of_environment(&self, loop_key: usize) -> Option<ForInOfEnvironmentIr> {
+        let tdz_environment_id = self
+            .analysis
+            .for_in_of_tdz_environment_ids
+            .get(&loop_key)
+            .copied()?;
+        let iteration_environment_id = self
+            .analysis
+            .for_in_of_iteration_environment_ids
+            .get(&loop_key)
+            .copied();
+        let tdz_binding_names = self
+            .analysis
+            .environment_plans
+            .get(&tdz_environment_id)
+            .map(|environment| environment.binding_storage_names.iter().cloned().collect())
+            .unwrap_or_default();
+        Some(ForInOfEnvironmentIr {
+            tdz_environment: self.lower_runtime_lexical_environment(Some(tdz_environment_id)),
+            iteration_environment: self.lower_runtime_lexical_environment(iteration_environment_id),
+            tdz_binding_names,
+        })
     }
 
     fn lower_throw(&mut self, throw: &AstThrow) -> (StatementIr, ValueKind) {
@@ -6099,11 +6504,70 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Undefined,
             );
         }
-        let Some((mode, name)) = self.for_in_initializer_binding(for_in.initializer()) else {
-            self.unsupported("for-in initializer");
-            return (StatementIr::Empty, ValueKind::Undefined);
+        let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
+        let mut private_initializer: Option<PrivatePropertyAccess> = None;
+        let (mode, name) =
+            if let Some(binding) = self.for_in_initializer_binding(for_in.initializer()) {
+                binding
+            } else {
+                match for_in.initializer() {
+                    IterableLoopInitializer::Var(variable) => {
+                        let Binding::Pattern(pattern) = variable.binding() else {
+                            self.unsupported("for-in initializer");
+                            return (StatementIr::Empty, ValueKind::Undefined);
+                        };
+                        pattern_initializer = Some((BindingMode::Var, pattern.clone()));
+                        (BindingMode::Let, self.alloc_temp_binding_name("forin"))
+                    }
+                    IterableLoopInitializer::Let(Binding::Pattern(pattern)) => {
+                        pattern_initializer = Some((BindingMode::Let, pattern.clone()));
+                        (BindingMode::Let, self.alloc_temp_binding_name("forin"))
+                    }
+                    IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
+                        pattern_initializer = Some((BindingMode::Const, pattern.clone()));
+                        (BindingMode::Let, self.alloc_temp_binding_name("forin"))
+                    }
+                    IterableLoopInitializer::Access(PropertyAccess::Private(access)) => {
+                        private_initializer = Some(access.clone());
+                        (
+                            BindingMode::Let,
+                            self.alloc_temp_binding_name("forin.private"),
+                        )
+                    }
+                    _ => {
+                        self.unsupported("for-in initializer");
+                        return (StatementIr::Empty, ValueKind::Undefined);
+                    }
+                }
+            };
+        let lexical_environment = self.lower_for_in_of_environment(
+            for_in as *const boa_ast::statement::iteration::ForInLoop as usize,
+        );
+        let mut target = match pattern_initializer.as_ref() {
+            None if private_initializer.is_none() => {
+                self.lower_for_head_expression_with_tdz(mode, &name, for_in.target())
+            }
+            None => self.lower_expression(for_in.target()),
+            Some((BindingMode::Var, _)) => self.lower_expression(for_in.target()),
+            Some((pattern_mode, pattern)) => {
+                self.push_scope();
+                let binding = Binding::Pattern(pattern.clone());
+                let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
+                    self.unsupported("for-in initializer");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                for bound in bound_names {
+                    self.declare_binding(
+                        bound.source_name.clone(),
+                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                    );
+                }
+                let target = self.lower_expression(for_in.target());
+                self.pop_scope();
+                target
+            }
         };
-        let mut target = self.lower_for_head_expression_with_tdz(mode, &name, for_in.target());
         let is_inferred_undefined_param_target =
             target.kind == ValueKind::Undefined && self.is_current_param_expr(for_in.target());
         if is_inferred_undefined_param_target {
@@ -6128,7 +6592,10 @@ impl<'a> ScriptLowerer<'a> {
         let before_globals = self.global_properties.clone();
         self.push_scope();
         let key_info = ValueInfo::new(ValueKind::String);
-        let storage_name = if mode == BindingMode::Var {
+        let storage_name = if mode == BindingMode::Var
+            || pattern_initializer.is_some()
+            || private_initializer.is_some()
+        {
             name.clone()
         } else {
             for_in_loop_binding_storage_name(for_in, &name)
@@ -6159,7 +6626,58 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        let (body, body_kind) = self.lower_loop_body(for_in.body());
+        let mut pattern_prefix = if let Some(access) = private_initializer.as_ref() {
+            let value =
+                TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
+            vec![StatementIr::Expression(self.lower_property_assign_value(
+                &PropertyAccess::Private(access.clone()),
+                value,
+            ))]
+        } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
+            let init =
+                TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
+            if *pattern_mode == BindingMode::Var {
+                let Some(prefix) = self.lower_pattern_var_binding_from_value(pattern, init) else {
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                prefix
+            } else {
+                let binding = Binding::Pattern(pattern.clone());
+                let storage_names = supported_bound_names(self.interner, &binding)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|bound| {
+                        let storage_name =
+                            for_in_loop_binding_storage_name(for_in, &bound.source_name);
+                        (bound.source_name, storage_name)
+                    })
+                    .collect();
+                let Some(prefix) = self
+                    .lower_pattern_lexical_binding_from_value_with_storage_names(
+                        *pattern_mode,
+                        pattern,
+                        init,
+                        Some(&storage_names),
+                    )
+                else {
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                prefix
+            }
+        } else {
+            Vec::new()
+        };
+        let (mut body, body_kind) = self.lower_loop_body(for_in.body());
+        if !pattern_prefix.is_empty() {
+            pattern_prefix.push(body);
+            body = StatementIr::Block(BlockIr {
+                result_kind: body_kind,
+                statements: pattern_prefix,
+                lexical_environment: None,
+            });
+        }
         self.pop_scope();
         let after_vars = self.var_bindings.clone();
         let after_globals = self.global_properties.clone();
@@ -6171,6 +6689,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 target,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else if is_array_target {
             StatementIr::ForInArray {
@@ -6178,6 +6697,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 target,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else if is_string_target {
             StatementIr::ForInString {
@@ -6185,6 +6705,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 target,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else {
             StatementIr::ForInObject {
@@ -6192,6 +6713,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 target,
                 body: Box::new(body),
+                lexical_environment,
             }
         };
         Self::prepend_statement(initializer_prefix, statement, body_kind)
@@ -6253,6 +6775,7 @@ impl<'a> ScriptLowerer<'a> {
             StatementIr::Block(BlockIr {
                 result_kind: kind,
                 statements: vec![prefix, statement],
+                lexical_environment: None,
             }),
             kind,
         )
@@ -6851,34 +7374,81 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_try(&mut self, try_statement: &AstTry) -> (StatementIr, ValueKind) {
-        self.push_scope();
+        self.push_direct_lexical_scope();
         let try_block = self.lower_block(try_statement.block());
         self.pop_scope();
 
         let catch_parts = if let Some(catch) = try_statement.catch() {
-            let Some(parameter) = catch.parameter() else {
-                self.unsupported("control-flow or non-expression statement");
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            let Binding::Identifier(identifier) = parameter else {
-                self.unsupported("control-flow or non-expression statement");
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            self.push_scope();
-            let catch_source_name = self.interner.resolve_expect(identifier.sym()).to_string();
-            let catch_storage_name = self.lexical_storage_name(&catch_source_name);
+            self.push_direct_lexical_scope();
+            let catch_parameter_environment = self.lower_materialized_lexical_environment(
+                catch
+                    .parameter()
+                    .and_then(|parameter| {
+                        self.analysis
+                            .catch_parameter_environment_ids
+                            .get(&(parameter as *const Binding as usize))
+                    })
+                    .copied(),
+            );
             let mut catch_info = self.infer_catch_binding_info(&try_block);
-            catch_info.storage_name = catch_storage_name.clone();
-            self.declare_binding(catch_source_name.clone(), catch_info);
-            let catch_block = self.lower_block(catch.block());
+            let (catch_source_name, catch_storage_name, mut catch_prefix) = match catch.parameter()
+            {
+                Some(Binding::Identifier(identifier)) => {
+                    let source_name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    let storage_name =
+                        self.direct_lexical_storage_name(&source_name, identifier.span());
+                    catch_info.storage_name = storage_name.clone();
+                    self.declare_binding(source_name.clone(), catch_info);
+                    (source_name, storage_name, Vec::new())
+                }
+                Some(Binding::Pattern(pattern)) => {
+                    let storage_name = self.alloc_temp_binding_name("catch.internal.");
+                    catch_info.storage_name = storage_name.clone();
+                    let catch_value = TypedExpr::from_info(
+                        ValueInfo {
+                            kind: catch_info.kind,
+                            possible_kinds: catch_info.possible_kinds,
+                            heap_shape: catch_info.heap_shape.clone(),
+                            function_targets: catch_info.function_targets.clone(),
+                        },
+                        ExprIr::Identifier(storage_name.clone()),
+                    );
+                    self.declare_binding(storage_name.clone(), catch_info);
+                    let Some(prefix) = self.lower_pattern_lexical_binding_from_value(
+                        BindingMode::Let,
+                        pattern,
+                        catch_value,
+                    ) else {
+                        self.pop_scope();
+                        return (StatementIr::Empty, ValueKind::Undefined);
+                    };
+                    (storage_name.clone(), storage_name, prefix)
+                }
+                None => {
+                    let storage_name = self.alloc_temp_binding_name("catch.internal.");
+                    catch_info.storage_name = storage_name.clone();
+                    self.declare_binding(storage_name.clone(), catch_info);
+                    (storage_name.clone(), storage_name, Vec::new())
+                }
+            };
+            let mut catch_block = self.lower_block(catch.block());
+            if !catch_prefix.is_empty() {
+                catch_prefix.append(&mut catch_block.statements);
+                catch_block.statements = catch_prefix;
+            }
             self.pop_scope();
-            Some((catch_source_name, catch_storage_name, catch_block))
+            Some((
+                catch_source_name,
+                catch_storage_name,
+                catch_parameter_environment,
+                catch_block,
+            ))
         } else {
             None
         };
 
         let finally_block = if let Some(finally_block) = try_statement.finally() {
-            self.push_scope();
+            self.push_direct_lexical_scope();
             let lowered = self.lower_block(finally_block.block());
             self.pop_scope();
             Some(lowered)
@@ -6887,7 +7457,10 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         match (catch_parts, finally_block) {
-            (Some((catch_source_name, catch_name, catch_block)), Some(finally_block)) => {
+            (
+                Some((catch_source_name, catch_name, catch_parameter_environment, catch_block)),
+                Some(finally_block),
+            ) => {
                 let result_kind = self.merge_value_kinds(
                     self.merge_value_kinds(try_block.result_kind, catch_block.result_kind),
                     finally_block.result_kind,
@@ -6897,13 +7470,17 @@ impl<'a> ScriptLowerer<'a> {
                         try_block,
                         catch_name,
                         catch_source_name,
+                        catch_parameter_environment,
                         catch_block,
                         finally_block,
                     },
                     result_kind,
                 )
             }
-            (Some((catch_source_name, catch_name, catch_block)), None) => {
+            (
+                Some((catch_source_name, catch_name, catch_parameter_environment, catch_block)),
+                None,
+            ) => {
                 let result_kind =
                     self.merge_value_kinds(try_block.result_kind, catch_block.result_kind);
                 (
@@ -6911,6 +7488,7 @@ impl<'a> ScriptLowerer<'a> {
                         try_block,
                         catch_name,
                         catch_source_name,
+                        catch_parameter_environment,
                         catch_block,
                     },
                     result_kind,
@@ -6975,6 +7553,7 @@ impl<'a> ScriptLowerer<'a> {
     fn infer_statement_throw_info(&self, statement: &StatementIr) -> Option<ValueInfo> {
         match statement {
             StatementIr::Empty
+            | StatementIr::AnnexBFunctionCopy { .. }
             | StatementIr::Debugger
             | StatementIr::Break { .. }
             | StatementIr::Continue { .. } => None,
@@ -7038,6 +7617,7 @@ impl<'a> ScriptLowerer<'a> {
                 test,
                 update,
                 body,
+                ..
             } => {
                 let mut info = init.as_ref().and_then(|init| match init {
                     ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
@@ -7094,9 +7674,17 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StatementIr::Switch {
                 discriminant,
+                lexical_declarations,
                 cases,
+                ..
             } => {
                 let mut info = self.infer_expr_throw_info(discriminant);
+                for declaration in lexical_declarations {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_statement_throw_info(declaration),
+                    );
+                }
                 for case in cases {
                     if let Some(condition) = &case.condition {
                         info = self
@@ -7149,6 +7737,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::BigInt(_)
             | ExprIr::Symbol { .. }
             | ExprIr::String(_)
+            | ExprIr::TemplateObject(_)
             | ExprIr::RegExpLiteral { .. }
             | ExprIr::FunctionValue(_)
             | ExprIr::This
@@ -7278,6 +7867,17 @@ impl<'a> ScriptLowerer<'a> {
                                 self.infer_property_key_throw_info(key),
                             );
                         }
+                        OptionalChainOperationIr::PrivateProperty { .. } => {
+                            info = self.merge_optional_value_info(
+                                info,
+                                Some(ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                }),
+                            );
+                        }
                         OptionalChainOperationIr::Call { args, .. } => {
                             info = self.merge_optional_value_info(
                                 info,
@@ -7310,6 +7910,14 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(target),
                 self.infer_property_key_throw_info(key),
             ),
+            ExprIr::PropertyCompoundAssign {
+                target, key, value, ..
+            } => {
+                let mut info = self.infer_expr_throw_info(target);
+                info =
+                    self.merge_optional_value_info(info, self.infer_property_key_throw_info(key));
+                self.merge_optional_value_info(info, self.infer_expr_throw_info(value))
+            }
             ExprIr::BinaryNumber { lhs, rhs, .. }
             | ExprIr::CoerciveAdd { lhs, rhs }
             | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
@@ -7330,6 +7938,26 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(lhs),
                 self.infer_expr_throw_info(rhs),
             ),
+            ExprIr::MaterializeBinding { value, body, .. } => self.merge_optional_value_info(
+                self.infer_expr_throw_info(value),
+                self.infer_expr_throw_info(body),
+            ),
+            ExprIr::ArrayDestructure { value, pattern, .. } => {
+                let mut info = self.infer_expr_throw_info(value);
+                pattern.visit_expressions(&mut |expr| {
+                    info = self
+                        .merge_optional_value_info(info.clone(), self.infer_expr_throw_info(expr));
+                });
+                info
+            }
+            ExprIr::ObjectDestructure { value, pattern } => {
+                let mut info = self.infer_expr_throw_info(value);
+                pattern.visit_expressions(&mut |expr| {
+                    info = self
+                        .merge_optional_value_info(info.clone(), self.infer_expr_throw_info(expr));
+                });
+                info
+            }
             ExprIr::Conditional {
                 condition,
                 then_expr,
@@ -7350,6 +7978,7 @@ impl<'a> ScriptLowerer<'a> {
                 callee,
                 this_arg,
                 args,
+                ..
             } => {
                 let mut info = self.infer_expr_throw_info(callee);
                 if matches!(
@@ -7379,7 +8008,7 @@ impl<'a> ScriptLowerer<'a> {
                 info
             }
             ExprIr::JsonParseStaticReviver { reviver, .. } => self.infer_expr_throw_info(reviver),
-            ExprIr::Construct { callee, args } => {
+            ExprIr::Construct { callee, args, .. } => {
                 let mut info = self.infer_expr_throw_info(callee);
                 for arg in args {
                     info = self.merge_optional_value_info(info, self.infer_expr_throw_info(arg));
@@ -7404,7 +8033,10 @@ impl<'a> ScriptLowerer<'a> {
                     .heritage
                     .as_deref()
                     .and_then(|heritage| self.infer_expr_throw_info(heritage));
-                for method in &class.public_methods {
+                for definition in &class.element_plan.definitions {
+                    let ClassElementDefinitionIr::PublicMethod(method) = definition else {
+                        continue;
+                    };
                     info = self.merge_optional_value_info(
                         info,
                         self.infer_property_key_throw_info(&method.key),
@@ -7417,7 +8049,22 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(target),
                 self.infer_expr_throw_info(value),
             ),
-            ExprIr::PrivateIn { rhs, .. } => self.infer_expr_throw_info(rhs),
+            ExprIr::PrivateIn { rhs, .. } => {
+                let mut info = self.infer_expr_throw_info(rhs);
+                if !matches!(rhs.expr, ExprIr::RuntimeThrow { .. })
+                    && !rhs
+                        .possible_kinds
+                        .is_subset_of(Self::object_like_kind_set())
+                {
+                    info = self.merge_optional_value_info(
+                        info,
+                        Some(Self::standard_error_instance_info(
+                            StandardBuiltinId::TypeErrorConstructor,
+                        )),
+                    );
+                }
+                info
+            }
             ExprIr::In { lhs, rhs } => {
                 let mut info = self.merge_optional_value_info(
                     self.infer_expr_throw_info(lhs),
@@ -7591,7 +8238,35 @@ impl<'a> ScriptLowerer<'a> {
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
         self.push_scope();
+        if let Some(ForLoopInitializer::Lexical(lexical)) = for_loop.init() {
+            let declaration = lexical.declaration();
+            let list = match declaration {
+                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
+                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                    self.unsupported("using declaration");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                }
+            };
+            let mode = match declaration {
+                LexicalDeclaration::Let(_) => BindingMode::Let,
+                LexicalDeclaration::Const(_) => BindingMode::Const,
+                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => unreachable!(),
+            };
+            for variable in list.as_ref() {
+                if let Some(bound_names) = supported_bound_names(self.interner, variable.binding())
+                {
+                    for bound in bound_names {
+                        self.declare_binding(
+                            bound.source_name.clone(),
+                            Self::tdz_binding_info(&bound.source_name, mode),
+                        );
+                    }
+                }
+            }
+        }
         let init = for_loop.init().and_then(|init| self.lower_for_init(init));
+        let lexical_environment = self.lower_for_lexical_environment(for_loop, init.as_ref());
         let after_init_vars = self.var_bindings.clone();
         let after_init_globals = self.global_properties.clone();
         let test = for_loop.condition().map(|expr| self.lower_expression(expr));
@@ -7617,6 +8292,7 @@ impl<'a> ScriptLowerer<'a> {
                 test,
                 update,
                 body: Box::new(body),
+                lexical_environment,
             },
             body_kind,
         )
@@ -7636,7 +8312,13 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
+        let mut assignment_pattern_initializer: Option<Pattern> = None;
+        let mut private_initializer: Option<PrivatePropertyAccess> = None;
         let (mode, name) = match for_of.initializer() {
+            IterableLoopInitializer::Identifier(identifier) => (
+                BindingMode::Var,
+                self.interner.resolve_expect(identifier.sym()).to_string(),
+            ),
             IterableLoopInitializer::Var(variable) => match variable.binding() {
                 Binding::Identifier(identifier) => (
                     BindingMode::Var,
@@ -7663,6 +8345,17 @@ impl<'a> ScriptLowerer<'a> {
                 pattern_initializer = Some((BindingMode::Const, pattern.clone()));
                 (BindingMode::Let, self.alloc_temp_binding_name("forof"))
             }
+            IterableLoopInitializer::Pattern(pattern) => {
+                assignment_pattern_initializer = Some(pattern.clone());
+                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+            }
+            IterableLoopInitializer::Access(PropertyAccess::Private(access)) => {
+                private_initializer = Some(access.clone());
+                (
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof.private"),
+                )
+            }
             _ => {
                 self.unsupported("for-of initializer");
                 return (StatementIr::Empty, ValueKind::Undefined);
@@ -7670,10 +8363,38 @@ impl<'a> ScriptLowerer<'a> {
         };
         let static_generator_elements =
             self.static_generator_call_elements_owned(for_of.iterable());
-        let iterable = if pattern_initializer.is_none() {
-            self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())
-        } else {
-            self.lower_expression(for_of.iterable())
+        let lexical_environment =
+            self.lower_for_in_of_environment(for_of as *const ForOfLoop as usize);
+        let iterable = match (
+            pattern_initializer.as_ref(),
+            assignment_pattern_initializer.as_ref(),
+        ) {
+            (None, None) if private_initializer.is_none() => {
+                self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())
+            }
+            (None, None) => self.lower_expression(for_of.iterable()),
+            (Some((BindingMode::Var, _)), _) | (None, Some(_)) => {
+                self.lower_expression(for_of.iterable())
+            }
+            (Some((pattern_mode, pattern)), None) => {
+                self.push_scope();
+                let binding = Binding::Pattern(pattern.clone());
+                let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
+                    self.unsupported("for-of initializer");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                for bound in bound_names {
+                    self.declare_binding(
+                        bound.source_name.clone(),
+                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                    );
+                }
+                let iterable = self.lower_expression(for_of.iterable());
+                self.pop_scope();
+                iterable
+            }
+            (Some(_), Some(_)) => unreachable!("loop head cannot be binding and assignment"),
         };
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
@@ -7706,7 +8427,11 @@ impl<'a> ScriptLowerer<'a> {
                 },
             }
         };
-        let storage_name = if mode == BindingMode::Var || pattern_initializer.is_some() {
+        let storage_name = if mode == BindingMode::Var
+            || pattern_initializer.is_some()
+            || assignment_pattern_initializer.is_some()
+            || private_initializer.is_some()
+        {
             name.clone()
         } else {
             for_of_loop_binding_storage_name(for_of, &name)
@@ -7722,19 +8447,71 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: element_info.function_targets.clone(),
             },
         );
-        let mut pattern_prefix = if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref()
-        {
+        let mut pattern_prefix = if let Some(access) = private_initializer.as_ref() {
+            let value = TypedExpr::from_info(
+                element_info.clone(),
+                ExprIr::Identifier(storage_name.clone()),
+            );
+            vec![StatementIr::Expression(self.lower_property_assign_value(
+                &PropertyAccess::Private(access.clone()),
+                value,
+            ))]
+        } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
+            let Pattern::Array(pattern) = pattern else {
+                self.unsupported("object assignment pattern in for-of initializer");
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            let Some(pattern) = self.lower_array_assignment_pattern(pattern.bindings()) else {
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            vec![StatementIr::Expression(TypedExpr::from_info(
+                element_info.clone(),
+                ExprIr::ArrayDestructure {
+                    value: Box::new(TypedExpr::from_info(
+                        element_info.clone(),
+                        ExprIr::Identifier(storage_name.clone()),
+                    )),
+                    pattern,
+                    assignment: true,
+                },
+            ))]
+        } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init = TypedExpr::from_info(
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            let Some(prefix) =
-                self.lower_pattern_lexical_binding_from_value(*pattern_mode, pattern, init)
-            else {
-                self.pop_scope();
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            prefix
+            if *pattern_mode == BindingMode::Var {
+                let Some(prefix) = self.lower_pattern_var_binding_from_value(pattern, init) else {
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                prefix
+            } else {
+                let binding = Binding::Pattern(pattern.clone());
+                let storage_names = supported_bound_names(self.interner, &binding)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|bound| {
+                        let storage_name =
+                            for_of_loop_binding_storage_name(for_of, &bound.source_name);
+                        (bound.source_name, storage_name)
+                    })
+                    .collect();
+                let Some(prefix) = self
+                    .lower_pattern_lexical_binding_from_value_with_storage_names(
+                        *pattern_mode,
+                        pattern,
+                        init,
+                        Some(&storage_names),
+                    )
+                else {
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                prefix
+            }
         } else {
             Vec::new()
         };
@@ -7744,6 +8521,7 @@ impl<'a> ScriptLowerer<'a> {
             body = StatementIr::Block(BlockIr {
                 result_kind: body_kind,
                 statements: pattern_prefix,
+                lexical_environment: None,
             });
         }
         self.pop_scope();
@@ -7760,6 +8538,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 iterable,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else if iterable
             .possible_kinds
@@ -7770,6 +8549,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 iterable,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else if iterable.possible_kinds.contains(ValueKind::Object)
             || iterable.possible_kinds.contains(ValueKind::Function)
@@ -7780,6 +8560,7 @@ impl<'a> ScriptLowerer<'a> {
                 name: storage_name,
                 iterable,
                 body: Box::new(body),
+                lexical_environment,
             }
         } else {
             self.unsupported("for-of non-array iterable");
@@ -7792,19 +8573,51 @@ impl<'a> ScriptLowerer<'a> {
         let discriminant = self.lower_expression(switch.val());
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
-        self.push_scope();
+        self.push_direct_lexical_scope();
         self.breakable_depth += 1;
+        self.predeclare_switch_lexical_bindings(switch);
+
+        let mut last_function_by_name = BTreeMap::new();
+        for case in switch.cases() {
+            for item in case.body().statements() {
+                let Some(function) = statement_list_item_function_declaration(item) else {
+                    continue;
+                };
+                last_function_by_name
+                    .insert(function_name(self.interner, function, None), function);
+            }
+        }
+        let lexical_declarations = last_function_by_name
+            .into_values()
+            .map(|function| self.lower_function_declaration(function))
+            .collect::<Vec<_>>();
+
+        let case_conditions = switch
+            .cases()
+            .iter()
+            .map(|case| {
+                self.var_bindings = before_vars.clone();
+                self.global_properties = before_globals.clone();
+                (
+                    case.condition().map(|expr| self.lower_expression(expr)),
+                    self.var_bindings.clone(),
+                    self.global_properties.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
 
         let mut cases = Vec::with_capacity(switch.cases().len());
         let mut result_kind: Option<ValueKind> = None;
         let mut merged_vars = before_vars.clone();
         let mut merged_globals = before_globals.clone();
 
-        for case in switch.cases() {
-            self.var_bindings = before_vars.clone();
-            self.global_properties = before_globals.clone();
-            let condition = case.condition().map(|expr| self.lower_expression(expr));
-            let body = self.lower_statement_items(case.body().statements());
+        for (case, (condition, case_vars, case_globals)) in
+            switch.cases().iter().zip(case_conditions.into_iter())
+        {
+            self.var_bindings = case_vars;
+            self.global_properties = case_globals;
+            let body = self
+                .lower_statement_items_without_function_initialization(case.body().statements());
             merged_vars = self.merge_var_bindings(&merged_vars, &self.var_bindings);
             merged_globals = self.merge_global_properties(&merged_globals, &self.global_properties);
             if let Some(kind) = result_kind {
@@ -7825,25 +8638,98 @@ impl<'a> ScriptLowerer<'a> {
         (
             StatementIr::Switch {
                 discriminant,
+                lexical_environment: self.lower_materialized_lexical_environment(
+                    self.analysis
+                        .switch_environment_ids
+                        .get(&(switch as *const AstSwitch as usize))
+                        .copied(),
+                ),
+                lexical_declarations,
                 cases,
             },
             result_kind.unwrap_or(ValueKind::Undefined),
         )
     }
 
+    fn predeclare_block_lexical_bindings(&mut self, items: &[StatementListItem]) {
+        for item in items {
+            self.predeclare_direct_lexical_binding(item);
+        }
+    }
+
+    fn predeclare_switch_lexical_bindings(&mut self, switch: &AstSwitch) {
+        for case in switch.cases() {
+            for item in case.body().statements() {
+                self.predeclare_direct_lexical_binding(item);
+            }
+        }
+    }
+
+    fn predeclare_direct_lexical_binding(&mut self, item: &StatementListItem) {
+        let StatementListItem::Declaration(declaration) = item else {
+            return;
+        };
+        match declaration.as_ref() {
+            Declaration::Lexical(lexical) => {
+                let (mode, variables) = match lexical {
+                    LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
+                    LexicalDeclaration::Const(variables) => (BindingMode::Const, variables),
+                    LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
+                };
+                for variable in variables.as_ref() {
+                    let Some(bound_names) =
+                        supported_bound_names(self.interner, variable.binding())
+                    else {
+                        continue;
+                    };
+                    for bound in bound_names {
+                        let storage_name =
+                            self.direct_lexical_storage_name(&bound.source_name, bound.span);
+                        self.declare_binding(
+                            bound.source_name.clone(),
+                            BindingInfo {
+                                mode,
+                                storage_name,
+                                kind: ValueKind::Dynamic,
+                                possible_kinds: KindSet::all_runtime_tags(),
+                                heap_shape: None,
+                                function_targets: BTreeSet::new(),
+                            },
+                        );
+                        self.mark_tdz_binding(&bound.source_name);
+                    }
+                }
+            }
+            Declaration::ClassDeclaration(class) => {
+                let name = self.interner.resolve_expect(class.name().sym()).to_string();
+                let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
+                self.declare_binding(
+                    name.clone(),
+                    BindingInfo {
+                        mode: BindingMode::Let,
+                        storage_name,
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                );
+                self.mark_tdz_binding(&name);
+            }
+            _ => {}
+        }
+    }
+
     fn lower_labelled(&mut self, labelled: &AstLabelled) -> (StatementIr, ValueKind) {
-        if labelled_function_declaration(labelled).is_some() {
+        if let Some(function) = labelled_function_declaration(labelled) {
             return (
-                StatementIr::Labelled {
-                    labels: Self::collect_label_names(self.interner, labelled),
-                    statement: Box::new(StatementIr::Empty),
-                },
+                self.lower_function_declaration(function),
                 ValueKind::Undefined,
             );
         }
 
         let Some((labels, label_kind, base_statement)) = self.collect_labels(labelled) else {
-            self.unsupported("label on unsupported statement kind");
+            self.unsupported("label on function declaration");
             return (StatementIr::Empty, ValueKind::Undefined);
         };
 
@@ -7883,10 +8769,7 @@ impl<'a> ScriptLowerer<'a> {
                     item = next.item();
                 }
                 LabelledItem::Statement(statement) => {
-                    let Some(kind) = Self::label_target_kind(statement) else {
-                        return None;
-                    };
-                    return Some((labels, kind, statement));
+                    return Some((labels, Self::label_target_kind(statement), statement));
                 }
                 LabelledItem::FunctionDeclaration(_) => {
                     return None;
@@ -7895,23 +8778,14 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn collect_label_names(interner: &Interner, labelled: &AstLabelled) -> Vec<String> {
-        let mut labels = vec![interner.resolve_expect(labelled.label()).to_string()];
-        let mut item = labelled.item();
-        while let LabelledItem::Statement(Statement::Labelled(next)) = item {
-            labels.push(interner.resolve_expect(next.label()).to_string());
-            item = next.item();
-        }
-        labels
-    }
-
-    fn label_target_kind(statement: &Statement) -> Option<LabelTargetKind> {
+    fn label_target_kind(statement: &Statement) -> LabelTargetKind {
         match statement {
-            Statement::Block(_) | Statement::Switch(_) => Some(LabelTargetKind::Breakable),
-            Statement::WhileLoop(_) | Statement::DoWhileLoop(_) | Statement::ForLoop(_) => {
-                Some(LabelTargetKind::Loop)
-            }
-            _ => None,
+            Statement::WhileLoop(_)
+            | Statement::DoWhileLoop(_)
+            | Statement::ForLoop(_)
+            | Statement::ForInLoop(_)
+            | Statement::ForOfLoop(_) => LabelTargetKind::Loop,
+            _ => LabelTargetKind::Breakable,
         }
     }
 
@@ -8012,7 +8886,7 @@ impl<'a> ScriptLowerer<'a> {
             self.static_to_string_regexp_object_bindings.remove(&name);
         }
 
-        let storage_name = self.lexical_storage_name(&name);
+        let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
         self.declare_binding(
             name.clone(),
             BindingInfo {
@@ -8032,10 +8906,38 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_var_statement(&mut self, declaration: &VarDeclaration) -> (StatementIr, ValueKind) {
-        (
-            StatementIr::Var(self.lower_var_declarators(declaration)),
-            ValueKind::Undefined,
-        )
+        let mut statements = Vec::new();
+        let mut declarators = Vec::new();
+
+        for variable in declaration.0.as_ref() {
+            match variable.binding() {
+                Binding::Identifier(_) => {
+                    if let Some(declarator) = self.lower_var_declarator(variable) {
+                        declarators.push(declarator);
+                    }
+                }
+                Binding::Pattern(pattern) => {
+                    if !declarators.is_empty() {
+                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+                    }
+                    if let Some(bindings) = self.lower_pattern_var_binding(pattern, variable.init())
+                    {
+                        statements.push(StatementIr::LexicalBlock(bindings));
+                    }
+                }
+            }
+        }
+
+        if !declarators.is_empty() {
+            statements.push(StatementIr::Var(declarators));
+        }
+
+        let statement = if statements.len() == 1 {
+            statements.remove(0)
+        } else {
+            StatementIr::LexicalBlock(statements)
+        };
+        (statement, ValueKind::Undefined)
     }
 
     fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
@@ -8190,7 +9092,6 @@ impl<'a> ScriptLowerer<'a> {
         parameters: &'b FormalParameterList,
         function_name: &str,
     ) -> Option<&'b FormalParameterList> {
-        let mut names = BTreeSet::new();
         for parameter in parameters.as_ref() {
             let binding = parameter.variable().binding();
             if !is_supported_parameter_binding(binding) {
@@ -8198,16 +9099,6 @@ impl<'a> ScriptLowerer<'a> {
                     "unsupported in porffor wasm-aot first slice: unsupported parameter form in `{function_name}`"
                 ));
                 return None;
-            }
-            let mut binding_names = Vec::new();
-            collect_binding_names(self.interner, binding, &mut binding_names);
-            for name in binding_names {
-                if !names.insert(name) {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: duplicate parameter name in `{function_name}`"
-                    ));
-                    return None;
-                }
             }
         }
         Some(parameters)
@@ -8219,10 +9110,9 @@ impl<'a> ScriptLowerer<'a> {
         storage_name: &str,
         function_name: &str,
     ) -> Vec<StatementIr> {
-        let Binding::Pattern(Pattern::Object(pattern)) = binding else {
+        let Binding::Pattern(pattern) = binding else {
             return Vec::new();
         };
-        let mut statements = Vec::new();
         let storage_expr = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -8232,6 +9122,25 @@ impl<'a> ScriptLowerer<'a> {
             },
             ExprIr::Identifier(storage_name.to_string()),
         );
+        let Pattern::Object(pattern) = pattern else {
+            let Pattern::Array(pattern) = pattern else {
+                return Vec::new();
+            };
+            let Some(pattern) =
+                self.lower_array_binding_pattern(BindingMode::Let, pattern.bindings(), None)
+            else {
+                return Vec::new();
+            };
+            return vec![StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ArrayDestructure {
+                    value: Box::new(storage_expr),
+                    pattern,
+                    assignment: false,
+                },
+            ))];
+        };
+        let mut statements = Vec::new();
         for element in pattern.bindings() {
             let ObjectPatternElement::SingleName {
                 name: PropertyName::Literal(property_name),
@@ -8289,6 +9198,11 @@ impl<'a> ScriptLowerer<'a> {
         context_key_override: Option<ExactCallbackContextKey>,
     ) -> FunctionIr {
         let output_id = output_id.unwrap_or_else(|| function.id.clone());
+        let captures_private_environment = self
+            .analysis
+            .owner_plans
+            .get(&function.id)
+            .is_some_and(|owner| owner.private_environment_id.is_some());
         let mut lowerer = ScriptLowerer::new(
             self.interner,
             self.analysis,
@@ -8303,6 +9217,17 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.known_nested_script_global_value_infos =
+            self.known_nested_script_global_value_infos.clone();
+        for (name, info) in &self.nested_script_global_value_infos {
+            let merged = match lowerer.known_nested_script_global_value_infos.remove(name) {
+                Some(existing) => lowerer.merge_value_infos(existing, info.clone()),
+                None => info.clone(),
+            };
+            lowerer
+                .known_nested_script_global_value_infos
+                .insert(name.clone(), merged);
+        }
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
         lowerer.number_prototype_match_is_string_match =
@@ -8373,9 +9298,25 @@ impl<'a> ScriptLowerer<'a> {
             exact_context_signature
                 .as_ref()
                 .or_else(|| lowerer.function_signatures.get(&function.id))
-                .map(|signature| signature.this_info.clone())
+                .map(|signature| {
+                    if signature.this_observed {
+                        signature.this_info.clone()
+                    } else if function.strict {
+                        ValueInfo::undefined()
+                    } else {
+                        lowerer.global_this_info()
+                    }
+                })
                 .unwrap_or_else(ValueInfo::undefined)
         };
+        if function.flavor != FunctionFlavor::Arrow
+            && !function.strict
+            && lowerer.current_this_info.possible_kinds.is_subset_of(
+                KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
+            )
+        {
+            lowerer.current_this_info = lowerer.global_this_info();
+        }
         lowerer.current_construct_this_info = function
             .constructable
             .then(Self::fresh_constructed_instance_info);
@@ -8435,15 +9376,18 @@ impl<'a> ScriptLowerer<'a> {
                 callable: true,
                 constructable: function.constructable,
                 class_kind: ClassFunctionKind::None,
+                class_element_execution_kind: ClassElementExecutionKind::None,
                 class_heritage_kind: ClassHeritageKind::None,
                 is_static_class_member: false,
                 is_derived_constructor: false,
                 is_synthetic_default_derived_constructor: false,
+                class_instance_element_plan: None,
                 super_constructor_target: None,
                 uses_super: false,
                 this_before_super: false,
                 lexical_derived_activation: lexical_derived_activation.clone(),
                 private_name_ids: BTreeMap::new(),
+                captures_private_environment,
                 is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
                 is_expression: function.is_expression,
                 is_named_expression: function.is_expression && function.self_binding_name.is_some(),
@@ -8453,6 +9397,7 @@ impl<'a> ScriptLowerer<'a> {
                 body: BlockIr {
                     statements: Vec::new(),
                     result_kind: ValueKind::Undefined,
+                    lexical_environment: None,
                 },
                 return_kind: ValueKind::Undefined,
                 return_shape: None,
@@ -8481,7 +9426,8 @@ impl<'a> ScriptLowerer<'a> {
                 continue;
             }
             let source_name = capture.source_name.as_str();
-            let info = if Self::is_tdz_binding_storage_name(name) {
+            let mode = capture.mode;
+            let info = if name != source_name || Self::is_tdz_binding_storage_name(name) {
                 ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -8516,7 +9462,7 @@ impl<'a> ScriptLowerer<'a> {
             lowerer.declare_binding(
                 capture.source_name.clone(),
                 BindingInfo {
-                    mode: BindingMode::Let,
+                    mode,
                     storage_name: name.clone(),
                     kind: info.kind,
                     possible_kinds: info.possible_kinds,
@@ -8583,15 +9529,18 @@ impl<'a> ScriptLowerer<'a> {
                         callable: true,
                         constructable: function.constructable,
                         class_kind: ClassFunctionKind::None,
+                        class_element_execution_kind: ClassElementExecutionKind::None,
                         class_heritage_kind: ClassHeritageKind::None,
                         is_static_class_member: false,
                         is_derived_constructor: false,
                         is_synthetic_default_derived_constructor: false,
+                        class_instance_element_plan: None,
                         super_constructor_target: None,
                         uses_super: false,
                         this_before_super: false,
                         lexical_derived_activation: lexical_derived_activation.clone(),
                         private_name_ids: BTreeMap::new(),
+                        captures_private_environment,
                         is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
                         is_expression: function.is_expression,
                         is_named_expression: function.is_expression
@@ -8604,6 +9553,7 @@ impl<'a> ScriptLowerer<'a> {
                         body: BlockIr {
                             statements: Vec::new(),
                             result_kind: ValueKind::Undefined,
+                            lexical_environment: None,
                         },
                         return_kind: ValueKind::Undefined,
                         return_shape: None,
@@ -8689,7 +9639,7 @@ impl<'a> ScriptLowerer<'a> {
             ));
         }
 
-        lowerer.hoist_statement_items(function.body.statements());
+        lowerer.hoist_root_statement_items(function.body.statements());
 
         let lowered_body = lowerer.lower_root_statement_items(
             function.body.statements(),
@@ -8700,6 +9650,7 @@ impl<'a> ScriptLowerer<'a> {
         let body = BlockIr {
             result_kind: lowered_body.result_kind,
             statements: body_statements,
+            lexical_environment: None,
         };
         let mut return_info = lowerer
             .current_return_info
@@ -8748,6 +9699,7 @@ impl<'a> ScriptLowerer<'a> {
                 .unwrap_or_else(ValueInfo::undefined);
         }
 
+        self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.exact_context_function_observations = lowerer.exact_context_function_observations;
@@ -8771,15 +9723,18 @@ impl<'a> ScriptLowerer<'a> {
             callable: true,
             constructable: function.constructable,
             class_kind: ClassFunctionKind::None,
+            class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
             is_static_class_member: false,
             is_derived_constructor: false,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: None,
             uses_super: body_uses_super,
             this_before_super: false,
             lexical_derived_activation,
             private_name_ids: BTreeMap::new(),
+            captures_private_environment,
             is_nested: function.parent_owner_id != SCRIPT_OWNER_ID,
             is_expression: function.is_expression,
             is_named_expression: function.is_expression && function.self_binding_name.is_some(),
@@ -8815,6 +9770,8 @@ impl<'a> ScriptLowerer<'a> {
                 .filter(|(name, capture)| !self.is_script_global_var_capture(name, capture))
                 .map(|(name, capture)| CapturedBindingIr {
                     name: name.clone(),
+                    source_name: capture.source_name.clone(),
+                    mode: capture.mode,
                     slot: capture.slot,
                     hops: capture.hops,
                 })
@@ -8868,12 +9825,17 @@ impl<'a> ScriptLowerer<'a> {
             return StatementIr::Empty;
         };
         let name = function_name(self.interner, function, None);
-        let storage_name = self.lexical_storage_name(&name);
+        let storage_name = self
+            .analysis
+            .annex_b_function_plans
+            .get(&key)
+            .map(|plan| plan.block_storage_name.clone())
+            .unwrap_or_else(|| self.direct_lexical_storage_name(&name, function.name().span()));
         let function_info = self.function_value_info(&function_id);
         self.declare_binding(
             name.clone(),
             BindingInfo {
-                mode: BindingMode::Const,
+                mode: BindingMode::Let,
                 storage_name: storage_name.clone(),
                 kind: function_info.kind,
                 possible_kinds: function_info.possible_kinds,
@@ -8882,10 +9844,55 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         StatementIr::Lexical {
-            mode: BindingMode::Const,
+            mode: BindingMode::Let,
             name: storage_name,
             init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
         }
+    }
+
+    fn lower_annex_b_function_copy(
+        &mut self,
+        function: &FunctionDeclaration,
+    ) -> Option<StatementIr> {
+        let key = function_declaration_key(function);
+        let plan = self.analysis.annex_b_function_plans.get(&key)?.clone();
+        if !plan.copy_to_variable_environment {
+            return None;
+        }
+        let source = self.lookup_binding(&plan.source_name);
+        let Some(source) = source else {
+            self.unsupported_with_message(format!(
+                "unsupported in porffor wasm-aot first slice: Annex B declaration `{}` has no active block binding `{}`",
+                plan.source_name, plan.block_storage_name
+            ));
+            return Some(StatementIr::Empty);
+        };
+        if source.storage_name != plan.block_storage_name {
+            self.unsupported_with_message(format!(
+                "unsupported in porffor wasm-aot first slice: Annex B declaration `{}` resolved block storage `{}` instead of planned `{}`",
+                plan.source_name, source.storage_name, plan.block_storage_name
+            ));
+            return Some(StatementIr::Empty);
+        }
+        let value_info = ValueInfo {
+            kind: source.kind,
+            possible_kinds: source.possible_kinds,
+            heap_shape: source.heap_shape,
+            function_targets: source.function_targets,
+        };
+        self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
+        if self.current_owner_id == SCRIPT_OWNER_ID {
+            self.set_global_property_value_info_with_source(
+                plan.source_name.clone(),
+                value_info,
+                GlobalPropertySource::GlobalWrite,
+            );
+        }
+        Some(StatementIr::AnnexBFunctionCopy {
+            source_name: plan.source_name.clone(),
+            block_storage_name: plan.block_storage_name,
+            variable_storage_name: plan.source_name,
+        })
     }
 
     fn lower_lexical_declaration(
@@ -8953,7 +9960,8 @@ impl<'a> ScriptLowerer<'a> {
                         self.static_to_string_regexp_object_bindings.remove(&name);
                     }
 
-                    let storage_name = self.lexical_storage_name(&name);
+                    let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
+                    self.clear_tdz_binding(&name);
                     self.declare_binding(
                         name.clone(),
                         BindingInfo {
@@ -8993,7 +10001,7 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn hoist_statement_items(&mut self, items: &[StatementListItem]) {
+    fn hoist_root_statement_items(&mut self, items: &[StatementListItem]) {
         for item in items {
             match item {
                 StatementListItem::Statement(statement) => self.hoist_statement(statement),
@@ -9007,10 +10015,18 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn hoist_nested_statement_items(&mut self, items: &[StatementListItem]) {
+        for item in items {
+            if let StatementListItem::Statement(statement) = item {
+                self.hoist_statement(statement);
+            }
+        }
+    }
+
     fn hoist_statement(&mut self, statement: &Statement) {
         match statement {
             Statement::Block(block) => {
-                self.hoist_statement_items(block.statement_list().statements())
+                self.hoist_nested_statement_items(block.statement_list().statements())
             }
             Statement::If(if_statement) => {
                 self.hoist_statement(if_statement.body());
@@ -9028,7 +10044,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             Statement::Switch(switch) => {
                 for case in switch.cases() {
-                    self.hoist_statement_items(case.body().statements());
+                    self.hoist_nested_statement_items(case.body().statements());
                 }
             }
             Statement::Labelled(labelled) => {
@@ -9037,12 +10053,16 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             Statement::Try(try_statement) => {
-                self.hoist_statement_items(try_statement.block().statement_list().statements());
+                self.hoist_nested_statement_items(
+                    try_statement.block().statement_list().statements(),
+                );
                 if let Some(catch) = try_statement.catch() {
-                    self.hoist_statement_items(catch.block().statement_list().statements());
+                    self.hoist_nested_statement_items(catch.block().statement_list().statements());
                 }
                 if let Some(finally_block) = try_statement.finally() {
-                    self.hoist_statement_items(finally_block.block().statement_list().statements());
+                    self.hoist_nested_statement_items(
+                        finally_block.block().statement_list().statements(),
+                    );
                 }
             }
             Statement::ForInLoop(for_in) => {
@@ -9076,11 +10096,14 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn hoist_var_binding(&mut self, variable: &Variable) {
-        let Binding::Identifier(identifier) = variable.binding() else {
-            self.unsupported("destructuring var declaration");
-            return;
-        };
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        let mut names = Vec::new();
+        collect_binding_names(self.interner, variable.binding(), &mut names);
+        for name in names {
+            self.hoist_var_name(name);
+        }
+    }
+
+    fn hoist_var_name(&mut self, name: String) {
         if self.current_owner_id != SCRIPT_OWNER_ID
             && self
                 .var_bindings
@@ -9119,25 +10142,37 @@ impl<'a> ScriptLowerer<'a> {
             LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
         };
         for variable in list.as_ref() {
-            let Binding::Identifier(identifier) = variable.binding() else {
-                continue;
+            let mut names = Vec::new();
+            let info = match variable.binding() {
+                Binding::Identifier(identifier) => {
+                    names.push(self.interner.resolve_expect(identifier.sym()).to_string());
+                    variable
+                        .init()
+                        .and_then(|expression| self.static_initializer_value_info(expression))
+                        .unwrap_or_else(ValueInfo::undefined)
+                }
+                Binding::Pattern(pattern) => {
+                    collect_binding_names(
+                        self.interner,
+                        &Binding::Pattern(pattern.clone()),
+                        &mut names,
+                    );
+                    ValueInfo::undefined()
+                }
             };
-            let name = self.interner.resolve_expect(identifier.sym()).to_string();
-            let info = variable
-                .init()
-                .and_then(|expression| self.static_initializer_value_info(expression))
-                .unwrap_or_else(ValueInfo::undefined);
-            self.var_bindings.insert(
-                name,
-                VarBindingInfo {
-                    kind: info.kind,
-                    possible_kinds: info.possible_kinds,
-                    heap_shape: info.heap_shape,
-                    function_targets: info.function_targets,
-                    is_script_global: false,
-                    is_lexical_metadata: true,
-                },
-            );
+            for name in names {
+                self.var_bindings.insert(
+                    name,
+                    VarBindingInfo {
+                        kind: info.kind,
+                        possible_kinds: info.possible_kinds,
+                        heap_shape: info.heap_shape.clone(),
+                        function_targets: info.function_targets.clone(),
+                        is_script_global: false,
+                        is_lexical_metadata: true,
+                    },
+                );
+            }
         }
     }
 
@@ -9271,24 +10306,39 @@ impl<'a> ScriptLowerer<'a> {
         info: ValueInfo,
         source: GlobalPropertySource,
     ) {
-        if let Some(existing) = self.global_properties.get_mut(&name) {
+        if self.global_properties.contains_key(&name) {
             if !Self::global_property_is_writable_name(&name) {
                 return;
             }
-            existing.value_info = info;
-            existing.proven_present = true;
-            existing.source = source;
+            if let Some(existing) = self.global_properties.get_mut(&name) {
+                existing.value_info = info.clone();
+                existing.proven_present = true;
+                existing.source = source;
+            }
+        } else {
+            self.global_properties.insert(
+                name.clone(),
+                GlobalPropertyInfo {
+                    value_info: info.clone(),
+                    proven_present: true,
+                    configurable: true,
+                    source,
+                },
+            );
+        }
+        self.record_nested_script_global_value_info(&name, info);
+    }
+
+    fn record_nested_script_global_value_info(&mut self, name: &str, info: ValueInfo) {
+        if !self.is_nested_script_global_var_name(name) {
             return;
         }
-        self.global_properties.insert(
-            name,
-            GlobalPropertyInfo {
-                value_info: info,
-                proven_present: true,
-                configurable: true,
-                source,
-            },
-        );
+        let merged = match self.nested_script_global_value_infos.remove(name) {
+            Some(existing) => self.merge_value_infos(existing, info),
+            None => info,
+        };
+        self.nested_script_global_value_infos
+            .insert(name.to_string(), merged);
     }
 
     fn global_property_is_writable_name(name: &str) -> bool {
@@ -9345,12 +10395,6 @@ impl<'a> ScriptLowerer<'a> {
         allow_with: bool,
         missing_as_reference_error: bool,
     ) -> TypedExpr {
-        if self.class_context.as_ref().is_some_and(|context| {
-            context.map_self_name_to_this && context.name.as_deref() == Some(name.as_str())
-        }) {
-            return TypedExpr::from_info(self.current_this_info.clone(), ExprIr::This);
-        }
-
         if allow_with {
             if let Some(object) = self.active_with_objects.last().cloned() {
                 return self.lower_with_scoped_identifier_read(name, object);
@@ -9358,7 +10402,9 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         if let Some(binding) = self.lookup_binding(&name) {
-            if Self::is_tdz_binding_storage_name(&binding.storage_name) {
+            if Self::is_tdz_binding_storage_name(&binding.storage_name)
+                || self.is_tdz_binding(&name)
+            {
                 return TypedExpr::from_info(
                     ValueInfo {
                         kind: ValueKind::Dynamic,
@@ -9630,7 +10676,6 @@ impl<'a> ScriptLowerer<'a> {
             | Expression::AsyncFunctionExpression(_)
             | Expression::AsyncGeneratorExpression(_)
             | Expression::ImportCall(_)
-            | Expression::TaggedTemplate(_)
             | Expression::ImportMeta(_)
             | Expression::Await(_)
             | Expression::Yield(_)
@@ -9642,6 +10687,7 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::undefined()
             }
             Expression::TemplateLiteral(template) => self.lower_template_literal(template),
+            Expression::TaggedTemplate(template) => self.lower_tagged_template(template),
             Expression::BinaryInPrivate(binary) => self.lower_private_in(binary),
             Expression::Conditional(conditional) => {
                 let condition = self.lower_expression(conditional.condition());
@@ -9832,9 +10878,11 @@ impl<'a> ScriptLowerer<'a> {
         let body = BlockIr {
             result_kind: return_info.kind,
             statements,
+            lexical_environment: None,
         };
         lowerer.pop_scope();
 
+        self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.used_host_builtins.extend(lowerer.used_host_builtins);
@@ -9885,15 +10933,18 @@ impl<'a> ScriptLowerer<'a> {
             callable: true,
             constructable: false,
             class_kind: ClassFunctionKind::None,
+            class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
             is_static_class_member: false,
             is_derived_constructor: false,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: None,
             uses_super: false,
             this_before_super: false,
             lexical_derived_activation: None,
             private_name_ids: BTreeMap::new(),
+            captures_private_environment: false,
             is_nested: true,
             is_expression: true,
             is_named_expression: false,
@@ -9964,15 +11015,18 @@ impl<'a> ScriptLowerer<'a> {
             callable: true,
             constructable: false,
             class_kind: ClassFunctionKind::None,
+            class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
             is_static_class_member: false,
             is_derived_constructor: false,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: None,
             uses_super: false,
             this_before_super: false,
             lexical_derived_activation: None,
             private_name_ids: BTreeMap::new(),
+            captures_private_environment: false,
             is_nested: true,
             is_expression: true,
             is_named_expression: false,
@@ -9982,6 +11036,7 @@ impl<'a> ScriptLowerer<'a> {
             body: BlockIr {
                 result_kind: ValueKind::Undefined,
                 statements,
+                lexical_environment: None,
             },
             return_kind: return_info.kind,
             return_shape: return_info.heap_shape.clone(),
@@ -10122,6 +11177,7 @@ impl<'a> ScriptLowerer<'a> {
                         StatementIr::Expression(push),
                         StatementIr::Expression(increment),
                     ],
+                    lexical_environment: None,
                 })),
             },
             StatementIr::Return(result),
@@ -10247,6 +11303,140 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
+    fn lower_string_raw_tagged_template(&mut self, template: &TaggedTemplate) -> TypedExpr {
+        let mut lowered = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::String(String::new()),
+        );
+        for (index, raw) in template.raws().iter().enumerate() {
+            let raw = self.interner.resolve_expect(*raw).join(
+                |string| string.to_string(),
+                Self::utf16_units_to_runtime_string,
+                true,
+            );
+            lowered = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::StringConcat {
+                    lhs: Box::new(lowered),
+                    rhs: Box::new(TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::String(raw),
+                    )),
+                },
+            );
+            if let Some(expr) = template.exprs().get(index) {
+                lowered = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::String),
+                    ExprIr::StringConcat {
+                        lhs: Box::new(lowered),
+                        rhs: Box::new(self.lower_expression(expr)),
+                    },
+                );
+            }
+        }
+        lowered
+    }
+
+    fn lower_tagged_template(&mut self, template: &TaggedTemplate) -> TypedExpr {
+        if let Expression::PropertyAccess(PropertyAccess::Simple(access)) = template.tag() {
+            if let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
+                (access.target(), access.field())
+            {
+                if self.interner.resolve_expect(target.sym()).to_string() == STRING_NAME
+                    && self.interner.resolve_expect(field.sym()).to_string() == "raw"
+                {
+                    return self.lower_string_raw_tagged_template(template);
+                }
+            }
+        }
+
+        let raw = template
+            .raws()
+            .iter()
+            .map(|value| {
+                self.interner.resolve_expect(*value).join(
+                    |string| string.to_string(),
+                    Self::utf16_units_to_runtime_string,
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        let cooked = template
+            .cookeds()
+            .iter()
+            .map(|value| {
+                value.map(|value| {
+                    self.interner.resolve_expect(value).join(
+                        |string| string.to_string(),
+                        Self::utf16_units_to_runtime_string,
+                        true,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let template_info = ValueInfo {
+            kind: ValueKind::Array,
+            possible_kinds: KindSet::from_kind(ValueKind::Array),
+            heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+            function_targets: BTreeSet::new(),
+        };
+        let mut args = Vec::with_capacity(template.exprs().len() + 1);
+        args.push(TypedExpr::from_info(
+            template_info,
+            ExprIr::TemplateObject(TemplateObjectIr {
+                site_id: template.identifier(),
+                cooked,
+                raw,
+            }),
+        ));
+        args.extend(
+            template
+                .exprs()
+                .iter()
+                .map(|expression| self.lower_expression(expression)),
+        );
+
+        let result_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::all_runtime_tags(),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        match template.tag() {
+            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
+                let receiver = self.lower_property_target(access.target());
+                let key = match access.field() {
+                    PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                        self.interner.resolve_expect(name.sym()).to_string(),
+                    ),
+                    PropertyAccessField::Expr(expression) => {
+                        let Some(key) = self.lower_dynamic_object_property_key(expression) else {
+                            return self.unsupported_expr("tagged template property key");
+                        };
+                        key
+                    }
+                };
+                TypedExpr::from_info(
+                    result_info,
+                    ExprIr::CallMethod {
+                        receiver: Box::new(receiver),
+                        key,
+                        args,
+                    },
+                )
+            }
+            tag => TypedExpr::from_info(
+                result_info,
+                ExprIr::CallIndirect {
+                    callee: Box::new(self.lower_expression(tag)),
+                    this_arg: None,
+                    args,
+                    static_regexp_compilation: None,
+                },
+            ),
+        }
+    }
+
     fn lower_arrow_function(&mut self, function: &ArrowFunction) -> TypedExpr {
         let key = arrow_function_key(function);
         let Some(function_id) = self.analysis.function_expr_ids.get(&key).cloned() else {
@@ -10270,18 +11460,24 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_class_declaration(&mut self, class: &ClassDeclaration) -> (StatementIr, ValueKind) {
         let name = self.interner.resolve_expect(class.name().sym()).to_string();
-        let storage_name = self.lexical_storage_name(&name);
+        let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
+        let constructor_execution_key = class
+            .constructor()
+            .map(class_constructor_key)
+            .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
         let init = self.lower_class_common(
             Some(name.clone()),
             class_declaration_source_slice(class, self.source_text),
+            constructor_execution_key,
             class.super_ref(),
             class.constructor(),
             class.elements(),
         );
+        self.clear_tdz_binding(&name);
         self.declare_binding(
             name.clone(),
             BindingInfo {
-                mode: BindingMode::Const,
+                mode: BindingMode::Let,
                 storage_name: storage_name.clone(),
                 kind: init.kind,
                 possible_kinds: init.possible_kinds,
@@ -10291,7 +11487,7 @@ impl<'a> ScriptLowerer<'a> {
         );
         (
             StatementIr::Lexical {
-                mode: BindingMode::Const,
+                mode: BindingMode::Let,
                 name: storage_name,
                 init,
             },
@@ -10303,22 +11499,117 @@ impl<'a> ScriptLowerer<'a> {
         let name = class
             .name()
             .map(|identifier| self.interner.resolve_expect(identifier.sym()).to_string());
+        let constructor_execution_key = class
+            .constructor()
+            .map(class_constructor_key)
+            .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
         self.lower_class_common(
             name,
             class_expression_source_slice(class, self.source_text),
+            constructor_execution_key,
             class.super_ref(),
             class.constructor(),
             class.elements(),
         )
     }
 
+    fn insert_class_accessor_shape(
+        properties: &mut BTreeMap<String, ObjectShapeProperty>,
+        key: String,
+        function_id: FunctionId,
+        kind: ClassFunctionKind,
+    ) {
+        let previous = properties.remove(&key);
+        let (mut getter, mut setter) = match previous {
+            Some(ObjectShapeProperty::Accessor { getter, setter }) => (getter, setter),
+            _ => (None, None),
+        };
+        match kind {
+            ClassFunctionKind::Getter => getter = Some(ObjectAccessorShape { function_id }),
+            ClassFunctionKind::Setter => setter = Some(ObjectAccessorShape { function_id }),
+            ClassFunctionKind::None
+            | ClassFunctionKind::Method
+            | ClassFunctionKind::Constructor => {
+                unreachable!("class accessor shape requires a getter or setter")
+            }
+        }
+        properties.insert(key, ObjectShapeProperty::Accessor { getter, setter });
+    }
+
     fn lower_class_common(
         &mut self,
         class_name: Option<String>,
         class_source: String,
+        constructor_execution_key: String,
         heritage: Option<&Expression>,
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
+    ) -> TypedExpr {
+        let name_binding = class_name.as_ref().map(|_| {
+            let environment_id = self
+                .analysis
+                .class_name_environment_ids
+                .get(&constructor_execution_key)
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "named class execution `{constructor_execution_key}` must have a lexical environment"
+                    )
+                });
+            let environment = self
+                .lower_runtime_lexical_environment(Some(environment_id))
+                .expect("named class environment must have runtime storage");
+            let storage_name = environment
+                .bindings
+                .first()
+                .expect("named class environment must own its binding")
+                .name
+                .clone();
+            ClassNameBindingIr {
+                storage_name,
+                environment,
+            }
+        });
+        if let (Some(source_name), Some(binding)) = (&class_name, &name_binding) {
+            self.push_scope();
+            self.declare_binding(
+                source_name.clone(),
+                BindingInfo {
+                    mode: BindingMode::Const,
+                    storage_name: binding.storage_name.clone(),
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+            );
+        }
+        let has_name_binding = name_binding.is_some();
+        let lowered = self.lower_class_common_in_name_scope(
+            class_name,
+            class_source,
+            constructor_execution_key,
+            heritage,
+            constructor,
+            elements,
+            name_binding,
+        );
+        if has_name_binding {
+            self.pop_scope();
+        }
+        lowered
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lower_class_common_in_name_scope(
+        &mut self,
+        class_name: Option<String>,
+        class_source: String,
+        constructor_execution_key: String,
+        heritage: Option<&Expression>,
+        constructor: Option<&FunctionExpression>,
+        elements: &[ClassElement],
+        name_binding: Option<ClassNameBindingIr>,
     ) -> TypedExpr {
         let heritage = heritage.map(|expr| self.lower_expression(expr));
         let mut heritage_kind = ClassHeritageKind::None;
@@ -10343,14 +11634,28 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let constructor_id = constructor
-            .and_then(|constructor| {
-                self.analysis
-                    .class_method_ids
-                    .get(&class_constructor_key(constructor))
-                    .cloned()
+        let constructor_id = self
+            .analysis
+            .class_execution_ids
+            .get(&constructor_execution_key)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("class constructor execution `{constructor_execution_key}` must be planned")
+            });
+        let class_private_environment_id = self
+            .analysis
+            .class_private_environment_ids
+            .get(&constructor_execution_key)
+            .copied();
+        let class_body_private_environment_id =
+            class_private_environment_id.or(self.private_environment_id);
+        let private_name_ids = class_private_environment_id
+            .map(|environment_id| {
+                self.analysis.private_environment_plans[&environment_id]
+                    .bindings
+                    .clone()
             })
-            .unwrap_or_else(|| self.alloc_generated_function_id("class.ctor"));
+            .unwrap_or_default();
 
         #[derive(Clone)]
         struct PublicMethodPlan<'b> {
@@ -10363,7 +11668,8 @@ impl<'a> ScriptLowerer<'a> {
 
         #[derive(Clone)]
         struct FieldPlan<'b> {
-            key: String,
+            key: ClassFieldKeyIr,
+            computed_key: Option<PropertyKeyIr>,
             init_function_id: Option<FunctionId>,
             initializer: Option<&'b Expression>,
             placement: ClassMethodPlacementIr,
@@ -10386,15 +11692,24 @@ impl<'a> ScriptLowerer<'a> {
             placement: ClassMethodPlacementIr,
         }
 
+        #[derive(Clone, Copy)]
+        enum ClassElementOrder {
+            PublicMethod(usize),
+            PrivateMethod(usize),
+            PublicField(usize),
+            PrivateField(usize),
+            StaticBlock(usize),
+        }
+
         let mut public_methods = Vec::<PublicMethodPlan<'_>>::new();
         let mut private_methods = Vec::<PrivateMethodPlan<'_>>::new();
         let mut fields = Vec::<FieldPlan<'_>>::new();
         let mut private_fields = Vec::<PrivateFieldPlan<'_>>::new();
         let mut static_blocks = Vec::<(FunctionId, &StaticBlockBody)>::new();
-        let mut private_name_ids = BTreeMap::<String, PrivateNameId>::new();
-        let mut private_bindings = BTreeMap::<String, PrivateElementBinding>::new();
-        let mut instance_private_brands = BTreeSet::<PrivateNameId>::new();
-        let mut static_private_brands = BTreeSet::<PrivateNameId>::new();
+        let mut element_order = Vec::<ClassElementOrder>::new();
+        let mut instance_private_method_brands = BTreeSet::<PrivateNameId>::new();
+        let mut static_private_method_brands = BTreeSet::<PrivateNameId>::new();
+        let mut computed_field_key_count = 0u32;
 
         for element in elements {
             match element {
@@ -10421,122 +11736,160 @@ impl<'a> ScriptLowerer<'a> {
                                     self.interner.resolve_expect(name.sym()).to_string(),
                                 ),
                                 PropertyName::Computed(expr) => {
-                                    let Some(key) = self.lower_dynamic_object_property_key(expr)
-                                    else {
+                                    let Some(key) = self.lower_class_property_key(
+                                        expr,
+                                        class_body_private_environment_id,
+                                    ) else {
                                         return self.unsupported_expr("computed class method");
                                     };
                                     key
                                 }
                             };
+                            let method_index = public_methods.len();
                             public_methods.push(PublicMethodPlan {
                                 key,
                                 function_id: self
                                     .analysis
-                                    .class_method_ids
+                                    .class_execution_ids
                                     .get(&class_method_key(method))
                                     .cloned()
                                     .unwrap_or_else(|| {
-                                        self.alloc_generated_function_id("class.method")
+                                        panic!(
+                                            "class method execution `{}` must be planned",
+                                            class_method_key(method)
+                                        )
                                     }),
                                 method,
                                 placement,
                                 kind,
                             });
+                            element_order.push(ClassElementOrder::PublicMethod(method_index));
                         }
                         ClassElementName::PrivateName(name) => {
-                            let (key, private_name_id) =
-                                self.ensure_private_name_id(&mut private_name_ids, *name);
-                            private_bindings.insert(
-                                key,
-                                PrivateElementBinding {
-                                    private_name_id,
-                                    placement,
-                                    storage: match kind {
-                                        ClassFunctionKind::Method => PrivateStorageKind::Method,
-                                        ClassFunctionKind::Getter => PrivateStorageKind::Getter,
-                                        ClassFunctionKind::Setter => PrivateStorageKind::Setter,
-                                        ClassFunctionKind::None
-                                        | ClassFunctionKind::Constructor => {
-                                            PrivateStorageKind::Method
-                                        }
-                                    },
-                                },
-                            );
+                            let key = private_name_key(self.interner, *name);
+                            let private_name_id =
+                                private_name_ids.get(&key).copied().unwrap_or_else(|| {
+                                    panic!("class private method `#{key}` must be planned")
+                                });
                             if placement == ClassMethodPlacementIr::Static {
-                                static_private_brands.insert(private_name_id);
+                                static_private_method_brands.insert(private_name_id);
                             } else {
-                                instance_private_brands.insert(private_name_id);
+                                instance_private_method_brands.insert(private_name_id);
                             }
+                            let method_index = private_methods.len();
                             private_methods.push(PrivateMethodPlan {
                                 private_name_id,
                                 function_id: self
                                     .analysis
-                                    .class_method_ids
+                                    .class_execution_ids
                                     .get(&class_method_key(method))
                                     .cloned()
                                     .unwrap_or_else(|| {
-                                        self.alloc_generated_function_id("class.method")
+                                        panic!(
+                                            "class method execution `{}` must be planned",
+                                            class_method_key(method)
+                                        )
                                     }),
                                 method,
                                 placement,
                                 kind,
                             });
+                            element_order.push(ClassElementOrder::PrivateMethod(method_index));
                         }
                     }
                 }
                 ClassElement::FieldDefinition(field)
                 | ClassElement::StaticFieldDefinition(field) => {
-                    let Some(name) = field.name().prop_name() else {
-                        return self.unsupported_expr("computed class field");
+                    let (key, computed_key) = match field.name() {
+                        PropertyName::Literal(name) => (
+                            ClassFieldKeyIr::Public(
+                                self.interner.resolve_expect(name.sym()).to_string(),
+                            ),
+                            None,
+                        ),
+                        PropertyName::Computed(expr) => {
+                            let Some(computed_key) = self
+                                .lower_class_property_key(expr, class_body_private_environment_id)
+                            else {
+                                return self.unsupported_expr("computed class field");
+                            };
+                            let slot = computed_field_key_count;
+                            computed_field_key_count += 1;
+                            (ClassFieldKeyIr::ComputedPublic(slot), Some(computed_key))
+                        }
                     };
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
+                    let placement = if matches!(element, ClassElement::StaticFieldDefinition(_)) {
+                        ClassMethodPlacementIr::Static
+                    } else {
+                        ClassMethodPlacementIr::Instance
+                    };
+                    let field_index = fields.len();
                     fields.push(FieldPlan {
                         key,
-                        init_function_id: field
-                            .initializer()
-                            .map(|_| self.alloc_generated_function_id("class.field")),
+                        computed_key,
+                        init_function_id: field.initializer().map(|initializer| {
+                            let execution_key = class_field_initializer_key(initializer);
+                            self.analysis
+                                .class_execution_ids
+                                .get(&execution_key)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "class field execution `{execution_key}` must be planned"
+                                    )
+                                })
+                        }),
                         initializer: field.initializer(),
-                        placement: if matches!(element, ClassElement::StaticFieldDefinition(_)) {
-                            ClassMethodPlacementIr::Static
-                        } else {
-                            ClassMethodPlacementIr::Instance
-                        },
+                        placement,
                     });
+                    element_order.push(ClassElementOrder::PublicField(field_index));
                 }
                 ClassElement::PrivateFieldDefinition(field)
                 | ClassElement::PrivateStaticFieldDefinition(field) => {
-                    let (key, private_name_id) =
-                        self.ensure_private_name_id(&mut private_name_ids, *field.name());
+                    let key = private_name_key(self.interner, *field.name());
+                    let private_name_id = private_name_ids
+                        .get(&key)
+                        .copied()
+                        .unwrap_or_else(|| panic!("class private field `#{key}` must be planned"));
                     let placement =
                         if matches!(element, ClassElement::PrivateStaticFieldDefinition(_)) {
                             ClassMethodPlacementIr::Static
                         } else {
                             ClassMethodPlacementIr::Instance
                         };
-                    private_bindings.insert(
-                        key,
-                        PrivateElementBinding {
-                            private_name_id,
-                            placement,
-                            storage: PrivateStorageKind::Field,
-                        },
-                    );
-                    if placement == ClassMethodPlacementIr::Static {
-                        static_private_brands.insert(private_name_id);
-                    } else {
-                        instance_private_brands.insert(private_name_id);
-                    }
+                    let field_index = private_fields.len();
                     private_fields.push(PrivateFieldPlan {
                         private_name_id,
-                        init_function_id: field
-                            .initializer()
-                            .map(|_| self.alloc_generated_function_id("class.field")),
+                        init_function_id: field.initializer().map(|initializer| {
+                            let execution_key = class_field_initializer_key(initializer);
+                            self.analysis
+                                .class_execution_ids
+                                .get(&execution_key)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "class field execution `{execution_key}` must be planned"
+                                    )
+                                })
+                        }),
                         initializer: field.initializer(),
                         placement,
                     });
+                    element_order.push(ClassElementOrder::PrivateField(field_index));
                 }
                 ClassElement::StaticBlock(block) => {
-                    static_blocks.push((self.alloc_generated_function_id("class.static"), block));
+                    let execution_key = class_static_block_key(block);
+                    let function_id = self
+                        .analysis
+                        .class_execution_ids
+                        .get(&execution_key)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            panic!("class static block execution `{execution_key}` must be planned")
+                        });
+                    let block_index = static_blocks.len();
+                    static_blocks.push((function_id, block));
+                    element_order.push(ClassElementOrder::StaticBlock(block_index));
                 }
                 ClassElement::AccessorFieldDefinition(_)
                 | ClassElement::StaticAccessorFieldDefinition(_) => {
@@ -10576,26 +11929,12 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
-                ClassFunctionKind::Getter => {
-                    prototype_shape.properties.insert(
+                ClassFunctionKind::Getter | ClassFunctionKind::Setter => {
+                    Self::insert_class_accessor_shape(
+                        &mut prototype_shape.properties,
                         key.to_string(),
-                        ObjectShapeProperty::Accessor {
-                            getter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                            setter: None,
-                        },
-                    );
-                }
-                ClassFunctionKind::Setter => {
-                    prototype_shape.properties.insert(
-                        key.to_string(),
-                        ObjectShapeProperty::Accessor {
-                            getter: None,
-                            setter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                        },
+                        method.function_id.clone(),
+                        method.kind,
                     );
                 }
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
@@ -10616,26 +11955,12 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
-                ClassFunctionKind::Getter => {
-                    prototype_shape.properties.insert(
+                ClassFunctionKind::Getter | ClassFunctionKind::Setter => {
+                    Self::insert_class_accessor_shape(
+                        &mut prototype_shape.properties,
                         key,
-                        ObjectShapeProperty::Accessor {
-                            getter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                            setter: None,
-                        },
-                    );
-                }
-                ClassFunctionKind::Setter => {
-                    prototype_shape.properties.insert(
-                        key,
-                        ObjectShapeProperty::Accessor {
-                            getter: None,
-                            setter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                        },
+                        method.function_id.clone(),
+                        method.kind,
                     );
                 }
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
@@ -10661,7 +11986,7 @@ impl<'a> ScriptLowerer<'a> {
         let mut instance_info = Self::with_instance_prototype(
             inherited_instance.unwrap_or_else(|| {
                 Self::fresh_constructed_instance_with_private_brands(
-                    instance_private_brands.clone(),
+                    instance_private_method_brands.clone(),
                 )
             }),
             prototype_heap.clone(),
@@ -10670,7 +11995,7 @@ impl<'a> ScriptLowerer<'a> {
         // hidden properties so shape propagation remains intact for Array
         // subclasses while constructor prefix writes still refine the shape.
         if let Some(HeapShape::Array(array)) = instance_info.heap_shape.as_mut().map(Box::as_mut) {
-            for private_name_id in &instance_private_brands {
+            for private_name_id in &instance_private_method_brands {
                 array.properties.insert(
                     private_brand_key(*private_name_id),
                     ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
@@ -10701,26 +12026,12 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
-                ClassFunctionKind::Getter => {
-                    class_properties.insert(
+                ClassFunctionKind::Getter | ClassFunctionKind::Setter => {
+                    Self::insert_class_accessor_shape(
+                        &mut class_properties,
                         key.to_string(),
-                        ObjectShapeProperty::Accessor {
-                            getter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                            setter: None,
-                        },
-                    );
-                }
-                ClassFunctionKind::Setter => {
-                    class_properties.insert(
-                        key.to_string(),
-                        ObjectShapeProperty::Accessor {
-                            getter: None,
-                            setter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                        },
+                        method.function_id.clone(),
+                        method.kind,
                     );
                 }
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
@@ -10741,26 +12052,12 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
-                ClassFunctionKind::Getter => {
-                    class_properties.insert(
+                ClassFunctionKind::Getter | ClassFunctionKind::Setter => {
+                    Self::insert_class_accessor_shape(
+                        &mut class_properties,
                         key,
-                        ObjectShapeProperty::Accessor {
-                            getter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                            setter: None,
-                        },
-                    );
-                }
-                ClassFunctionKind::Setter => {
-                    class_properties.insert(
-                        key,
-                        ObjectShapeProperty::Accessor {
-                            getter: None,
-                            setter: Some(ObjectAccessorShape {
-                                function_id: method.function_id.clone(),
-                            }),
-                        },
+                        method.function_id.clone(),
+                        method.kind,
                     );
                 }
                 ClassFunctionKind::None | ClassFunctionKind::Constructor => {}
@@ -10773,11 +12070,15 @@ impl<'a> ScriptLowerer<'a> {
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
                 prototype: heritage.as_ref().and_then(|info| info.heap_shape.clone()),
                 properties: class_properties,
-                private_brands: static_private_brands.clone(),
+                private_brands: static_private_method_brands,
                 boxed_primitive: None,
             }))),
             function_targets: BTreeSet::from([constructor_id.clone()]),
         };
+        if let Some(class_name) = &class_name {
+            self.set_binding_value_info(class_name, class_info.clone())
+                .expect("named class binding must remain in scope while its elements are lowered");
+        }
 
         let heritage_prototype_shape = if heritage_kind == ClassHeritageKind::Constructable {
             heritage
@@ -10791,132 +12092,238 @@ impl<'a> ScriptLowerer<'a> {
             None
         };
 
-        for field in &fields {
-            if let Some(init_function_id) = &field.init_function_id {
-                let output = self.lower_generated_expr_function(
-                    init_function_id.clone(),
-                    format!(
-                        "{}.field.{}",
-                        class_name.clone().unwrap_or_else(|| "<class>".to_string()),
-                        field.key
-                    ),
-                    CallableToStringRepresentation::NativeAnonymous,
-                    field.initializer.expect("field initializer should exist"),
-                    if field.placement == ClassMethodPlacementIr::Static {
-                        class_info.clone()
+        let empty_parameters = FormalParameterList::default();
+        for element in &element_order {
+            match element {
+                ClassElementOrder::PublicField(index) => {
+                    let field = &fields[*index];
+                    if field.placement != ClassMethodPlacementIr::Static {
+                        continue;
+                    }
+                    let field_info = if let Some(init_function_id) = &field.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.field.{}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                                class_field_debug_key(&field.key)
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            field.initializer.expect("field initializer should exist"),
+                            class_info.clone(),
+                            ClassElementExecutionKind::StaticFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: true,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
                     } else {
-                        instance_info.clone()
-                    },
-                    ClassLoweringContext {
-                        name: class_name.clone(),
-                        private_name_ids: private_name_ids.clone(),
-                        private_bindings: private_bindings.clone(),
-                        heritage_kind,
-                        super_base_shape: None,
-                        super_constructor_target: None,
-                        is_static: field.placement == ClassMethodPlacementIr::Static,
-                        is_derived_constructor: false,
-                        map_self_name_to_this: field.placement == ClassMethodPlacementIr::Static,
-                    },
-                );
-                if field.placement == ClassMethodPlacementIr::Static {
+                        ValueInfo::undefined()
+                    };
+                    if let (Some(key), Some(HeapShape::Object(shape))) = (
+                        field.key.static_name(),
+                        class_info.heap_shape.as_mut().map(Box::as_mut),
+                    ) {
+                        shape
+                            .properties
+                            .insert(key.to_string(), ObjectShapeProperty::Data(field_info));
+                    }
+                }
+                ClassElementOrder::PrivateField(index) => {
+                    let field = &private_fields[*index];
+                    if field.placement != ClassMethodPlacementIr::Static {
+                        continue;
+                    }
+                    let hidden_key = private_data_key(field.private_name_id);
+                    let field_info = if let Some(init_function_id) = &field.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.field.{}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                                hidden_key
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            field.initializer.expect("field initializer should exist"),
+                            class_info.clone(),
+                            ClassElementExecutionKind::StaticFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: true,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
+                    } else {
+                        ValueInfo::undefined()
+                    };
                     if let Some(HeapShape::Object(shape)) =
                         class_info.heap_shape.as_mut().map(Box::as_mut)
                     {
-                        shape.properties.insert(
-                            field.key.clone(),
-                            ObjectShapeProperty::Data(output.return_info.clone()),
-                        );
+                        shape
+                            .properties
+                            .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                        shape.private_brands.insert(field.private_name_id);
                     }
-                } else if let Some(HeapShape::Object(shape)) =
-                    instance_info.heap_shape.as_mut().map(Box::as_mut)
-                {
-                    shape.properties.insert(
-                        field.key.clone(),
-                        ObjectShapeProperty::Data(output.return_info.clone()),
-                    );
                 }
-            } else if field.placement == ClassMethodPlacementIr::Static {
-                if let Some(HeapShape::Object(shape)) =
-                    class_info.heap_shape.as_mut().map(Box::as_mut)
-                {
-                    shape.properties.insert(
-                        field.key.clone(),
-                        ObjectShapeProperty::Data(ValueInfo::undefined()),
+                ClassElementOrder::StaticBlock(index) => {
+                    let (block_id, block) = &static_blocks[*index];
+                    let output = self.lower_generated_ast_function(
+                        block_id.clone(),
+                        format!(
+                            "{}.<static>",
+                            class_name.clone().unwrap_or_else(|| "<class>".to_string())
+                        ),
+                        CallableToStringRepresentation::NativeAnonymous,
+                        &empty_parameters,
+                        block.statements(),
+                        true,
+                        false,
+                        ClassFunctionKind::None,
+                        ClassElementExecutionKind::StaticBlock,
+                        class_info.clone(),
+                        Some(class_info.clone()),
+                        None,
+                        false,
+                        private_name_ids.clone(),
+                        ClassLoweringContext {
+                            private_name_ids: private_name_ids.clone(),
+                            heritage_kind,
+                            super_base_shape: heritage
+                                .as_ref()
+                                .and_then(|info| info.heap_shape.clone()),
+                            super_constructor_target: heritage_function_id.clone(),
+                            is_static: true,
+                            is_derived_constructor: false,
+                        },
+                        Vec::new(),
                     );
+                    if let Some(next_class_info) = output.construct_this_info {
+                        class_info = next_class_info;
+                    }
                 }
-            } else if let Some(HeapShape::Object(shape)) =
-                instance_info.heap_shape.as_mut().map(Box::as_mut)
-            {
-                shape.properties.insert(
-                    field.key.clone(),
-                    ObjectShapeProperty::Data(ValueInfo::undefined()),
-                );
+                ClassElementOrder::PublicMethod(_) | ClassElementOrder::PrivateMethod(_) => {
+                    continue;
+                }
+            }
+            if let Some(class_name) = &class_name {
+                self.set_binding_value_info(class_name, class_info.clone())
+                    .expect(
+                        "named class binding must remain in scope while its elements are lowered",
+                    );
             }
         }
 
-        for field in &private_fields {
-            let hidden_key = private_data_key(field.private_name_id);
-            if let Some(init_function_id) = &field.init_function_id {
-                let output = self.lower_generated_expr_function(
-                    init_function_id.clone(),
-                    format!(
-                        "{}.field.{}",
-                        class_name.clone().unwrap_or_else(|| "<class>".to_string()),
-                        hidden_key
-                    ),
-                    CallableToStringRepresentation::NativeAnonymous,
-                    field.initializer.expect("field initializer should exist"),
-                    if field.placement == ClassMethodPlacementIr::Static {
-                        class_info.clone()
-                    } else {
-                        instance_info.clone()
-                    },
-                    ClassLoweringContext {
-                        name: class_name.clone(),
-                        private_name_ids: private_name_ids.clone(),
-                        private_bindings: private_bindings.clone(),
-                        heritage_kind,
-                        super_base_shape: None,
-                        super_constructor_target: None,
-                        is_static: field.placement == ClassMethodPlacementIr::Static,
-                        is_derived_constructor: false,
-                        map_self_name_to_this: field.placement == ClassMethodPlacementIr::Static,
-                    },
-                );
-                if field.placement == ClassMethodPlacementIr::Static {
-                    if let Some(HeapShape::Object(shape)) =
-                        class_info.heap_shape.as_mut().map(Box::as_mut)
-                    {
-                        shape.properties.insert(
-                            hidden_key,
-                            ObjectShapeProperty::Data(output.return_info.clone()),
-                        );
+        for element in &element_order {
+            match element {
+                ClassElementOrder::PublicField(index) => {
+                    let field = &fields[*index];
+                    if field.placement != ClassMethodPlacementIr::Instance {
+                        continue;
                     }
-                } else if let Some(HeapShape::Object(shape)) =
-                    instance_info.heap_shape.as_mut().map(Box::as_mut)
-                {
-                    shape.properties.insert(
-                        hidden_key,
-                        ObjectShapeProperty::Data(output.return_info.clone()),
-                    );
+                    let field_info = if let Some(init_function_id) = &field.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.field.{}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                                class_field_debug_key(&field.key)
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            field.initializer.expect("field initializer should exist"),
+                            instance_info.clone(),
+                            ClassElementExecutionKind::InstanceFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: false,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
+                    } else {
+                        ValueInfo::undefined()
+                    };
+                    let Some(key) = field.key.static_name() else {
+                        continue;
+                    };
+                    match instance_info.heap_shape.as_mut().map(Box::as_mut) {
+                        Some(HeapShape::Object(shape)) => {
+                            shape
+                                .properties
+                                .insert(key.to_string(), ObjectShapeProperty::Data(field_info));
+                        }
+                        Some(HeapShape::Array(array)) => {
+                            array
+                                .properties
+                                .insert(key.to_string(), ObjectShapeProperty::Data(field_info));
+                        }
+                        None => {}
+                    }
                 }
-            } else if field.placement == ClassMethodPlacementIr::Static {
-                if let Some(HeapShape::Object(shape)) =
-                    class_info.heap_shape.as_mut().map(Box::as_mut)
-                {
-                    shape.properties.insert(
-                        hidden_key,
-                        ObjectShapeProperty::Data(ValueInfo::undefined()),
-                    );
+                ClassElementOrder::PrivateField(index) => {
+                    let field = &private_fields[*index];
+                    if field.placement != ClassMethodPlacementIr::Instance {
+                        continue;
+                    }
+                    let hidden_key = private_data_key(field.private_name_id);
+                    let field_info = if let Some(init_function_id) = &field.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.field.{}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                                hidden_key
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            field.initializer.expect("field initializer should exist"),
+                            instance_info.clone(),
+                            ClassElementExecutionKind::InstanceFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: false,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
+                    } else {
+                        ValueInfo::undefined()
+                    };
+                    match instance_info.heap_shape.as_mut().map(Box::as_mut) {
+                        Some(HeapShape::Object(shape)) => {
+                            shape
+                                .properties
+                                .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                            shape.private_brands.insert(field.private_name_id);
+                        }
+                        Some(HeapShape::Array(array)) => {
+                            array
+                                .properties
+                                .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                            array.properties.insert(
+                                private_brand_key(field.private_name_id),
+                                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
+                            );
+                        }
+                        None => {}
+                    }
                 }
-            } else if let Some(HeapShape::Object(shape)) =
-                instance_info.heap_shape.as_mut().map(Box::as_mut)
-            {
-                shape.properties.insert(
-                    hidden_key,
-                    ObjectShapeProperty::Data(ValueInfo::undefined()),
-                );
+                ClassElementOrder::PublicMethod(_)
+                | ClassElementOrder::PrivateMethod(_)
+                | ClassElementOrder::StaticBlock(_) => continue,
             }
         }
 
@@ -10950,15 +12357,14 @@ impl<'a> ScriptLowerer<'a> {
                 method.kind == ClassFunctionKind::Method,
                 false,
                 method.kind,
+                ClassElementExecutionKind::None,
                 this_info,
                 None,
                 None,
                 false,
                 private_name_ids.clone(),
                 ClassLoweringContext {
-                    name: class_name.clone(),
                     private_name_ids: private_name_ids.clone(),
-                    private_bindings: private_bindings.clone(),
                     heritage_kind,
                     super_base_shape: if is_static {
                         heritage.as_ref().and_then(|info| info.heap_shape.clone())
@@ -10968,7 +12374,6 @@ impl<'a> ScriptLowerer<'a> {
                     super_constructor_target: heritage_function_id.clone(),
                     is_static,
                     is_derived_constructor: false,
-                    map_self_name_to_this: is_static,
                 },
                 Vec::new(),
             );
@@ -10981,13 +12386,21 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 instance_info.clone()
             };
+            let ClassElementName::PrivateName(private_name) = method.method.name() else {
+                unreachable!("private method plan must retain a private source name")
+            };
+            let private_name = private_name_key(self.interner, *private_name);
+            let function_name = match method.kind {
+                ClassFunctionKind::Method => format!("#{private_name}"),
+                ClassFunctionKind::Getter => format!("get #{private_name}"),
+                ClassFunctionKind::Setter => format!("set #{private_name}"),
+                ClassFunctionKind::None | ClassFunctionKind::Constructor => {
+                    unreachable!("private method plan must contain a method or accessor")
+                }
+            };
             self.lower_generated_ast_function(
                 method.function_id.clone(),
-                format!(
-                    "{}.#{}",
-                    class_name.clone().unwrap_or_else(|| "<class>".to_string()),
-                    method.private_name_id
-                ),
+                function_name,
                 CallableToStringRepresentation::ExactSource(class_method_source_slice(
                     method.method,
                     self.source_text,
@@ -10997,15 +12410,14 @@ impl<'a> ScriptLowerer<'a> {
                 method.kind == ClassFunctionKind::Method,
                 false,
                 method.kind,
+                ClassElementExecutionKind::None,
                 this_info,
                 None,
                 None,
                 heritage_kind != ClassHeritageKind::None,
                 private_name_ids.clone(),
                 ClassLoweringContext {
-                    name: class_name.clone(),
                     private_name_ids: private_name_ids.clone(),
-                    private_bindings: private_bindings.clone(),
                     heritage_kind,
                     super_base_shape: if is_static {
                         heritage.as_ref().and_then(|info| info.heap_shape.clone())
@@ -11015,137 +12427,43 @@ impl<'a> ScriptLowerer<'a> {
                     super_constructor_target: heritage_function_id.clone(),
                     is_static,
                     is_derived_constructor: false,
-                    map_self_name_to_this: is_static,
                 },
                 Vec::new(),
             );
         }
 
-        let mut constructor_prefix = Vec::new();
-        if heritage_kind != ClassHeritageKind::Null {
-            for private_name_id in &instance_private_brands {
-                let brand_value =
-                    TypedExpr::from_info(ValueInfo::new(ValueKind::Boolean), ExprIr::Boolean(true));
-                constructor_prefix.push(StatementIr::Expression(TypedExpr::from_info(
-                    brand_value.value_info(),
-                    ExprIr::PropertyWrite {
-                        target: Box::new(TypedExpr::from_info(instance_info.clone(), ExprIr::This)),
-                        key: PropertyKeyIr::StaticString(private_brand_key(*private_name_id)),
-                        value: Box::new(brand_value),
-                    },
-                )));
-            }
-            for field in &fields {
-                if field.placement != ClassMethodPlacementIr::Instance {
-                    continue;
+        let instance_fields = element_order
+            .iter()
+            .filter_map(|element| match element {
+                ClassElementOrder::PublicField(index) => {
+                    let field = &fields[*index];
+                    (field.placement == ClassMethodPlacementIr::Instance).then(|| {
+                        ClassFieldInitIr {
+                            key: field.key.clone(),
+                            init_function_id: field.init_function_id.clone(),
+                        }
+                    })
                 }
-                let value = if let Some(init_function_id) = &field.init_function_id {
-                    let signature = self
-                        .function_signatures
-                        .get(init_function_id)
-                        .cloned()
-                        .unwrap_or(FunctionSignature {
-                            id: init_function_id.clone(),
-                            to_string_representation:
-                                CallableToStringRepresentation::NativeAnonymous,
-                            flavor: FunctionFlavor::Ordinary,
-                            callable: true,
-                            constructable: false,
-                            class_kind: ClassFunctionKind::None,
-                            class_heritage_kind: ClassHeritageKind::None,
-                            params: Vec::new(),
-                            return_kind: ValueKind::Undefined,
-                            return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                            return_shape: None,
-                            return_targets: BTreeSet::new(),
-                            constructor_instance: ValueInfo::undefined(),
-                            this_info: instance_info.clone(),
-                            this_observed: true,
-                        });
-                    TypedExpr::from_info(
-                        ValueInfo {
-                            kind: signature.return_kind,
-                            possible_kinds: signature.return_possible_kinds,
-                            heap_shape: signature.return_shape,
-                            function_targets: signature.return_targets,
-                        },
-                        ExprIr::CallIndirect {
-                            callee: Box::new(self.function_value_expr(init_function_id.clone())),
-                            this_arg: Some(Box::new(TypedExpr::from_info(
-                                instance_info.clone(),
-                                ExprIr::This,
-                            ))),
-                            args: Vec::new(),
-                        },
-                    )
-                } else {
-                    TypedExpr::undefined()
-                };
-                constructor_prefix.push(StatementIr::Expression(TypedExpr::from_info(
-                    value.value_info(),
-                    ExprIr::PropertyWrite {
-                        target: Box::new(TypedExpr::from_info(instance_info.clone(), ExprIr::This)),
-                        key: PropertyKeyIr::StaticString(field.key.clone()),
-                        value: Box::new(value),
-                    },
-                )));
-            }
-            for field in &private_fields {
-                if field.placement != ClassMethodPlacementIr::Instance {
-                    continue;
+                ClassElementOrder::PrivateField(index) => {
+                    let field = &private_fields[*index];
+                    (field.placement == ClassMethodPlacementIr::Instance).then(|| {
+                        ClassFieldInitIr {
+                            key: ClassFieldKeyIr::Private(field.private_name_id),
+                            init_function_id: field.init_function_id.clone(),
+                        }
+                    })
                 }
-                let value = if let Some(init_function_id) = &field.init_function_id {
-                    let signature = self
-                        .function_signatures
-                        .get(init_function_id)
-                        .cloned()
-                        .unwrap_or(FunctionSignature {
-                            id: init_function_id.clone(),
-                            to_string_representation:
-                                CallableToStringRepresentation::NativeAnonymous,
-                            flavor: FunctionFlavor::Ordinary,
-                            callable: true,
-                            constructable: false,
-                            class_kind: ClassFunctionKind::None,
-                            class_heritage_kind: ClassHeritageKind::None,
-                            params: Vec::new(),
-                            return_kind: ValueKind::Undefined,
-                            return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                            return_shape: None,
-                            return_targets: BTreeSet::new(),
-                            constructor_instance: ValueInfo::undefined(),
-                            this_info: instance_info.clone(),
-                            this_observed: true,
-                        });
-                    TypedExpr::from_info(
-                        ValueInfo {
-                            kind: signature.return_kind,
-                            possible_kinds: signature.return_possible_kinds,
-                            heap_shape: signature.return_shape,
-                            function_targets: signature.return_targets,
-                        },
-                        ExprIr::CallIndirect {
-                            callee: Box::new(self.function_value_expr(init_function_id.clone())),
-                            this_arg: Some(Box::new(TypedExpr::from_info(
-                                instance_info.clone(),
-                                ExprIr::This,
-                            ))),
-                            args: Vec::new(),
-                        },
-                    )
-                } else {
-                    TypedExpr::undefined()
-                };
-                constructor_prefix.push(StatementIr::Expression(TypedExpr::from_info(
-                    value.value_info(),
-                    ExprIr::PropertyWrite {
-                        target: Box::new(TypedExpr::from_info(instance_info.clone(), ExprIr::This)),
-                        key: PropertyKeyIr::StaticString(private_data_key(field.private_name_id)),
-                        value: Box::new(value),
-                    },
-                )));
-            }
-        }
+                ClassElementOrder::PublicMethod(_)
+                | ClassElementOrder::PrivateMethod(_)
+                | ClassElementOrder::StaticBlock(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let class_instance_element_plan = (!instance_private_method_brands.is_empty()
+            || !instance_fields.is_empty())
+        .then(|| ClassInstanceElementPlanIr {
+            private_method_brands: instance_private_method_brands.iter().copied().collect(),
+            fields: instance_fields.clone(),
+        });
 
         let constructor_output = if let Some(constructor) = constructor {
             self.lower_generated_ast_function(
@@ -11157,23 +12475,21 @@ impl<'a> ScriptLowerer<'a> {
                 false,
                 true,
                 ClassFunctionKind::Constructor,
+                ClassElementExecutionKind::None,
                 instance_info.clone(),
                 Some(instance_info.clone()),
                 None,
                 false,
                 private_name_ids.clone(),
                 ClassLoweringContext {
-                    name: class_name.clone(),
                     private_name_ids: private_name_ids.clone(),
-                    private_bindings: private_bindings.clone(),
                     heritage_kind,
                     super_base_shape: heritage_prototype_shape.clone(),
                     super_constructor_target: heritage_function_id.clone(),
                     is_static: false,
                     is_derived_constructor: heritage_kind != ClassHeritageKind::None,
-                    map_self_name_to_this: false,
                 },
-                constructor_prefix,
+                Vec::new(),
             )
         } else {
             let constructor_output = self.lower_generated_block_function(
@@ -11183,20 +12499,18 @@ impl<'a> ScriptLowerer<'a> {
                 false,
                 true,
                 ClassFunctionKind::Constructor,
+                ClassElementExecutionKind::None,
                 instance_info.clone(),
                 Some(instance_info.clone()),
                 ClassLoweringContext {
-                    name: class_name.clone(),
                     private_name_ids: private_name_ids.clone(),
-                    private_bindings: private_bindings.clone(),
                     heritage_kind,
                     super_base_shape: heritage_prototype_shape.clone(),
                     super_constructor_target: heritage_function_id.clone(),
                     is_static: false,
                     is_derived_constructor: heritage_kind != ClassHeritageKind::None,
-                    map_self_name_to_this: false,
                 },
-                constructor_prefix,
+                Vec::new(),
                 Vec::new(),
             );
             if let Some(function_ir) = self
@@ -11210,6 +12524,14 @@ impl<'a> ScriptLowerer<'a> {
             constructor_output
         };
 
+        if let Some(function_ir) = self
+            .generated_functions
+            .iter_mut()
+            .find(|function| function.id == constructor_id)
+        {
+            function_ir.class_instance_element_plan = class_instance_element_plan;
+        }
+
         if constructor_output.construct_this_info.is_some() {
             if let Some(HeapShape::Object(shape)) = class_info.heap_shape.as_mut().map(Box::as_mut)
             {
@@ -11220,92 +12542,85 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let empty_parameters = FormalParameterList::default();
-        for (block_id, block) in &static_blocks {
-            let output = self.lower_generated_ast_function(
-                block_id.clone(),
-                format!(
-                    "{}.<static>",
-                    class_name.clone().unwrap_or_else(|| "<class>".to_string())
-                ),
-                CallableToStringRepresentation::NativeAnonymous,
-                &empty_parameters,
-                block.statements(),
-                true,
-                false,
-                ClassFunctionKind::None,
-                class_info.clone(),
-                Some(class_info.clone()),
-                None,
-                false,
-                private_name_ids.clone(),
-                ClassLoweringContext {
-                    name: class_name.clone(),
-                    private_name_ids: private_name_ids.clone(),
-                    private_bindings: private_bindings.clone(),
-                    heritage_kind,
-                    super_base_shape: heritage.as_ref().and_then(|info| info.heap_shape.clone()),
-                    super_constructor_target: heritage_function_id.clone(),
-                    is_static: true,
-                    is_derived_constructor: false,
-                    map_self_name_to_this: true,
-                },
-                Vec::new(),
-            );
-            if let Some(next_class_info) = output.construct_this_info {
-                class_info = next_class_info;
-            }
-        }
-
         TypedExpr::from_info(
             class_info,
             ExprIr::ClassDefinition(Box::new(ClassDefinitionIr {
                 name: class_name,
+                name_binding,
                 constructor_function_id: constructor_id,
                 explicit_constructor: constructor.is_some(),
                 heritage_kind,
                 heritage: heritage.map(Box::new),
-                public_methods: public_methods
-                    .iter()
-                    .map(|method| ClassPublicMethodIr {
-                        key: method.key.clone(),
-                        function_id: method.function_id.clone(),
-                        placement: method.placement,
-                        kind: method.kind,
-                    })
-                    .collect(),
-                private_methods: private_methods
-                    .iter()
-                    .map(|method| ClassPrivateMethodIr {
-                        private_name_id: method.private_name_id,
-                        function_id: method.function_id.clone(),
-                        placement: method.placement,
-                        kind: method.kind,
-                    })
-                    .collect(),
-                fields: fields
-                    .iter()
-                    .map(|field| ClassFieldInitIr {
-                        key: Some(field.key.clone()),
-                        private_name_id: None,
-                        init_function_id: field.init_function_id.clone(),
-                        placement: field.placement,
-                        is_private: false,
-                    })
-                    .chain(private_fields.iter().map(|field| ClassFieldInitIr {
-                        key: None,
-                        private_name_id: Some(field.private_name_id),
-                        init_function_id: field.init_function_id.clone(),
-                        placement: field.placement,
-                        is_private: true,
-                    }))
-                    .collect(),
-                static_blocks: static_blocks
-                    .iter()
-                    .map(|(function_id, _)| ClassStaticBlockIr {
-                        function_id: function_id.clone(),
-                    })
-                    .collect(),
+                element_plan: ClassElementPlanIr {
+                    definitions: element_order
+                        .iter()
+                        .filter_map(|element| match element {
+                            ClassElementOrder::PublicMethod(index) => {
+                                let method = &public_methods[*index];
+                                Some(ClassElementDefinitionIr::PublicMethod(
+                                    ClassPublicMethodIr {
+                                        key: method.key.clone(),
+                                        function_id: method.function_id.clone(),
+                                        placement: method.placement,
+                                        kind: method.kind,
+                                    },
+                                ))
+                            }
+                            ClassElementOrder::PrivateMethod(index) => {
+                                let method = &private_methods[*index];
+                                Some(ClassElementDefinitionIr::PrivateMethod(
+                                    ClassPrivateMethodIr {
+                                        private_name_id: method.private_name_id,
+                                        function_id: method.function_id.clone(),
+                                        placement: method.placement,
+                                        kind: method.kind,
+                                    },
+                                ))
+                            }
+                            ClassElementOrder::PublicField(index) => {
+                                let field = &fields[*index];
+                                field.computed_key.clone().map(|key| {
+                                    let ClassFieldKeyIr::ComputedPublic(slot) = &field.key else {
+                                        unreachable!("computed field key must use a cache slot")
+                                    };
+                                    ClassElementDefinitionIr::ComputedFieldKey { slot: *slot, key }
+                                })
+                            }
+                            ClassElementOrder::PrivateField(_)
+                            | ClassElementOrder::StaticBlock(_) => None,
+                        })
+                        .collect(),
+                    static_elements: element_order
+                        .iter()
+                        .filter_map(|element| match element {
+                            ClassElementOrder::PublicField(index) => {
+                                let field = &fields[*index];
+                                (field.placement == ClassMethodPlacementIr::Static).then(|| {
+                                    ClassStaticElementIr::Field(ClassFieldInitIr {
+                                        key: field.key.clone(),
+                                        init_function_id: field.init_function_id.clone(),
+                                    })
+                                })
+                            }
+                            ClassElementOrder::PrivateField(index) => {
+                                let field = &private_fields[*index];
+                                (field.placement == ClassMethodPlacementIr::Static).then(|| {
+                                    ClassStaticElementIr::Field(ClassFieldInitIr {
+                                        key: ClassFieldKeyIr::Private(field.private_name_id),
+                                        init_function_id: field.init_function_id.clone(),
+                                    })
+                                })
+                            }
+                            ClassElementOrder::StaticBlock(index) => {
+                                Some(ClassStaticElementIr::Block(ClassStaticBlockIr {
+                                    function_id: static_blocks[*index].0.clone(),
+                                }))
+                            }
+                            ClassElementOrder::PublicMethod(_)
+                            | ClassElementOrder::PrivateMethod(_) => None,
+                        })
+                        .collect(),
+                },
                 private_name_ids,
             })),
         )
@@ -11322,6 +12637,7 @@ impl<'a> ScriptLowerer<'a> {
         callable: bool,
         constructable: bool,
         class_kind: ClassFunctionKind,
+        class_element_execution_kind: ClassElementExecutionKind,
         current_this_info: ValueInfo,
         current_construct_this_info: Option<ValueInfo>,
         self_binding_name: Option<String>,
@@ -11438,16 +12754,25 @@ impl<'a> ScriptLowerer<'a> {
         let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
         let captured_bindings = self.generated_captured_bindings_for_owner(&function_id);
         for binding in &captured_bindings {
-            let Some(capture_owner_id) =
-                self.resolve_generated_capture_owner(&function_id, &binding.name)
-            else {
-                continue;
-            };
-            let info = lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name);
+            let capture_environment_id = self
+                .resolve_generated_capture_environment(&function_id, &binding.name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "generated capture `{}` for `{function_id}` must resolve",
+                        binding.name
+                    )
+                });
+            let capture_owner_id =
+                &self.analysis.environment_plans[&capture_environment_id].owner_id;
+            let info = self
+                .class_name_binding_value_info_by_storage_name(&binding.name)
+                .unwrap_or_else(|| {
+                    lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
+                });
             lowerer.declare_binding(
-                binding.name.clone(),
+                binding.source_name.clone(),
                 BindingInfo {
-                    mode: BindingMode::Let,
+                    mode: binding.mode,
                     storage_name: binding.name.clone(),
                     kind: info.kind,
                     possible_kinds: info.possible_kinds,
@@ -11554,14 +12879,30 @@ impl<'a> ScriptLowerer<'a> {
             ));
         }
 
-        lowerer.hoist_statement_items(body.statements());
-        let lowered_body = lowerer.lower_root_statement_items(body.statements(), &[]);
+        let root_function_bindings = self
+            .analysis
+            .owner_plans
+            .get(&function_id)
+            .map(|owner| {
+                owner
+                    .function_bindings
+                    .iter()
+                    .map(|(name, id)| (name.clone(), id.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        lowerer.hoist_root_statement_items(body.statements());
+        let lowered_body = lowerer.lower_root_statement_items_with_function_bindings(
+            body.statements(),
+            &root_function_bindings,
+        );
         let mut statements = prefix_statements;
         statements.extend(parameter_prefix_statements);
         statements.extend(lowered_body.statements);
         let body_ir = BlockIr {
             result_kind: lowered_body.result_kind,
             statements,
+            lexical_environment: None,
         };
         let derived_constructor_validation = if class_context.is_derived_constructor {
             Some(validate_derived_constructor_body(&body_ir))
@@ -11573,6 +12914,22 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             None
         };
+        let captured_value_infos = captured_bindings
+            .iter()
+            .filter_map(|binding| {
+                lowerer.lookup_binding(&binding.source_name).map(|info| {
+                    (
+                        binding.source_name.clone(),
+                        ValueInfo {
+                            kind: info.kind,
+                            possible_kinds: info.possible_kinds,
+                            heap_shape: info.heap_shape,
+                            function_targets: info.function_targets,
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
         lowerer.pop_scope();
 
         let mut return_info = lowerer
@@ -11583,6 +12940,20 @@ impl<'a> ScriptLowerer<'a> {
             return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
         }
 
+        self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
+        for (source_name, captured_info) in captured_value_infos {
+            let Some(binding) = self.lookup_binding(&source_name) else {
+                continue;
+            };
+            let current_info = ValueInfo {
+                kind: binding.kind,
+                possible_kinds: binding.possible_kinds,
+                heap_shape: binding.heap_shape,
+                function_targets: binding.function_targets,
+            };
+            let merged = self.merge_value_infos(current_info, captured_info);
+            self.set_binding_value_info(&source_name, merged);
+        }
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.used_host_builtins.extend(lowerer.used_host_builtins);
@@ -11594,14 +12965,17 @@ impl<'a> ScriptLowerer<'a> {
             name: function_name,
             to_string_representation,
             flavor: FunctionFlavor::Ordinary,
-            strict: false,
+            strict: class_kind != ClassFunctionKind::None
+                || class_element_execution_kind != ClassElementExecutionKind::None,
             callable,
             constructable,
             class_kind,
+            class_element_execution_kind,
             class_heritage_kind: class_context.heritage_kind,
             is_static_class_member: class_context.is_static,
             is_derived_constructor: class_context.is_derived_constructor,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: class_context.super_constructor_target.clone(),
             uses_super: uses_super
                 || derived_constructor_validation
@@ -11626,6 +13000,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }),
             private_name_ids,
+            captures_private_environment: false,
             is_nested: true,
             is_expression: true,
             is_named_expression: self_binding_name.is_some(),
@@ -11660,6 +13035,7 @@ impl<'a> ScriptLowerer<'a> {
         to_string_representation: CallableToStringRepresentation,
         expression: &Expression,
         current_this_info: ValueInfo,
+        class_element_execution_kind: ClassElementExecutionKind,
         class_context: ClassLoweringContext,
     ) -> GeneratedFunctionOutput {
         self.function_signatures.insert(
@@ -11703,6 +13079,10 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
+        lowerer.var_bindings = self.var_bindings.clone();
+        lowerer.seed_script_global_var_properties();
+        lowerer.used_host_builtins = self.used_host_builtins.clone();
+        lowerer.host_builtin_calls = self.host_builtin_calls;
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function_id.clone());
         lowerer.current_owner_id = function_id.clone();
@@ -11710,6 +13090,36 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.current_new_target_info = ValueInfo::undefined();
         lowerer.class_context = Some(class_context.clone());
         lowerer.push_scope();
+        let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
+        let captured_bindings = self.generated_captured_bindings_for_owner(&function_id);
+        for binding in &captured_bindings {
+            let capture_environment_id = self
+                .resolve_generated_capture_environment(&function_id, &binding.name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "generated capture `{}` for `{function_id}` must resolve",
+                        binding.name
+                    )
+                });
+            let capture_owner_id =
+                &self.analysis.environment_plans[&capture_environment_id].owner_id;
+            let info = self
+                .class_name_binding_value_info_by_storage_name(&binding.name)
+                .unwrap_or_else(|| {
+                    lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
+                });
+            lowerer.declare_binding(
+                binding.source_name.clone(),
+                BindingInfo {
+                    mode: binding.mode,
+                    storage_name: binding.name.clone(),
+                    kind: info.kind,
+                    possible_kinds: info.possible_kinds,
+                    heap_shape: info.heap_shape,
+                    function_targets: info.function_targets,
+                },
+            );
+        }
         lowerer.declare_binding(
             LEXICAL_ARGUMENTS_NAME.to_string(),
             BindingInfo {
@@ -11726,6 +13136,7 @@ impl<'a> ScriptLowerer<'a> {
         let body = BlockIr {
             result_kind: return_value.kind,
             statements: vec![StatementIr::Return(return_value.clone())],
+            lexical_environment: None,
         };
         lowerer.pop_scope();
         let return_info = lowerer
@@ -11733,27 +13144,33 @@ impl<'a> ScriptLowerer<'a> {
             .clone()
             .unwrap_or_else(ValueInfo::undefined);
 
+        self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
+        self.used_host_builtins.extend(lowerer.used_host_builtins);
+        self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
         self.generated_functions.extend(lowerer.generated_functions);
         self.generated_functions.push(FunctionIr {
             id: function_id.clone(),
             name: function_name,
             to_string_representation,
             flavor: FunctionFlavor::Ordinary,
-            strict: false,
+            strict: true,
             callable: true,
             constructable: false,
             class_kind: ClassFunctionKind::None,
+            class_element_execution_kind,
             class_heritage_kind: class_context.heritage_kind,
             is_static_class_member: class_context.is_static,
             is_derived_constructor: class_context.is_derived_constructor,
             is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
             super_constructor_target: class_context.super_constructor_target.clone(),
             uses_super: false,
             this_before_super: false,
             lexical_derived_activation: None,
-            private_name_ids: BTreeMap::new(),
+            private_name_ids: class_context.private_name_ids.clone(),
+            captures_private_environment: false,
             is_nested: true,
             is_expression: true,
             is_named_expression: false,
@@ -11765,8 +13182,8 @@ impl<'a> ScriptLowerer<'a> {
             return_shape: return_info.heap_shape.clone(),
             return_targets: return_info.function_targets.clone(),
             constructor_instance: ValueInfo::undefined(),
-            owned_env_bindings: Vec::new(),
-            captured_bindings: Vec::new(),
+            owned_env_bindings,
+            captured_bindings,
         });
 
         GeneratedFunctionOutput {
@@ -11785,9 +13202,10 @@ impl<'a> ScriptLowerer<'a> {
         callable: bool,
         constructable: bool,
         class_kind: ClassFunctionKind,
+        class_element_execution_kind: ClassElementExecutionKind,
         current_this_info: ValueInfo,
         current_construct_this_info: Option<ValueInfo>,
-        _class_context: ClassLoweringContext,
+        class_context: ClassLoweringContext,
         prefix_statements: Vec<StatementIr>,
         statements: Vec<StatementIr>,
     ) -> GeneratedFunctionOutput {
@@ -11800,7 +13218,7 @@ impl<'a> ScriptLowerer<'a> {
                 callable,
                 constructable,
                 class_kind,
-                class_heritage_kind: _class_context.heritage_kind,
+                class_heritage_kind: class_context.heritage_kind,
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
@@ -11816,9 +13234,10 @@ impl<'a> ScriptLowerer<'a> {
         let body = BlockIr {
             result_kind: ValueKind::Undefined,
             statements: prefix_statements.into_iter().chain(statements).collect(),
+            lexical_environment: None,
         };
         let lexical_derived_activation =
-            _class_context
+            class_context
                 .is_derived_constructor
                 .then(|| DerivedConstructorActivationIr {
                     owner_function_id: function_id.clone(),
@@ -11827,41 +13246,29 @@ impl<'a> ScriptLowerer<'a> {
                     new_target_binding: DERIVED_ACTIVATION_NEW_TARGET_NAME.to_string(),
                     active_function_binding: DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
                 });
-        let owned_env_bindings = if _class_context.is_derived_constructor {
-            [
-                DERIVED_ACTIVATION_FUNCTION_NAME,
-                DERIVED_ACTIVATION_NEW_TARGET_NAME,
-                DERIVED_ACTIVATION_THIS_NAME,
-                DERIVED_ACTIVATION_THIS_STATUS_NAME,
-            ]
-            .into_iter()
-            .enumerate()
-            .map(|(slot, name)| OwnedEnvBindingIr {
-                name: name.to_string(),
-                slot: slot as u32,
-            })
-            .collect()
-        } else {
-            Vec::new()
-        };
+        let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
+        let captured_bindings = self.generated_captured_bindings_for_owner(&function_id);
         self.generated_functions.push(FunctionIr {
             id: function_id.clone(),
             name: function_name,
             to_string_representation,
             flavor: FunctionFlavor::Ordinary,
-            strict: false,
+            strict: class_kind != ClassFunctionKind::None,
             callable,
             constructable,
             class_kind,
-            class_heritage_kind: _class_context.heritage_kind,
-            is_static_class_member: _class_context.is_static,
-            is_derived_constructor: _class_context.is_derived_constructor,
+            class_element_execution_kind,
+            class_heritage_kind: class_context.heritage_kind,
+            is_static_class_member: class_context.is_static,
+            is_derived_constructor: class_context.is_derived_constructor,
             is_synthetic_default_derived_constructor: false,
-            super_constructor_target: _class_context.super_constructor_target.clone(),
+            class_instance_element_plan: None,
+            super_constructor_target: class_context.super_constructor_target.clone(),
             uses_super: false,
             this_before_super: false,
             lexical_derived_activation,
-            private_name_ids: BTreeMap::new(),
+            private_name_ids: class_context.private_name_ids.clone(),
+            captures_private_environment: false,
             is_nested: true,
             is_expression: true,
             is_named_expression: false,
@@ -11876,7 +13283,7 @@ impl<'a> ScriptLowerer<'a> {
                 .clone()
                 .unwrap_or_else(ValueInfo::undefined),
             owned_env_bindings,
-            captured_bindings: Vec::new(),
+            captured_bindings,
         });
         GeneratedFunctionOutput {
             function_id,
@@ -12020,6 +13427,13 @@ impl<'a> ScriptLowerer<'a> {
                     let static_builtin = match (target_name.as_str(), field_name.as_str()) {
                         (OBJECT_NAME, "keys") => Some(StandardBuiltinId::ObjectKeys),
                         (OBJECT_NAME, "values") => Some(StandardBuiltinId::ObjectValues),
+                        (STRING_NAME, "fromCharCode") => {
+                            Some(StandardBuiltinId::StringFromCharCode)
+                        }
+                        (STRING_NAME, "fromCodePoint") => {
+                            Some(StandardBuiltinId::StringFromCodePoint)
+                        }
+                        (STRING_NAME, "raw") => Some(StandardBuiltinId::StringRaw),
                         _ => None,
                     };
                     if let Some(builtin) = static_builtin {
@@ -12031,14 +13445,20 @@ impl<'a> ScriptLowerer<'a> {
                             ExprIr::CallIndirect {
                                 callee: Box::new(self.function_value_expr(effective_function_id)),
                                 this_arg: Some(Box::new(TypedExpr::from_info(
-                                    Self::standard_builtin_value_info(
-                                        StandardBuiltinId::ObjectConstructor,
-                                    ),
+                                    Self::standard_builtin_value_info(match builtin {
+                                        StandardBuiltinId::StringFromCharCode
+                                        | StandardBuiltinId::StringFromCodePoint
+                                        | StandardBuiltinId::StringRaw => {
+                                            StandardBuiltinId::StringConstructor
+                                        }
+                                        _ => StandardBuiltinId::ObjectConstructor,
+                                    }),
                                     ExprIr::GlobalPropertyRead {
                                         name: target_name.clone(),
                                     },
                                 ))),
                                 args,
+                                static_regexp_compilation: None,
                             },
                         );
                     }
@@ -12219,14 +13639,6 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::String),
                             ExprIr::String(value),
-                        );
-                    }
-                }
-                if field_name == "test" {
-                    if let Some(value) = self.static_regexp_test_call(access.target(), args) {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::Boolean(value),
                         );
                     }
                 }
@@ -12622,14 +14034,26 @@ impl<'a> ScriptLowerer<'a> {
                     if let PropertyAccessField::Expr(expr) = access.field() {
                         if let Some(symbol_key) = self.try_static_string_key(expr) {
                             let builtin = match symbol_key.as_str() {
+                                "Symbol.iterator" if receiver.kind == ValueKind::String => {
+                                    Some(StandardBuiltinId::StringPrototypeIterator)
+                                }
+                                "Symbol.iterator" if receiver.kind == ValueKind::Array => {
+                                    Some(StandardBuiltinId::ArrayPrototypeValues)
+                                }
                                 "Symbol.match" => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
                                 }
                                 "Symbol.matchAll" => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
                                 }
+                                "Symbol.replace" => {
+                                    Some(StandardBuiltinId::RegExpPrototypeSymbolReplace)
+                                }
                                 "Symbol.search" => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
+                                }
+                                "Symbol.split" => {
+                                    Some(StandardBuiltinId::RegExpPrototypeSymbolSplit)
                                 }
                                 _ => None,
                             };
@@ -12682,20 +14106,6 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                if field_name == "concat" {
-                                    let mut result = receiver.clone();
-                                    for arg in args {
-                                        let rhs = self.lower_expression(arg);
-                                        result = TypedExpr::from_info(
-                                            ValueInfo::new(ValueKind::String),
-                                            ExprIr::StringConcat {
-                                                lhs: Box::new(result),
-                                                rhs: Box::new(rhs),
-                                            },
-                                        );
-                                    }
-                                    return result;
-                                }
                                 if field_name == "split" && args.len() <= 2 {
                                     let Some(args) = self.lower_call_args_expanding_spread(args)
                                     else {
@@ -12719,6 +14129,7 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                                 let builtin = match field_name.as_str() {
                                     "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
+                                    "concat" => Some(StandardBuiltinId::StringPrototypeConcat),
                                     "charCodeAt" => {
                                         Some(StandardBuiltinId::StringPrototypeCharCodeAt)
                                     }
@@ -12765,6 +14176,21 @@ impl<'a> ScriptLowerer<'a> {
                                     "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
                                     "startsWith" => {
                                         Some(StandardBuiltinId::StringPrototypeStartsWith)
+                                    }
+                                    "normalize" => {
+                                        Some(StandardBuiltinId::StringPrototypeNormalize)
+                                    }
+                                    "localeCompare" => {
+                                        Some(StandardBuiltinId::StringPrototypeLocaleCompare)
+                                    }
+                                    "toLocaleLowerCase" => {
+                                        Some(StandardBuiltinId::StringPrototypeToLocaleLowerCase)
+                                    }
+                                    "toLocaleUpperCase" => {
+                                        Some(StandardBuiltinId::StringPrototypeToLocaleUpperCase)
+                                    }
+                                    "toLowerCase" => {
+                                        Some(StandardBuiltinId::StringPrototypeToLowerCase)
                                     }
                                     "toUpperCase" => {
                                         Some(StandardBuiltinId::StringPrototypeToUpperCase)
@@ -13065,21 +14491,6 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                if field_name == "shift" && args.is_empty() {
-                                    return TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: BTreeSet::new(),
-                                        },
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args: Vec::new(),
-                                        },
-                                    );
-                                }
                                 if field_name == "join" && args.len() <= 1 {
                                     let Some(args) = self.lower_call_args_expanding_spread(args)
                                     else {
@@ -13107,11 +14518,16 @@ impl<'a> ScriptLowerer<'a> {
                                 let builtin = match field_name.as_str() {
                                     "pop" => Some(StandardBuiltinId::ArrayPrototypePop),
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
+                                    "shift" => Some(StandardBuiltinId::ArrayPrototypeShift),
+                                    "unshift" => Some(StandardBuiltinId::ArrayPrototypeUnshift),
+                                    "fill" => Some(StandardBuiltinId::ArrayPrototypeFill),
+                                    "sort" => Some(StandardBuiltinId::ArrayPrototypeSort),
                                     "keys" => Some(StandardBuiltinId::ArrayPrototypeKeys),
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "join" => Some(StandardBuiltinId::ArrayPrototypeJoin),
+                                    "slice" => Some(StandardBuiltinId::ArrayPrototypeSlice),
                                     "splice" => Some(StandardBuiltinId::ArrayPrototypeSplice),
                                     "toString" => {
                                         Some(StandardBuiltinId::TypedArrayPrototypeToString)
@@ -13122,6 +14538,16 @@ impl<'a> ScriptLowerer<'a> {
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
+                                    "toReversed" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeToReversed)
+                                    }
+                                    "toSpliced" => Some(StandardBuiltinId::ArrayPrototypeToSpliced),
+                                    "toSorted" => Some(StandardBuiltinId::ArrayPrototypeToSorted),
+                                    "with" => Some(StandardBuiltinId::ArrayPrototypeWith),
+                                    "reverse" => Some(StandardBuiltinId::ArrayPrototypeReverse),
+                                    "copyWithin" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeCopyWithin)
+                                    }
                                     "includes" => Some(StandardBuiltinId::ArrayPrototypeIncludes),
                                     "indexOf" => Some(StandardBuiltinId::ArrayPrototypeIndexOf),
                                     "lastIndexOf" => {
@@ -13153,25 +14579,46 @@ impl<'a> ScriptLowerer<'a> {
                                         if let Some(function_id) =
                                             self.resolve_single_function_target(callback)
                                         {
+                                            let callback_arg_infos = [
+                                                ValueInfo {
+                                                    kind: ValueKind::Dynamic,
+                                                    possible_kinds: KindSet::all_runtime_tags(),
+                                                    heap_shape: None,
+                                                    function_targets: BTreeSet::new(),
+                                                },
+                                                ValueInfo::new(ValueKind::Number),
+                                                receiver.value_info(),
+                                            ];
+                                            let callback_this_info = args
+                                                .get(1)
+                                                .map(TypedExpr::value_info)
+                                                .unwrap_or_else(ValueInfo::undefined);
                                             self.merge_function_param_infos(
                                                 &function_id,
-                                                &[
-                                                    ValueInfo {
-                                                        kind: ValueKind::Dynamic,
-                                                        possible_kinds: KindSet::all_runtime_tags(),
-                                                        heap_shape: None,
-                                                        function_targets: BTreeSet::new(),
-                                                    },
-                                                    ValueInfo::new(ValueKind::Number),
-                                                    receiver.value_info(),
-                                                ],
+                                                &callback_arg_infos,
                                             );
                                             self.merge_function_this_info(
                                                 &function_id,
-                                                args.get(1)
-                                                    .map(TypedExpr::value_info)
-                                                    .unwrap_or_else(ValueInfo::undefined),
+                                                callback_this_info.clone(),
                                             );
+                                            let original_function_id =
+                                                self.original_exact_function_id(&function_id);
+                                            if let Some(helper_context_id) = self
+                                                .exact_context_callback_targets
+                                                .get(&original_function_id)
+                                                .cloned()
+                                            {
+                                                self.observe_exact_callback_param_infos(
+                                                    &original_function_id,
+                                                    &helper_context_id,
+                                                    &callback_arg_infos,
+                                                );
+                                                self.observe_exact_callback_this_info(
+                                                    &original_function_id,
+                                                    &helper_context_id,
+                                                    callback_this_info,
+                                                );
+                                            }
                                         }
                                     }
                                     return TypedExpr::from_info(
@@ -13225,6 +14672,16 @@ impl<'a> ScriptLowerer<'a> {
                                     {
                                         Some(StandardBuiltinId::ArrayPrototypePush)
                                     }
+                                    "shift"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeShift)
+                                    }
+                                    "unshift"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeUnshift)
+                                    }
                                     "concat"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
                                     {
@@ -13247,6 +14704,36 @@ impl<'a> ScriptLowerer<'a> {
                                     }
                                     "at" if receiver.possible_kinds.contains(ValueKind::Array) => {
                                         Some(StandardBuiltinId::ArrayPrototypeAt)
+                                    }
+                                    "toReversed"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeToReversed)
+                                    }
+                                    "with"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeWith)
+                                    }
+                                    "toSpliced"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeToSpliced)
+                                    }
+                                    "toSorted"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeToSorted)
+                                    }
+                                    "reverse"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeReverse)
+                                    }
+                                    "copyWithin"
+                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
+                                    {
+                                        Some(StandardBuiltinId::ArrayPrototypeCopyWithin)
                                     }
                                     "includes"
                                         if receiver.possible_kinds.contains(ValueKind::Array) =>
@@ -13534,29 +15021,19 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                if field_name == "shift" && args.is_empty() {
-                                    return TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: BTreeSet::new(),
-                                        },
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args: Vec::new(),
-                                        },
-                                    );
-                                }
                                 let builtin = match field_name.as_str() {
                                     "pop" => Some(StandardBuiltinId::ArrayPrototypePop),
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
+                                    "shift" => Some(StandardBuiltinId::ArrayPrototypeShift),
+                                    "unshift" => Some(StandardBuiltinId::ArrayPrototypeUnshift),
+                                    "fill" => Some(StandardBuiltinId::ArrayPrototypeFill),
+                                    "sort" => Some(StandardBuiltinId::ArrayPrototypeSort),
                                     "keys" => Some(StandardBuiltinId::ArrayPrototypeKeys),
                                     "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
                                     "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
                                     "concat" => Some(StandardBuiltinId::ArrayPrototypeConcat),
                                     "join" => Some(StandardBuiltinId::ArrayPrototypeJoin),
+                                    "slice" => Some(StandardBuiltinId::ArrayPrototypeSlice),
                                     "splice" => Some(StandardBuiltinId::ArrayPrototypeSplice),
                                     "toString" => {
                                         Some(StandardBuiltinId::TypedArrayPrototypeToString)
@@ -13567,6 +15044,16 @@ impl<'a> ScriptLowerer<'a> {
                                     "flat" => Some(StandardBuiltinId::ArrayPrototypeFlat),
                                     "flatMap" => Some(StandardBuiltinId::ArrayPrototypeFlatMap),
                                     "at" => Some(StandardBuiltinId::ArrayPrototypeAt),
+                                    "toReversed" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeToReversed)
+                                    }
+                                    "toSpliced" => Some(StandardBuiltinId::ArrayPrototypeToSpliced),
+                                    "toSorted" => Some(StandardBuiltinId::ArrayPrototypeToSorted),
+                                    "with" => Some(StandardBuiltinId::ArrayPrototypeWith),
+                                    "reverse" => Some(StandardBuiltinId::ArrayPrototypeReverse),
+                                    "copyWithin" => {
+                                        Some(StandardBuiltinId::ArrayPrototypeCopyWithin)
+                                    }
                                     "includes" => Some(StandardBuiltinId::ArrayPrototypeIncludes),
                                     "indexOf" => Some(StandardBuiltinId::ArrayPrototypeIndexOf),
                                     "lastIndexOf" => {
@@ -13637,6 +15124,7 @@ impl<'a> ScriptLowerer<'a> {
                                 callee: Box::new(callee),
                                 this_arg: Some(Box::new(receiver)),
                                 args,
+                                static_regexp_compilation: None,
                             },
                         );
                     }
@@ -13655,6 +15143,7 @@ impl<'a> ScriptLowerer<'a> {
                                 callee: Box::new(callee),
                                 this_arg: Some(Box::new(receiver)),
                                 args,
+                                static_regexp_compilation: None,
                             },
                         );
                     };
@@ -13673,17 +15162,28 @@ impl<'a> ScriptLowerer<'a> {
                     if let Some(
                         array_builtin @ (StandardBuiltinId::ArrayPrototypePush
                         | StandardBuiltinId::ArrayPrototypePop
+                        | StandardBuiltinId::ArrayPrototypeShift
+                        | StandardBuiltinId::ArrayPrototypeUnshift
+                        | StandardBuiltinId::ArrayPrototypeFill
+                        | StandardBuiltinId::ArrayPrototypeSort
                         | StandardBuiltinId::ArrayPrototypeKeys
                         | StandardBuiltinId::ArrayPrototypeEntries
                         | StandardBuiltinId::ArrayPrototypeValues
                         | StandardBuiltinId::ArrayPrototypeConcat
                         | StandardBuiltinId::ArrayPrototypeJoin
+                        | StandardBuiltinId::ArrayPrototypeSlice
                         | StandardBuiltinId::ArrayPrototypeSplice
                         | StandardBuiltinId::TypedArrayPrototypeToString
                         | StandardBuiltinId::ArrayPrototypeToLocaleString
                         | StandardBuiltinId::ArrayPrototypeFlat
                         | StandardBuiltinId::ArrayPrototypeFlatMap
                         | StandardBuiltinId::ArrayPrototypeAt
+                        | StandardBuiltinId::ArrayPrototypeToReversed
+                        | StandardBuiltinId::ArrayPrototypeToSpliced
+                        | StandardBuiltinId::ArrayPrototypeToSorted
+                        | StandardBuiltinId::ArrayPrototypeWith
+                        | StandardBuiltinId::ArrayPrototypeReverse
+                        | StandardBuiltinId::ArrayPrototypeCopyWithin
                         | StandardBuiltinId::ArrayPrototypeIncludes
                         | StandardBuiltinId::ArrayPrototypeIndexOf
                         | StandardBuiltinId::ArrayPrototypeLastIndexOf
@@ -13718,6 +15218,7 @@ impl<'a> ScriptLowerer<'a> {
                                     callee: Box::new(callee),
                                     this_arg: Some(Box::new(receiver)),
                                     args,
+                                    static_regexp_compilation: None,
                                 },
                             );
                         }
@@ -13743,10 +15244,17 @@ impl<'a> ScriptLowerer<'a> {
                             } else {
                                 self.clear_binding_shape(access.target());
                             }
+                        } else if matches!(
+                            array_builtin,
+                            StandardBuiltinId::ArrayPrototypeShift
+                                | StandardBuiltinId::ArrayPrototypeUnshift
+                        ) {
+                            self.clear_binding_shape(access.target());
                         }
                         if matches!(
                             array_builtin,
                             StandardBuiltinId::ArrayPrototypeConcat
+                                | StandardBuiltinId::ArrayPrototypeSlice
                                 | StandardBuiltinId::ArrayPrototypeSplice
                                 | StandardBuiltinId::ArrayPrototypeFlat
                                 | StandardBuiltinId::ArrayPrototypeFlatMap
@@ -13806,37 +15314,98 @@ impl<'a> ScriptLowerer<'a> {
                                 if let Some(callback_id) =
                                     self.resolve_single_function_target(callback)
                                 {
+                                    let callback_arg_infos = [
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ValueInfo::new(ValueKind::Number),
+                                        receiver.value_info(),
+                                    ];
+                                    let callback_this_info = args
+                                        .get(1)
+                                        .map(TypedExpr::value_info)
+                                        .unwrap_or_else(ValueInfo::undefined);
                                     self.merge_function_param_infos(
                                         &callback_id,
-                                        &[
-                                            ValueInfo {
-                                                kind: ValueKind::Dynamic,
-                                                possible_kinds: KindSet::all_runtime_tags(),
-                                                heap_shape: None,
-                                                function_targets: BTreeSet::new(),
-                                            },
-                                            ValueInfo::new(ValueKind::Number),
-                                            receiver.value_info(),
-                                        ],
+                                        &callback_arg_infos,
                                     );
                                     self.merge_function_this_info(
                                         &callback_id,
-                                        args.get(1)
-                                            .map(TypedExpr::value_info)
-                                            .unwrap_or_else(ValueInfo::undefined),
+                                        callback_this_info.clone(),
                                     );
+                                    let original_callback_id =
+                                        self.original_exact_function_id(&callback_id);
+                                    if let Some(helper_context_id) = self
+                                        .exact_context_callback_targets
+                                        .get(&original_callback_id)
+                                        .cloned()
+                                    {
+                                        self.observe_exact_callback_param_infos(
+                                            &original_callback_id,
+                                            &helper_context_id,
+                                            &callback_arg_infos,
+                                        );
+                                        self.observe_exact_callback_this_info(
+                                            &original_callback_id,
+                                            &helper_context_id,
+                                            callback_this_info,
+                                        );
+                                    }
                                 }
+                            }
+                        }
+                        if array_builtin == StandardBuiltinId::ArrayPrototypeSort {
+                            if let Some(callback_id) = args
+                                .first()
+                                .and_then(|callback| self.resolve_single_function_target(callback))
+                            {
+                                self.merge_function_param_infos(
+                                    &callback_id,
+                                    &[
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                        ValueInfo {
+                                            kind: ValueKind::Dynamic,
+                                            possible_kinds: KindSet::all_runtime_tags(),
+                                            heap_shape: None,
+                                            function_targets: BTreeSet::new(),
+                                        },
+                                    ],
+                                );
+                                self.merge_function_this_info(&callback_id, ValueInfo::undefined());
                             }
                         }
                         let (key, info) = match array_builtin {
                             StandardBuiltinId::ArrayPrototypePush => {
                                 ("push", ValueInfo::new(ValueKind::Number))
                             }
+                            StandardBuiltinId::ArrayPrototypeShift => {
+                                ("shift", ValueInfo::new(ValueKind::Dynamic))
+                            }
+                            StandardBuiltinId::ArrayPrototypeUnshift => {
+                                ("unshift", ValueInfo::new(ValueKind::Number))
+                            }
+                            StandardBuiltinId::ArrayPrototypeFill => {
+                                ("fill", receiver.value_info())
+                            }
+                            StandardBuiltinId::ArrayPrototypeSort => {
+                                ("sort", receiver.value_info())
+                            }
                             StandardBuiltinId::ArrayPrototypeConcat => {
                                 ("concat", self.array_concat_result_info(&receiver, &args))
                             }
                             StandardBuiltinId::ArrayPrototypeJoin => {
                                 ("join", ValueInfo::new(ValueKind::String))
+                            }
+                            StandardBuiltinId::ArrayPrototypeSlice => {
+                                ("slice", Self::unshaped_array_result_info())
                             }
                             StandardBuiltinId::ArrayPrototypeSplice => {
                                 ("splice", Self::unshaped_array_result_info())
@@ -13858,6 +15427,36 @@ impl<'a> ScriptLowerer<'a> {
                                 ValueInfo {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
+                            StandardBuiltinId::ArrayPrototypeToReversed => {
+                                ("toReversed", Self::unshaped_array_result_info())
+                            }
+                            StandardBuiltinId::ArrayPrototypeWith => {
+                                ("with", Self::unshaped_array_result_info())
+                            }
+                            StandardBuiltinId::ArrayPrototypeToSpliced => {
+                                ("toSpliced", Self::unshaped_array_result_info())
+                            }
+                            StandardBuiltinId::ArrayPrototypeToSorted => {
+                                ("toSorted", Self::unshaped_array_result_info())
+                            }
+                            StandardBuiltinId::ArrayPrototypeReverse => (
+                                "reverse",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: Self::object_like_kind_set(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                },
+                            ),
+                            StandardBuiltinId::ArrayPrototypeCopyWithin => (
+                                "copyWithin",
+                                ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: Self::object_like_kind_set(),
                                     heap_shape: None,
                                     function_targets: BTreeSet::new(),
                                 },
@@ -14137,12 +15736,22 @@ impl<'a> ScriptLowerer<'a> {
                             StandardBuiltinId::StringPrototypeToString => "toString",
                             StandardBuiltinId::StringPrototypeValueOf => "valueOf",
                             StandardBuiltinId::StringPrototypeCharAt => "charAt",
+                            StandardBuiltinId::StringPrototypeConcat => "concat",
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
                             StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
                             StandardBuiltinId::StringPrototypeAt => "at",
                             StandardBuiltinId::StringPrototypePadStart => "padStart",
                             StandardBuiltinId::StringPrototypePadEnd => "padEnd",
                             StandardBuiltinId::StringPrototypeRepeat => "repeat",
+                            StandardBuiltinId::StringPrototypeNormalize => "normalize",
+                            StandardBuiltinId::StringPrototypeLocaleCompare => "localeCompare",
+                            StandardBuiltinId::StringPrototypeToLocaleLowerCase => {
+                                "toLocaleLowerCase"
+                            }
+                            StandardBuiltinId::StringPrototypeToLocaleUpperCase => {
+                                "toLocaleUpperCase"
+                            }
+                            StandardBuiltinId::StringPrototypeToLowerCase => "toLowerCase",
                             StandardBuiltinId::StringPrototypeToUpperCase => "toUpperCase",
                             StandardBuiltinId::StringPrototypeIsWellFormed => "isWellFormed",
                             StandardBuiltinId::StringPrototypeToWellFormed => "toWellFormed",
@@ -14258,6 +15867,47 @@ impl<'a> ScriptLowerer<'a> {
                                                     &forwarded_args,
                                                 );
                                             }
+                                            if matches!(
+                                                StandardBuiltinId::from_function_id(
+                                                    &target_function_id
+                                                ),
+                                                Some(StandardBuiltinId::ArrayPrototypeSort)
+                                            ) && matches!(
+                                                StandardBuiltinId::from_function_id(&function_id),
+                                                Some(StandardBuiltinId::FunctionPrototypeCall)
+                                            ) {
+                                                if let Some(callback_id) =
+                                                    args.get(1).and_then(|callback| {
+                                                        self.resolve_single_function_target(
+                                                            callback,
+                                                        )
+                                                    })
+                                                {
+                                                    self.merge_function_param_infos(
+                                                        &callback_id,
+                                                        &[
+                                                            ValueInfo {
+                                                                kind: ValueKind::Dynamic,
+                                                                possible_kinds:
+                                                                    KindSet::all_runtime_tags(),
+                                                                heap_shape: None,
+                                                                function_targets: BTreeSet::new(),
+                                                            },
+                                                            ValueInfo {
+                                                                kind: ValueKind::Dynamic,
+                                                                possible_kinds:
+                                                                    KindSet::all_runtime_tags(),
+                                                                heap_shape: None,
+                                                                function_targets: BTreeSet::new(),
+                                                            },
+                                                        ],
+                                                    );
+                                                    self.merge_function_this_info(
+                                                        &callback_id,
+                                                        ValueInfo::undefined(),
+                                                    );
+                                                }
+                                            }
                                         }
                                         if signature.class_kind != ClassFunctionKind::Constructor {
                                             info = ValueInfo {
@@ -14348,62 +15998,95 @@ impl<'a> ScriptLowerer<'a> {
                                         callee: Box::new(receiver),
                                         this_arg: Some(Box::new(call_this)),
                                         args: forwarded_args,
+                                        static_regexp_compilation: None,
                                     },
                                 );
                             }
                         }
                     }
+                    let static_regexp_compilation = self.static_regexp_compilation_for_direct_call(
+                        &callee,
+                        &function_id,
+                        &args,
+                    );
                     return TypedExpr::from_info(
                         info,
                         ExprIr::CallIndirect {
                             callee: Box::new(callee),
                             this_arg: Some(Box::new(receiver)),
                             args,
+                            static_regexp_compilation,
                         },
                     );
                 }
                 PropertyAccess::Private(access) => {
-                    let Some(binding) = self.current_private_binding(access.field()) else {
+                    let Some(private_name_id) = self.current_private_name_id(access.field()) else {
                         return self.unsupported_expr("private class element");
                     };
                     let receiver = self.lower_property_target(access.target());
+                    let receiver_info = receiver.value_info();
+                    let receiver_storage_name =
+                        self.alloc_temp_binding_name("private.call.receiver.");
+                    let materialized_receiver = TypedExpr::from_info(
+                        receiver_info.clone(),
+                        ExprIr::Identifier(receiver_storage_name.clone()),
+                    );
                     let callee = TypedExpr::from_info(
-                        self.read_object_shape(
-                            &receiver,
-                            &private_data_key(binding.private_name_id),
-                        )
-                        .unwrap_or(ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                        }),
+                        self.read_object_shape(&receiver, &private_data_key(private_name_id))
+                            .unwrap_or(ValueInfo {
+                                kind: ValueKind::Dynamic,
+                                possible_kinds: KindSet::all_runtime_tags(),
+                                heap_shape: None,
+                                function_targets: BTreeSet::new(),
+                            }),
                         ExprIr::PrivateRead {
-                            target: Box::new(receiver.clone()),
-                            private_name_id: binding.private_name_id,
+                            target: Box::new(materialized_receiver.clone()),
+                            private_name_id,
                         },
                     );
-                    if callee.kind != ValueKind::Function {
-                        return self.unsupported_expr("indirect call");
-                    }
-                    let Some(function_id) = self.resolve_single_function_target(&callee) else {
-                        return self.unsupported_expr("indirect call");
+                    let function_id = (callee.kind == ValueKind::Function)
+                        .then(|| self.resolve_single_function_target(&callee))
+                        .flatten();
+                    let (args, info) = if let Some(function_id) = function_id {
+                        let Some(signature) = self.function_signatures.get(&function_id) else {
+                            return self.unsupported_expr("indirect call");
+                        };
+                        if !signature.callable
+                            && signature.class_kind != ClassFunctionKind::Constructor
+                        {
+                            return unsupported_call(self, signature.class_kind);
+                        }
+                        self.merge_function_this_info(&function_id, receiver_info);
+                        self.lower_call_args(&function_id, args)
+                    } else {
+                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                            return TypedExpr::undefined();
+                        };
+                        (
+                            args,
+                            ValueInfo {
+                                kind: ValueKind::Dynamic,
+                                possible_kinds: KindSet::all_runtime_tags(),
+                                heap_shape: None,
+                                function_targets: BTreeSet::new(),
+                            },
+                        )
                     };
-                    let Some(signature) = self.function_signatures.get(&function_id) else {
-                        return self.unsupported_expr("indirect call");
-                    };
-                    if !signature.callable && signature.class_kind != ClassFunctionKind::Constructor
-                    {
-                        return unsupported_call(self, signature.class_kind);
-                    }
-                    self.merge_function_this_info(&function_id, receiver.value_info());
-                    let (args, info) = self.lower_call_args(&function_id, args);
-                    return TypedExpr::from_info(
-                        info,
+                    let call = TypedExpr::from_info(
+                        info.clone(),
                         ExprIr::CallIndirect {
                             callee: Box::new(callee),
-                            this_arg: Some(Box::new(receiver)),
+                            this_arg: Some(Box::new(materialized_receiver)),
                             args,
+                            static_regexp_compilation: None,
+                        },
+                    );
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::MaterializeBinding {
+                            name: receiver_storage_name,
+                            value: Box::new(receiver),
+                            body: Box::new(call),
                         },
                     );
                 }
@@ -14430,6 +16113,7 @@ impl<'a> ScriptLowerer<'a> {
                                     ExprIr::This,
                                 ))),
                                 args,
+                                static_regexp_compilation: None,
                             },
                         );
                     };
@@ -14450,6 +16134,7 @@ impl<'a> ScriptLowerer<'a> {
                                 ExprIr::This,
                             ))),
                             args,
+                            static_regexp_compilation: None,
                         },
                     );
                 }
@@ -14490,6 +16175,7 @@ impl<'a> ScriptLowerer<'a> {
                     callee: Box::new(callee),
                     this_arg: None,
                     args,
+                    static_regexp_compilation: None,
                 },
             )
         };
@@ -14532,6 +16218,7 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(args) = self.lower_call_args_expanding_spread(args) else {
                     return TypedExpr::undefined();
                 };
+                let args_have_spread = Self::call_args_have_spread(&args);
                 let mut result_info: Option<ValueInfo> = None;
                 for function_id in &callee.function_targets {
                     let Some(signature) = self.function_signatures.get(function_id).cloned() else {
@@ -14547,30 +16234,32 @@ impl<'a> ScriptLowerer<'a> {
                     let arg_infos = args.iter().map(TypedExpr::value_info).collect::<Vec<_>>();
                     let exact_prepass_call =
                         self.is_prepass && self.analysis.function_plans.contains_key(function_id);
-                    if !exact_prepass_call {
+                    if !args_have_spread && !exact_prepass_call {
                         let this_info = self.default_this_info_for_function_target(function_id);
                         self.merge_function_this_info(function_id, this_info);
                         self.merge_function_param_infos(function_id, &arg_infos);
-                    } else if let Some(helper_context_id) = self
-                        .exact_context_callback_targets
-                        .get(&self.original_exact_function_id(function_id))
-                        .cloned()
-                    {
-                        let original_function_id = self.original_exact_function_id(function_id);
-                        let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
-                        let this_info = self.default_this_info_for_function_target(function_id);
-                        self.observe_exact_callback_this_info(
-                            &original_function_id,
-                            &helper_context_id,
-                            this_info,
-                        );
-                        self.observe_exact_callback_param_infos(
-                            &original_function_id,
-                            &helper_context_id,
-                            &arg_infos,
-                        );
+                    } else if !args_have_spread {
+                        if let Some(helper_context_id) = self
+                            .exact_context_callback_targets
+                            .get(&self.original_exact_function_id(function_id))
+                            .cloned()
+                        {
+                            let original_function_id = self.original_exact_function_id(function_id);
+                            let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
+                            let this_info = self.default_this_info_for_function_target(function_id);
+                            self.observe_exact_callback_this_info(
+                                &original_function_id,
+                                &helper_context_id,
+                                this_info,
+                            );
+                            self.observe_exact_callback_param_infos(
+                                &original_function_id,
+                                &helper_context_id,
+                                &arg_infos,
+                            );
+                        }
                     }
-                    if self.is_prepass {
+                    if self.is_prepass && !args_have_spread {
                         self.propagate_direct_call_context(function_id, &arg_infos);
                     }
                     let next_info = ValueInfo {
@@ -14595,6 +16284,7 @@ impl<'a> ScriptLowerer<'a> {
                         callee: Box::new(callee),
                         this_arg: None,
                         args,
+                        static_regexp_compilation: None,
                     },
                 );
             }
@@ -14659,38 +16349,65 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::JsonParseStaticReviver { value, reviver },
             );
         }
+        let static_regexp_compilation =
+            self.static_regexp_compilation_for_direct_call(&callee, &effective_function_id, &args);
         TypedExpr::from_info(
             info,
             ExprIr::CallIndirect {
                 callee: Box::new(callee),
                 this_arg: None,
                 args,
+                static_regexp_compilation,
             },
         )
     }
 
-    fn static_regexp_test_call(&self, receiver: &Expression, args: &[Expression]) -> Option<bool> {
-        if args.len() != 1 {
+    fn static_regexp_compilation_for_direct_call(
+        &self,
+        callee: &TypedExpr,
+        function_id: &FunctionId,
+        args: &[TypedExpr],
+    ) -> Option<StaticRegExpCompilation> {
+        let builtin = StandardBuiltinId::from_function_id(function_id)?;
+        if builtin == StandardBuiltinId::RegExpConstructor
+            && !matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == REGEXP_NAME)
+        {
             return None;
         }
-
-        let Expression::RegExpLiteral(regexp) = Self::unwrap_parenthesized_expr(receiver) else {
+        if !matches!(
+            builtin,
+            StandardBuiltinId::RegExpConstructor | StandardBuiltinId::RegExpPrototypeCompile
+        ) {
             return None;
+        }
+        let compilation = match args {
+            []
+            | [TypedExpr {
+                expr: ExprIr::Undefined,
+                ..
+            }] => RegExpProgram::compile("", ""),
+            [TypedExpr {
+                expr: ExprIr::String(pattern),
+                ..
+            }] => RegExpProgram::compile(pattern, ""),
+            [TypedExpr {
+                expr: ExprIr::String(pattern),
+                ..
+            }, TypedExpr {
+                expr: ExprIr::String(flags),
+                ..
+            }, ..] => RegExpProgram::compile(pattern, flags),
+            _ => return None,
         };
-        let input = self.try_static_string_key(&args[0])?;
-        let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
-        let flags = self.interner.resolve_expect(regexp.flags()).to_string();
-        if flags.contains('g') || flags.contains('y') {
-            return None;
+        match compilation {
+            Ok(program) => Some(StaticRegExpCompilation::Program(program)),
+            Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
+                Some(StaticRegExpCompilation::InvalidSyntax {
+                    message: format!("invalid regular-expression pattern: {error}"),
+                })
+            }
+            Err(_) => None,
         }
-        if pattern == r"\b(\w+) \2\b" && flags.is_empty() {
-            return Some(false);
-        }
-        if pattern == r"[\\c-f]" && flags.is_empty() {
-            return Some(matches!(input.as_str(), "\\" | "c" | "d" | "e" | "f"));
-        }
-        let compiled = Regex::with_flags(&pattern, flags.as_str()).ok()?;
-        Some(compiled.find(&input).is_some())
     }
 
     fn try_lower_static_json_parse_reviver(
@@ -15134,7 +16851,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 _ => {
                     return self
-                        .unsupported_expr("unsupported expression form: generator IIFE statement")
+                        .unsupported_expr("unsupported expression form: generator IIFE statement");
                 }
             }
         }
@@ -15830,6 +17547,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::Construct {
                         callee: Box::new(callee),
                         args,
+                        static_regexp_compilation: None,
                     },
                 );
             }
@@ -15848,6 +17566,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::Construct {
                     callee: Box::new(callee),
                     args,
+                    static_regexp_compilation: None,
                 },
             );
         }
@@ -15870,6 +17589,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::Construct {
                         callee: Box::new(callee),
                         args,
+                        static_regexp_compilation: None,
                     },
                 );
             }
@@ -15887,6 +17607,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::Construct {
                     callee: Box::new(callee),
                     args,
+                    static_regexp_compilation: None,
                 },
             );
         };
@@ -15908,6 +17629,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::Construct {
                     callee: Box::new(callee),
                     args,
+                    static_regexp_compilation: None,
                 },
             );
         }
@@ -15928,11 +17650,39 @@ impl<'a> ScriptLowerer<'a> {
             let Some(result) = self.standard_builtin_call_info(builtin, &args, "construct") else {
                 return TypedExpr::undefined();
             };
+            let static_regexp_compilation = if builtin == StandardBuiltinId::RegExpConstructor {
+                let compilation = match args.as_slice() {
+                    [TypedExpr {
+                        expr: ExprIr::String(pattern),
+                        ..
+                    }] => Some(RegExpProgram::compile(pattern, "")),
+                    [TypedExpr {
+                        expr: ExprIr::String(pattern),
+                        ..
+                    }, TypedExpr {
+                        expr: ExprIr::String(flags),
+                        ..
+                    }, ..] => Some(RegExpProgram::compile(pattern, flags)),
+                    _ => None,
+                };
+                match compilation {
+                    Some(Ok(program)) => Some(StaticRegExpCompilation::Program(program)),
+                    Some(Err(error)) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
+                        Some(StaticRegExpCompilation::InvalidSyntax {
+                            message: format!("invalid regular-expression pattern: {error}"),
+                        })
+                    }
+                    Some(Err(_)) | None => None,
+                }
+            } else {
+                None
+            };
             return TypedExpr::from_info(
                 result,
                 ExprIr::Construct {
                     callee: Box::new(callee),
                     args,
+                    static_regexp_compilation,
                 },
             );
         }
@@ -15982,6 +17732,7 @@ impl<'a> ScriptLowerer<'a> {
             ExprIr::Construct {
                 callee: Box::new(callee),
                 args,
+                static_regexp_compilation: None,
             },
         )
     }
@@ -15996,45 +17747,24 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_call_args_expanding_spread(&mut self, args: &[Expression]) -> Option<Vec<TypedExpr>> {
-        let mut lowered_args = Vec::new();
+        let mut lowered_args = Vec::with_capacity(args.len());
         for arg in args {
             let Expression::Spread(spread) = arg else {
                 lowered_args.push(self.lower_expression(arg));
                 continue;
             };
-            if let Some(keys) = self.try_lower_object_keys_spread_args(spread.target()) {
-                lowered_args.extend(keys);
-                continue;
-            }
             let spread_value = self.lower_expression(spread.target());
-            let Some(HeapShape::Array(shape)) = spread_value.heap_shape.as_deref() else {
-                if args.len() == 1 && spread_value.possible_kinds.contains(ValueKind::Array) {
-                    lowered_args.push(TypedExpr::from_info(
-                        spread_value.value_info(),
-                        ExprIr::SpreadArgument(Box::new(spread_value)),
-                    ));
-                    continue;
-                }
-                self.unsupported_with_message(
-                    "unsupported in porffor wasm-aot first slice: call spread requires known array shape"
-                        .to_string(),
-                );
-                return None;
-            };
-            for (index, element_info) in shape.elements.iter().enumerate() {
-                lowered_args.push(TypedExpr::from_info(
-                    element_info.clone(),
-                    ExprIr::PropertyRead {
-                        target: Box::new(spread_value.clone()),
-                        key: PropertyKeyIr::ArrayIndex(Box::new(TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Number),
-                            ExprIr::Number((index as f64).to_bits()),
-                        ))),
-                    },
-                ));
-            }
+            lowered_args.push(TypedExpr::from_info(
+                spread_value.value_info(),
+                ExprIr::SpreadArgument(Box::new(spread_value)),
+            ));
         }
         Some(lowered_args)
+    }
+
+    fn call_args_have_spread(args: &[TypedExpr]) -> bool {
+        args.iter()
+            .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
     }
 
     fn lower_splice_zero_call_args(
@@ -16080,29 +17810,6 @@ impl<'a> ScriptLowerer<'a> {
             && call.args().len() == 1
     }
 
-    fn try_lower_object_keys_spread_args(&mut self, expr: &Expression) -> Option<Vec<TypedExpr>> {
-        if !self.is_object_keys_call(expr) {
-            return None;
-        }
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-
-        let target = self.lower_expression(&call.args()[0]);
-        let keys = match target.heap_shape.as_deref()? {
-            HeapShape::Array(shape) => (0..shape.elements.len())
-                .map(|index| index.to_string())
-                .chain(shape.properties.keys().cloned())
-                .collect::<Vec<_>>(),
-            HeapShape::Object(shape) => shape.properties.keys().cloned().collect::<Vec<_>>(),
-        };
-        Some(
-            keys.into_iter()
-                .map(|key| TypedExpr::from_info(Self::string_value_info(&key), ExprIr::String(key)))
-                .collect(),
-        )
-    }
-
     fn lower_call_args_with_target(
         &mut self,
         function_id: &FunctionId,
@@ -16111,6 +17818,29 @@ impl<'a> ScriptLowerer<'a> {
         if !self.function_signatures.contains_key(function_id) {
             self.unsupported_expr("indirect call");
             return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+        }
+        if args.iter().any(|arg| matches!(arg, Expression::Spread(_))) {
+            let Some(lowered_args) = self.lower_call_args_expanding_spread(args) else {
+                return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+            };
+            let signature = self
+                .function_signatures
+                .get(function_id)
+                .cloned()
+                .expect("function signature must exist");
+            if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+                self.note_standard_builtin_call(builtin);
+            }
+            return (
+                function_id.clone(),
+                lowered_args,
+                ValueInfo {
+                    kind: signature.return_kind,
+                    possible_kinds: signature.return_possible_kinds,
+                    heap_shape: signature.return_shape,
+                    function_targets: signature.return_targets,
+                },
+            );
         }
         let mut lowered_args = Vec::with_capacity(args.len());
         for arg in args {
@@ -16150,33 +17880,34 @@ impl<'a> ScriptLowerer<'a> {
 
         let exact_prepass_call =
             self.is_prepass && self.analysis.function_plans.contains_key(function_id);
-        if !exact_prepass_call {
-            if let Some(signature) = self.function_signatures.get_mut(function_id) {
-                for (param, arg) in signature.params.iter_mut().zip(lowered_args.iter()) {
-                    if param.is_rest {
-                        break;
-                    }
-                    let arg_info = arg.value_info();
-                    Self::merge_signature_param_observation(param, &arg_info);
+        if let Some(signature) = self.function_signatures.get_mut(function_id) {
+            for (param, arg) in signature.params.iter_mut().zip(lowered_args.iter()) {
+                if param.is_rest {
+                    break;
                 }
-                Self::merge_omitted_signature_params_as_undefined(signature, lowered_args.len());
+                let arg_info = arg.value_info();
+                Self::merge_signature_param_observation(param, &arg_info);
             }
-        } else if let Some(helper_context_id) = self
-            .exact_context_callback_targets
-            .get(function_id)
-            .cloned()
-        {
-            let arg_infos = lowered_args
-                .iter()
-                .map(TypedExpr::value_info)
-                .collect::<Vec<_>>();
-            let original_function_id = self.original_exact_function_id(function_id);
-            let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
-            self.observe_exact_callback_param_infos(
-                &original_function_id,
-                &helper_context_id,
-                &arg_infos,
-            );
+            Self::merge_omitted_signature_params_as_undefined(signature, lowered_args.len());
+        }
+        if exact_prepass_call {
+            if let Some(helper_context_id) = self
+                .exact_context_callback_targets
+                .get(function_id)
+                .cloned()
+            {
+                let arg_infos = lowered_args
+                    .iter()
+                    .map(TypedExpr::value_info)
+                    .collect::<Vec<_>>();
+                let original_function_id = self.original_exact_function_id(function_id);
+                let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
+                self.observe_exact_callback_param_infos(
+                    &original_function_id,
+                    &helper_context_id,
+                    &arg_infos,
+                );
+            }
         }
 
         if self.is_prepass || self.analysis.function_plans.contains_key(function_id) {
@@ -16636,31 +18367,11 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 })
             }
-            StandardBuiltinId::ObjectSetPrototypeOf => {
-                let Some(target) = args.first() else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.setPrototypeOf requires object"
-                    ));
-                    return None;
-                };
-                let Some(proto) = args.get(1) else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.setPrototypeOf requires prototype"
-                    ));
-                    return None;
-                };
-                let proto_allowed =
-                    Self::object_like_kind_set().union(KindSet::from_kind(ValueKind::Null));
-                if target.possible_kinds.0 & Self::object_like_kind_set().0 == 0
-                    || proto.possible_kinds.0 & proto_allowed.0 == 0
-                {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.setPrototypeOf requires object and object-or-null prototype"
-                    ));
-                    return None;
-                }
-                Some(target.value_info())
-            }
+            StandardBuiltinId::ObjectSetPrototypeOf => Some(
+                args.first()
+                    .map(TypedExpr::value_info)
+                    .unwrap_or_else(ValueInfo::undefined),
+            ),
             StandardBuiltinId::ObjectDefineProperty => {
                 let Some(target) = args.first() else {
                     self.unsupported_with_message(format!(
@@ -16865,6 +18576,14 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ObjectPrototypeHasOwnProperty => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            StandardBuiltinId::ObjectPrototypeLookupGetter
+            | StandardBuiltinId::ObjectPrototypeLookupSetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Function)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
@@ -17001,6 +18720,12 @@ impl<'a> ScriptLowerer<'a> {
                     });
                 Some(self.iterator_from_wrapper_value_info(base))
             }
+            StandardBuiltinId::IteratorZip => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_zip_helper_shape()),
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::ArrayIsArray => Some(ValueInfo {
                 kind: ValueKind::Boolean,
                 possible_kinds: KindSet::from_kind(ValueKind::Boolean),
@@ -17076,12 +18801,13 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
-            StandardBuiltinId::ArrayPrototypeConcat | StandardBuiltinId::ArrayPrototypeSplice => {
-                Some(Self::unshaped_array_result_info())
-            }
+            StandardBuiltinId::ArrayPrototypeConcat
+            | StandardBuiltinId::ArrayPrototypeSlice
+            | StandardBuiltinId::ArrayPrototypeSplice => Some(Self::unshaped_array_result_info()),
             StandardBuiltinId::ArrayPrototypeJoin
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeJoin
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString => Some(ValueInfo {
                 kind: ValueKind::String,
                 possible_kinds: KindSet::from_kind(ValueKind::String),
@@ -17093,6 +18819,22 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeAt => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeToReversed => Some(Self::unshaped_array_result_info()),
+            StandardBuiltinId::ArrayPrototypeWith => Some(Self::unshaped_array_result_info()),
+            StandardBuiltinId::ArrayPrototypeToSpliced => Some(Self::unshaped_array_result_info()),
+            StandardBuiltinId::ArrayPrototypeToSorted => Some(Self::unshaped_array_result_info()),
+            StandardBuiltinId::ArrayPrototypeReverse => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: Self::object_like_kind_set(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeCopyWithin => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: Self::object_like_kind_set(),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
@@ -17176,7 +18918,27 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::ArrayPrototypeShift => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeFill | StandardBuiltinId::ArrayPrototypeSort => {
+                Some(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                })
+            }
             StandardBuiltinId::ArrayPrototypePush => Some(ValueInfo {
+                kind: ValueKind::Number,
+                possible_kinds: KindSet::from_kind(ValueKind::Number),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::ArrayPrototypeUnshift => Some(ValueInfo {
                 kind: ValueKind::Number,
                 possible_kinds: KindSet::from_kind(ValueKind::Number),
                 heap_shape: None,
@@ -17184,7 +18946,8 @@ impl<'a> ScriptLowerer<'a> {
             }),
             StandardBuiltinId::ArrayPrototypeKeys
             | StandardBuiltinId::ArrayPrototypeEntries
-            | StandardBuiltinId::ArrayPrototypeValues => Some(ValueInfo {
+            | StandardBuiltinId::ArrayPrototypeValues
+            | StandardBuiltinId::StringPrototypeIterator => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Self::array_iterator_instance_shape()),
@@ -17217,6 +18980,22 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Self::iterator_map_helper_shape()),
                 function_targets: BTreeSet::new(),
             }),
+            StandardBuiltinId::IteratorZipNext | StandardBuiltinId::IteratorZipReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
+            StandardBuiltinId::IteratorHelperNext | StandardBuiltinId::IteratorHelperReturn => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
             StandardBuiltinId::IteratorPrototypeFilter => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
@@ -17312,12 +19091,14 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::IteratorFromWrapperReturn => Some(
                 Self::standard_builtin_value_info(StandardBuiltinId::IteratorFromWrapperReturn),
             ),
-            StandardBuiltinId::ArrayIteratorNext => Some(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Box::new(Self::empty_object_shape())),
-                function_targets: BTreeSet::new(),
-            }),
+            StandardBuiltinId::ArrayIteratorNext | StandardBuiltinId::StringIteratorNext => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    function_targets: BTreeSet::new(),
+                })
+            }
             StandardBuiltinId::ArrayIteratorIdentity => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
@@ -17489,12 +19270,18 @@ impl<'a> ScriptLowerer<'a> {
                     Some(ValueInfo::new(ValueKind::String))
                 }
             }
+            StandardBuiltinId::StringFromCharCode
+            | StandardBuiltinId::StringFromCodePoint
+            | StandardBuiltinId::StringRaw => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::StringPrototypeToString
             | StandardBuiltinId::StringPrototypeValueOf => Some(ValueInfo::new(ValueKind::String)),
-            StandardBuiltinId::StringPrototypeCharAt => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::StringPrototypeCharAt | StandardBuiltinId::StringPrototypeConcat => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
             StandardBuiltinId::StringPrototypeCharCodeAt => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::StringPrototypeIndexOf
-            | StandardBuiltinId::StringPrototypeLastIndexOf => {
+            | StandardBuiltinId::StringPrototypeLastIndexOf
+            | StandardBuiltinId::StringPrototypeLocaleCompare => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::StringPrototypeCodePointAt => Some(ValueInfo {
@@ -17578,6 +19365,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypePadStart
             | StandardBuiltinId::StringPrototypePadEnd
             | StandardBuiltinId::StringPrototypeRepeat
+            | StandardBuiltinId::StringPrototypeNormalize
+            | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+            | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+            | StandardBuiltinId::StringPrototypeToLowerCase
             | StandardBuiltinId::StringPrototypeToUpperCase
             | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
@@ -17596,15 +19387,20 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::StringPrototypeIsWellFormed => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            StandardBuiltinId::RegExpPrototypeTest => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::StringPrototypeMatch
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
             | StandardBuiltinId::StringPrototypeSplit
             | StandardBuiltinId::RegExpLegacyStaticGetter
+            | StandardBuiltinId::RegExpPrototypeCompile
             | StandardBuiltinId::RegExpPrototypeExec
+            | StandardBuiltinId::RegExpPrototypeToString
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
-            | StandardBuiltinId::RegExpPrototypeSymbolSearch => Some(ValueInfo {
+            | StandardBuiltinId::RegExpPrototypeSymbolReplace
+            | StandardBuiltinId::RegExpPrototypeSymbolSearch
+            | StandardBuiltinId::RegExpPrototypeSymbolSplit => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
@@ -18964,15 +20760,6 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_optional_property_chain(&mut self, optional: &Optional) -> TypedExpr {
-        if optional.chain().iter().any(|operation| {
-            matches!(
-                operation.kind(),
-                OptionalOperationKind::PrivatePropertyAccess { .. }
-            )
-        }) {
-            return self.unsupported_expr("optional private property access");
-        }
-
         let starts_with_call = optional.chain().first().is_some_and(|operation| {
             matches!(operation.kind(), OptionalOperationKind::Call { .. })
         });
@@ -19065,8 +20852,14 @@ impl<'a> ScriptLowerer<'a> {
                         boundary_before: std::mem::take(&mut boundary_before_first_call),
                     });
                 }
-                OptionalOperationKind::PrivatePropertyAccess { .. } => {
-                    unreachable!("optional private access was rejected above");
+                OptionalOperationKind::PrivatePropertyAccess { field } => {
+                    let Some(private_name_id) = self.current_private_name_id(*field) else {
+                        return self.unsupported_expr("private class element");
+                    };
+                    chain.push(OptionalChainOperationIr::PrivateProperty {
+                        private_name_id,
+                        shorted: operation.shorted(),
+                    });
                 }
             }
         }
@@ -19096,6 +20889,23 @@ impl<'a> ScriptLowerer<'a> {
                     short_circuit_reaches_result |= *shorted;
                     let receiver = current;
                     current = self.optional_chain_property_info(&receiver, key);
+                    property_receiver = Some(receiver);
+                }
+                OptionalChainOperationIr::PrivateProperty {
+                    private_name_id,
+                    shorted,
+                } => {
+                    short_circuit_reaches_result |= *shorted;
+                    let receiver = current;
+                    let receiver_expr = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
+                    current = self
+                        .read_object_shape(&receiver_expr, &private_data_key(*private_name_id))
+                        .unwrap_or(ValueInfo {
+                            kind: ValueKind::Dynamic,
+                            possible_kinds: KindSet::all_runtime_tags(),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        });
                     property_receiver = Some(receiver);
                 }
                 OptionalChainOperationIr::Call {
@@ -19204,6 +21014,7 @@ impl<'a> ScriptLowerer<'a> {
         }
         let arg_infos = args.iter().map(TypedExpr::value_info).collect::<Vec<_>>();
         let canonical_arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
+        let args_have_spread = Self::call_args_have_spread(args);
         let mut result = None;
 
         for function_id in function_targets {
@@ -19232,6 +21043,20 @@ impl<'a> ScriptLowerer<'a> {
             // whose return analysis depends on `this` is lowered under the
             // same context as an ordinary known call.
             self.merge_function_this_info(&function_id, this_info.clone());
+
+            if args_have_spread {
+                let return_info = ValueInfo {
+                    kind: initial_signature.return_kind,
+                    possible_kinds: initial_signature.return_possible_kinds,
+                    heap_shape: initial_signature.return_shape,
+                    function_targets: initial_signature.return_targets,
+                };
+                result = Some(match result {
+                    Some(existing) => self.merge_value_infos(existing, return_info),
+                    None => return_info,
+                });
+                continue;
+            }
 
             let exact_prepass_call =
                 self.is_prepass && self.analysis.function_plans.contains_key(&function_id);
@@ -19388,36 +21213,33 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
-        let Some(binding) = self.current_private_binding(access.field()) else {
+        let Some(private_name_id) = self.current_private_name_id(access.field()) else {
             return self.unsupported_expr("private class element");
         };
         let target = self.lower_property_target(access.target());
-        let info = self
-            .read_object_shape(&target, &private_data_key(binding.private_name_id))
-            .unwrap_or(ValueInfo {
+        TypedExpr::from_info(
+            ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
-            });
-        TypedExpr::from_info(
-            info,
+            },
             ExprIr::PrivateRead {
                 target: Box::new(target),
-                private_name_id: binding.private_name_id,
+                private_name_id,
             },
         )
     }
 
     fn lower_private_in(&mut self, binary: &BinaryInPrivate) -> TypedExpr {
-        let Some(binding) = self.current_private_binding(*binary.lhs()) else {
+        let Some(private_name_id) = self.current_private_name_id(*binary.lhs()) else {
             return self.unsupported_expr("private class element");
         };
         let rhs = self.lower_expression(binary.rhs());
         TypedExpr::from_info(
             ValueInfo::new(ValueKind::Boolean),
             ExprIr::PrivateIn {
-                private_name_id: binding.private_name_id,
+                private_name_id,
                 rhs: Box::new(rhs),
             },
         )
@@ -19944,6 +21766,15 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "slice" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSlice),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             if name == "splice" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSplice),
@@ -19985,6 +21816,60 @@ impl<'a> ScriptLowerer<'a> {
             if name == "at" {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeAt),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "toReversed" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToReversed),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "with" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeWith),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "toSpliced" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToSpliced),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "toSorted" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToSorted),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "reverse" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReverse),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "copyWithin" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeCopyWithin),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::StaticString(name),
@@ -20137,6 +22022,42 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "shift" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeShift),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "unshift" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeUnshift),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "fill" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFill),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
+            if name == "sort" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSort),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             let iterator_builtin = match name.as_str() {
                 "keys" => Some(StandardBuiltinId::ArrayPrototypeKeys),
                 "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
@@ -20283,6 +22204,7 @@ impl<'a> ScriptLowerer<'a> {
                 "toString" => Some(StandardBuiltinId::StringPrototypeToString),
                 "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
                 "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
+                "concat" => Some(StandardBuiltinId::StringPrototypeConcat),
                 "charCodeAt" => Some(StandardBuiltinId::StringPrototypeCharCodeAt),
                 "codePointAt" => Some(StandardBuiltinId::StringPrototypeCodePointAt),
                 "at" => Some(StandardBuiltinId::StringPrototypeAt),
@@ -20294,6 +22216,11 @@ impl<'a> ScriptLowerer<'a> {
                 "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
                 "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
                 "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
+                "normalize" => Some(StandardBuiltinId::StringPrototypeNormalize),
+                "localeCompare" => Some(StandardBuiltinId::StringPrototypeLocaleCompare),
+                "toLocaleLowerCase" => Some(StandardBuiltinId::StringPrototypeToLocaleLowerCase),
+                "toLocaleUpperCase" => Some(StandardBuiltinId::StringPrototypeToLocaleUpperCase),
+                "toLowerCase" => Some(StandardBuiltinId::StringPrototypeToLowerCase),
                 "toUpperCase" => Some(StandardBuiltinId::StringPrototypeToUpperCase),
                 "isWellFormed" => Some(StandardBuiltinId::StringPrototypeIsWellFormed),
                 "toWellFormed" => Some(StandardBuiltinId::StringPrototypeToWellFormed),
@@ -20308,7 +22235,18 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
-            return self.unsupported_expr("unsupported string dot access");
+            return TypedExpr::from_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key: PropertyKeyIr::StaticString(name),
+                },
+            );
         }
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported string access");
@@ -20378,6 +22316,15 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
+            if name == "toString" {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ObjectPrototypeToString),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(name),
+                    },
+                );
+            }
             if name == "callee" {
                 return TypedExpr::from_info(
                     ValueInfo {
@@ -20397,6 +22344,15 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported arguments access");
         };
+        if self.try_static_string_key(expr).as_deref() == Some("Symbol.iterator") {
+            return TypedExpr::from_info(
+                Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
+                },
+            );
+        }
         let index = self.lower_expression(expr);
         if let ExprIr::String(key) = &index.expr {
             return TypedExpr::from_info(
@@ -20413,7 +22369,18 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         if index.kind != ValueKind::Number {
-            return self.unsupported_expr("arguments index must be number");
+            return TypedExpr::from_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key: PropertyKeyIr::StringExpr(Box::new(index)),
+                },
+            );
         }
         TypedExpr::from_info(
             ValueInfo {
@@ -20492,69 +22459,39 @@ impl<'a> ScriptLowerer<'a> {
                                             PropertyKeyIr::StaticString(key_name)
                                         }
                                     }
-                                    PropertyAccessField::Expr(_) => {
-                                        return self.unsupported_expr("property assignment target");
-                                    }
-                                };
-                                let read_info = match &key {
-                                    PropertyKeyIr::StaticString(key_name) => self
-                                        .read_object_shape(&target, key_name)
-                                        .unwrap_or(ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: BTreeSet::new(),
-                                        }),
-                                    PropertyKeyIr::ArrayLength => ValueInfo::new(ValueKind::Number),
-                                    PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: BTreeSet::new(),
-                                        }
+                                    PropertyAccessField::Expr(expr) => {
+                                        let Some(index) = self.try_constant_array_index_expr(expr)
+                                        else {
+                                            return self
+                                                .unsupported_expr("property assignment target");
+                                        };
+                                        PropertyKeyIr::ArrayIndex(Box::new(
+                                            self.static_number_index_expr(index),
+                                        ))
                                     }
                                 };
                                 let rhs = self.lower_expression(rhs);
-                                let lhs_value = TypedExpr::from_info(
-                                    read_info,
-                                    ExprIr::PropertyRead {
-                                        target: target.clone(),
-                                        key: key.clone(),
-                                    },
-                                );
-                                let value = if lhs_value
-                                    .possible_kinds
-                                    .is_subset_of(KindSet::PRIMITIVE_ONLY)
-                                    && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                                {
-                                    TypedExpr::from_info(
-                                        ValueInfo::new(ValueKind::String),
-                                        ExprIr::StringConcat {
-                                            lhs: Box::new(lhs_value),
-                                            rhs: Box::new(rhs),
-                                        },
-                                    )
-                                } else {
-                                    TypedExpr::from_info(
-                                        ValueInfo::new(ValueKind::String),
-                                        ExprIr::CoerciveAdd {
-                                            lhs: Box::new(lhs_value),
-                                            rhs: Box::new(rhs),
-                                        },
-                                    )
+                                let possible_kinds = KindSet::from_kind(ValueKind::String)
+                                    .union(KindSet::from_kind(ValueKind::Number))
+                                    .union(KindSet::from_kind(ValueKind::BigInt));
+                                let value_info = ValueInfo {
+                                    kind: possible_kinds.as_value_kind(),
+                                    possible_kinds,
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
                                 };
                                 self.update_written_shape(
                                     simple_access.target(),
                                     &key,
-                                    &value.value_info(),
+                                    &value_info,
                                 );
                                 return TypedExpr::from_info(
-                                    value.value_info(),
-                                    ExprIr::PropertyWrite {
+                                    value_info,
+                                    ExprIr::PropertyCompoundAssign {
                                         target,
                                         key,
-                                        value: Box::new(value),
+                                        op: ArithmeticBinaryOp::Add,
+                                        value: Box::new(rhs),
                                     },
                                 );
                             }
@@ -20953,6 +22890,27 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(binding) = self.lookup_binding(&name) {
             let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
+                if is_class_name_binding_storage_name(&storage_name) {
+                    let error = TypedExpr::from_info(
+                        ValueInfo {
+                            kind: ValueKind::Dynamic,
+                            possible_kinds: KindSet::all_runtime_tags(),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        },
+                        ExprIr::RuntimeThrow {
+                            name: TYPE_ERROR_NAME,
+                            message: "assignment to immutable class name",
+                        },
+                    );
+                    return TypedExpr::from_info(
+                        error.value_info(),
+                        ExprIr::Comma {
+                            lhs: Box::new(value),
+                            rhs: Box::new(error),
+                        },
+                    );
+                }
                 return self.unsupported_expr("assignment to const binding");
             }
 
@@ -21005,14 +22963,36 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_pattern_assign(&mut self, pattern: &Pattern, rhs: &Expression) -> TypedExpr {
-        match (pattern, rhs) {
-            (Pattern::Array(pattern), Expression::ArrayLiteral(array)) => {
-                self.lower_array_literal_pattern_assign(pattern.bindings(), array)
+        match pattern {
+            Pattern::Array(pattern) => {
+                let value = self.lower_expression(rhs);
+                let value_info = value.value_info();
+                let Some(pattern) = self.lower_array_assignment_pattern(pattern.bindings()) else {
+                    return TypedExpr::undefined();
+                };
+                TypedExpr::from_info(
+                    value_info,
+                    ExprIr::ArrayDestructure {
+                        value: Box::new(value),
+                        pattern,
+                        assignment: true,
+                    },
+                )
             }
-            (Pattern::Object(pattern), Expression::ObjectLiteral(object)) => {
-                self.lower_object_literal_pattern_assign(pattern.bindings(), object)
+            Pattern::Object(pattern) => {
+                let value = self.lower_expression(rhs);
+                let value_info = value.value_info();
+                let Some(pattern) = self.lower_object_assignment_pattern(pattern.bindings()) else {
+                    return TypedExpr::undefined();
+                };
+                TypedExpr::from_info(
+                    value_info,
+                    ExprIr::ObjectDestructure {
+                        value: Box::new(value),
+                        pattern: Box::new(pattern),
+                    },
+                )
             }
-            _ => self.unsupported_expr("non-identifier assignment target"),
         }
     }
 
@@ -21022,18 +23002,191 @@ impl<'a> ScriptLowerer<'a> {
         pattern: &Pattern,
         init: &Expression,
     ) -> Option<Vec<StatementIr>> {
-        match (pattern, init) {
-            (Pattern::Array(pattern), Expression::ArrayLiteral(array)) => {
-                self.lower_array_literal_pattern_lexical_binding(mode, pattern.bindings(), array)
-            }
-            (Pattern::Object(pattern), Expression::ObjectLiteral(object)) => {
-                self.lower_object_literal_pattern_lexical_binding(mode, pattern.bindings(), object)
-            }
-            _ => {
+        if let Pattern::Array(pattern) = pattern {
+            let binding = Binding::Pattern(Pattern::Array(pattern.clone()));
+            let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
                 self.unsupported("destructuring binding");
-                None
+                return None;
+            };
+            for bound in &bound_names {
+                if !self
+                    .scopes
+                    .last()
+                    .is_some_and(|scope| scope.contains_key(&bound.source_name))
+                {
+                    self.declare_binding(
+                        bound.source_name.clone(),
+                        Self::tdz_binding_info(&bound.source_name, mode),
+                    );
+                }
+            }
+
+            let value = self.lower_expression(init);
+            let pattern = self.lower_array_binding_pattern(mode, pattern.bindings(), None)?;
+            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ArrayDestructure {
+                    value: Box::new(value),
+                    pattern,
+                    assignment: false,
+                },
+            ))]);
+        }
+
+        let Pattern::Object(pattern) = pattern else {
+            self.unsupported("destructuring binding");
+            return None;
+        };
+
+        let mut bound_names = Vec::new();
+        for binding in pattern.bindings() {
+            let ObjectPatternElement::SingleName { name, ident, .. } = binding else {
+                self.unsupported("destructuring binding");
+                return None;
+            };
+            if !matches!(name, PropertyName::Literal(_)) {
+                self.unsupported("computed object key");
+                return None;
+            }
+            bound_names.push(self.interner.resolve_expect(ident.sym()).to_string());
+        }
+
+        for name in &bound_names {
+            if !self
+                .scopes
+                .last()
+                .is_some_and(|scope| scope.contains_key(name))
+            {
+                self.declare_binding(name.clone(), Self::tdz_binding_info(name, mode));
             }
         }
+
+        let init = self.lower_expression(init);
+        let temp_name = self.alloc_temp_binding_name("destructure.internal.");
+        let temp = TypedExpr::from_info(init.value_info(), ExprIr::Identifier(temp_name.clone()));
+        let mut statements = vec![StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: temp_name,
+            init,
+        }];
+
+        if pattern.bindings().is_empty() {
+            statements.push(StatementIr::Expression(TypedExpr::spec_to_object(temp)));
+            return Some(statements);
+        }
+
+        let mut bindings = self.lower_object_pattern_lexical_binding_from_value(
+            mode,
+            pattern.bindings(),
+            temp,
+            None,
+        )?;
+        statements.append(&mut bindings);
+        Some(statements)
+    }
+
+    fn lower_pattern_var_binding(
+        &mut self,
+        pattern: &Pattern,
+        init: Option<&Expression>,
+    ) -> Option<Vec<StatementIr>> {
+        let Some(init) = init else {
+            self.unsupported("destructuring binding without initializer");
+            return None;
+        };
+
+        let init = self.lower_expression(init);
+        let temp_name = self.alloc_temp_binding_name("destructure.internal.");
+        let temp = TypedExpr::from_info(init.value_info(), ExprIr::Identifier(temp_name.clone()));
+        let mut statements = vec![StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: temp_name,
+            init,
+        }];
+        statements.append(&mut self.lower_pattern_var_binding_from_value(pattern, temp)?);
+        Some(statements)
+    }
+
+    fn lower_pattern_var_binding_from_value(
+        &mut self,
+        pattern: &Pattern,
+        init: TypedExpr,
+    ) -> Option<Vec<StatementIr>> {
+        if let Pattern::Array(pattern) = pattern {
+            let pattern =
+                self.lower_array_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
+            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ArrayDestructure {
+                    value: Box::new(init),
+                    pattern,
+                    assignment: false,
+                },
+            ))]);
+        }
+        let Pattern::Object(pattern) = pattern else {
+            unreachable!("pattern variants are handled above")
+        };
+
+        if pattern.bindings().is_empty() {
+            return Some(vec![StatementIr::Expression(TypedExpr::spec_to_object(
+                init,
+            ))]);
+        }
+
+        let mut statements = Vec::new();
+        let mut declarators = Vec::with_capacity(pattern.bindings().len());
+        for binding in pattern.bindings() {
+            let ObjectPatternElement::SingleName {
+                name,
+                ident,
+                default_init,
+            } = binding
+            else {
+                self.unsupported("destructuring binding");
+                return None;
+            };
+            let PropertyName::Literal(key) = name else {
+                self.unsupported("computed object key");
+                return None;
+            };
+            let key = self.interner.resolve_expect(key.sym()).to_string();
+            let name = self.interner.resolve_expect(ident.sym()).to_string();
+            let property_value = self.lower_object_pattern_value_from_value(&init, &key);
+            let value = if default_init.is_some() {
+                if !declarators.is_empty() {
+                    statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+                }
+
+                let temp_name = self.alloc_temp_binding_name("destructure.value.internal.");
+                let temp = TypedExpr::from_info(
+                    property_value.value_info(),
+                    ExprIr::Identifier(temp_name.clone()),
+                );
+                statements.push(StatementIr::Lexical {
+                    mode: BindingMode::Let,
+                    name: temp_name,
+                    init: property_value,
+                });
+                self.apply_destructuring_default(temp, default_init.as_ref())
+            } else {
+                property_value
+            };
+            self.set_binding_value_info(&name, value.value_info());
+            declarators.push(VarDeclaratorIr {
+                name,
+                init: Some(value),
+            });
+
+            if default_init.is_some() {
+                statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+            }
+        }
+
+        if !declarators.is_empty() {
+            statements.push(StatementIr::Var(declarators));
+        }
+        Some(statements)
     }
 
     fn lower_pattern_lexical_binding_from_value(
@@ -21042,13 +23195,34 @@ impl<'a> ScriptLowerer<'a> {
         pattern: &Pattern,
         init: TypedExpr,
     ) -> Option<Vec<StatementIr>> {
+        self.lower_pattern_lexical_binding_from_value_with_storage_names(mode, pattern, init, None)
+    }
+
+    fn lower_pattern_lexical_binding_from_value_with_storage_names(
+        &mut self,
+        mode: BindingMode,
+        pattern: &Pattern,
+        init: TypedExpr,
+        storage_names: Option<&BTreeMap<String, String>>,
+    ) -> Option<Vec<StatementIr>> {
         match pattern {
-            Pattern::Object(pattern) => {
-                self.lower_object_pattern_lexical_binding_from_value(mode, pattern.bindings(), init)
-            }
-            Pattern::Array(_) => {
-                self.unsupported("destructuring binding");
-                None
+            Pattern::Object(pattern) => self.lower_object_pattern_lexical_binding_from_value(
+                mode,
+                pattern.bindings(),
+                init,
+                storage_names,
+            ),
+            Pattern::Array(pattern) => {
+                let pattern =
+                    self.lower_array_binding_pattern(mode, pattern.bindings(), storage_names)?;
+                Some(vec![StatementIr::Expression(TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ArrayDestructure {
+                        value: Box::new(init),
+                        pattern,
+                        assignment: false,
+                    },
+                ))])
             }
         }
     }
@@ -21058,6 +23232,7 @@ impl<'a> ScriptLowerer<'a> {
         mode: BindingMode,
         bindings: &[ObjectPatternElement],
         init: TypedExpr,
+        storage_names: Option<&BTreeMap<String, String>>,
     ) -> Option<Vec<StatementIr>> {
         let mut statements = Vec::new();
         for binding in bindings {
@@ -21067,15 +23242,25 @@ impl<'a> ScriptLowerer<'a> {
                     ident,
                     default_init,
                 } => {
-                    let Some(key) = self.property_name_to_static_key(name) else {
+                    let PropertyName::Literal(key) = name else {
                         self.unsupported("computed object key");
                         return None;
                     };
+                    let key = self.interner.resolve_expect(key.sym()).to_string();
                     let target_name = self.interner.resolve_expect(ident.sym()).to_string();
                     let property_value = self.lower_object_pattern_value_from_value(&init, &key);
                     let value =
                         self.apply_destructuring_default(property_value, default_init.as_ref());
-                    statements.push(self.lower_lexical_binding_value(mode, target_name, value));
+                    let storage_name = storage_names
+                        .and_then(|storage_names| storage_names.get(&target_name))
+                        .cloned();
+                    statements.push(self.lower_lexical_binding_value(
+                        mode,
+                        target_name,
+                        ident.span(),
+                        value,
+                        storage_name,
+                    ));
                 }
                 ObjectPatternElement::Pattern { .. }
                 | ObjectPatternElement::RestProperty { .. }
@@ -21089,88 +23274,362 @@ impl<'a> ScriptLowerer<'a> {
         Some(statements)
     }
 
-    fn lower_array_literal_pattern_lexical_binding(
+    fn lower_array_binding_pattern(
         &mut self,
         mode: BindingMode,
         bindings: &[ArrayPatternElement],
-        array: &ArrayLiteral,
-    ) -> Option<Vec<StatementIr>> {
-        let mut statements = Vec::new();
-        let mut index = 0usize;
+        storage_names: Option<&BTreeMap<String, String>>,
+    ) -> Option<ArrayDestructuringPatternIr> {
+        let mut elements = Vec::with_capacity(bindings.len());
         for binding in bindings {
-            match binding {
-                ArrayPatternElement::Elision => {
-                    index += 1;
-                }
+            let element = match binding {
+                ArrayPatternElement::Elision => ArrayDestructuringElementIr::Elision,
                 ArrayPatternElement::SingleName {
                     ident,
                     default_init,
                 } => {
-                    let name = self.interner.resolve_expect(ident.sym()).to_string();
-                    let element_value = self.lower_array_literal_pattern_value(array, index);
-                    let value =
-                        self.apply_destructuring_default(element_value, default_init.as_ref());
-                    statements.push(self.lower_lexical_binding_value(mode, name, value));
-                    index += 1;
+                    let default = default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default));
+                    let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+                    let storage_name = storage_names
+                        .and_then(|storage_names| storage_names.get(&source_name))
+                        .cloned()
+                        .or_else(|| {
+                            (mode == BindingMode::Var)
+                                .then(|| self.lookup_binding(&source_name))
+                                .flatten()
+                                .map(|binding| binding.storage_name)
+                        })
+                        .unwrap_or_else(|| {
+                            self.direct_lexical_storage_name(&source_name, ident.span())
+                        });
+                    self.clear_tdz_binding(&source_name);
+                    self.declare_binding(
+                        source_name,
+                        BindingInfo {
+                            mode,
+                            storage_name: storage_name.clone(),
+                            kind: ValueKind::Dynamic,
+                            possible_kinds: KindSet::all_runtime_tags(),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        },
+                    );
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::Binding {
+                            mode,
+                            name: storage_name,
+                        },
+                        default,
+                    }
                 }
-                ArrayPatternElement::Pattern { .. }
-                | ArrayPatternElement::SingleNameRest { .. }
-                | ArrayPatternElement::PropertyAccess { .. }
-                | ArrayPatternElement::PropertyAccessRest { .. }
-                | ArrayPatternElement::PatternRest { .. } => {
-                    self.unsupported("destructuring binding");
+                ArrayPatternElement::SingleNameRest { ident } => {
+                    let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+                    let storage_name = storage_names
+                        .and_then(|storage_names| storage_names.get(&source_name))
+                        .cloned()
+                        .or_else(|| {
+                            (mode == BindingMode::Var)
+                                .then(|| self.lookup_binding(&source_name))
+                                .flatten()
+                                .map(|binding| binding.storage_name)
+                        })
+                        .unwrap_or_else(|| {
+                            self.direct_lexical_storage_name(&source_name, ident.span())
+                        });
+                    self.clear_tdz_binding(&source_name);
+                    self.declare_binding(
+                        source_name,
+                        BindingInfo {
+                            mode,
+                            storage_name: storage_name.clone(),
+                            kind: ValueKind::Array,
+                            possible_kinds: KindSet::from_kind(ValueKind::Array),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        },
+                    );
+                    ArrayDestructuringElementIr::Rest {
+                        target: DestructuringTargetIr::Binding {
+                            mode,
+                            name: storage_name,
+                        },
+                    }
+                }
+                ArrayPatternElement::Pattern {
+                    pattern,
+                    default_init,
+                } => {
+                    let default = default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default));
+                    let Pattern::Array(pattern) = pattern else {
+                        self.unsupported("nested object destructuring binding");
+                        return None;
+                    };
+                    let nested =
+                        self.lower_array_binding_pattern(mode, pattern.bindings(), storage_names)?;
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::NestedArray(Box::new(nested)),
+                        default,
+                    }
+                }
+                ArrayPatternElement::PatternRest { pattern } => {
+                    let Pattern::Array(pattern) = pattern else {
+                        self.unsupported("nested object destructuring binding");
+                        return None;
+                    };
+                    let nested =
+                        self.lower_array_binding_pattern(mode, pattern.bindings(), storage_names)?;
+                    ArrayDestructuringElementIr::Rest {
+                        target: DestructuringTargetIr::NestedArray(Box::new(nested)),
+                    }
+                }
+                ArrayPatternElement::PropertyAccess { .. }
+                | ArrayPatternElement::PropertyAccessRest { .. } => {
+                    self.unsupported("assignment target in binding pattern");
                     return None;
                 }
-            }
+            };
+            elements.push(element);
         }
-        Some(statements)
+        Some(ArrayDestructuringPatternIr { elements })
     }
 
-    fn lower_object_literal_pattern_lexical_binding(
+    fn lower_array_assignment_pattern(
         &mut self,
-        mode: BindingMode,
+        bindings: &[ArrayPatternElement],
+    ) -> Option<ArrayDestructuringPatternIr> {
+        let mut elements = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let element = match binding {
+                ArrayPatternElement::Elision => ArrayDestructuringElementIr::Elision,
+                ArrayPatternElement::SingleName {
+                    ident,
+                    default_init,
+                } => ArrayDestructuringElementIr::Target {
+                    target: self.lower_array_assignment_identifier_target(*ident)?,
+                    default: default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default)),
+                },
+                ArrayPatternElement::PropertyAccess {
+                    access,
+                    default_init,
+                } => ArrayDestructuringElementIr::Target {
+                    target: self.lower_array_assignment_property_target(access)?,
+                    default: default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default)),
+                },
+                ArrayPatternElement::Pattern {
+                    pattern,
+                    default_init,
+                } => {
+                    let Pattern::Array(pattern) = pattern else {
+                        self.unsupported("nested object destructuring assignment");
+                        return None;
+                    };
+                    let nested = self.lower_array_assignment_pattern(pattern.bindings())?;
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::NestedArray(Box::new(nested)),
+                        default: default_init
+                            .as_ref()
+                            .map(|default| self.lower_expression(default)),
+                    }
+                }
+                ArrayPatternElement::SingleNameRest { ident } => {
+                    ArrayDestructuringElementIr::Rest {
+                        target: self.lower_array_assignment_identifier_target(*ident)?,
+                    }
+                }
+                ArrayPatternElement::PropertyAccessRest { access } => {
+                    ArrayDestructuringElementIr::Rest {
+                        target: self.lower_array_assignment_property_target(access)?,
+                    }
+                }
+                ArrayPatternElement::PatternRest { pattern } => {
+                    let Pattern::Array(pattern) = pattern else {
+                        self.unsupported("nested object destructuring assignment");
+                        return None;
+                    };
+                    ArrayDestructuringElementIr::Rest {
+                        target: DestructuringTargetIr::NestedArray(Box::new(
+                            self.lower_array_assignment_pattern(pattern.bindings())?,
+                        )),
+                    }
+                }
+            };
+            elements.push(element);
+        }
+        Some(ArrayDestructuringPatternIr { elements })
+    }
+
+    fn lower_object_assignment_pattern(
+        &mut self,
         bindings: &[ObjectPatternElement],
-        object: &ObjectLiteral,
-    ) -> Option<Vec<StatementIr>> {
-        let mut statements = Vec::new();
+    ) -> Option<ObjectDestructuringPatternIr> {
+        let mut properties = Vec::with_capacity(bindings.len());
+        let mut rest = None;
         for binding in bindings {
             match binding {
                 ObjectPatternElement::SingleName {
                     name,
                     ident,
                     default_init,
-                } => {
-                    let Some(key) = self.property_name_to_static_key(name) else {
-                        self.unsupported("computed object key");
-                        return None;
-                    };
-                    let target_name = self.interner.resolve_expect(ident.sym()).to_string();
-                    let property_value = self.lower_object_literal_pattern_value(object, &key);
-                    let value =
-                        self.apply_destructuring_default(property_value, default_init.as_ref());
-                    statements.push(self.lower_lexical_binding_value(mode, target_name, value));
+                } => properties.push(ObjectDestructuringPropertyIr {
+                    key: self.lower_object_destructuring_property_key(name),
+                    target: self.lower_array_assignment_identifier_target(*ident)?,
+                    default: default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default)),
+                }),
+                ObjectPatternElement::AssignmentPropertyAccess {
+                    name,
+                    access,
+                    default_init,
+                } => properties.push(ObjectDestructuringPropertyIr {
+                    key: self.lower_object_destructuring_property_key(name),
+                    target: self.lower_array_assignment_property_target(access)?,
+                    default: default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default)),
+                }),
+                ObjectPatternElement::RestProperty { ident } => {
+                    rest = Some(self.lower_array_assignment_identifier_target(*ident)?);
                 }
-                ObjectPatternElement::Pattern { .. }
-                | ObjectPatternElement::RestProperty { .. }
-                | ObjectPatternElement::AssignmentPropertyAccess { .. }
-                | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => {
-                    self.unsupported("destructuring binding");
+                ObjectPatternElement::AssignmentRestPropertyAccess { access } => {
+                    rest = Some(self.lower_array_assignment_property_target(access)?);
+                }
+                ObjectPatternElement::Pattern { .. } => {
+                    self.unsupported("nested object destructuring assignment");
                     return None;
                 }
             }
         }
-        Some(statements)
+        Some(ObjectDestructuringPatternIr { properties, rest })
+    }
+
+    fn lower_object_destructuring_property_key(
+        &mut self,
+        name: &PropertyName,
+    ) -> DestructuringPropertyKeyIr {
+        match name {
+            PropertyName::Literal(name) => DestructuringPropertyKeyIr::Static(
+                self.interner.resolve_expect(name.sym()).to_string(),
+            ),
+            PropertyName::Computed(expression) => {
+                DestructuringPropertyKeyIr::Computed(self.lower_expression(expression))
+            }
+        }
+    }
+
+    fn lower_array_assignment_identifier_target(
+        &mut self,
+        ident: boa_ast::expression::Identifier,
+    ) -> Option<DestructuringTargetIr> {
+        let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+        if let Some(binding) = self.lookup_binding(&source_name) {
+            let immutable = binding.mode == BindingMode::Const;
+            let storage_name = binding.storage_name;
+            if !immutable {
+                self.set_binding_value_info(
+                    &source_name,
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                );
+            }
+            return Some(DestructuringTargetIr::AssignmentIdentifier {
+                name: storage_name,
+                global: false,
+                implicit: false,
+                immutable,
+            });
+        }
+
+        let implicit = !self.global_property_is_proven_present(&source_name);
+        self.set_global_property_value_info_with_source(
+            source_name.clone(),
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            if implicit {
+                GlobalPropertySource::ImplicitGlobalWrite
+            } else {
+                GlobalPropertySource::GlobalWrite
+            },
+        );
+        Some(DestructuringTargetIr::AssignmentIdentifier {
+            name: source_name,
+            global: true,
+            implicit,
+            immutable: false,
+        })
+    }
+
+    fn lower_array_assignment_property_target(
+        &mut self,
+        access: &PropertyAccess,
+    ) -> Option<DestructuringTargetIr> {
+        if let PropertyAccess::Private(access) = access {
+            let Some(private_name_id) = self.current_private_name_id(access.field()) else {
+                self.unsupported("private class element");
+                return None;
+            };
+            return Some(DestructuringTargetIr::AssignmentPrivate {
+                target: self.lower_property_target(access.target()),
+                private_name_id,
+            });
+        }
+        let PropertyAccess::Simple(access) = access else {
+            self.unsupported("property assignment target");
+            return None;
+        };
+        let target = self.lower_property_target(access.target());
+        if !matches!(
+            target.kind,
+            ValueKind::Object
+                | ValueKind::Array
+                | ValueKind::Function
+                | ValueKind::Arguments
+                | ValueKind::Dynamic
+                | ValueKind::Undefined
+        ) {
+            self.unsupported("property access on non-object target");
+            return None;
+        }
+        let key = match access.field() {
+            PropertyAccessField::Const(name) => DestructuringPropertyKeyIr::Static(
+                self.interner.resolve_expect(name.sym()).to_string(),
+            ),
+            PropertyAccessField::Expr(expression) => {
+                DestructuringPropertyKeyIr::Computed(self.lower_expression(expression))
+            }
+        };
+        Some(DestructuringTargetIr::AssignmentProperty { target, key })
     }
 
     fn lower_lexical_binding_value(
         &mut self,
         mode: BindingMode,
         name: String,
+        span: boa_ast::Span,
         init: TypedExpr,
+        storage_name: Option<String>,
     ) -> StatementIr {
         self.static_string_bindings.remove(&name);
         self.static_to_string_regexp_object_bindings.remove(&name);
-        let storage_name = self.lexical_storage_name(&name);
+        let storage_name =
+            storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
+        self.clear_tdz_binding(&name);
         self.declare_binding(
             name.clone(),
             BindingInfo {
@@ -21187,139 +23646,6 @@ impl<'a> ScriptLowerer<'a> {
             name: storage_name,
             init,
         }
-    }
-
-    fn lower_array_literal_pattern_assign(
-        &mut self,
-        bindings: &[ArrayPatternElement],
-        array: &ArrayLiteral,
-    ) -> TypedExpr {
-        let mut assignments = Vec::new();
-        let mut index = 0usize;
-        for binding in bindings {
-            match binding {
-                ArrayPatternElement::Elision => {
-                    index += 1;
-                }
-                ArrayPatternElement::SingleName {
-                    ident,
-                    default_init,
-                } => {
-                    let name = self.interner.resolve_expect(ident.sym()).to_string();
-                    let element_value = self.lower_array_literal_pattern_value(array, index);
-                    let value =
-                        self.apply_destructuring_default(element_value, default_init.as_ref());
-                    assignments.push(self.lower_identifier_assign_value(name, value));
-                    index += 1;
-                }
-                ArrayPatternElement::PropertyAccess {
-                    access,
-                    default_init,
-                } => {
-                    let element_value = self.lower_array_literal_pattern_value(array, index);
-                    let value =
-                        self.apply_destructuring_default(element_value, default_init.as_ref());
-                    assignments.push(self.lower_property_assign_value(access, value));
-                    index += 1;
-                }
-                ArrayPatternElement::Pattern { .. }
-                | ArrayPatternElement::SingleNameRest { .. }
-                | ArrayPatternElement::PropertyAccessRest { .. }
-                | ArrayPatternElement::PatternRest { .. } => {
-                    return self.unsupported_expr("non-identifier assignment target");
-                }
-            }
-        }
-        self.sequence_assignment_exprs(assignments)
-    }
-
-    fn lower_object_literal_pattern_assign(
-        &mut self,
-        bindings: &[ObjectPatternElement],
-        object: &ObjectLiteral,
-    ) -> TypedExpr {
-        let mut assignments = Vec::new();
-        for binding in bindings {
-            match binding {
-                ObjectPatternElement::SingleName {
-                    name,
-                    ident,
-                    default_init,
-                } => {
-                    let Some(key) = self.property_name_to_static_key(name) else {
-                        return self.unsupported_expr("computed object key");
-                    };
-                    let target_name = self.interner.resolve_expect(ident.sym()).to_string();
-                    let property_value = self.lower_object_literal_pattern_value(object, &key);
-                    let value =
-                        self.apply_destructuring_default(property_value, default_init.as_ref());
-                    assignments.push(self.lower_identifier_assign_value(target_name, value));
-                }
-                ObjectPatternElement::AssignmentPropertyAccess {
-                    name,
-                    access,
-                    default_init,
-                } => {
-                    let Some(key) = self.property_name_to_static_key(name) else {
-                        return self.unsupported_expr("computed object key");
-                    };
-                    let property_value = self.lower_object_literal_pattern_value(object, &key);
-                    let value =
-                        self.apply_destructuring_default(property_value, default_init.as_ref());
-                    assignments.push(self.lower_property_assign_value(access, value));
-                }
-                ObjectPatternElement::Pattern { .. }
-                | ObjectPatternElement::RestProperty { .. }
-                | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => {
-                    return self.unsupported_expr("non-identifier assignment target");
-                }
-            }
-        }
-        self.sequence_assignment_exprs(assignments)
-    }
-
-    fn lower_array_literal_pattern_value(
-        &mut self,
-        array: &ArrayLiteral,
-        index: usize,
-    ) -> TypedExpr {
-        match array.as_ref().get(index).and_then(Option::as_ref) {
-            Some(Expression::Spread(_)) => self.unsupported_expr("array literal spread"),
-            Some(expression) => self.lower_expression(expression),
-            None => TypedExpr::undefined(),
-        }
-    }
-
-    fn lower_object_literal_pattern_value(
-        &mut self,
-        object: &ObjectLiteral,
-        wanted_key: &str,
-    ) -> TypedExpr {
-        for property in object.properties() {
-            match property {
-                PropertyDefinition::Property(name, value) => {
-                    if self
-                        .property_name_to_static_key(name)
-                        .as_deref()
-                        .is_some_and(|key| key == wanted_key)
-                    {
-                        return self.lower_expression(value);
-                    }
-                }
-                PropertyDefinition::IdentifierReference(identifier) => {
-                    let key = self.interner.resolve_expect(identifier.sym()).to_string();
-                    if key == wanted_key {
-                        return self.lower_expression(&Expression::Identifier(*identifier));
-                    }
-                }
-                PropertyDefinition::MethodDefinition(_)
-                | PropertyDefinition::CoverInitializedName(_, _)
-                | PropertyDefinition::SpreadObject(_) => {
-                    return self.unsupported_expr("object literal pattern assignment");
-                }
-            }
-        }
-        TypedExpr::undefined()
     }
 
     fn lower_object_pattern_value_from_value(&self, target: &TypedExpr, key: &str) -> TypedExpr {
@@ -21376,28 +23702,24 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn sequence_assignment_exprs(&mut self, mut assignments: Vec<TypedExpr>) -> TypedExpr {
-        let Some(mut expr) = assignments.pop() else {
-            return TypedExpr::undefined();
-        };
-        while let Some(lhs) = assignments.pop() {
-            let info = self.merge_value_infos(lhs.value_info(), expr.value_info());
-            expr = TypedExpr::from_info(
-                info,
-                ExprIr::Comma {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(expr),
-                },
-            );
-        }
-        expr
-    }
-
     fn lower_property_assign_value(
         &mut self,
         access: &PropertyAccess,
         value: TypedExpr,
     ) -> TypedExpr {
+        if let PropertyAccess::Private(access) = access {
+            let Some(private_name_id) = self.current_private_name_id(access.field()) else {
+                return self.unsupported_expr("private class element");
+            };
+            return TypedExpr::from_info(
+                value.value_info(),
+                ExprIr::PrivateWrite {
+                    target: Box::new(self.lower_property_target(access.target())),
+                    private_name_id,
+                    value: Box::new(value),
+                },
+            );
+        }
         let PropertyAccess::Simple(access) = access else {
             return self.unsupported_expr("property assignment target");
         };
@@ -21643,10 +23965,6 @@ impl<'a> ScriptLowerer<'a> {
                         let key = match access.field() {
                             PropertyAccessField::Const(name) => {
                                 let name = self.interner.resolve_expect(name.sym()).to_string();
-                                if name != "length" {
-                                    return self
-                                        .unsupported_expr("unsupported arguments dot access");
-                                }
                                 PropertyKeyIr::StaticString(name)
                             }
                             PropertyAccessField::Expr(expr) => {
@@ -21758,7 +24076,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             PropertyAccess::Private(access) => {
-                let Some(binding) = self.current_private_binding(access.field()) else {
+                let Some(private_name_id) = self.current_private_name_id(access.field()) else {
                     return self.unsupported_expr("private class element");
                 };
                 let target = self.lower_property_target(access.target());
@@ -21767,7 +24085,7 @@ impl<'a> ScriptLowerer<'a> {
                     value.value_info(),
                     ExprIr::PrivateWrite {
                         target: Box::new(target),
-                        private_name_id: binding.private_name_id,
+                        private_name_id,
                         value: Box::new(value),
                     },
                 )
@@ -21797,9 +24115,6 @@ impl<'a> ScriptLowerer<'a> {
         }
         if let UpdateTarget::PropertyAccess(access) = target {
             let read = self.lower_property_access(access);
-            let ExprIr::PropertyRead { target, key } = read.expr else {
-                return self.unsupported_expr("property update target");
-            };
             let value_kind = if read
                 .possible_kinds
                 .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
@@ -21813,6 +24128,28 @@ impl<'a> ScriptLowerer<'a> {
                 UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
                 UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
                 UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+            };
+            let (target, key) = match read.expr {
+                ExprIr::PropertyRead { target, key } => (target, key),
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::Get | SpecOperationIr::GetV,
+                    mut operands,
+                } if operands.len() == 2 => {
+                    let property_key = operands.pop().expect("GetV property key operand");
+                    let target = operands.pop().expect("GetV target operand");
+                    let key = match property_key.expr {
+                        ExprIr::String(key) => PropertyKeyIr::StaticString(key),
+                        _ if property_key
+                            .possible_kinds
+                            .is_subset_of(KindSet::from_kind(ValueKind::String)) =>
+                        {
+                            PropertyKeyIr::StringExpr(Box::new(property_key))
+                        }
+                        _ => return self.unsupported_expr("property update key"),
+                    };
+                    (Box::new(target), key)
+                }
+                _ => return self.unsupported_expr("property update target"),
             };
             return TypedExpr::from_info(
                 ValueInfo::new(value_kind),
@@ -21830,36 +24167,46 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        let (is_binding, update_kind) = if let Some(binding) = self.lookup_binding(&name) {
+        let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
+        {
             if binding.mode == BindingMode::Const {
                 return self.unsupported_expr("update of const binding");
             }
-            let update_kind = if matches!(binding.kind, ValueKind::BigInt) {
+            let update_kind = if binding
+                .possible_kinds
+                .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+            {
                 ValueKind::BigInt
-            } else if matches!(binding.kind, ValueKind::Number | ValueKind::Undefined)
-                || binding.possible_kinds.contains(ValueKind::Number)
+            } else if binding
+                .possible_kinds
+                .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
             {
                 ValueKind::Number
             } else {
-                return self.unsupported_expr("numeric update on non-number binding");
+                ValueKind::Dynamic
             };
+            let storage_name = binding.storage_name.clone();
             self.set_binding_value_info(&name, ValueInfo::new(update_kind));
-            (true, update_kind)
+            (Some(storage_name), update_kind)
         } else if let Some(info) = self.lookup_global_property_info(&name) {
             if info.proven_present {
-                let update_kind = if matches!(info.value_info.kind, ValueKind::BigInt) {
+                let update_kind = if info
+                    .value_info
+                    .possible_kinds
+                    .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+                {
                     ValueKind::BigInt
-                } else if matches!(
-                    info.value_info.kind,
-                    ValueKind::Number | ValueKind::Undefined
-                ) || info.value_info.possible_kinds.contains(ValueKind::Number)
+                } else if info
+                    .value_info
+                    .possible_kinds
+                    .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
                 {
                     ValueKind::Number
                 } else {
-                    return self.unsupported_expr("numeric update on non-number binding");
+                    ValueKind::Dynamic
                 };
                 self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
-                (false, update_kind)
+                (None, update_kind)
             } else {
                 self.unsupported_with_message(format!(
                     "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
@@ -21884,9 +24231,9 @@ impl<'a> ScriptLowerer<'a> {
 
         TypedExpr::from_info(
             ValueInfo::new(update_kind),
-            if is_binding {
+            if let Some(storage_name) = binding_storage_name {
                 ExprIr::UpdateIdentifier {
-                    name,
+                    name: storage_name,
                     op,
                     return_mode,
                     value_kind: update_kind,
@@ -22078,19 +24425,6 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 let lhs_primitive = self.to_primitive_info(&lhs, ToPrimitiveHint::Default);
                 let rhs_primitive = self.to_primitive_info(&rhs, ToPrimitiveHint::Default);
-                let string_or_number = KindSet::from_kind(ValueKind::String)
-                    .union(KindSet::from_kind(ValueKind::Number));
-                if matches!(
-                    lhs.expr,
-                    ExprIr::Identifier(_) | ExprIr::GlobalPropertyRead { .. }
-                ) && lhs.possible_kinds == string_or_number
-                    || matches!(
-                        rhs.expr,
-                        ExprIr::Identifier(_) | ExprIr::GlobalPropertyRead { .. }
-                    ) && rhs.possible_kinds == string_or_number
-                {
-                    return self.unsupported_expr("string or coercive `+`");
-                }
                 let lhs_proves_string = lhs
                     .possible_kinds
                     .is_subset_of(KindSet::from_kind(ValueKind::String));
@@ -22984,10 +25318,16 @@ impl<'a> ScriptLowerer<'a> {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 match name.as_str() {
                     "undefined" | "NaN" | "Infinity" => true,
-                    _ => !self
-                        .capture_value_info(&self.current_owner_id, &name)
-                        .possible_kinds
-                        .contains(excluded),
+                    _ => {
+                        let possible_kinds = self
+                            .lookup_binding(&name)
+                            .map(|binding| binding.possible_kinds)
+                            .unwrap_or_else(|| {
+                                self.capture_value_info(&self.current_owner_id, &name)
+                                    .possible_kinds
+                            });
+                        !possible_kinds.contains(excluded)
+                    }
                 }
             }
             _ => false,
@@ -24173,6 +26513,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             return;
         }
+        let is_nested_global = self.is_nested_script_global_var_name(name);
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.get_mut(name) {
                 let binding_value = ValueInfo {
@@ -24197,6 +26538,7 @@ impl<'a> ScriptLowerer<'a> {
                 return;
             }
         }
+        let mut written_info = None;
         if let Some(binding) = self.var_bindings.get_mut(name) {
             let binding_value = ValueInfo {
                 kind: binding.kind,
@@ -24205,15 +26547,23 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: binding.function_targets.clone(),
             };
             let next = Self::apply_shape_write(binding_value, path, value.clone());
+            let written = next.clone();
             binding.kind = next.kind;
             binding.possible_kinds = next.possible_kinds;
             binding.heap_shape = next.heap_shape;
             binding.function_targets = next.function_targets;
+            written_info = Some(written);
         }
         if let Some(global) = self.global_properties.get_mut(name) {
             global.value_info = Self::apply_shape_write(global.value_info.clone(), path, value);
             global.proven_present = true;
             global.source = GlobalPropertySource::GlobalWrite;
+            written_info = Some(global.value_info.clone());
+        }
+        if is_nested_global {
+            if let Some(info) = written_info {
+                self.record_nested_script_global_value_info(name, info);
+            }
         }
     }
 
@@ -25330,10 +27680,17 @@ impl<'a> ScriptLowerer<'a> {
                 binding.function_targets = info.function_targets.clone();
                 self.static_string_bindings.remove(name);
                 self.static_to_string_regexp_object_bindings.remove(name);
-                self.record_param_kind(name, info.kind);
                 return Some(());
             }
         }
+        let info = if self.current_owner_id == SCRIPT_OWNER_ID {
+            match self.nested_script_global_value_infos.get(name).cloned() {
+                Some(nested_info) => self.merge_value_infos(info, nested_info),
+                None => info,
+            }
+        } else {
+            info
+        };
         if let Some(binding) = self.var_bindings.get_mut(name) {
             binding.kind = info.kind;
             binding.possible_kinds = info.possible_kinds;
@@ -25346,10 +27703,39 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
+    fn set_owner_binding_value_info(&mut self, name: &str, info: ValueInfo) {
+        if let Some(binding) = self
+            .scopes
+            .first_mut()
+            .and_then(|scope| scope.get_mut(name))
+        {
+            binding.kind = info.kind;
+            binding.possible_kinds = info.possible_kinds;
+            binding.heap_shape = info.heap_shape;
+            binding.function_targets = info.function_targets;
+            return;
+        }
+        if let Some(binding) = self.var_bindings.get_mut(name) {
+            binding.kind = info.kind;
+            binding.possible_kinds = info.possible_kinds;
+            binding.heap_shape = info.heap_shape;
+            binding.function_targets = info.function_targets;
+            return;
+        }
+        self.unsupported_with_message(format!(
+            "unsupported in porffor wasm-aot first slice: Annex B declaration `{name}` has no owner variable binding"
+        ));
+    }
+
     fn coerce_expr_to_number(&mut self, mut expr: TypedExpr) -> Option<TypedExpr> {
         if expr.possible_kinds == KindSet::from_kind(ValueKind::Number) {
             expr.kind = ValueKind::Number;
             return Some(expr);
+        }
+        if expr.possible_kinds.contains(ValueKind::BigInt)
+            || expr.possible_kinds.contains(ValueKind::Symbol)
+        {
+            return None;
         }
         if expr.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
             expr.kind = ValueKind::Number;
@@ -25476,6 +27862,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             return ValueInfo::undefined();
         }
+        if let Some(info) = self.class_name_binding_value_info_by_storage_name(name) {
+            return info;
+        }
         let Some(owner) = self.analysis.owner_plans.get(owner_id) else {
             return ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -25514,6 +27903,26 @@ impl<'a> ScriptLowerer<'a> {
             heap_shape: None,
             function_targets: BTreeSet::new(),
         }
+    }
+
+    fn class_name_binding_value_info_by_storage_name(
+        &self,
+        storage_name: &str,
+    ) -> Option<ValueInfo> {
+        if !is_class_name_binding_storage_name(storage_name) {
+            return None;
+        }
+        self.scopes
+            .iter()
+            .rev()
+            .flat_map(BTreeMap::values)
+            .find(|binding| binding.storage_name == storage_name)
+            .map(|binding| ValueInfo {
+                kind: binding.kind,
+                possible_kinds: binding.possible_kinds,
+                heap_shape: binding.heap_shape.clone(),
+                function_targets: binding.function_targets.clone(),
+            })
     }
 
     fn capture_parameter_value_info(&self, owner_id: &str, name: &str) -> Option<ValueInfo> {
@@ -25808,6 +28217,9 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: BTreeSet::new(),
                 })
             }
+            Expression::RegExpLiteral(_) => Some(Self::value_info_from_shape(Some(
+                Self::regexp_prototype_shape(),
+            ))),
             Expression::New(new_expr) => {
                 match Self::unwrap_parenthesized_expr(new_expr.constructor()) {
                     Expression::Identifier(identifier) => {
@@ -25823,7 +28235,18 @@ impl<'a> ScriptLowerer<'a> {
                             SHARED_ARRAY_BUFFER_NAME => Some(Self::value_info_from_shape(Some(
                                 Self::shared_array_buffer_instance_shape(),
                             ))),
-                            _ => None,
+                            _ => StandardBuiltinId::all_globals()
+                                .iter()
+                                .copied()
+                                .find(|builtin| {
+                                    builtin.global_name() == Some(constructor_name.as_str())
+                                        && Self::is_typed_array_constructor(*builtin)
+                                })
+                                .map(|builtin| {
+                                    Self::value_info_from_shape(Some(
+                                        Self::typed_array_instance_shape_for_constructor(builtin),
+                                    ))
+                                }),
                         }
                     }
                     _ => None,
@@ -25860,7 +28283,8 @@ impl<'a> ScriptLowerer<'a> {
         if Self::is_tdz_binding_storage_name(name) {
             return false;
         }
-        capture.owner_id == SCRIPT_OWNER_ID
+        name == capture.source_name
+            && capture.owner_id == SCRIPT_OWNER_ID
             && self
                 .var_bindings
                 .get(capture.source_name.as_str())
@@ -25868,20 +28292,19 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn generated_owned_env_bindings_for_owner(&self, owner_id: &str) -> Vec<OwnedEnvBindingIr> {
-        self.analysis
+        let owner = self
+            .analysis
             .owner_plans
             .get(owner_id)
-            .map(|owner| {
-                owner
-                    .owned_env_slots
-                    .iter()
-                    .map(|(name, slot)| OwnedEnvBindingIr {
-                        name: name.clone(),
-                        slot: *slot,
-                    })
-                    .collect()
+            .unwrap_or_else(|| panic!("generated function owner `{owner_id}` must be planned"));
+        owner
+            .owned_env_slots
+            .iter()
+            .map(|(name, slot)| OwnedEnvBindingIr {
+                name: name.clone(),
+                slot: *slot,
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     fn generated_captured_bindings_for_owner(&self, owner_id: &str) -> Vec<CapturedBindingIr> {
@@ -25889,19 +28312,24 @@ impl<'a> ScriptLowerer<'a> {
             .analysis
             .owner_plans
             .get(owner_id)
-            .map(|owner| owner.root_bindings.clone())
-            .unwrap_or_default();
+            .unwrap_or_else(|| panic!("generated function owner `{owner_id}` must be planned"))
+            .root_bindings
+            .clone();
         self.analysis
             .owner_free_refs
             .get(owner_id)
-            .into_iter()
-            .flat_map(|refs| refs.keys())
-            .filter(|name| !local_bindings.contains(*name))
-            .filter_map(|name| {
-                let capture_owner_id = self.resolve_generated_capture_owner(owner_id, name)?;
-                let owner = self.analysis.owner_plans.get(&capture_owner_id)?;
-                let slot = *owner.owned_env_slots.get(name)?;
-                if capture_owner_id == SCRIPT_OWNER_ID
+            .unwrap_or_else(|| {
+                panic!("generated function owner `{owner_id}` must have finalized references")
+            })
+            .iter()
+            .filter(|(name, _)| !local_bindings.contains(*name))
+            .filter_map(|(name, source_name)| {
+                let environment_id = self.resolve_generated_capture_environment(owner_id, name)?;
+                let environment = self.analysis.environment_plans.get(&environment_id)?;
+                let capture_owner_id = environment.owner_id.clone();
+                let slot = *environment.owned_env_slots.get(name)?;
+                if name == source_name
+                    && capture_owner_id == SCRIPT_OWNER_ID
                     && self
                         .var_bindings
                         .get(name)
@@ -25911,70 +28339,99 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 Some(CapturedBindingIr {
                     name: name.clone(),
+                    source_name: source_name.clone(),
+                    mode: *environment.binding_modes.get(name).expect(
+                        "generated capture mode must be planned on its physical environment",
+                    ),
                     slot,
-                    hops: self.generated_capture_hops(owner_id, &capture_owner_id),
+                    hops: self.generated_capture_hops(owner_id, environment_id),
                 })
             })
             .collect()
     }
 
-    fn resolve_generated_capture_owner(&self, start_owner_id: &str, name: &str) -> Option<String> {
-        let mut owner_id = self
-            .analysis
-            .owner_plans
-            .get(start_owner_id)?
-            .parent_owner_id
-            .clone();
-        while let Some(current) = owner_id {
-            let owner = self.analysis.owner_plans.get(&current)?;
-            if owner.root_bindings.contains(name) {
-                return Some(current);
+    fn resolve_generated_capture_environment(
+        &self,
+        owner_id: &str,
+        name: &str,
+    ) -> Option<EnvironmentId> {
+        let mut cursor = Some(
+            self.analysis
+                .owner_plans
+                .get(owner_id)?
+                .definition_environment_cursor
+                .clone(),
+        );
+        while let Some(current) = cursor {
+            let environment = self
+                .analysis
+                .environment_plans
+                .get(&current.environment_id)?;
+            if self
+                .analysis
+                .physical_binding_environments
+                .get(name)
+                .is_some_and(|environments| environments.contains(&environment.id))
+            {
+                return Some(
+                    if self
+                        .analysis
+                        .materialized_environment(environment.id)
+                        .is_some()
+                    {
+                        environment.id
+                    } else {
+                        self.analysis.owner_plans[&environment.owner_id].activation_environment_id
+                    },
+                );
             }
-            owner_id = owner.parent_owner_id.clone();
+            cursor = environment.parent_cursor.clone();
         }
         None
     }
 
-    fn generated_capture_hops(&self, current_owner_id: &str, target_owner_id: &str) -> u32 {
+    fn generated_capture_hops(
+        &self,
+        current_owner_id: &str,
+        target_environment_id: EnvironmentId,
+    ) -> u32 {
+        let owner = self
+            .analysis
+            .owner_plans
+            .get(current_owner_id)
+            .expect("generated function owner must be planned");
+        let activation = &self.analysis.environment_plans[&owner.activation_environment_id];
+        let mut cursor = if activation.owned_env_slots.is_empty() {
+            owner
+                .parent_owner_id
+                .as_ref()
+                .map(|_| owner.definition_environment_cursor.clone())
+        } else {
+            Some(EnvironmentCursor {
+                owner_id: current_owner_id.to_string(),
+                environment_id: owner.activation_environment_id,
+            })
+        };
         let mut hops = 0;
-        let mut env_owner = self.generated_effective_env_owner(current_owner_id);
-        while let Some(current) = env_owner {
-            if current == target_owner_id {
-                return hops;
+        while let Some(current) = cursor {
+            let environment = &self.analysis.environment_plans[&current.environment_id];
+            if self.analysis.environment_has_runtime_storage(environment) {
+                if environment.id == target_environment_id {
+                    return hops;
+                }
+                hops += 1;
             }
-            env_owner = self.generated_next_env_owner(&current);
-            hops += 1;
+            cursor = if environment.kind == EnvironmentKind::Activation {
+                let activation_owner = &self.analysis.owner_plans[&environment.owner_id];
+                activation_owner
+                    .parent_owner_id
+                    .as_ref()
+                    .map(|_| activation_owner.definition_environment_cursor.clone())
+            } else {
+                environment.parent_cursor.clone()
+            };
         }
-        0
-    }
-
-    fn generated_effective_env_owner(&self, owner_id: &str) -> Option<String> {
-        let mut current = Some(owner_id.to_string());
-        while let Some(owner_id) = current {
-            let owner = self.analysis.owner_plans.get(&owner_id)?;
-            if !owner.owned_env_slots.is_empty() {
-                return Some(owner_id);
-            }
-            current = owner.parent_owner_id.clone();
-        }
-        None
-    }
-
-    fn generated_next_env_owner(&self, owner_id: &str) -> Option<String> {
-        let mut current = self
-            .analysis
-            .owner_plans
-            .get(owner_id)?
-            .parent_owner_id
-            .clone();
-        while let Some(parent_id) = current {
-            let owner = self.analysis.owner_plans.get(&parent_id)?;
-            if !owner.owned_env_slots.is_empty() {
-                return Some(parent_id);
-            }
-            current = owner.parent_owner_id.clone();
-        }
-        None
+        panic!("generated capture environment must be reachable from its definition")
     }
 
     fn is_nested_script_global_var_name(&self, name: &str) -> bool {
@@ -26020,18 +28477,89 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     _ => binding_info,
                 };
+                let info = match self.known_nested_script_global_value_infos.get(name) {
+                    Some(nested) => self.merge_value_infos(info, nested.clone()),
+                    None => info,
+                };
                 (name.clone(), info)
             })
             .collect::<Vec<_>>();
         for (name, info) in globals {
-            self.global_properties
-                .entry(name)
-                .or_insert(GlobalPropertyInfo {
+            if let Some(existing_value) = self
+                .global_properties
+                .get(&name)
+                .map(|existing| existing.value_info.clone())
+            {
+                let merged = self.merge_value_infos(existing_value, info);
+                let existing = self
+                    .global_properties
+                    .get_mut(&name)
+                    .expect("global property must still exist");
+                existing.value_info = merged;
+                existing.proven_present = true;
+                continue;
+            }
+            self.global_properties.insert(
+                name,
+                GlobalPropertyInfo {
                     value_info: info,
                     proven_present: true,
                     configurable: false,
                     source: GlobalPropertySource::GlobalWrite,
-                });
+                },
+            );
+        }
+    }
+
+    fn merge_nested_script_global_value_infos(
+        &mut self,
+        nested_globals: &BTreeMap<String, ValueInfo>,
+    ) {
+        let merged_bindings = self
+            .var_bindings
+            .iter()
+            .filter(|(_, binding)| binding.is_script_global)
+            .filter_map(|(name, binding)| {
+                nested_globals.get(name).map(|nested_info| {
+                    (
+                        name.clone(),
+                        self.merge_value_infos(
+                            ValueInfo {
+                                kind: binding.kind,
+                                possible_kinds: binding.possible_kinds,
+                                heap_shape: binding.heap_shape.clone(),
+                                function_targets: binding.function_targets.clone(),
+                            },
+                            nested_info.clone(),
+                        ),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        for (name, merged) in merged_bindings {
+            let binding = self
+                .var_bindings
+                .get_mut(&name)
+                .expect("merged script-global binding must still exist");
+            binding.kind = merged.kind;
+            binding.possible_kinds = merged.possible_kinds;
+            binding.heap_shape = merged.heap_shape;
+            binding.function_targets = merged.function_targets;
+        }
+        for (name, nested_info) in nested_globals {
+            if !self
+                .var_bindings
+                .get(name)
+                .is_some_and(|binding| binding.is_script_global)
+            {
+                continue;
+            }
+            let next = match self.nested_script_global_value_infos.remove(name) {
+                Some(existing) => self.merge_value_infos(existing, nested_info.clone()),
+                None => nested_info.clone(),
+            };
+            self.nested_script_global_value_infos
+                .insert(name.clone(), next);
         }
     }
 
@@ -26302,10 +28830,53 @@ impl<'a> ScriptLowerer<'a> {
 
     fn push_scope(&mut self) {
         self.scopes.push(BTreeMap::new());
+        self.direct_lexical_scopes.push(false);
+        self.tdz_scopes.push(BTreeSet::new());
+    }
+
+    fn push_direct_lexical_scope(&mut self) {
+        self.push_scope();
+        *self
+            .direct_lexical_scopes
+            .last_mut()
+            .expect("scope markers must match scope stack") = true;
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.direct_lexical_scopes.pop();
+        self.tdz_scopes.pop();
+    }
+
+    fn mark_tdz_binding(&mut self, name: &str) {
+        self.tdz_scopes
+            .last_mut()
+            .expect("TDZ scope stack must match binding scope stack")
+            .insert(name.to_string());
+    }
+
+    fn clear_tdz_binding(&mut self, name: &str) {
+        self.tdz_scopes
+            .last_mut()
+            .expect("TDZ scope stack must match binding scope stack")
+            .remove(name);
+    }
+
+    fn is_tdz_binding(&self, name: &str) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .zip(self.tdz_scopes.iter().rev())
+            .find_map(|(bindings, tdz_bindings)| {
+                if tdz_bindings.contains(name) {
+                    Some(true)
+                } else if bindings.contains_key(name) {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false)
     }
 
     fn unsupported_expr(&mut self, feature: &str) -> TypedExpr {

@@ -1,0 +1,81 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12290882451397575142,
+  "run_kind": "full",
+  "total": 5,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "path": "language/arguments-object/unmapped/Symbol.iterator.js",
+      "duration_ms": 8987
+    },
+    {
+      "path": "language/arguments-object/unmapped/via-strict.js",
+      "duration_ms": 6215
+    },
+    {
+      "path": "language/arguments-object/unmapped/via-params-dflt.js",
+      "duration_ms": 5360
+    },
+    {
+      "path": "language/arguments-object/unmapped/via-params-rest.js",
+      "duration_ms": 4832
+    },
+    {
+      "path": "language/arguments-object/unmapped/via-params-dstr.js",
+      "duration_ms": 4569
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/arguments-object/unmapped/via-strict.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@257408)",
+      "detail_hash": 11827803592093073924,
+      "duration_ms": 6215
+    }
+  ],
+  "completed_paths": [
+    "language/arguments-object/unmapped/Symbol.iterator.js",
+    "language/arguments-object/unmapped/via-params-dflt.js",
+    "language/arguments-object/unmapped/via-params-dstr.js",
+    "language/arguments-object/unmapped/via-params-rest.js",
+    "language/arguments-object/unmapped/via-strict.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

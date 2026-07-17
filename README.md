@@ -161,9 +161,11 @@ cargo test -p porffor-cli --quiet
 ```
 
 For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
-checkpoints one node per process and only publishes after verified completion.
-The wrapper inventories the pinned suite once, then reuses that total while it
-polls aggregate completion between nodes:
+checkpoints one node at a time, isolates each case in a reclaimable process,
+uses one compiler job by default, and only publishes after verified completion.
+Set `ISOLATE_CASES=0` or raise `JOBS` and `THREADS` only when more memory is
+available. The wrapper inventories the pinned suite once, then reuses that
+total while it polls aggregate completion between nodes:
 
 ```sh
 ./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
@@ -208,7 +210,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-07-12`:
+Recent focused progress through `2026-07-13`:
 
 - Derived class construction now uses a per-invocation activation for the
   active constructor, `new.target`, initialization status, and `this`.
@@ -280,10 +282,21 @@ Recent focused progress through `2026-07-12`:
   length, separator, and element conversions. Calls copied onto ordinary
   objects and direct calls after aliased `Array.prototype.join` replacement use
   runtime `GetV` plus indirect dispatch instead of an Array-only fast path. The
-  pinned real Test262 `built-ins/Array/prototype/join/` leaf reports `20/23`
-  with zero bugs or crashes as of `2026-07-11`; the remaining three cases are
-  explicitly unsupported resizable-ArrayBuffer tests. Refresh with
-  `./target/debug/porf test262 run 'built-ins/Array/prototype/join/' --execution-backend wasm --timeout-ms 10000 --threads 1`.
+  complete pinned real-Test262 `built-ins/Array/prototype/join` leaf reports
+  `23/23` with no unsupported cases, bugs, or crashes as of `2026-07-15`,
+  including fixed and length-tracking TypedArray views across resizable-buffer
+  growth and shrink during separator coercion. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/join --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `%TypedArray%.prototype.join` is a distinct non-generic Wasm-AOT builtin. It
+  validates the receiver and its initial view before separator coercion,
+  captures the internal typed-array length without observing shadowing
+  `length` accessors, returns empty fields when separator coercion detaches the
+  buffer, formats Number and BigInt elements, and preserves abrupt completion
+  ordering. The complete pinned real-Test262
+  `built-ins/TypedArray/prototype/join` leaf reports `32/32`, with no
+  unsupported cases, bugs, or crashes as of `2026-07-16`. Refresh under the
+  low-RAM settings with
+  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 ./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/join --execution-backend wasm --timeout-ms 60000 --threads 1`.
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
   conversion ordering, comma separator assembly, primitive element string
@@ -328,15 +341,23 @@ Recent focused progress through `2026-07-12`:
   sparse high-index arrays without timing out, omitted-callback TypeErrors,
   freezing `Array.prototype.forEach` while an iteration is active, and generic
   calls on typed arrays backed by resizable ArrayBuffers. The exact real
-  Test262 `built-ins/Array/prototype/forEach/15.4.4.18-7-c-ii-1.js` sparse
-  high-index parameter-consistency case and
-  `built-ins/Array/prototype/forEach/15.4.4.18-8-10.js` subclassed
-  array-prototype reduced-length case are now green under Wasm-AOT.
+  Test262 `built-ins/Array/prototype/forEach` leaf reports `190/190` as of
+  `2026-07-15` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/forEach --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - Generic `Array.prototype.every`, `Array.prototype.some`,
   `Array.prototype.filter`, and `Array.prototype.includes` calls on resizable
   typed arrays cover fixed-length and length-tracking views across shrink/grow,
   mid-iteration resize, fromIndex coercion resize, and `SameValueZero` float
-  comparisons such as `NaN`.
+  comparisons such as `NaN`. The exact real Test262
+  `built-ins/Array/prototype/every` leaf reports `218/218` as of `2026-07-15`
+  under
+  `./target/debug/porf test262 run built-ins/Array/prototype/every --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  The `built-ins/Array/prototype/some` leaf reports `219/219` as of
+  `2026-07-15` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/some --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  The `built-ins/Array/prototype/filter` leaf reports `242/242` as of
+  `2026-07-15` under
+  `./target/debug/porf test262 run built-ins/Array/prototype/filter --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - Generic `Array.prototype.indexOf` now observes `HasProperty` before `Get` for
   sparse and array-like receivers, supports borrowed calls on resizable typed
   arrays including subclass instances, preserves strict equality for special
@@ -392,7 +413,10 @@ Recent focused progress through `2026-07-12`:
   `--execution-backend wasm` with the `60000` ms timeout and one thread. The
   local `wasm_array_find_core.js` fixture also covers function metadata, holes,
   callback parameters, `thisArg`, length snapshots, and typed-array
-  post-shrink `undefined` callback values.
+  post-shrink `undefined` callback values. The complete pinned real-Test262
+  `find` and `findIndex` leaves each report `23/23`, with no unsupported cases,
+  bugs, or crashes as of `2026-07-15`. Refresh a leaf with
+  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.findLast` and `Array.prototype.findLastIndex` are now
   registered Wasm-AOT builtins sharing the find-like callback path with reverse
   length-snapshot traversal. The local `wasm_array_find_last_core.js` fixture
@@ -407,30 +431,52 @@ Recent focused progress through `2026-07-12`:
   `resizable-buffer-grow-mid-iteration.js`, and
   `resizable-buffer-shrink-mid-iteration.js` files for both reverse methods
   now report `1/1` each under `--execution-backend wasm` with the `90000` ms
-  timeout and one thread. The broad
-  `built-ins/Array/prototype/find` shard `1/8`, which also includes
-  `findLast`/`findLastIndex` prefix matches, now reports `12/12` under
-  `--execution-backend wasm --timeout-ms 90000 --threads 4`.
+  timeout and one thread. The complete pinned real-Test262 `findLast` and
+  `findLastIndex` leaves each report `24/24`, with no unsupported cases, bugs,
+  or crashes as of `2026-07-15`. Refresh a leaf with
+  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.reduce` and `Array.prototype.reduceRight` are registered
   Wasm-AOT builtins with generic `LengthOfArrayLike`, length snapshots,
   directional `HasProperty`/`Get` traversal, inherited and accessor-backed
   indexes, exact callback arguments and abrupt completion propagation,
   initial-value and empty-input semantics, Array instances used as prototypes,
   and fixed-length or length-tracking typed-array views across resizable-buffer
-  grow and shrink. The combined pinned real-Test262 prefix sweep reports
-  `520/520` as of `2026-07-10` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/reduce --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  grow and shrink. The complete pinned real-Test262 leaves report `260/260`
+  for each method, `520/520` combined, with no unsupported cases, bugs, or
+  crashes as of `2026-07-16`. Refresh either leaf within a 4 GiB task-memory
+  cap with
+  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 PORFFOR_CACHE_DIR=$HOME/.cache/porffor-test262 systemd-run --user --wait --collect --pipe -p MemoryHigh=3G -p MemoryMax=4G -p MemorySwapMax=8G --working-directory="$PWD" ./target/release/porf --jobs 1 test262 run built-ins/Array/prototype/reduce/ --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1 --snapshot-name array-reduce-current --resume`;
+  replace `reduce` with `reduceRight` for the reverse leaf.
 - Optional chains now have ordered property/call IR and Wasm-AOT lowering for
   dot keys, computed keys, and calls. The implementation evaluates each base,
   key, getter, and argument in spec order; keeps optional arguments lazy;
   preserves the method receiver and strict `this` through direct, grouped, and
   `super` calls; scopes short-circuiting to each contiguous chain segment; and
-  performs primitive property lookup through the live mutable prototype. The
-  pinned real-Test262 `language/expressions/optional-chaining` leaf reports
-  `29/38` with no bugs or crashes as of `2026-07-11`; the remaining `9` cases
-  are explicit unsupported dynamic-eval, async, tagged-template, or
-  mixed/unrelated feature gaps. Refresh with
+  performs primitive property lookup through the live mutable prototype.
+  Computed reads after the chain's nullish check use the shared dynamic-property
+  dispatcher, keeping repeated optional reads below Wasmtime's per-function
+  compilation limit without evaluating skipped keys. The
+  checked-out real-Test262 `language/expressions/optional-chaining` leaf reports
+  `30/38` with no bugs or crashes as of `2026-07-16`. One remaining case is
+  excluded dynamic `eval`; the other seven are AOT-applicable async/await gaps.
+  Refresh with
   `./target/debug/porf test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- Tagged templates now lower as ordinary calls with preserved member receivers,
+  source-site template-object identity, cooked and raw strings, invalid-escape
+  `undefined` values, and frozen array/property descriptors. The checked-out
+  real-Test262 `language/expressions/tagged-template` leaf reports `21/27` as of
+  `2026-07-16`: all `21` Wasm-AOT-applicable cases pass, including the two
+  strict-mode proper-tail-call cases; the other six cases require excluded
+  dynamic source evaluation. Refresh with
+  `./target/debug/porf test262 run language/expressions/tagged-template --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- Strict-mode proper tail calls use Wasm `return_call` and
+  `return_call_indirect` through the shared callable dispatcher. Tail position
+  is preserved through tagged calls, conditional and comma expressions, and
+  the right-hand side of `&&`, `||`, and `??`; labels may target any statement.
+  All `30` AOT-applicable pinned language tests carrying the
+  `tail-call-optimization` feature pass as of `2026-07-16`. The other four use
+  excluded dynamic `eval`. Refresh the exact cases with
+  `rg -l 'tail-call-optimization' test262/vendor/test262/test/language | sed 's#test262/vendor/test262/test/##' | while read -r test; do ./target/debug/porf test262 run "$test" --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1; done`.
 - `Array.prototype.flat` and `flatMap` now preserve dynamic custom-species
   result tags, avoid exposing typed-array implementation slots through Proxy
   `get` traps, and keep unproven concat/flat result shapes conservative.
@@ -445,6 +491,73 @@ Recent focused progress through `2026-07-12`:
   and the exact `flatMap` leaf reports `24/24`, with no unsupported cases,
   bugs, or crashes as of `2026-07-11`. Refresh with
   `./target/debug/porf test262 run built-ins/Array/prototype/flat --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `Array.prototype.reverse`, `copyWithin`, `toReversed`, `toSpliced`,
+  `toSorted`, and `with` are installed as real Wasm-AOT builtins. The mutating
+  methods preserve holes, inherited properties, proxy-observable operations,
+  overlap direction, and resizable typed-array integer-index behavior; the
+  change-by-copy methods create dense ordinary arrays without consulting
+  species. The complete pinned real-Test262 leaves report `18/18` for
+  `reverse`, `39/39` for `copyWithin`, `17/17` for `toReversed`, `30/30` for
+  `toSpliced`, `21/21` for `toSorted`, and `21/21` for `with` as of
+  `2026-07-15`. Refresh a leaf with
+  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- `Array.prototype.concat` handles species creation, proxies and revoked
+  proxies, sparse and inherited indexes, spreadable Arguments and TypedArray
+  objects, maximum-safe-length rejection, and abrupt getters. Its complete
+  pinned real-Test262 leaf reports `69/69` with no unsupported cases, bugs, or
+  crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/concat --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.slice` preserves sparse and inherited indexes, species
+  construction, proxy-observable operations, and the current integer-index
+  bounds of fixed and length-tracking TypedArrays over resizable buffers. Its
+  complete pinned real-Test262 leaf reports `71/71` with no unsupported cases,
+  bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/slice --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.fill` distinguishes omitted and explicit-`undefined` bounds,
+  preserves observable coercion and write ordering, and writes through the
+  integer-indexed storage of fixed and length-tracking TypedArrays over
+  resizable buffers. Its complete pinned real-Test262 leaf reports `22/22`
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/fill --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.pop` follows the generic `ToObject`/`LengthOfArrayLike`,
+  `Get`, `DeletePropertyOrThrow`, and strict length-update sequence. It handles
+  inherited indexes, primitive receivers, maximum-safe lengths, frozen arrays,
+  and non-writable length properties. Its complete pinned real-Test262 leaf
+  reports `23/23` with no unsupported cases, bugs, or crashes as of
+  `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/pop --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.push` handles generic receivers, primitive boxing,
+  maximum-safe-length rejection, proxy-observable writes, and strict failures
+  for frozen or non-writable targets. Its complete pinned real-Test262 leaf
+  reports `24/24` with no unsupported cases, bugs, or crashes as of
+  `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/push --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.shift` and `Array.prototype.unshift` have complete pinned
+  real-Test262 leaves at `20/20` and `22/22`, respectively, with no unsupported
+  cases, bugs, or crashes as of `2026-07-15`. Refresh a leaf with
+  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype.splice` has a complete pinned real-Test262 leaf at `81/81`,
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/splice --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `Array.prototype.sort` has a complete pinned real-Test262 leaf at `54/54`,
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/sort --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `Array.isArray` has a complete pinned real-Test262 leaf at `29/29`, with no
+  unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/isArray --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.of` passes all `15/15` Wasm-AOT-applicable cases as of `2026-07-15`.
+  The remaining `proto-from-ctor-realm.js` case explicitly constructs source
+  through another Realm's `Function` constructor and is tracked as an excluded
+  dynamic-code-generation case. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/of --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.from` passes all `46/46` Wasm-AOT-applicable cases as of `2026-07-15`.
+  Its remaining `proto-from-ctor-realm.js` case has the same explicit
+  cross-realm `Function`-constructor dependency and is tracked as excluded
+  dynamic code generation. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/from --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- `Array[Symbol.species]` has a complete pinned real-Test262 leaf at `4/4`,
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/Symbol.species --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.includes` now performs the observable generic
   `ToObject`/`LengthOfArrayLike` sequence for every receiver, including
   TypedArrays with own `length` properties, while indexed reads recognize real
@@ -464,6 +577,9 @@ Recent focused progress through `2026-07-12`:
   `Array.prototype.some/callbackfn-resize-arraybuffer.js` cases now use static
   Wasm-AOT materializations that preserve passthrough typed-array constructor
   coverage without timing out in the generic `testTypedArray.js` helper path.
+  The complete pinned real-Test262 `Array.prototype.map` leaf reports `216/216`,
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
+  `./target/debug/porf test262 run built-ins/Array/prototype/map --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - The exact real Test262 `Array.prototype.every/resizable-buffer.js`,
   `Array.prototype.some/resizable-buffer.js`,
   `Array.prototype.filter/resizable-buffer.js`, and
@@ -479,13 +595,18 @@ Recent focused progress through `2026-07-12`:
   `Array.prototype.values` iterators for fixed initial values, a
   length-tracking value after shrink, and the fixed-length out-of-bounds
   `TypeError` branch while staying under the exact-file timeout.
-- The exact real Test262 `Array.prototype.keys/resizable-buffer.js` and
-  `Array.prototype.entries/resizable-buffer.js` files now report `1/1` each as
-  of `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
-  and one thread. These self-contained materializations call the real
-  `Array.prototype.keys`/`entries` iterators on resizable `Uint8Array` views,
-  covering initial fixed-length iteration, length-tracking and offset views
-  after shrink, and out-of-bounds `TypeError` checks for fixed or offset views.
+- The complete pinned real-Test262 `Array.prototype.keys`, `entries`, and
+  `values` leaves each report `12/12`, with no unsupported cases, bugs, or
+  crashes as of `2026-07-15`. Their resizable-buffer cases call the real
+  iterators on `Uint8Array` views, covering initial fixed-length iteration,
+  length-tracking and offset views after shrink, and out-of-bounds `TypeError`
+  checks for fixed or offset views. Refresh a leaf with
+  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+- `Array.prototype[Symbol.iterator]` aliases `values`, and
+  `Array.prototype[Symbol.unscopables]` is the standard null-prototype object
+  with its non-writable, non-enumerable, configurable prototype property. The
+  complete pinned real-Test262 leaves report `1/1` and `4/4`, respectively,
+  with no unsupported cases, bugs, or crashes as of `2026-07-15`.
 - The full `built-ins/Array/prototype/at` leaf now reports `13/13` passing as
   of `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads (`0` unsupported, `0` runtime failures) with
@@ -577,6 +698,57 @@ Recent focused progress through `2026-07-12`:
 - Annex B catch-parameter/`var` redeclaration now keeps the catch parameter
   binding distinct from the outer/global binding in Wasm-AOT, including closure
   captures of the outer binding after the catch block.
+- Annex B single-statement function declarations use the parser's sloppy-mode
+  block rewrite and copy the selected block binding into the synthesized owner
+  binding. Script-created `var` and function properties are writable,
+  enumerable, and non-configurable, and the `fnGlobalObject.js` harness obtains
+  the existing global through `globalThis` without dynamic source generation.
+  The complete exact `annexB/language/function-code/if-` prefix reports `95/95`
+  as of `2026-07-16`. The complete `annexB/language/global-code/if-` prefix
+  reports `85/95`; all ten remaining cases require `$262.evalScript`, so the
+  AOT-applicable subset reports `85/85`. The corresponding function-code
+  `block-decl-` and `switch-` prefixes report `22/22` and `40/40`. Their
+  global-code prefixes report `17/19` and `34/38`; the six remaining cases all
+  require `$262.evalScript`, so those AOT-applicable subsets report `17/17` and
+  `34/34`. Arguments objects now resolve their inherited `toString` method,
+  covering the legacy function declaration named `arguments` case. Together
+  with both function redeclaration cases, the complete function-code directory
+  is `159/159`; the complete global-code directory is `136/153`, with all 17
+  remaining cases classified up front as `$262.evalScript` dynamic source, so
+  its AOT-applicable subset is `136/136`. The Annex B language statements
+  directory reports `13/22`; all nine remaining cases require the
+  `$262.IsHTMLDDA` host object, so its AOT-applicable subset is `13/13`.
+  Annex B comments and literals report `8/8` each. Annex B expressions report
+  `9/26`; all 17 remaining cases require `$262.IsHTMLDDA`, so the
+  AOT-applicable subset is `9/9`. Annex B Date, `escape`, and `unescape` report
+  `24/24`, `16/16`, and `19/19`. The one TypedArray constructor case also
+  passes; the Array and Object cases require `$262.IsHTMLDDA`, while all six
+  Function cases require dynamic Function-constructor source generation, so
+  none of those eight cases are AOT-applicable. Annex B RegExp reports `60/62`;
+  its two remaining cases use `eval`, so its AOT-applicable subset is `60/60`.
+  This includes incomplete non-Unicode `\u` identity escapes, literal
+  lookbehind bodies, and `Symbol.match` getter side effects that recompile a
+  RegExp while constructing the split matcher.
+  Annex B String reports `105/111`; the six remaining cases require
+  `$262.IsHTMLDDA`, so its AOT-applicable subset is `105/105`. Across the
+  complete 241-case Annex B built-ins directory, all 225 AOT-applicable cases
+  pass and the other 16 require `eval`, Function-constructor source generation,
+  or the `$262.IsHTMLDDA` host object.
+  The 469-case Annex B eval-code directory is entirely dynamic `eval` source
+  and is classified up front as unsupported for Wasm AOT. Across the complete
+  1,086-case Annex B tree, all 558 AOT-applicable cases pass; the remaining 528
+  cases require `eval`, `$262.evalScript`, Function-constructor source
+  generation, or the `$262.IsHTMLDDA` host object.
+  The ordinary `built-ins/RegExp/prototype/Symbol.split` leaf reports `43/44`;
+  its only remaining case creates cross-realm source with a Function
+  constructor, so its AOT-applicable subset is `43/43`.
+- Ordinary function declarations now resolve their mutable surrounding binding
+  during recursion instead of creating a new self object per call. Explicitly
+  named function expressions use a private, per-evaluation name environment
+  backpatched to the exact allocated function object, while inferred function
+  names continue to resolve their surrounding binding. Function identity,
+  expandos, reassignment, outer captures, and nested self captures therefore
+  remain observable through the Wasm-AOT path.
 - Global `Infinity`, `NaN`, and `undefined` are installed as non-enumerable,
   non-configurable read-only data properties in Wasm-AOT; sloppy writes are
   ignored, and strict writes to non-writable object data properties throw. The
@@ -1432,6 +1604,27 @@ Recent focused progress through `2026-07-12`:
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
   `./target/debug/porf test262 run built-ins/RegExp/Symbol.species --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- `String.prototype.concat` is now a real generic Wasm-AOT standard builtin:
+  it applies `ToString` to the receiver and every argument in order, supports
+  arbitrary argument counts, and preserves defining-realm TypeErrors for
+  nullish receivers. The full real Test262 leaf reports `22/22` passing as of
+  `2026-07-15` with
+  `./target/debug/porf test262 run built-ins/String/prototype/concat --execution-backend wasm --timeout-ms 180000 --threads 4`.
+- `String.prototype.substring` now treats an explicitly supplied `undefined`
+  end argument as the string length and routes coercion through the standard
+  builtin when an enclosing JavaScript `catch` must observe an abrupt
+  completion. The full real Test262 leaf reports `45/46` passing as of
+  `2026-07-15`; the sole remaining case uses the excluded dynamic `Function`
+  constructor, so the AOT-applicable subset is `45/45`. Refresh with
+  `./target/debug/porf test262 run built-ins/String/prototype/substring --execution-backend wasm --timeout-ms 120000 --threads 4`.
+- Cross-realm `String.prototype.toString` and `valueOf` conformance rewrites now
+  require the defining realm's `TypeError`, matching the original Test262
+  assertions. Primitive-string concat also routes through the real concat
+  builtin so argument `ToString` failures remain catchable. The full real
+  Test262 `toString` and `valueOf` leaves each report `7/7` passing as of
+  `2026-07-15`; refresh with
+  `./target/debug/porf test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`
+  and the corresponding `valueOf` path.
 - Boxed String receivers now keep `String.prototype.split` in the boxed
   prototype metadata used by lowering, so `new String(" ").split("")` and
   `new String("one two three").split("")` reach the direct Wasm-AOT split
@@ -1498,10 +1691,21 @@ Recent focused progress through `2026-07-12`:
   Number receivers; exact real Test262
   `built-ins/String/prototype/split/argument-is-regexp-and-instance-is-number.js`
   reports `1/1` passing as of `2026-06-15` under `--execution-backend wasm`
-  with the `60000` ms timeout. This is focused
-  simple-pattern `String.prototype.split` progress, not a claim that full
-  RegExp split semantics or the full `built-ins/String/prototype/split` leaf is
-  green. `String.prototype.match` now has a Wasm-AOT fallback for primitive
+  with the `60000` ms timeout. Limit coercion now precedes fallback separator
+  string coercion, and throws from that coercion reach an enclosing JavaScript
+  `catch`; literal-space RegExp separators also use an exact-space matcher.
+  `RegExp.prototype[Symbol.split]` now follows the species-constructor,
+  sticky-clone, `RegExpExec`, capture insertion, zero-width advancement, and
+  limit semantics rather than selecting from separator-specific split paths.
+  Its full leaf reports `43/44` as of `2026-07-16`; the sole remaining case
+  constructs source with the explicitly excluded cross-realm `Function`
+  constructor, so the AOT-applicable subset is `43/43`. Refresh with
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.split --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  The full String split leaf reports `118/120` as of `2026-07-16`: the two
+  remaining cases are explicit excluded `eval` dynamic-code-generation cases,
+  so the AOT-applicable subset is `118/118`. Refresh with
+  `./target/debug/porf test262 run built-ins/String/prototype/split --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype.match` now has a Wasm-AOT fallback for primitive
   literal string patterns and boxed/generic receivers: it skips inherited
   `String.prototype[Symbol.match]` on primitive search values, dispatches
   direct and borrowed `String.prototype.match` calls through the receiver
@@ -1598,11 +1802,17 @@ Recent focused progress through `2026-07-12`:
   support now covers this file's Unicode `u`/`v` flag comparisons for the Han
   code point literal, `\p{Script=Han}`, dot matching by UTF-16 code unit versus
   Unicode code point, emoji set notation, and the `x` no-match branch.
-  The full exact `built-ins/String/prototype/match` prefix sweep now reports
-  `76/76` as of `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/String/prototype/match --execution-backend wasm --timeout-ms 60000 --threads 4`.
-  Broader RegExp syntax and full default RegExp-backed `@@match` semantics
-  remain explicit Wasm-AOT unsupported paths.
+  The complete current `built-ins/String/prototype/match` leaf reports `51/51`
+  as of `2026-07-15` under
+  `./target/debug/porf test262 run built-ins/String/prototype/match --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `RegExp.prototype[Symbol.match]` now derives global and Unicode modes from
+  the observable flags string and uses the common `RegExpExec` loop for sticky
+  matching, zero-width advancement, and overridden exec behavior. Empty
+  capturing and non-capturing groups compile to real matcher programs. The
+  complete `built-ins/RegExp/prototype/Symbol.match` leaf reports `53/53` as of
+  `2026-07-15` under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.match --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  Broader RegExp syntax remains an explicit Wasm-AOT unsupported path.
   `RegExp.prototype[Symbol.search]` is now installed as its own Wasm-AOT
   builtin on RegExp prototypes and literals; focused numeric search results
   return UTF-16 code-unit indexes for the same Han/property/dot/emoji-set
@@ -1620,8 +1830,12 @@ Recent focused progress through `2026-07-12`:
   `lastIndex` get/set/restore ordering, strict accessor set failures, sticky
   literal no-match, and the focused Unicode low-surrogate advancement case. The
   full exact `built-ins/RegExp/prototype/Symbol.search` directory now reports
-  `23/23` as of `2026-06-21` under
+  `23/23` as of `2026-07-16` under
   `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.search --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  Named-group programs bypass the literal-only search shortcut and execute
+  through the ordinary `RegExpExec` path; the exact
+  `built-ins/RegExp/named-groups/duplicate-names-search.js` case reports `1/1`
+  as of `2026-07-16`.
   `String.prototype.search` now also follows the internal `RegExpCreate` path
   for string/undefined searchers and invokes the current
   `RegExp.prototype[Symbol.search]`, so the exact Test262
@@ -1669,9 +1883,55 @@ Recent focused progress through `2026-07-12`:
   literals whose source fits the new sequence grammar now also carry a
   backend-neutral, fixed-width matcher program into Wasm: deduplicated,
   aligned programs live in static data and run through one outlined helper.
-  This first program grammar covers exact ASCII atoms plus positive ASCII
-  character classes and ranges while preserving UTF-16 match indices,
-  global/sticky `lastIndex`, strict writes, and intrinsic literal construction.
+  This program grammar covers exact ASCII atoms, positive ASCII character
+  classes/ranges, the exact ASCII `\d`, `\w`, and `\W` escapes, the full
+  ECMAScript `\s` WhiteSpace/LineTerminator set, ordered alternation, and
+  nested numbered captures. It also lowers noncapturing groups, Unicode
+  `RegExpIdentifierName` named captures (including canonical fixed and braced
+  Unicode escapes), legal duplicate names separated by disjunction, and
+  forward or backward named backreferences. Immutable source-ordered
+  name/capture maps live beside each static matcher program; backreferences
+  select the participating duplicate capture and compare exact UTF-16 code
+  units. Positive and negative lookbehind bodies composed from dot or ASCII
+  classes, captures, alternatives, and quantifiers execute in reverse without
+  consuming input; reverse repetition shares the bounded choice-frame arena.
+  The complete exact `built-ins/RegExp/named-groups` directory reports `36/36`
+  as of `2026-07-16` under
+  `./target/debug/porf test262 run built-ins/RegExp/named-groups --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  Non-Unicode dot is also a program opcode with exact UTF-16
+  code-unit behavior: astral scalars expose separate high- and low-surrogate
+  matches, candidate search can begin on either half, and LF, CR, LS, and PS
+  remain excluded. Unicode `u` and Unicode-sets `v` programs instead advance
+  by code point, normalize a `lastIndex` inside a surrogate pair to its lead
+  code unit, and support direct/escaped scalar literals. The first exact
+  property opcode recognizes `ASCII`, its complement, and the complete
+  Unicode 17.0.0 `Script=Han` table generated from the versioned UCD; other
+  properties and `v` character-class syntax remain explicitly unsupported.
+  Ordered `Split`/`Jump` bytecode and invocation-local
+  scratch implement greedy and lazy `?`, `*`, `+`, `{m}`, `{m,}`, and `{m,n}`
+  quantifiers over atoms and capture groups with continuation backtracking;
+  choice frames snapshot capture endpoints, and explicit capture-range clears
+  preserve quantified-group semantics. Static cycle analysis separates
+  one-shot choices from cycle-reentered choices when sizing matcher scratch,
+  rejects compiler-created non-consuming control-flow cycles,
+  and the wrapper materializes capture arrays only after scrubbing and
+  rewinding that scratch. Successful named matches expose source-ordered,
+  null-prototype `groups` objects; the `d` flag also emits numbered `indices`
+  pairs and a distinct null-prototype `indices.groups` object while reusing
+  the selected numbered pair objects. Legacy non-Unicode literal braces remain
+  distinct from real quantifiers.
+  Constant, statically resolved direct global `RegExp(pattern, flags)` calls
+  and `new RegExp(pattern, flags)` expressions attach the same immutable
+  matcher metadata after completing the ordinary call or construction. A
+  runtime intrinsic-identity guard prevents shadowed or reassigned callees
+  from receiving that metadata; unsupported or dynamic arguments keep the
+  generic call or constructor path. The wrapper preserves UTF-16 match indices
+  (including nullable matches that start
+  on an astral scalar's low-surrogate half), global/sticky `lastIndex`, strict
+  writes, and intrinsic literal construction. Its global/sticky strict-write
+  preflight occurs before transient carrier allocation and re-reads
+  `lastIndex` after coercion, preserving callback mutations while preventing a
+  caught non-writable-property error from leaking carrier storage.
   Exact real Test262 `S15.10.6.2_A1_T12.js`,
   `S15.10.6.2_A1_T13.js`, `S15.10.6.2_A1_T15.js`,
   `S15.10.6.2_A1_T16.js`, `S15.10.6.2_A1_T17.js`,
@@ -1683,12 +1943,79 @@ Recent focused progress through `2026-07-12`:
   `S15.10.6.2_A4_T1.js` through
   `S15.10.6.2_A4_T12.js`, `S15.10.6.2_A5_T1.js` through
   `S15.10.6.2_A5_T3.js`, `name.js`, and `not-a-constructor.js` report `1/1`
-  each. The full exact `built-ins/RegExp/prototype/exec` leaf reports `63/79`
+  each. Quantifier-focused `S15.10.6.2_A1_T3.js`,
+  `S15.10.6.2_A1_T4.js`, `S15.10.6.2_A1_T19.js`,
+  `S15.10.6.2_A3_T3.js`, `S15.10.6.2_A3_T4.js`,
+  `S15.10.6.2_A3_T5.js`, `S15.10.6.2_A3_T6.js`, and
+  `S15.10.6.2_A3_T7.js` also report `1/1`.
+  Ordered/nested/quantified-capture cases `S15.10.6.2_A1_T2.js`,
+  `S15.10.6.2_A1_T5.js`, and `S15.10.6.2_A1_T6.js` report `1/1` as well. The
+  constructed-RegExp dot/capture case `S15.10.6.2_A12.js` now reports `1/1`.
+  Unicode advancement case `u-lastindex-adv.js` and the combined
+  `regexp-builtin-exec-v-u-flag.js` literal/dot/property/capture case also
+  report `1/1`. The full exact `built-ins/RegExp/prototype/exec` leaf reports
+  `79/79`
   as of `2026-07-12` under
-  `XDG_CACHE_HOME=/tmp/porffor-xdg-regexp-exec-20260712 ./target/release/porf test262 run built-ins/RegExp/prototype/exec --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4 --snapshot-dir /tmp/porffor-test262-focused --snapshot-name regexp-exec-wasm-aot-20260712`;
-  captures/backtracking, broader quantifiers, class escapes/negation,
-  Unicode folding/property escapes, and other flag combinations remain
-  explicit failures rather than being counted as supported.
+  `XDG_CACHE_HOME=/tmp/porffor-xdg-regexp-exec-20260712-named ./target/release/porf test262 run built-ins/RegExp/prototype/exec --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4 --snapshot-dir /tmp/porffor-test262-regexp-exec-20260712 --snapshot-name regexp-exec-wasm-aot-20260712-named-groups`.
+  `RegExp.prototype.test` is now a real non-constructable standard builtin
+  that performs argument `ToString`, observable `RegExpExec` dispatch, and
+  boolean result conversion. Statically known intrinsic calls use the direct
+  completion-aware path so coercion and incompatible-receiver errors remain
+  catchable, while replaced `test` properties retain ordinary lookup. The
+  complete `built-ins/RegExp/prototype/test` leaf reports `45/45` as of
+  `2026-07-16` under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/test --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  Non-strict function-entry analysis now applies the required global-object
+  `this` substitution for nullish receivers and preserves explicit array
+  callback `thisArg` shapes in exact contexts. The complete
+  `built-ins/RegExp/prototype/toString` leaf reports `9/9` as of `2026-07-16`
+  under
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  Realm-local RegExp prototypes now expose the complete accessor surface and
+  retain each getter's defining realm. RegExp prototypes are distinct from
+  branded RegExp instances, so a getter accepts its own realm's prototype but
+  rejects another realm's prototype with the defining realm's `TypeError`.
+  The complete `source` leaf reports `7/12` as of `2026-07-16`; all five
+  remaining cases use excluded `eval` dynamic source generation, so its
+  AOT-applicable subset is `7/7`. Refresh with
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/source --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  The complete `flags`, `global`, `ignoreCase`, `multiline`, `sticky`,
+  `unicode`, `unicodeSets`, `dotAll`, and `hasIndices` leaves report `16/16`,
+  `10/10`, `10/10`, `10/10`, `8/8`, `8/8`, `38/38`, `8/8`, and `8/8`
+  respectively as of `2026-07-16` under the same four-thread command shape.
+  Ordinary assignment also treats inherited accessors without setters and
+  inherited non-writable data properties as sloppy no-ops or strict
+  `TypeError`s instead of creating own data properties, while writable
+  inherited data properties remain shadowable.
+  The RegExp program matcher now carries the `s` flag through its packed
+  runtime metadata, so `.` includes line terminators under dotAll while still
+  consuming one UTF-16 code unit without `u` and one code point with `u`. The
+  complete `built-ins/RegExp/dotall` leaf reports `4/4` as of `2026-07-16`
+  under
+  `./target/debug/porf test262 run built-ins/RegExp/dotall --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  The generated `built-ins/RegExp/CharacterClassEscapes` leaf reports `12/12`
+  as of `2026-07-16` under the same four-thread command shape. Its complement
+  cases construct nearly the full Unicode range, so use the persistent
+  `PORFFOR_CACHE_DIR` and a `120000` ms timeout rather than discarding the
+  compiled module cache between cases.
+  Exact named-group property leaves
+  `built-ins/RegExp/named-groups/non-unicode-property-names.js`,
+  `built-ins/RegExp/named-groups/unicode-property-names.js`, and
+  `built-ins/RegExp/match-indices/indices-array-unicode-property-names.js`
+  each report `1/1`. The full exact `built-ins/RegExp/match-indices` directory
+  reports `14/14` as of `2026-07-13` under
+  `PORFFOR_CACHE_DIR=/tmp/porffor-cache-verify_match_indices_post_self-20260713-112722 ./target/release/porf test262 run built-ins/RegExp/match-indices --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 1 --snapshot-dir /tmp/porffor-snapshots-verify_match_indices_post_self-20260713-112722 --snapshot-name match-indices-wasm-aot`.
+  The release binary is intentional for cold status runs: populating the
+  per-function Cranelift cache is materially slower and larger than a warm
+  exact-case run. Use a new or cleared `PORFFOR_CACHE_DIR` after compiler
+  changes because the current program-cache key does not include the compiler
+  revision. The matcher also supports complemented `\D` and `\S`, empty
+  character classes and alternatives, and Annex B identity treatment for
+  malformed non-Unicode `\x` escapes. Broader RegExp grammar remains
+  intentionally incomplete: Unicode folding, property escapes outside the
+  exact first table, lookarounds outside the supported reverse-lookbehind
+  subset, Unicode-sets character classes, and other unsupported combinations
+  remain explicit failures rather than being counted as supported.
   `String.prototype.matchAll` now has focused Wasm-AOT coverage for the first
   metadata, literal-pattern, custom-hook, prototype-deletion, and Unicode
   global RegExp paths. Exact real Test262
@@ -1733,8 +2060,11 @@ Recent focused progress through `2026-07-12`:
   with focused `/\w/g` iteration over object `toString` input covered by the
   `wasm_regexp_symbol_match_all_word_object.js` CLI fixture. The full exact
   `built-ins/RegExp/prototype/Symbol.matchAll` directory now reports `26/26`
-  as of `2026-06-21` under
+  as of `2026-07-16` under
   `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 120000 --threads 4`;
+  numeric updates on bindings whose static type is unknown now perform runtime
+  `ToNumeric` and preserve Number versus BigInt, including the range helper
+  loaded by this Test262 leaf.
   `flags` values are coerced with `ToString(Get(R, "flags"))`, so
   `this-tostring-flags.js` also reports `1/1`, covered by
   `wasm_regexp_symbol_match_all_flags_to_string.js`. Cached `lastIndex` is now
@@ -2172,6 +2502,105 @@ Recent focused progress through `2026-07-12`:
   `./target/debug/porf test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`
   and
   `./target/debug/porf test262 run built-ins/String/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `String.prototype.toLowerCase` is now a Rust standard builtin with full
+  locale-insensitive Unicode lowercase mappings, multi-code-point expansion,
+  and the context-sensitive final-sigma rule using Unicode `Cased` and
+  `Case_Ignorable` properties. Static Unicode tables are emitted only when the
+  builtin is live and are cached while compiling a Test262 chunk. The full
+  `built-ins/String/prototype/toLowerCase` Test262 leaf reports `29/30` passing
+  as of `2026-07-15`; the sole remaining file requires dynamic `eval`, so all
+  `29/29` Wasm-AOT-applicable files pass under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/toLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype.toUpperCase` now uses the same live-only cached Unicode
+  mapping infrastructure, including multi-code-point special casing and
+  supplementary-plane mappings, instead of its former ASCII-only byte fold.
+  The full `built-ins/String/prototype/toUpperCase` Test262 leaf reports
+  `25/26` passing as of `2026-07-15`; the sole remaining file requires dynamic
+  `eval`, so all `25/25` Wasm-AOT-applicable files pass under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/toUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype.toLocaleLowerCase` and
+  `String.prototype.toLocaleUpperCase` are now registered over the same Unicode
+  case-mapping paths for Porffor's default locale. Their full Test262 leaves
+  report `27/28` and `25/26` passing respectively as of `2026-07-15`; each sole
+  remaining file requires dynamic `eval`, so all `27/27` and `25/25`
+  Wasm-AOT-applicable files pass under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/toLocaleLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/toLocaleUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.fromCharCode` is now installed as a real non-constructor static
+  builtin with variadic `ToNumber`/`ToUint16` conversion and direct WTF-8
+  emission. The full `built-ins/String/fromCharCode` Test262 leaf reports
+  `17/17` passing as of `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/fromCharCode --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.fromCodePoint` is now installed as a real non-constructor static
+  builtin with variadic `ToNumber` conversion, integral/range validation, and
+  direct UTF-8/WTF-8 emission for BMP, supplementary, and surrogate code
+  points. The full `built-ins/String/fromCodePoint` Test262 leaf reports
+  `11/11` passing as of `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/fromCodePoint --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.raw` is now installed as a real non-constructor static builtin. Its
+  Wasm-AOT implementation performs `ToObject`, `LengthOfArrayLike`, indexed
+  getter access, substitution `ToString`, and concatenation in specification
+  order, including abrupt completions. Static `String.raw` tagged templates
+  lower directly through the AOT string-concatenation path. The full
+  `built-ins/String/raw` Test262 leaf reports `30/30` passing as of
+  `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/raw --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype.normalize` now implements NFC, NFD, NFKC, and NFKD in
+  emitted Wasm, including recursive decomposition, canonical combining-class
+  ordering, blocked composition, Hangul, form coercion, invalid-form errors,
+  and preservation of lone surrogate code units. ICU4X is used at module-build
+  time to derive immutable Unicode tables; emitted programs perform the
+  normalization themselves. The full
+  `built-ins/String/prototype/normalize` Test262 leaf reports `14/14` passing
+  as of `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/normalize --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype.localeCompare` now performs ordered receiver and argument
+  coercion, canonical-equivalence folding through the shared NFC tables, and a
+  deterministic antisymmetric UTF-16 comparison in emitted Wasm. The full
+  `built-ins/String/prototype/localeCompare` Test262 leaf reports `13/13`
+  passing as of `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 2`:
+  `./target/debug/porf test262 run built-ins/String/prototype/localeCompare --execution-backend wasm --timeout-ms 120000 --threads 2`.
+  `String.prototype.replace` and `replaceAll` now perform literal search,
+  functional replacement, and the `$$`, `$&`, ``$` ``, and `$'` substitution
+  forms in emitted Wasm, with protocol hooks receiving the uncoerced receiver
+  and replacement argument in spec order. `RegExp.prototype[Symbol.replace]`
+  collects matches before replacement, implements functional replacer argument
+  ordering and named groups, and supports all standard string substitution
+  forms. Finite runtime-selected pattern/flag strings used by `RegExp`
+  subclasses or `RegExp.prototype.compile` select immutable AOT programs from
+  a compact static table; emitted Wasm still contains no parser or interpreter.
+  The complete `built-ins/RegExp/prototype/Symbol.replace` and
+  `built-ins/String/prototype/replaceAll` Test262 leaves report `70/70` and
+  `45/45` passing as of `2026-07-15`. The adjacent
+  `built-ins/String/prototype/replace` leaf passes all `53/53` AOT-applicable
+  cases; its remaining two files use the excluded dynamic `Function`
+  constructor. Large generated functions retry through a size-optimized
+  Wasmtime engine only after the fast compilation path reaches Cranelift's
+  function-size limit, and shared Array element writes keep argument-vector
+  construction compact. Refresh with
+  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.replace --execution-backend wasm --timeout-ms 120000 --threads 4`
+  and
+  `./target/debug/porf test262 run built-ins/String/prototype/replaceAll --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `String.prototype[Symbol.iterator]` now creates a distinct per-realm String
+  iterator with the standard prototype ancestry, brand checks, metadata, and
+  `String Iterator` tag. Its Wasm-AOT `next` method advances by Unicode code
+  point while preserving lone surrogate code units and stable exhausted
+  results. The `built-ins/String/prototype/Symbol.iterator` and
+  `built-ins/StringIteratorPrototype` Test262 leaves report `6/6` and `7/7`
+  passing as of `2026-07-15` under
+  `--execution-backend wasm --timeout-ms 120000 --threads 4`:
+  `./target/debug/porf test262 run built-ins/String/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 120000 --threads 4`
+  and
+  `./target/debug/porf test262 run built-ins/StringIteratorPrototype --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.isWellFormed` and `String.prototype.toWellFormed` are now
   registered as Rust standard builtins for prototype property reads, borrowed
   calls, and direct method calls. The Wasm-AOT path scans the runtime string as
@@ -2295,6 +2724,13 @@ Recent focused progress through `2026-07-12`:
   `built-ins/Math/pow/applying-the-exp-operator_A4.js`, `A7.js`, `A14.js`,
   `A20.js`, and `A23.js` mirror cases. General finite dynamic non-integer
   `**` and broader arbitrary-precision BigInt coverage remain separate work.
+- Mutable bindings whose value can be either a string or number now reach the
+  tagged `ToPrimitive` addition path instead of being rejected during
+  lowering. This covers assertion-message control flow in the final Math
+  outlier, `built-ins/Math/pow/applying-the-exp-operator_A9.js`. The complete
+  checked-out real-Test262 `built-ins/Math` tree reports `327/327` AOT-applicable
+  cases passing as of `2026-07-16`. Refresh with
+  `./target/debug/porf --jobs 4 test262 run built-ins/Math --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Object.defineProperty` now reads the descriptor from the correct third
   argument in Wasm-AOT builtin calls, so descriptor rewrites such as
   `%AbstractModuleSource%.prototype` can set non-writable/non-configurable

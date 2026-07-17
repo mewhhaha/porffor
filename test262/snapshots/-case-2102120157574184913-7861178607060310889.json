@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/Array/prototype/reduceRight/15.4.4.22-4-3.js",
-      "duration_ms": 12954
+      "duration_ms": 5278
     }
   ],
   "timeout_list": [],

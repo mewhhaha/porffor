@@ -1,0 +1,317 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12858351468082916969,
+  "run_kind": "full",
+  "total": 95,
+  "passed": 80,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 15,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 15,
+    "Success": 80
+  },
+  "slowest_tests": [
+    {
+      "path": "annexB/language/global-code/if-decl-else-decl-a-global-existing-non-enumerable-global-init.js",
+      "duration_ms": 17809
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-else-decl-b-global-existing-global-init.js",
+      "duration_ms": 14875
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-else-decl-b-global-existing-non-enumerable-global-init.js",
+      "duration_ms": 12949
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-else-stmt-global-existing-non-enumerable-global-init.js",
+      "duration_ms": 12553
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-else-decl-a-global-existing-global-init.js",
+      "duration_ms": 12389
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-else-stmt-global-existing-global-init.js",
+      "duration_ms": 12307
+    },
+    {
+      "path": "annexB/language/global-code/if-stmt-else-decl-global-existing-global-init.js",
+      "duration_ms": 12297
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-no-else-global-existing-global-init.js",
+      "duration_ms": 12279
+    },
+    {
+      "path": "annexB/language/global-code/if-stmt-else-decl-global-existing-non-enumerable-global-init.js",
+      "duration_ms": 12264
+    },
+    {
+      "path": "annexB/language/global-code/if-decl-no-else-global-skip-early-err-for-of.js",
+      "duration_ms": 12154
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-a-global-existing-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12389
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-a-global-existing-non-enumerable-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 17809
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-a-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 8498
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-b-global-existing-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 14875
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-b-global-existing-non-enumerable-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12949
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-decl-b-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 8323
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-stmt-global-existing-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12307
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-stmt-global-existing-non-enumerable-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12553
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-else-stmt-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 6670
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-no-else-global-existing-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12279
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-no-else-global-existing-non-enumerable-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12126
+    },
+    {
+      "test_path": "annexB/language/global-code/if-decl-no-else-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 6585
+    },
+    {
+      "test_path": "annexB/language/global-code/if-stmt-else-decl-global-existing-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12297
+    },
+    {
+      "test_path": "annexB/language/global-code/if-stmt-else-decl-global-existing-non-enumerable-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 12264
+    },
+    {
+      "test_path": "annexB/language/global-code/if-stmt-else-decl-global-init.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 6758
+    }
+  ],
+  "completed_paths": [
+    "annexB/language/global-code/if-decl-else-decl-a-global-block-scoping.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-block-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-block-fn-update.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-fn-update.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-non-enumerable-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-var-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-existing-var-update.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-no-skip-try.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-block.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-for-in.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-for-of.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-for.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-switch.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err-try.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-skip-early-err.js",
+    "annexB/language/global-code/if-decl-else-decl-a-global-update.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-block-scoping.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-block-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-block-fn-update.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-fn-update.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-non-enumerable-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-var-no-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-existing-var-update.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-init.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-no-skip-try.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-block.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-for-in.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-for-of.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-for.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-switch.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err-try.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-skip-early-err.js",
+    "annexB/language/global-code/if-decl-else-decl-b-global-update.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-block-scoping.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-block-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-block-fn-update.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-fn-no-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-fn-update.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-global-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-non-enumerable-global-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-var-no-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-existing-var-update.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-init.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-no-skip-try.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-block.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-for-in.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-for-of.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-for.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-switch.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err-try.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-skip-early-err.js",
+    "annexB/language/global-code/if-decl-else-stmt-global-update.js",
+    "annexB/language/global-code/if-decl-no-else-global-block-scoping.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-block-fn-no-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-block-fn-update.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-fn-no-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-fn-update.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-global-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-non-enumerable-global-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-var-no-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-existing-var-update.js",
+    "annexB/language/global-code/if-decl-no-else-global-init.js",
+    "annexB/language/global-code/if-decl-no-else-global-no-skip-try.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-block.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-for-in.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-for-of.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-for.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-switch.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err-try.js",
+    "annexB/language/global-code/if-decl-no-else-global-skip-early-err.js",
+    "annexB/language/global-code/if-decl-no-else-global-update.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-block-scoping.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-block-fn-no-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-block-fn-update.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-fn-no-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-fn-update.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-global-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-non-enumerable-global-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-var-no-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-existing-var-update.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-init.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-no-skip-try.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-block.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-for-in.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-for-of.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-for.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-switch.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err-try.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-skip-early-err.js",
+    "annexB/language/global-code/if-stmt-else-decl-global-update.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

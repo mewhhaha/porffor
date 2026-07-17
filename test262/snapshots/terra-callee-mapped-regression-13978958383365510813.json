@@ -1,0 +1,129 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13978958383365510813,
+  "run_kind": "full",
+  "total": 43,
+  "passed": 43,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 43
+  },
+  "slowest_tests": [
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-basic.js",
+      "duration_ms": 14366
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-arguments.js",
+      "duration_ms": 13787
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-with-param-assign.js",
+      "duration_ms": 13759
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-by-arguments.js",
+      "duration_ms": 13067
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-define-failure.js",
+      "duration_ms": 12897
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-arguments.js",
+      "duration_ms": 12207
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-basic.js",
+      "duration_ms": 12186
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-arguments.js",
+      "duration_ms": 11999
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-param.js",
+      "duration_ms": 11987
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-define-property.js",
+      "duration_ms": 11982
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/arguments-object/mapped/Symbol.iterator.js",
+    "language/arguments-object/mapped/enumerable-configurable-accessor-descriptor.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-5.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-4.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-define-failure.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-with-define-property.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-with-param-assign.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-define-property-consecutive.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-define-property.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/writable-enumerable-configurable-descriptor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

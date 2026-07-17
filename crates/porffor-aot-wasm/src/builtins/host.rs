@@ -1206,6 +1206,28 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "__lookupGetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeLookupGetter.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.__lookupGetter__`",
+                        )
+                    })?,
+            ),
+            (
+                "__lookupSetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeLookupSetter.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.__lookupSetter__`",
+                        )
+                    })?,
+            ),
+            (
                 "propertyIsEnumerable",
                 self.functions
                     .get(&StandardBuiltinId::ObjectPrototypePropertyIsEnumerable.function_id())
@@ -1765,6 +1787,51 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from`",
                 )
             })?;
+        let iterator_zip_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorZip.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zip`",
+                )
+            })?;
+        let iterator_helper_next_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorHelperNext.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorHelperPrototype%.next`",
+                )
+            })?;
+        let iterator_helper_return_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorHelperReturn.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorHelperPrototype%.return`",
+                )
+            })?;
+        let iterator_from_wrapper_next_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorFromWrapperNext.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.next`",
+                )
+            })?;
+        let iterator_from_wrapper_return_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorFromWrapperReturn.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.return`",
+                )
+            })?;
         let iterator_constructor_getter_meta = self
             .functions
             .get(&StandardBuiltinId::IteratorPrototypeConstructorGetter.function_id())
@@ -2174,6 +2241,50 @@ impl<'a> FunctionBuilder<'a> {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.push`",
                         )
+                })?,
+            ),
+            (
+                "shift",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeShift.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.shift`",
+                        )
+                    })?,
+            ),
+            (
+                "unshift",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeUnshift.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.unshift`",
+                        )
+                    })?,
+            ),
+            (
+                "fill",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.fill`",
+                        )
+                })?,
+            ),
+            (
+                "sort",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSort.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.sort`",
+                        )
                     })?,
             ),
             (
@@ -2195,6 +2306,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.join`",
+                        )
+                    })?,
+            ),
+            (
+                "slice",
+                self.functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSlice.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.slice`",
                         )
                     })?,
             ),
@@ -2445,6 +2567,17 @@ impl<'a> FunctionBuilder<'a> {
         ];
         let string_prototype_method_metas = [
             (
+                "Symbol.iterator",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeIterator.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype[Symbol.iterator]`",
+                        )
+                    })?,
+            ),
+            (
                 "at",
                 self.functions
                     .get(&StandardBuiltinId::StringPrototypeAt.function_id())
@@ -2463,6 +2596,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.charAt`",
+                        )
+                    })?,
+            ),
+            (
+                "concat",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeConcat.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.concat`",
                         )
                     })?,
             ),
@@ -2507,6 +2651,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.isWellFormed`",
+                        )
+                    })?,
+            ),
+            (
+                "localeCompare",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeLocaleCompare.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.localeCompare`",
                         )
                     })?,
             ),
@@ -2639,6 +2794,39 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.toString`",
+                        )
+                    })?,
+            ),
+            (
+                "toLocaleLowerCase",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeToLocaleLowerCase.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.toLocaleLowerCase`",
+                        )
+                    })?,
+            ),
+            (
+                "toLocaleUpperCase",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeToLocaleUpperCase.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.toLocaleUpperCase`",
+                        )
+                    })?,
+            ),
+            (
+                "toLowerCase",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeToLowerCase.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype.toLowerCase`",
                         )
                     })?,
             ),
@@ -2873,15 +3061,66 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp`",
                 )
             })?;
-        let regexp_prototype_exec_meta = self
-            .functions
-            .get(&StandardBuiltinId::RegExpPrototypeExec.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.exec`",
-                )
-            })?;
+        let regexp_prototype_method_metas = [
+            ("exec", StandardBuiltinId::RegExpPrototypeExec),
+            ("test", StandardBuiltinId::RegExpPrototypeTest),
+            ("compile", StandardBuiltinId::RegExpPrototypeCompile),
+            ("toString", StandardBuiltinId::RegExpPrototypeToString),
+        ]
+        .map(|(name, builtin)| {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            Ok::<_, EmitError>((name, meta))
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+        let regexp_prototype_getter_metas = [
+            ("source", StandardBuiltinId::RegExpPrototypeSourceGetter),
+            (
+                "hasIndices",
+                StandardBuiltinId::RegExpPrototypeHasIndicesGetter,
+            ),
+            ("global", StandardBuiltinId::RegExpPrototypeGlobalGetter),
+            (
+                "ignoreCase",
+                StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter,
+            ),
+            (
+                "multiline",
+                StandardBuiltinId::RegExpPrototypeMultilineGetter,
+            ),
+            ("dotAll", StandardBuiltinId::RegExpPrototypeDotAllGetter),
+            ("unicode", StandardBuiltinId::RegExpPrototypeUnicodeGetter),
+            (
+                "unicodeSets",
+                StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter,
+            ),
+            ("sticky", StandardBuiltinId::RegExpPrototypeStickyGetter),
+            ("flags", StandardBuiltinId::RegExpPrototypeFlagsGetter),
+        ]
+        .map(|(name, builtin)| {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            Ok::<_, EmitError>((name, meta))
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
         let date_meta = self
             .functions
             .get(&StandardBuiltinId::DateConstructor.function_id())
@@ -3022,8 +3261,16 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::RegExpPrototypeSymbolMatchAll,
             ),
             (
+                "Symbol.replace",
+                StandardBuiltinId::RegExpPrototypeSymbolReplace,
+            ),
+            (
                 "Symbol.search",
                 StandardBuiltinId::RegExpPrototypeSymbolSearch,
+            ),
+            (
+                "Symbol.split",
+                StandardBuiltinId::RegExpPrototypeSymbolSplit,
             ),
         ]
         .map(|(name, builtin)| {
@@ -3157,6 +3404,15 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Array Iterator.prototype[Symbol.iterator]`",
                 )
             })?;
+        let string_iterator_next_meta = self
+            .functions
+            .get(&StandardBuiltinId::StringIteratorNext.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `String Iterator.prototype.next`",
+                )
+            })?;
         let realm_local = self.reserve_temp_local();
         let realm_record_local = self.reserve_temp_local();
         let global_local = self.reserve_temp_local();
@@ -3165,7 +3421,10 @@ impl<'a> FunctionBuilder<'a> {
         let json_object_local = self.reserve_temp_local();
         let object_prototype_local = self.reserve_temp_local();
         let iterator_prototype_local = self.reserve_temp_local();
+        let iterator_helper_prototype_local = self.reserve_temp_local();
+        let iterator_from_wrapper_prototype_local = self.reserve_temp_local();
         let array_iterator_prototype_local = self.reserve_temp_local();
+        let string_iterator_prototype_local = self.reserve_temp_local();
         let array_prototype_local = self.reserve_temp_local();
         let function_prototype_local = self.reserve_temp_local();
         let number_prototype_local = self.reserve_temp_local();
@@ -3243,7 +3502,27 @@ impl<'a> FunctionBuilder<'a> {
             None,
             function,
         )?;
+        function.instruction(&Instruction::LocalSet(iterator_helper_prototype_local));
+        self.emit_alloc_plain_object_with_prototype(
+            Some(iterator_prototype_local),
+            None,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(
+            iterator_from_wrapper_prototype_local,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            Some(iterator_prototype_local),
+            None,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(array_iterator_prototype_local));
+        self.emit_alloc_plain_object_with_prototype(
+            Some(iterator_prototype_local),
+            None,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(string_iterator_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(array_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
@@ -3362,6 +3641,26 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_store_realm_array_iterator_prototype(
             realm_record_local,
             array_iterator_prototype_local,
+            function,
+        );
+        self.emit_store_realm_string_iterator_prototype(
+            realm_record_local,
+            string_iterator_prototype_local,
+            function,
+        );
+        self.emit_store_realm_iterator_helper_prototype(
+            realm_record_local,
+            iterator_helper_prototype_local,
+            function,
+        );
+        self.emit_store_realm_iterator_prototype(
+            realm_record_local,
+            iterator_prototype_local,
+            function,
+        );
+        self.emit_store_realm_iterator_from_wrapper_prototype(
+            realm_record_local,
+            iterator_from_wrapper_prototype_local,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
@@ -3509,32 +3808,82 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(error_to_string_payload_local);
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
-        let exec_payload_local = self.reserve_temp_local();
-        self.emit_function_value_payload(&regexp_prototype_exec_meta, function)?;
-        function.instruction(&Instruction::LocalSet(exec_payload_local));
-        self.emit_store_function_defining_realm(exec_payload_local, realm_record_local, function);
-        self.store_i64_local_at_offset(
-            exec_payload_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            exec_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            exec_payload_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            type_error_prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
+        self.emit_store_realm_intrinsic_prototype(
+            realm_record_local,
+            HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             regexp_prototype_local,
-            "exec",
-            exec_payload_local,
-            tag_local,
             function,
-        )?;
-        self.release_temp_local(exec_payload_local);
+        );
+        for (name, meta) in &regexp_prototype_method_metas {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                regexp_prototype_local,
+                name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        for (name, meta) in &regexp_prototype_getter_metas {
+            let key_local = self.reserve_temp_local();
+            let getter_payload_local = self.reserve_temp_local();
+            let getter_tag_local = self.reserve_temp_local();
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(getter_payload_local));
+            self.emit_store_function_defining_realm(
+                getter_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                getter_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(getter_tag_local));
+            self.emit_object_define_accessor(
+                regexp_prototype_local,
+                key_local,
+                Some((getter_payload_local, getter_tag_local)),
+                None,
+                function,
+            )?;
+            self.release_temp_local(getter_tag_local);
+            self.release_temp_local(getter_payload_local);
+            self.release_temp_local(key_local);
+        }
         for (name, meta) in &regexp_prototype_symbol_method_metas {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload(meta, function)?;
@@ -4036,6 +4385,36 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.release_temp_local(iterator_from_payload_local);
+        let iterator_zip_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&iterator_zip_meta, function)?;
+        function.instruction(&Instruction::LocalSet(iterator_zip_payload_local));
+        self.emit_store_function_defining_realm(
+            iterator_zip_payload_local,
+            realm_record_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_zip_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            iterator_zip_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_zip_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            iterator_constructor_local,
+            "zip",
+            iterator_zip_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(iterator_zip_payload_local);
         let iterator_identity_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload(&array_iterator_identity_meta, function)?;
         function.instruction(&Instruction::LocalSet(iterator_identity_payload_local));
@@ -4104,6 +4483,114 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
         self.release_temp_local(iterator_method_payload_local);
+        for (name, meta) in [
+            ("next", &iterator_helper_next_meta),
+            ("return", &iterator_helper_return_meta),
+        ] {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_PROTOTYPE_OFFSET,
+                function_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                iterator_helper_prototype_local,
+                name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        for (name, meta) in [
+            ("next", &iterator_from_wrapper_next_meta),
+            ("return", &iterator_from_wrapper_return_meta),
+        ] {
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.emit_store_function_defining_realm(
+                method_payload_local,
+                realm_record_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_PROTOTYPE_OFFSET,
+                function_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                iterator_from_wrapper_prototype_local,
+                name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        let iterator_helper_tag_key_local = self.reserve_temp_local();
+        let iterator_helper_tag_payload_local = self.reserve_temp_local();
+        let iterator_helper_tag_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(iterator_helper_tag_key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Iterator Helper"),
+        ));
+        function.instruction(&Instruction::LocalSet(iterator_helper_tag_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(iterator_helper_tag_tag_local));
+        self.emit_object_append_data_property_with_flags(
+            iterator_helper_prototype_local,
+            iterator_helper_tag_key_local,
+            iterator_helper_tag_payload_local,
+            iterator_helper_tag_tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(iterator_helper_tag_tag_local);
+        self.release_temp_local(iterator_helper_tag_payload_local);
+        self.release_temp_local(iterator_helper_tag_key_local);
         let iterator_accessor_key_local = self.reserve_temp_local();
         let iterator_getter_payload_local = self.reserve_temp_local();
         let iterator_getter_tag_local = self.reserve_temp_local();
@@ -4381,6 +4868,30 @@ impl<'a> FunctionBuilder<'a> {
             "Array Iterator",
             function,
         )?;
+        let string_iterator_next_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&string_iterator_next_meta, function)?;
+        function.instruction(&Instruction::LocalSet(string_iterator_next_payload_local));
+        self.emit_store_function_defining_realm(
+            string_iterator_next_payload_local,
+            realm_record_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            string_iterator_prototype_local,
+            "next",
+            string_iterator_next_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_object_define_string_data(
+            string_iterator_prototype_local,
+            "Symbol.toStringTag",
+            "String Iterator",
+            function,
+        )?;
+        self.release_temp_local(string_iterator_next_payload_local);
 
         self.emit_function_value_payload(&number_meta, function)?;
         function.instruction(&Instruction::LocalSet(number_constructor_local));
@@ -5998,7 +6509,10 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(number_prototype_local);
         self.release_temp_local(function_prototype_local);
         self.release_temp_local(array_prototype_local);
+        self.release_temp_local(string_iterator_prototype_local);
         self.release_temp_local(array_iterator_prototype_local);
+        self.release_temp_local(iterator_from_wrapper_prototype_local);
+        self.release_temp_local(iterator_helper_prototype_local);
         self.release_temp_local(iterator_prototype_local);
         self.release_temp_local(object_prototype_local);
         self.release_temp_local(json_object_local);

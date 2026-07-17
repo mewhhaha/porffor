@@ -24,8 +24,19 @@ try {
 }
 if (!threw) throw "Array.from iterator";
 
-for (let i = 0; i < 2; i++) {
-  let TypedArray = i === 0 ? Uint8Array : Float32Array;
+let typedArrayConstructors = [
+  Int8Array,
+  Uint8Array,
+  Uint8ClampedArray,
+  Int16Array,
+  Uint16Array,
+  Int32Array,
+  Uint32Array,
+  Float32Array,
+  Float64Array
+];
+for (let i = 0; i < typedArrayConstructors.length; i++) {
+  let TypedArray = typedArrayConstructors[i];
   threw = false;
   try {
     TypedArray.from(items);

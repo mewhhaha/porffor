@@ -1,0 +1,490 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13978958383365510813,
+  "run_kind": "full",
+  "total": 43,
+  "passed": 3,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 39,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 39,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 3
+  },
+  "slowest_tests": [
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-by-arguments.js",
+      "duration_ms": 15036
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-basic.js",
+      "duration_ms": 13244
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-basic.js",
+      "duration_ms": 12660
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-param.js",
+      "duration_ms": 12618
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-with-define-property.js",
+      "duration_ms": 12504
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-descriptors-with-param-assign.js",
+      "duration_ms": 12290
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-param.js",
+      "duration_ms": 12244
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-arguments.js",
+      "duration_ms": 12240
+    },
+    {
+      "path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-param.js",
+      "duration_ms": 12222
+    },
+    {
+      "path": "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-arguments.js",
+      "duration_ms": 11874
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/arguments-object/mapped/Symbol.iterator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: arguments index must be number. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14985310931399484113,
+      "duration_ms": 8839
+    },
+    {
+      "test_path": "language/arguments-object/mapped/enumerable-configurable-accessor-descriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236088)",
+      "detail_hash": 8250830129371073883,
+      "duration_ms": 6217
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@237176)",
+      "detail_hash": 12420485438877779446,
+      "duration_ms": 7950
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236432)",
+      "detail_hash": 10240380009494229861,
+      "duration_ms": 7043
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236616)",
+      "detail_hash": 908710273514437198,
+      "duration_ms": 7096
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236656)",
+      "detail_hash": 2612109232732469337,
+      "duration_ms": 7585
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236592)",
+      "detail_hash": 5860595465416591985,
+      "duration_ms": 6427
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@236632)",
+      "detail_hash": 4413437436158864303,
+      "duration_ms": 7037
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237320)",
+      "detail_hash": 10556718032148499236,
+      "duration_ms": 7268
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237544)",
+      "detail_hash": 5115255681621035160,
+      "duration_ms": 8041
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237376)",
+      "detail_hash": 17480277443516720686,
+      "duration_ms": 6143
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@237416)",
+      "detail_hash": 3693519008681428254,
+      "duration_ms": 6949
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@254160)",
+      "detail_hash": 9934013611151201143,
+      "duration_ms": 8958
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@254336)",
+      "detail_hash": 7108877949023493366,
+      "duration_ms": 9588
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@254384)",
+      "detail_hash": 9909835196490760113,
+      "duration_ms": 8833
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@254320)",
+      "detail_hash": 11556408703662990422,
+      "duration_ms": 8585
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237320)",
+      "detail_hash": 10556718032148499236,
+      "duration_ms": 6094
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237400)",
+      "detail_hash": 10768917639502284357,
+      "duration_ms": 6177
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@237376)",
+      "detail_hash": 17480277443516720686,
+      "duration_ms": 7058
+    },
+    {
+      "test_path": "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@237440)",
+      "detail_hash": 16031370960584510019,
+      "duration_ms": 5674
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-descriptors-basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor configurable flag)",
+      "detail_hash": 12573060624730741013,
+      "duration_ms": 13244
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-descriptors-define-failure.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@257928)",
+      "detail_hash": 855877303830367988,
+      "duration_ms": 10230
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-by-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor configurable flag)",
+      "detail_hash": 12573060624730741013,
+      "duration_ms": 15036
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-with-define-property.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@280136)",
+      "detail_hash": 5369646513268119275,
+      "duration_ms": 12504
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-descriptors-with-param-assign.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor configurable flag)",
+      "detail_hash": 12573060624730741013,
+      "duration_ms": 12290
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 11445
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 12240
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 12222
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 11313
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-define-property-consecutive.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 11787
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 11819
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 12244
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 12660
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@280280)",
+      "detail_hash": 9644028007214007181,
+      "duration_ms": 11874
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 10527
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor writable flag)",
+      "detail_hash": 5661858116366254030,
+      "duration_ms": 11374
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 11346
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-define-property.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 10658
+    },
+    {
+      "test_path": "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor value)",
+      "detail_hash": 14196761934288662390,
+      "duration_ms": 12618
+    },
+    {
+      "test_path": "language/arguments-object/mapped/writable-enumerable-configurable-descriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@235664)",
+      "detail_hash": 15110913525981633261,
+      "duration_ms": 5090
+    }
+  ],
+  "completed_paths": [
+    "language/arguments-object/mapped/Symbol.iterator.js",
+    "language/arguments-object/mapped/enumerable-configurable-accessor-descriptor.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-delete-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-nonwritable-5.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonconfigurable-strict-delete-4.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-1.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-2.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-3.js",
+    "language/arguments-object/mapped/mapped-arguments-nonwritable-nonconfigurable-4.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-define-failure.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-set-value-with-define-property.js",
+    "language/arguments-object/mapped/nonconfigurable-descriptors-with-param-assign.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-nonenumerable-nonwritable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-define-property-consecutive.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonconfigurable-nonwritable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonwritable-nonconfigurable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-basic.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-arguments.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-define-property.js",
+    "language/arguments-object/mapped/nonwritable-nonenumerable-nonconfigurable-descriptors-set-by-param.js",
+    "language/arguments-object/mapped/writable-enumerable-configurable-descriptor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,4 +1,5 @@
 use super::*;
+use porffor_ir::StaticRegExpCompilation;
 
 fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
     if let ExprIr::String(value) = &key.expr {
@@ -13,6 +14,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         callee: &TypedExpr,
         args: &[TypedExpr],
+        static_regexp_compilation: Option<&StaticRegExpCompilation>,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -22,6 +24,27 @@ impl<'a> FunctionBuilder<'a> {
 
         self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;
         let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+        if let Some(StaticRegExpCompilation::InvalidSyntax { message }) = static_regexp_compilation
+        {
+            self.emit_throw_runtime_error(
+                SYNTAX_ERROR_NAME,
+                message,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                payload_local,
+                tag_local,
+                0,
+                function,
+            )?;
+            self.release_temp_local(argv_local);
+            self.release_temp_local(argc_local);
+            self.release_temp_local(callee_tag_local);
+            self.release_temp_local(callee_payload_local);
+            return Ok(());
+        }
         self.emit_function_or_proxy_construct_with_argv(
             callee_payload_local,
             callee_tag_local,
@@ -39,6 +62,18 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         )?;
+        if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
+            function.instruction(&Instruction::LocalGet(callee_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(callee_payload_local));
+            function.instruction(&Instruction::GlobalGet(REGEXP_CONSTRUCTOR_GLOBAL_INDEX));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_regexp_program_slots(payload_local, Some(program), function);
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
@@ -261,6 +296,42 @@ impl<'a> FunctionBuilder<'a> {
             }
             _ => unreachable!("update delta only supports Number and BigInt"),
         }
+    }
+
+    pub(crate) fn emit_update_delta_from_locals(
+        &self,
+        op: NumericUpdateOp,
+        value_kind: ValueKind,
+        value_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        if value_kind != ValueKind::Dynamic {
+            function.instruction(&Instruction::LocalGet(value_local));
+            self.emit_update_delta(op, value_kind, function);
+            return;
+        }
+
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(1));
+        match op {
+            NumericUpdateOp::Increment => function.instruction(&Instruction::I64Add),
+            NumericUpdateOp::Decrement => function.instruction(&Instruction::I64Sub),
+        };
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        match op {
+            NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
+            NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
+        };
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn compile_truthy_i32(
@@ -1129,8 +1200,8 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                        if let Some(target) = self.active_throw_target() {
+                            self.emit_branch_to_target(target, 1, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1156,8 +1227,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1229,8 +1300,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1312,7 +1383,7 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in porffor wasm-aot first slice: Construct expects a callee operand",
                     ));
                 };
-                self.emit_construct(callee, args, payload_local, tag_local, function)
+                self.emit_construct(callee, args, None, payload_local, tag_local, function)
             }
             SpecOperationIr::HasProperty => {
                 let [target, key] = operands else {
@@ -1380,8 +1451,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1445,8 +1516,8 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                        if let Some(target) = self.active_throw_target() {
+                            self.emit_branch_to_target(target, 1, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1492,8 +1563,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1551,8 +1622,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1574,8 +1645,8 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                        if let Some(target) = self.active_throw_target() {
+                            self.emit_branch_to_target(target, 1, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1598,8 +1669,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1613,8 +1684,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1672,8 +1743,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1701,8 +1772,8 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                        if let Some(target) = self.active_throw_target() {
+                            self.emit_branch_to_target(target, 1, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1729,8 +1800,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1790,8 +1861,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                if let Some(target) = self.throw_handler_stack.last() {
-                    function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1819,8 +1890,8 @@ impl<'a> FunctionBuilder<'a> {
                             self.result_tag_local,
                             function,
                         )?;
-                        if let Some(target) = self.throw_handler_stack.last() {
-                            function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                        if let Some(target) = self.active_throw_target() {
+                            self.emit_branch_to_target(target, 1, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1846,8 +1917,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     )?;
-                    if let Some(target) = self.throw_handler_stack.last() {
-                        function.instruction(&Instruction::Br(self.depth_to(*target) + 1));
+                    if let Some(target) = self.active_throw_target() {
+                        self.emit_branch_to_target(target, 1, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -3257,7 +3328,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn compile_expr_to_numeric_locals(
@@ -3273,6 +3343,46 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_expr_to_primitive_locals(
             expr,
             ToPrimitiveHint::Number,
+            primitive_payload_local,
+            primitive_tag_local,
+            function,
+        )?;
+        self.emit_primitive_to_numeric_locals_without_throw_return(
+            primitive_payload_local,
+            primitive_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_value_to_numeric_locals(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+
+        self.emit_tagged_to_primitive_locals_without_throw_propagation(
+            ToPrimitiveHint::Number,
+            payload_local,
+            tag_local,
+            primitive_payload_local,
+            primitive_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
             primitive_payload_local,
             primitive_tag_local,
             function,
@@ -6306,6 +6416,23 @@ impl<'a> FunctionBuilder<'a> {
         let lhs_number_local = self.reserve_temp_local();
         let rhs_number_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(lhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(rhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(lhs_payload_local));
+        function.instruction(&Instruction::LocalGet(rhs_payload_local));
+        match op {
+            RelationalBinaryOp::LessThan => function.instruction(&Instruction::I64LtS),
+            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::I64LeS),
+            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::I64GtS),
+            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::I64GeS),
+        };
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(rhs_tag_local));
@@ -6330,6 +6457,7 @@ impl<'a> FunctionBuilder<'a> {
             RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::F64Ge),
         };
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         self.release_temp_local(rhs_number_local);
         self.release_temp_local(lhs_number_local);
         Ok(())
@@ -6342,108 +6470,244 @@ impl<'a> FunctionBuilder<'a> {
         rhs_payload_local: u32,
         function: &mut Function,
     ) {
+        self.emit_string_payload_utf16_compare_i32(lhs_payload_local, rhs_payload_local, function);
+        function.instruction(&Instruction::I32Const(0));
+        match op {
+            RelationalBinaryOp::LessThan => function.instruction(&Instruction::I32LtS),
+            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::I32LeS),
+            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::I32GtS),
+            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::I32GeS),
+        };
+    }
+
+    /// Compare string payloads in ECMAScript's UTF-16 code-unit order.
+    ///
+    /// The payload stores UTF-8, with WTF-8 encodings for lone surrogates.
+    /// Astral scalars therefore yield their high surrogate first and retain the
+    /// low surrogate for the next iteration without decoding the scalar again.
+    /// The emitted value is -1, 0, or 1 as an i32.
+    pub(crate) fn emit_string_payload_utf16_compare_i32(
+        &mut self,
+        lhs_payload_local: u32,
+        rhs_payload_local: u32,
+        function: &mut Function,
+    ) {
         let lhs_offset = self.reserve_temp_local();
         let lhs_len = self.reserve_temp_local();
         let rhs_offset = self.reserve_temp_local();
         let rhs_len = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let lhs_addr_local = self.reserve_temp_local();
-        let rhs_addr_local = self.reserve_temp_local();
+        let lhs_index_local = self.reserve_temp_local();
+        let rhs_index_local = self.reserve_temp_local();
+        let lhs_pending_low_surrogate_local = self.reserve_temp_local();
+        let rhs_pending_low_surrogate_local = self.reserve_temp_local();
         let lhs_byte_local = self.reserve_temp_local();
         let rhs_byte_local = self.reserve_temp_local();
+        let lhs_codepoint_local = self.reserve_temp_local();
+        let rhs_codepoint_local = self.reserve_temp_local();
+        let lhs_advance_local = self.reserve_temp_local();
+        let rhs_advance_local = self.reserve_temp_local();
+        let decode_temp_local = self.reserve_temp_local();
+        let lhs_code_unit_local = self.reserve_temp_local();
+        let rhs_code_unit_local = self.reserve_temp_local();
+        let lhs_exhausted_local = self.reserve_temp_local();
+        let rhs_exhausted_local = self.reserve_temp_local();
         let result_local = self.reserve_temp_local();
-        let done_local = self.reserve_temp_local();
 
         self.emit_unpack_string_payload(lhs_payload_local, lhs_offset, lhs_len, function);
         self.emit_unpack_string_payload(rhs_payload_local, rhs_offset, rhs_len, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::LocalSet(lhs_index_local));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(done_local));
+        function.instruction(&Instruction::LocalSet(rhs_index_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
+
+        function.instruction(&Instruction::LocalGet(lhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(lhs_index_local));
         function.instruction(&Instruction::LocalGet(lhs_len));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(lhs_exhausted_local));
+        function.instruction(&Instruction::LocalGet(rhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(rhs_index_local));
         function.instruction(&Instruction::LocalGet(rhs_len));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::LocalGet(lhs_offset));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(lhs_addr_local));
-        function.instruction(&Instruction::LocalGet(rhs_offset));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_addr_local));
-
-        function.instruction(&Instruction::LocalGet(lhs_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lhs_byte_local));
-        function.instruction(&Instruction::LocalGet(rhs_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(rhs_byte_local));
-
-        function.instruction(&Instruction::LocalGet(lhs_byte_local));
-        function.instruction(&Instruction::LocalGet(rhs_byte_local));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(rhs_exhausted_local));
+        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(rhs_exhausted_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
+        function.instruction(&Instruction::LocalGet(rhs_exhausted_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_byte_local));
-        function.instruction(&Instruction::LocalGet(rhs_byte_local));
-        match op {
-            RelationalBinaryOp::LessThan => function.instruction(&Instruction::I64LtU),
-            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::I64LeU),
-            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::I64GtU),
-            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::I64GeU),
-        };
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(done_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(done_local));
+        function.instruction(&Instruction::LocalGet(lhs_pending_low_surrogate_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::LocalGet(rhs_len));
-        match op {
-            RelationalBinaryOp::LessThan => function.instruction(&Instruction::I64LtU),
-            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::I64LeU),
-            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::I64GtU),
-            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::I64GeU),
-        };
-        function.instruction(&Instruction::I64ExtendI32U);
+        self.emit_load_string_byte(lhs_offset, lhs_index_local, lhs_byte_local, function);
+        self.emit_decode_utf8_scalar_at_index(
+            lhs_offset,
+            lhs_index_local,
+            lhs_len,
+            lhs_byte_local,
+            lhs_codepoint_local,
+            lhs_advance_local,
+            decode_temp_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(lhs_index_local));
+        function.instruction(&Instruction::LocalGet(lhs_advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(lhs_index_local));
+        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0xFFFF));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
+        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(0x3FF));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0xDC00));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(rhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(rhs_offset, rhs_index_local, rhs_byte_local, function);
+        self.emit_decode_utf8_scalar_at_index(
+            rhs_offset,
+            rhs_index_local,
+            rhs_len,
+            rhs_byte_local,
+            rhs_codepoint_local,
+            rhs_advance_local,
+            decode_temp_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(rhs_index_local));
+        function.instruction(&Instruction::LocalGet(rhs_advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(rhs_index_local));
+        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0xFFFF));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
+        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(0x3FF));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0xDC00));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(lhs_code_unit_local));
+        function.instruction(&Instruction::LocalGet(rhs_code_unit_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_code_unit_local));
+        function.instruction(&Instruction::LocalGet(rhs_code_unit_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::I32WrapI64);
 
-        self.release_temp_local(done_local);
         self.release_temp_local(result_local);
+        self.release_temp_local(rhs_exhausted_local);
+        self.release_temp_local(lhs_exhausted_local);
+        self.release_temp_local(rhs_code_unit_local);
+        self.release_temp_local(lhs_code_unit_local);
+        self.release_temp_local(decode_temp_local);
+        self.release_temp_local(rhs_advance_local);
+        self.release_temp_local(lhs_advance_local);
+        self.release_temp_local(rhs_codepoint_local);
+        self.release_temp_local(lhs_codepoint_local);
         self.release_temp_local(rhs_byte_local);
         self.release_temp_local(lhs_byte_local);
-        self.release_temp_local(rhs_addr_local);
-        self.release_temp_local(lhs_addr_local);
-        self.release_temp_local(index_local);
+        self.release_temp_local(rhs_pending_low_surrogate_local);
+        self.release_temp_local(lhs_pending_low_surrogate_local);
+        self.release_temp_local(rhs_index_local);
+        self.release_temp_local(lhs_index_local);
         self.release_temp_local(rhs_len);
         self.release_temp_local(rhs_offset);
         self.release_temp_local(lhs_len);

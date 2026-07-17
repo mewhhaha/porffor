@@ -1,0 +1,61 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16288497990195081211,
+  "run_kind": "full",
+  "total": 1,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 1,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js",
+      "duration_ms": 20904
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: declared type of variable var106 doesn't match type of value v16789858",
+      "detail_hash": 14216496012171314527,
+      "duration_ms": 20904
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

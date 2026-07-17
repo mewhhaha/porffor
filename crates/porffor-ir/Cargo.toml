@@ -5,9 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-boa_ast = "0.21.1"
+boa_ast = { version = "0.21.1", features = ["annex-b"] }
 boa_interner = "0.21.1"
-boa_parser = "0.21.1"
+boa_parser = { version = "0.21.1", features = ["annex-b"] }
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 porffor-front = { path = "../porffor-front" }

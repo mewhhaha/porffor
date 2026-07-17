@@ -1,11 +1,6 @@
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{lower, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
 use sha2::{Digest, Sha256};
-#[cfg(test)]
-use wasmi::{
-    core::Trap as WasmiTrap, Caller as WasmiCaller, Engine as WasmiEngine, Linker as WasmiLinker,
-    Module as WasmiModule,
-};
 use wasmi::{Store as WasmiStore, Value as WasmiValue};
 use wasmtime::{
     Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
@@ -187,9 +182,13 @@ pub fn configure_compilation_jobs(jobs: usize) -> Result<(), String> {
     }
 }
 
+pub fn compilation_jobs() -> usize {
+    *COMPILATION_JOBS.get_or_init(default_compilation_jobs)
+}
+
 fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {
     let result = COMPILATION_POOL.get_or_init(|| {
-        let jobs = *COMPILATION_JOBS.get_or_init(default_compilation_jobs);
+        let jobs = compilation_jobs();
         rayon::ThreadPoolBuilder::new()
             .num_threads(jobs)
             .thread_name(|index| format!("porffor-cranelift-{index}"))
@@ -199,13 +198,38 @@ fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {
     result.as_ref().map_err(|err| EngineError::new(err.clone()))
 }
 
+#[derive(Clone, Copy)]
+enum WasmModuleMemoryCachePolicy {
+    Retain,
+    BypassRetention,
+}
+
+enum WasmModuleMemoryCacheOutcome {
+    Hit,
+    Miss,
+    Bypassed,
+}
+
+fn memory_wasm_modules() -> &'static Mutex<VecDeque<([u8; 32], WasmtimeModule)>> {
+    static MODULES: OnceLock<Mutex<VecDeque<([u8; 32], WasmtimeModule)>>> = OnceLock::new();
+    MODULES.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn compile_wasm_module(
+    engine: &WasmtimeEngine,
+    bytes: &[u8],
+) -> Result<WasmtimeModule, EngineError> {
+    compilation_pool()?
+        .install(|| WasmtimeModule::new(engine, bytes))
+        .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err:#}")))
+}
+
 fn memory_cached_wasm_module(
     engine: &WasmtimeEngine,
     bytes: &[u8],
-) -> Result<(WasmtimeModule, bool), EngineError> {
-    static MODULES: OnceLock<Mutex<VecDeque<([u8; 32], WasmtimeModule)>>> = OnceLock::new();
+) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     let key: [u8; 32] = Sha256::digest(bytes).into();
-    let modules = MODULES.get_or_init(|| Mutex::new(VecDeque::new()));
+    let modules = memory_wasm_modules();
     {
         let mut modules = modules
             .lock()
@@ -216,13 +240,11 @@ fn memory_cached_wasm_module(
                 .expect("module cache index should exist");
             let module = entry.1.clone();
             modules.push_back(entry);
-            return Ok((module, true));
+            return Ok((module, WasmModuleMemoryCacheOutcome::Hit));
         }
     }
 
-    let module = compilation_pool()?
-        .install(|| WasmtimeModule::new(engine, bytes))
-        .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err}")))?;
+    let module = compile_wasm_module(engine, bytes)?;
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -230,7 +252,31 @@ fn memory_cached_wasm_module(
         modules.pop_front();
     }
     modules.push_back((key, module.clone()));
-    Ok((module, false))
+    Ok((module, WasmModuleMemoryCacheOutcome::Miss))
+}
+
+fn wasm_module_for_execution(
+    engine: &WasmtimeEngine,
+    bytes: &[u8],
+    memory_cache_policy: WasmModuleMemoryCachePolicy,
+) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
+    match memory_cache_policy {
+        WasmModuleMemoryCachePolicy::Retain => memory_cached_wasm_module(engine, bytes),
+        WasmModuleMemoryCachePolicy::BypassRetention => Ok((
+            compile_wasm_module(engine, bytes)?,
+            WasmModuleMemoryCacheOutcome::Bypassed,
+        )),
+    }
+}
+
+#[cfg(test)]
+fn memory_wasm_module_is_cached(bytes: &[u8]) -> bool {
+    let key: [u8; 32] = Sha256::digest(bytes).into();
+    memory_wasm_modules()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .any(|(candidate, _)| *candidate == key)
 }
 
 /// Wall-clock tick between `Engine::increment_epoch()` calls made by
@@ -274,6 +320,7 @@ fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
             config.wasm_function_references(true);
             config.wasm_gc(true);
             config.wasm_exceptions(true);
+            config.wasm_tail_call(true);
             config.parallel_compilation(true);
             config.cache(wasmtime_module_cache());
             if let Some(function_cache) = cranelift_function_cache() {
@@ -300,6 +347,29 @@ fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
             config.epoch_interruption(true);
             WasmtimeEngine::new(&config)
                 .map_err(|err| format!("wasmtime engine setup failed: {err}"))
+        })
+        .clone()
+        .map_err(EngineError::new)
+}
+
+fn shared_size_optimized_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
+    static ENGINE: OnceLock<Result<WasmtimeEngine, String>> = OnceLock::new();
+    ENGINE
+        .get_or_init(|| {
+            let mut config = WasmtimeConfig::new();
+            config.cranelift_opt_level(OptLevel::SpeedAndSize);
+            config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
+            config.max_wasm_stack(8 * 1024 * 1024);
+            config.wasm_threads(true);
+            config.wasm_function_references(true);
+            config.wasm_gc(true);
+            config.wasm_exceptions(true);
+            config.wasm_tail_call(true);
+            config.parallel_compilation(true);
+            config.cache(wasmtime_module_cache());
+            config.epoch_interruption(true);
+            WasmtimeEngine::new(&config)
+                .map_err(|err| format!("size-optimized wasmtime engine setup failed: {err}"))
         })
         .clone()
         .map_err(EngineError::new)
@@ -513,7 +583,7 @@ impl Engine {
         source: &str,
         options: CompileOptions,
     ) -> Result<CompilationUnit, EngineError> {
-        self.compile(source, ParseGoal::Script, options)
+        self.compile_on_sized_stack(source, ParseGoal::Script, options)
     }
 
     pub fn compile_module(
@@ -521,7 +591,7 @@ impl Engine {
         source: &str,
         options: CompileOptions,
     ) -> Result<CompilationUnit, EngineError> {
-        self.compile(source, ParseGoal::Module, options)
+        self.compile_on_sized_stack(source, ParseGoal::Module, options)
     }
 
     pub fn run_script(
@@ -558,12 +628,77 @@ impl Engine {
         self.run_source_with_cached_wasm(source, ParseGoal::Module, options, run.timeout_ms)
     }
 
+    /// Runs a script through the Wasm-AOT backend on the calling thread.
+    ///
+    /// Callers must provide a thread with at least 64MiB of stack. This is
+    /// for hosts that already own such a persistent worker; ordinary callers
+    /// should use [`Engine::run_script`]. The persistent-worker path bypasses
+    /// in-memory compiled-module retention so unique-source workloads remain
+    /// memory-bounded; the on-disk caches remain enabled.
+    #[doc(hidden)]
+    pub fn run_wasm_aot_script_on_current_thread(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        self.run_source_with_cached_wasm_on_current_thread(
+            source,
+            ParseGoal::Script,
+            options,
+            timeout_ms,
+            WasmModuleMemoryCachePolicy::BypassRetention,
+        )
+    }
+
+    /// Runs a module through the Wasm-AOT backend on the calling thread.
+    ///
+    /// Callers must provide a thread with at least 64MiB of stack. This is
+    /// for hosts that already own such a persistent worker; ordinary callers
+    /// should use [`Engine::run_module`]. The persistent-worker path bypasses
+    /// in-memory compiled-module retention so unique-source workloads remain
+    /// memory-bounded; the on-disk caches remain enabled.
+    #[doc(hidden)]
+    pub fn run_wasm_aot_module_on_current_thread(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        self.run_source_with_cached_wasm_on_current_thread(
+            source,
+            ParseGoal::Module,
+            options,
+            timeout_ms,
+            WasmModuleMemoryCachePolicy::BypassRetention,
+        )
+    }
+
     fn run_source_with_cached_wasm(
         &self,
         source: &str,
         goal: ParseGoal,
         options: CompileOptions,
         timeout_ms: Option<u64>,
+    ) -> Result<RunOutcome, EngineError> {
+        run_on_sized_stack(|| {
+            self.run_source_with_cached_wasm_on_current_thread(
+                source,
+                goal,
+                options,
+                timeout_ms,
+                WasmModuleMemoryCachePolicy::Retain,
+            )
+        })
+    }
+
+    fn run_source_with_cached_wasm_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
         let key = program_wasm_cache_key(source, goal, &options);
         if let Some(cache) = program_wasm_cache() {
@@ -576,7 +711,7 @@ impl Engine {
                         cache_started.elapsed()
                     );
                 }
-                match self.run_with_wasm_bytes(&bytes, timeout_ms) {
+                match self.run_with_wasm_bytes_inner(&bytes, timeout_ms, memory_cache_policy) {
                     Err(err)
                         if err
                             .message()
@@ -597,12 +732,9 @@ impl Engine {
             }
         }
 
-        let unit = match goal {
-            ParseGoal::Script => self.compile_script(source, options)?,
-            ParseGoal::Module => self.compile_module(source, options)?,
-        };
+        let unit = self.compile_on_current_thread(source, goal, options)?;
         let emit_started = std::time::Instant::now();
-        let artifact = self.emit_wasm(&unit)?;
+        let artifact = self.emit_wasm_on_current_thread(&unit)?;
         if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
             eprintln!(
                 "porffor wasm trace: emit: {:?} ({} bytes)",
@@ -623,12 +755,15 @@ impl Engine {
                 );
             }
         }
-        self.run_with_wasm_bytes(&artifact.bytes, timeout_ms)
+        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms, memory_cache_policy)
     }
 
     pub fn emit_wasm(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        run_on_sized_stack(|| {
-            match porffor_aot_wasm::emit(&unit.ir) {
+        run_on_sized_stack(|| self.emit_wasm_on_current_thread(unit))
+    }
+
+    fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
+        match porffor_aot_wasm::emit(&unit.ir) {
             Ok(wasm) => Ok(Artifact {
                 kind: ArtifactKind::Wasm,
                 bytes: wasm.bytes,
@@ -639,7 +774,6 @@ impl Engine {
                 err
             ))),
         }
-        })
     }
 
     pub fn emit_c(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
@@ -702,40 +836,47 @@ impl Engine {
         }
     }
 
-    fn compile(
+    fn compile_on_sized_stack(
         &self,
         source: &str,
         goal: ParseGoal,
         options: CompileOptions,
     ) -> Result<CompilationUnit, EngineError> {
-        run_on_sized_stack(move || {
-            let trace = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
-            let parse_started = std::time::Instant::now();
-            let source = parse(
-                source,
-                ParseOptions {
-                    goal,
-                    filename: options.filename,
-                },
-            )
-            .map_err(EngineError::from_parse_error)?;
-            if trace {
-                eprintln!("porffor wasm trace: parse: {:?}", parse_started.elapsed());
-            }
-            let lower_started = std::time::Instant::now();
-            let ir = lower(&source);
-            if trace {
-                eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
-            }
-            if let Some(diagnostic) = ir
-                .diagnostics
-                .iter()
-                .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
-            {
-                return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
-            }
-            Ok(CompilationUnit { source, ir })
-        })
+        run_on_sized_stack(move || self.compile_on_current_thread(source, goal, options))
+    }
+
+    fn compile_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+    ) -> Result<CompilationUnit, EngineError> {
+        let trace = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
+        let parse_started = std::time::Instant::now();
+        let source = parse(
+            source,
+            ParseOptions {
+                goal,
+                filename: options.filename,
+            },
+        )
+        .map_err(EngineError::from_parse_error)?;
+        if trace {
+            eprintln!("porffor wasm trace: parse: {:?}", parse_started.elapsed());
+        }
+        let lower_started = std::time::Instant::now();
+        let ir = lower(&source);
+        if trace {
+            eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
+        }
+        if let Some(diagnostic) = ir
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
+        {
+            return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
+        }
+        Ok(CompilationUnit { source, ir })
     }
 
     pub fn run_compiled_unit(
@@ -846,21 +987,18 @@ impl Engine {
             );
         }
         trace_phase("emit", emit_started);
-        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms)
-    }
-
-    fn run_with_wasm_bytes(
-        &self,
-        bytes: &[u8],
-        timeout_ms: Option<u64>,
-    ) -> Result<RunOutcome, EngineError> {
-        run_on_sized_stack(|| self.run_with_wasm_bytes_inner(bytes, timeout_ms))
+        self.run_with_wasm_bytes_inner(
+            &artifact.bytes,
+            timeout_ms,
+            WasmModuleMemoryCachePolicy::Retain,
+        )
     }
 
     fn run_with_wasm_bytes_inner(
         &self,
         bytes: &[u8],
         timeout_ms: Option<u64>,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
@@ -878,19 +1016,35 @@ impl Engine {
         }
 
         let engine_started = std::time::Instant::now();
-        let engine = shared_wasm_engine()?;
+        let mut engine = shared_wasm_engine()?;
         trace_phase("engine", engine_started);
         ensure_wasm_epoch_ticker(&engine);
         let module_started = std::time::Instant::now();
         let function_cache_before = cranelift_function_cache().map(|cache| cache.counters());
         let module_cache_before =
             wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
-        let (module, memory_cache_hit) = memory_cached_wasm_module(&engine, bytes)?;
+        let (module, memory_cache_outcome) =
+            match wasm_module_for_execution(&engine, bytes, memory_cache_policy) {
+                Ok(compiled) => compiled,
+                Err(error) if error.to_string().contains("Code for function is too large") => {
+                    engine = shared_size_optimized_wasm_engine()?;
+                    ensure_wasm_epoch_ticker(&engine);
+                    (
+                        compile_wasm_module(&engine, bytes)?,
+                        WasmModuleMemoryCacheOutcome::Bypassed,
+                    )
+                }
+                Err(error) => return Err(error),
+            };
         let module_elapsed = module_started.elapsed();
         if trace_wasm {
             eprintln!(
                 "porffor wasm trace: module-memory-cache {}: {:?}",
-                if memory_cache_hit { "hit" } else { "miss" },
+                match memory_cache_outcome {
+                    WasmModuleMemoryCacheOutcome::Hit => "hit",
+                    WasmModuleMemoryCacheOutcome::Miss => "miss",
+                    WasmModuleMemoryCacheOutcome::Bypassed => "bypass",
+                },
                 module_elapsed
             );
             if let (Some(before), Some(after)) = (
@@ -1312,11 +1466,11 @@ mod tests {
             .compile_script(source, CompileOptions::default())
             .expect("script compile should succeed");
         let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
-        let wasmi_engine = WasmiEngine::default();
-        let module =
-            WasmiModule::new(&wasmi_engine, &artifact.bytes[..]).expect("module should validate");
-        let mut store = WasmiStore::new(
-            &wasmi_engine,
+        let wasm_engine = shared_wasm_engine().expect("wasmtime engine should initialize");
+        let module = WasmtimeModule::new(&wasm_engine, &artifact.bytes)
+            .expect("module should validate for the supported Wasmtime target");
+        let mut store = WasmtimeStore::new(
+            &wasm_engine,
             WasmHostState {
                 realm: engine.realm.clone(),
                 limits: WasmtimeStoreLimitsBuilder::new()
@@ -1324,68 +1478,68 @@ mod tests {
                     .build(),
             },
         );
-        let mut linker = WasmiLinker::new(&wasmi_engine);
+        store.limiter(|state| &mut state.limits);
+        store.set_epoch_deadline(u64::MAX / 2);
+        let mut linker = WasmtimeLinker::new(&wasm_engine);
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_PRINT_LINE_UTF8,
-                |_caller: WasmiCaller<'_, WasmHostState>,
+                |_caller: WasmtimeCaller<'_, WasmHostState>,
                  _ptr: i32,
                  _len: i32|
-                 -> Result<(), WasmiTrap> { Ok(()) },
+                 -> wasmtime::Result<()> { Ok(()) },
             )
             .expect("host print import should link");
         let instance = linker
             .instantiate(&mut store, &module)
-            .expect("instance should instantiate")
-            .start(&mut store)
-            .expect("instance should start");
-        let pre_main_bytes = if let Some(memory) = instance.get_memory(&store, "memory") {
+            .expect("instance should instantiate");
+        let pre_main_bytes = if let Some(memory) = instance.get_memory(&mut store, "memory") {
             let mut bytes = vec![0; 32];
             memory
-                .read(&store, WASM_STATIC_DATA_OFFSET, &mut bytes)
+                .read(&mut store, WASM_STATIC_DATA_OFFSET, &mut bytes)
                 .expect("pre-main bytes should read");
             Some(bytes)
         } else {
             None
         };
         let main = instance
-            .get_typed_func::<(), i64>(&store, "main")
+            .get_typed_func::<(), i64>(&mut store, "main")
             .expect("main export should exist");
         let payload = main.call(&mut store, ()).expect("main should run");
-        let WasmiValue::I32(result_tag) = instance
-            .get_global(&store, WASM_RESULT_TAG_EXPORT)
+        let WasmtimeVal::I32(result_tag) = instance
+            .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
             .expect("result_tag export should exist")
-            .get(&store)
+            .get(&mut store)
         else {
             panic!("result_tag export should be i32");
         };
-        let WasmiValue::I32(completion_kind) = instance
-            .get_global(&store, WASM_COMPLETION_KIND_EXPORT)
+        let WasmtimeVal::I32(completion_kind) = instance
+            .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
             .expect("completion_kind export should exist")
-            .get(&store)
+            .get(&mut store)
         else {
             panic!("completion_kind export should be i32");
         };
         let kind = ValueKind::from_tag(result_tag).expect("result tag should decode");
-        let post_main_prefix = if let Some(memory) = instance.get_memory(&store, "memory") {
+        let post_main_prefix = if let Some(memory) = instance.get_memory(&mut store, "memory") {
             let mut bytes = vec![0; 32];
             memory
-                .read(&store, WASM_STATIC_DATA_OFFSET, &mut bytes)
+                .read(&mut store, WASM_STATIC_DATA_OFFSET, &mut bytes)
                 .expect("post-main bytes should read");
             Some(bytes)
         } else {
             None
         };
         let bytes = if kind == ValueKind::String {
-            let Some(memory) = instance.get_memory(&store, "memory") else {
+            let Some(memory) = instance.get_memory(&mut store, "memory") else {
                 panic!("string result should export memory");
             };
             let offset = ((payload as u64) >> 32) as usize;
             let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
             let mut bytes = vec![0; len];
             memory
-                .read(&store, offset, &mut bytes)
+                .read(&mut store, offset, &mut bytes)
                 .expect("string bytes should read");
             Some(bytes)
         } else {
@@ -1535,6 +1689,46 @@ mod tests {
             err.message()
                 .contains("uncaught throw: TypeError: wasm-aot completion: object(handle@"),
             "error: {err}"
+        );
+    }
+
+    #[test]
+    fn current_thread_wasm_aot_entry_runs_on_a_sized_worker() {
+        let outcome = run_on_sized_stack(|| {
+            engine().run_wasm_aot_script_on_current_thread(
+                "40 + 2;",
+                CompileOptions::default(),
+                None,
+            )
+        })
+        .expect("current-thread Wasm-AOT run should succeed");
+
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+        assert!(outcome.note.contains("number(42)"), "outcome: {outcome:?}");
+    }
+
+    #[test]
+    fn current_thread_wasm_aot_entry_bypasses_memory_module_cache() {
+        let source = "let currentThreadMemoryCacheBypass = 4815162342;";
+        let unit = engine()
+            .compile_script(source, CompileOptions::default())
+            .expect("source should compile");
+        let artifact = engine()
+            .emit_wasm(&unit)
+            .expect("compiled source should emit Wasm");
+        assert!(
+            !memory_wasm_module_is_cached(&artifact.bytes),
+            "test artifact must not already be retained in the memory module cache"
+        );
+
+        run_on_sized_stack(|| {
+            engine().run_wasm_aot_script_on_current_thread(source, CompileOptions::default(), None)
+        })
+        .expect("current-thread Wasm-AOT run should succeed");
+
+        assert!(
+            !memory_wasm_module_is_cached(&artifact.bytes),
+            "current-thread Wasm-AOT runs must not retain their module in the memory cache"
         );
     }
 
@@ -1992,8 +2186,8 @@ var total = 0;
 function invoke(name, target) {
   if (name === "match") return "".match(target);
   if (name === "matchAll") return "".matchAll(target);
-  if (name === "replace") return "".replace(target);
-  if (name === "replaceAll") return "".replaceAll(target);
+  if (name === "replace") return "".replace(target, target);
+  if (name === "replaceAll") return "".replaceAll(target, target);
   if (name === "search") return "".search(target);
   if (name === "split") return "".split(target);
   throw name;
@@ -2008,6 +2202,9 @@ function check(name, symbol, expectedArgs) {
         if (this !== target) throw "this";
         if (arguments.length !== expectedArgs) throw "argc";
         if (arguments[0] !== "") throw "arg0";
+        if ((name === "replace" || name === "replaceAll") && arguments[1] !== target) {
+          throw "arg1";
+        }
         return null;
       };
     },
@@ -2913,6 +3110,52 @@ clampedFirst.value + ":" + clampedFirst.done;
     }
 
     #[test]
+    fn wasm_backend_string_iterator_preserves_code_points_and_brand() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let pair = String.fromCharCode(0xD834, 0xDF06);
+let iterator = ("a" + pair + "b")[Symbol.iterator]();
+let first = iterator.next();
+let second = iterator.next();
+let third = iterator.next();
+let exhausted = iterator.next();
+let prototype = Object.getPrototypeOf(iterator);
+let other = __porfCreateRealm().global;
+let otherIterator = other.String.prototype[Symbol.iterator].call("x");
+let otherPrototype = Object.getPrototypeOf(otherIterator);
+let realmLocal = otherPrototype !== prototype &&
+  Object.getPrototypeOf(otherPrototype) !== Object.getPrototypeOf(prototype);
+let marker = {};
+let propagated = false;
+try {
+  String.prototype[Symbol.iterator].call({ toString() { throw marker; } });
+} catch (error) {
+  propagated = error === marker;
+}
+first.value + ":" + first.done + "|" +
+second.value.length + ":" + (second.value === pair) + "|" +
+third.value + ":" + third.done + "|" +
+typeof exhausted.value + ":" + exhausted.done + "|" +
+prototype[Symbol.toStringTag] + "|" + propagated + "|" + realmLocal;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String iterator code point and brand cases should run");
+        assert!(
+            outcome.note.contains(
+                "string(a:false|2:true|b:false|undefined:true|String Iterator|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_array_push_is_generic_for_objects_and_boxed_booleans() {
         let outcome = engine()
             .run_script(
@@ -3036,9 +3279,13 @@ caught + "|" + first + "|" + array.length + "|" + array[4294967295] + "|" + arra
                 r#"
 var array = [];
 var callCount = 0;
+var receiverMatches = false;
+var receivedValue = 0;
 Object.defineProperty(Array.prototype, "0", {
   set: function(value) {
     callCount += 1;
+    receiverMatches = this === array;
+    receivedValue = value;
     Object.defineProperty(array, "length", { writable: false });
   },
   configurable: true
@@ -3046,12 +3293,13 @@ Object.defineProperty(Array.prototype, "0", {
 
 var caught = "no";
 try {
-  array.push(1);
+  array.push(41);
 } catch (e) {
   caught = e.name;
 }
 delete Array.prototype[0];
-caught + ":" + array.length + ":" + callCount + ":" + (array[0] === undefined);
+caught + ":" + array.length + ":" + callCount + ":" + receiverMatches + ":" +
+  receivedValue + ":" + (array[0] === undefined);
 "#,
                 CompileOptions::default(),
                 RunOptions {
@@ -3061,7 +3309,154 @@ caught + ":" + array.length + ":" + callCount + ":" + (array[0] === undefined);
             )
             .expect("Array.prototype.push should honor inherited index setters");
         assert!(
-            outcome.note.contains("string(TypeError:0:1:true)"),
+            outcome.note.contains("string(TypeError:0:1:true:41:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_assignment_calls_inherited_numeric_setter() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+var callCount = 0;
+var receiverMatches = false;
+var receivedValue = 0;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    callCount += 1;
+    receiverMatches = this === array;
+    receivedValue = value;
+  },
+  configurable: true
+});
+
+var assignedValue = array[0] = 23;
+delete Array.prototype[0];
+assignedValue + ":" + callCount + ":" + receiverMatches + ":" + receivedValue + ":" +
+  array.length + ":" + (array[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("array assignment should honor inherited numeric setters");
+        assert!(
+            outcome.note.contains("string(23:1:true:23:0:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_reflect_set_calls_inherited_array_numeric_setter() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+var callCount = 0;
+var receiverMatches = false;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    callCount += value;
+    receiverMatches = this === array;
+  },
+  configurable: true
+});
+
+var result = Reflect.set(array, "0", 5);
+delete Array.prototype[0];
+result + ":" + callCount + ":" + receiverMatches + ":" + array.length + ":" +
+  (array[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Reflect.set should honor inherited array numeric setters");
+        assert!(
+            outcome.note.contains("string(true:5:true:0:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_reflect_set_propagates_accessor_exceptions() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var target = {};
+var receiver = {};
+var token = {};
+var caught;
+var callCount = 0;
+Object.defineProperty(target, "slot", {
+  set: function() {
+    callCount += 1;
+    throw token;
+  }
+});
+try {
+  Reflect.set(target, "slot", 1, receiver);
+} catch (error) {
+  caught = error;
+}
+callCount === 1 && caught === token;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Reflect.set should propagate accessor exceptions");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_push_calls_inherited_setter_with_non_writable_length() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+Object.defineProperty(array, "length", { writable: false });
+var callCount = 0;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    callCount += value;
+  },
+  configurable: true
+});
+
+var caught = "no";
+try {
+  array.push(2);
+} catch (e) {
+  caught = e.name;
+}
+delete Array.prototype[0];
+caught + ":" + callCount + ":" + array.length + ":" + (array[0] === undefined);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("push should run an inherited setter before its final length write");
+        assert!(
+            outcome.note.contains("string(TypeError:2:0:true)"),
             "note: {}",
             outcome.note
         );
@@ -3112,6 +3507,312 @@ emptyThrow + ":" + empty.length + ":" + (empty[0] === undefined) + "|" +
             outcome
                 .note
                 .contains("string(TypeError:0:true|TypeError:0:1:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_shift_moves_generic_array_like_properties_and_holes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var sparse = ["a", , "c"];
+var sparseFirst = sparse.shift();
+var sparseResult = sparseFirst + ":" + sparse.length + ":" + (0 in sparse) + ":" + sparse[1];
+
+var calls = [];
+var object;
+var prototype = {};
+Object.defineProperty(prototype, "0", {
+  get: function() {
+    calls.push("get 0");
+    return "first";
+  },
+  set: function(value) {
+    calls.push("set 0 " + value + " " + (this === object));
+  },
+  configurable: true
+});
+Object.defineProperty(prototype, "1", {
+  get: function() {
+    calls.push("get 1");
+    return "second";
+  },
+  configurable: true
+});
+object = Object.create(prototype);
+object.length = 2;
+object.shift = Array.prototype.shift;
+var objectFirst = object.shift();
+var objectResult = objectFirst + ":" + object.length + ":" + calls.join(",");
+
+var savedShift = Array.prototype.shift;
+Array.prototype.shift = function() { return "custom " + this.length; };
+var mutated = [9];
+var mutatedResult = mutated.shift() + ":" + mutated.length;
+Array.prototype.shift = savedShift;
+var extracted = [8];
+var extractedResult = savedShift.call(extracted) + ":" + extracted.length;
+
+sparseResult + "|" + objectResult + "|" + mutatedResult + "|" + extractedResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.shift generic array-like cases should run");
+        assert!(
+            outcome.note.contains(
+                "string(a:2:false:c|first:1:get 0,get 1,set 0 second true|custom 1:1|8:0)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_shift_observes_proxy_operations_in_spec_order() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+var target = { 0: "a", 1: "b", length: 2 };
+var proxy = new Proxy(target, {
+  get: function(target, key, receiver) {
+    calls.push("get " + key);
+    return Reflect.get(target, key, receiver);
+  },
+  has: function(target, key) {
+    calls.push("has " + key);
+    return Reflect.has(target, key);
+  },
+  set: function(target, key, value, receiver) {
+    calls.push("set " + key + " " + value);
+    return Reflect.set(target, key, value, receiver);
+  },
+  deleteProperty: function(target, key) {
+    calls.push("delete " + key);
+    return Reflect.deleteProperty(target, key);
+  }
+});
+var first = Array.prototype.shift.call(proxy);
+var proxyResult = first + ":" + target.length + ":" + target[0] + ":" + (1 in target) + "|" + calls.join(",");
+
+var boundaryCalls = [];
+var boundary = new Proxy({}, {
+  get: function(target, key) {
+    boundaryCalls.push("get " + key);
+    if (key === "length") return 9007199254740991;
+    if (key === "0") return "first";
+  },
+  has: function(target, key) {
+    throw key;
+  }
+});
+var boundaryResult = "missing";
+try {
+  Array.prototype.shift.call(boundary);
+} catch (error) {
+  boundaryResult = error + ":" + boundaryCalls.join(",");
+}
+
+proxyResult + "|" + boundaryResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.shift should use observable object operations in spec order");
+        assert!(
+            outcome.note.contains(
+                "string(a:1:b:false|get length,get 0,has 1,get 1,set 0 b,delete 1,set length 1|1:get length,get 0)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_shift_enforces_strict_writes_and_builtin_realm_errors() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var frozen = [];
+Object.freeze(frozen);
+var frozenResult = "missing";
+try {
+  frozen.shift();
+} catch (error) {
+  frozenResult = error.name + ":" + frozen.length;
+}
+
+var stringResults = [];
+for (var value of ["", "abc"]) {
+  try {
+    Array.prototype.shift.call(value);
+    stringResults.push("missing");
+  } catch (error) {
+    stringResults.push(error.name);
+  }
+}
+
+var other = __porfCreateRealm();
+var otherShift = other.global.Array.prototype.shift;
+var realmResult = "missing";
+try {
+  otherShift.call(null);
+} catch (error) {
+  realmResult =
+    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
+    (error instanceof other.global.TypeError) + ":" +
+    (error instanceof TypeError);
+}
+
+frozenResult + "|" + stringResults.join(",") + "|" + realmResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.shift should enforce strict writes in its defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(TypeError:0|TypeError,TypeError|true:true:false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_unshift_moves_generic_array_like_properties_and_holes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var object = { 0: "a", 2: "c", length: 3 };
+var objectLength = Array.prototype.unshift.call(object, "x", "y");
+var objectResult = objectLength + ":" + object.length + ":" + object[0] + ":" +
+  object[1] + ":" + object[2] + ":" + (3 in object) + ":" + object[4];
+
+var array = [];
+array[1] = "b";
+array.length = 3;
+var arrayLength = array.unshift("x", "y");
+var arrayResult = arrayLength + ":" + array.length + ":" + array[0] + ":" +
+  array[1] + ":" + (2 in array) + ":" + array[3] + ":" + (4 in array);
+
+var many = ["tail"];
+var manyLength = many.unshift(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+var manyResult = manyLength + ":" + many.length + ":" + many[0] + ":" +
+  many[8] + ":" + many[9] + ":" + many[10];
+
+objectResult + "|" + arrayResult + "|" + manyResult;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.unshift generic array-like cases should run");
+        assert!(
+            outcome
+                .note
+                .contains("string(5:5:x:y:a:false:c|5:5:x:y:false:b:false|11:11:0:8:9:tail)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_unshift_propagates_an_abrupt_source_getter() {
+        let error = engine()
+            .run_script(
+                r#"
+var object = { length: 2 };
+Object.defineProperty(object, "1", {
+  get: function() {
+    return "moved";
+  },
+  configurable: true
+});
+Object.defineProperty(object, "0", {
+  get: function() {
+    throw "stop";
+  },
+  configurable: true
+});
+Array.prototype.unshift.call(object, "new");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("Array.prototype.unshift should propagate abrupt source getters");
+        assert!(
+            error.message().contains("uncaught throw") && error.message().contains("string(stop)"),
+            "error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_unshift_calls_inherited_setter_before_length_write() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var array = [];
+var callCount = 0;
+var receiverMatches = false;
+var receivedValue = 0;
+Object.defineProperty(Array.prototype, "0", {
+  set: function(value) {
+    callCount += 1;
+    receiverMatches = this === array;
+    receivedValue = value;
+  },
+  configurable: true
+});
+Object.defineProperty(array, "length", { writable: false });
+
+var nonzeroThrow = "no";
+try {
+  array.unshift(41);
+} catch (error) {
+  nonzeroThrow = error.name;
+}
+
+var frozen = [];
+Object.freeze(frozen);
+var zeroThrow = "no";
+try {
+  frozen.unshift();
+} catch (error) {
+  zeroThrow = error.name;
+}
+delete Array.prototype[0];
+nonzeroThrow + ":" + array.length + ":" + callCount + ":" + receiverMatches + ":" +
+  receivedValue + ":" + (array[0] === undefined) + "|" + zeroThrow + ":" + frozen.length;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.unshift should honor setters and length integrity");
+        assert!(
+            outcome
+                .note
+                .contains("string(TypeError:0:1:true:41:true|TypeError:0)"),
             "note: {}",
             outcome.note
         );
@@ -3171,20 +3872,7 @@ let helperNames = [
   "toArray", "forEach", "every", "some", "find", "reduce",
   "map", "filter", "flatMap", "take", "drop"
 ];
-let callbackNames = [
-  "forEach", "every", "some", "find", "reduce", "map", "filter", "flatMap"
-];
 let helperResults = [];
-let nullishThrowResults = [];
-let callbackThrowResults = [];
-let rangeThrowResults = [];
-let nextMethodThrowResults = [];
-let nextResultThrowResults = [];
-let lazyNextResultThrowResults = [];
-let lazyReturnThrowResults = [];
-let iteratorFromThrowResults = [];
-let iteratorFromNextSuccess = "none";
-let reduceEmptyThrow = "none";
 let thrown = "none";
 let toArrayThrow = "none";
 let disposeThrow = "none";
@@ -3195,199 +3883,6 @@ for (let i = 0; i < helperNames.length; i++) {
     (typeof iteratorPrototype[name]) + ":" +
     (iteratorPrototype[name] === Iterator.prototype[name])
   );
-}
-for (let i = 0; i < helperNames.length; i++) {
-  let name = helperNames[i];
-  try {
-    iteratorPrototype[name].call(null, function() { return true; });
-  } catch (error) {
-    nullishThrowResults.push(
-      name + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-for (let i = 0; i < callbackNames.length; i++) {
-  let name = callbackNames[i];
-  try {
-    iteratorPrototype[name].call(iteratorPrototype, null);
-  } catch (error) {
-    callbackThrowResults.push(
-      name + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-for (let i = 0; i < 2; i++) {
-  let name = i === 0 ? "take" : "drop";
-  try {
-    iteratorPrototype[name].call(iteratorPrototype);
-  } catch (error) {
-    rangeThrowResults.push(
-      name + ":" +
-      (Object.getPrototypeOf(error) === other.RangeError.prototype) + ":" +
-      (error instanceof other.RangeError) + ":" +
-      (error instanceof RangeError)
-    );
-  }
-}
-for (let i = 0; i < 6; i++) {
-  let name = helperNames[i];
-  try {
-    if (name === "toArray") {
-      iteratorPrototype[name].call({ next: null });
-    } else {
-      iteratorPrototype[name].call({ next: null }, function() { return true; });
-    }
-  } catch (error) {
-    nextMethodThrowResults.push(
-      name + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-for (let i = 0; i < 6; i++) {
-  let name = helperNames[i];
-  try {
-    if (name === "toArray") {
-      iteratorPrototype[name].call({ next: function() { return 1; } });
-    } else {
-      iteratorPrototype[name].call({ next: function() { return 1; } }, function() { return true; });
-    }
-  } catch (error) {
-    nextResultThrowResults.push(
-      name + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-try {
-  iteratorPrototype.reduce.call({ next: function() { return { done: true }; } }, function(a, b) { return a; });
-} catch (error) {
-  reduceEmptyThrow = [
-    Object.getPrototypeOf(error) === other.TypeError.prototype,
-    error instanceof other.TypeError,
-    error instanceof TypeError
-  ].join(":");
-}
-let lazyNextChecks = [
-  ["map", iteratorPrototype.map.call({ next: function() { return 1; } }, function(value) { return value; })],
-  ["filter", iteratorPrototype.filter.call({ next: function() { return 1; } }, function(value) { return true; })],
-  ["flatMap", iteratorPrototype.flatMap.call({ next: function() { return 1; } }, function(value) { return [value]; })],
-  ["take", iteratorPrototype.take.call({ next: function() { return 1; } }, 1)],
-  ["drop", iteratorPrototype.drop.call({ next: function() { return 1; } }, 0)]
-];
-for (let i = 0; i < lazyNextChecks.length; i++) {
-  try {
-    lazyNextChecks[i][1].next();
-  } catch (error) {
-    lazyNextResultThrowResults.push(
-      lazyNextChecks[i][0] + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-for (let i = 0; i < lazyNextChecks.length; i++) {
-  try {
-    lazyNextChecks[i][1].return.call({});
-  } catch (error) {
-    lazyReturnThrowResults.push(
-      lazyNextChecks[i][0] + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-function recordIteratorFromThrow(label, thunk) {
-  try {
-    thunk();
-  } catch (error) {
-    iteratorFromThrowResults.push(
-      label + ":" +
-      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
-      (error instanceof other.TypeError) + ":" +
-      (error instanceof TypeError)
-    );
-  }
-}
-recordIteratorFromThrow("null", function() { C.from(null); });
-recordIteratorFromThrow("method", function() {
-  let value = {};
-  value[Symbol.iterator] = 1;
-  C.from(value);
-});
-recordIteratorFromThrow("methodResult", function() {
-  let value = {};
-  value[Symbol.iterator] = function() { return 1; };
-  C.from(value);
-});
-recordIteratorFromThrow("nextMethod", function() {
-  let value = { next: 1 };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).next();
-});
-recordIteratorFromThrow("nextResult", function() {
-  let value = { next: function() { return 1; } };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).next();
-});
-recordIteratorFromThrow("nextReceiver", function() {
-  let value = { next: function() { return { done: true }; } };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).next.call({});
-});
-recordIteratorFromThrow("returnMethod", function() {
-  let value = {
-    next: function() { return { done: false, value: 1 }; },
-    return: 1
-  };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).return();
-});
-recordIteratorFromThrow("returnResult", function() {
-  let value = {
-    next: function() { return { done: false, value: 1 }; },
-    return: function() { return 1; }
-  };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).return();
-});
-recordIteratorFromThrow("returnReceiver", function() {
-  let value = {
-    next: function() { return { done: false, value: 1 }; },
-    return: function() { return { done: true }; }
-  };
-  value[Symbol.iterator] = function() { return this; };
-  C.from(value).return.call({});
-});
-{
-  let nextThis = "unset";
-  let result = { done: false, value: 42 };
-  let value = {
-    next: function() {
-      nextThis = this === value;
-      return result;
-    }
-  };
-  value[Symbol.iterator] = function() { return this; };
-  let wrapper = C.from(value);
-  let nextResult = wrapper.next();
-  iteratorFromNextSuccess = [
-    nextThis,
-    nextResult === result,
-    typeof wrapper.next
-  ].join(":");
 }
 try {
   C();
@@ -3444,16 +3939,6 @@ try {
   tagDesc.get === mainTagDesc.get,
   tagDesc.set === mainTagDesc.set,
   disposeThrow,
-  nullishThrowResults.join(","),
-  callbackThrowResults.join(","),
-  rangeThrowResults.join(","),
-  nextMethodThrowResults.join(","),
-  nextResultThrowResults.join(","),
-  lazyNextResultThrowResults.join(","),
-  lazyReturnThrowResults.join(","),
-  iteratorFromThrowResults.join(","),
-  iteratorFromNextSuccess,
-  reduceEmptyThrow,
   helperResults.join(",")
 ].join("|");
 "#,
@@ -3466,7 +3951,300 @@ try {
             .expect("cross-realm Iterator constructor call should throw in defining realm");
         assert!(
             outcome.note.contains(
-                "string(function|false|false|true|true|function|false|true|true:true:false|function|false|true:true:false|function|false|true|function|function|false|false|function|false|Iterator|function|function|false|false|true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false|take:true:true:false,drop:true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|null:true:true:false,method:true:true:false,methodResult:true:true:false,nextMethod:true:true:false,nextResult:true:true:false,nextReceiver:true:true:false,returnMethod:true:true:false,returnResult:true:true:false,returnReceiver:true:true:false|true:true:function|true:true:false|toArray:function:false,forEach:function:false,every:function:false,some:function:false,find:function:false,reduce:function:false,map:function:false,filter:function:false,flatMap:function:false,take:function:false,drop:function:false)"
+                "string(function|false|false|true|true|function|false|true|true:true:false|function|false|true:true:false|function|false|true|function|function|false|false|function|false|Iterator|function|function|false|false|true:true:false|toArray:function:false,forEach:function:false,every:function:false,some:function:false,find:function:false,reduce:function:false,map:function:false,filter:function:false,flatMap:function:false,take:function:false,drop:function:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_eager_iterator_helpers_validate_arguments_in_other_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let iteratorPrototype = other.Iterator.prototype;
+let helperNames = ["toArray", "forEach", "every", "some", "find", "reduce"];
+let callbackNames = ["forEach", "every", "some", "find", "reduce", "map", "filter", "flatMap"];
+let nullishResults = [];
+let callbackResults = [];
+let rangeResults = [];
+function collectNullishResults() {
+for (let i = 0; i < 11; i++) {
+  let name = i < 6 ? helperNames[i] : ["map", "filter", "flatMap", "take", "drop"][i - 6];
+  try {
+    iteratorPrototype[name].call(null, function() { return true; });
+  } catch (error) {
+    nullishResults.push(name + ":" + (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" + (error instanceof other.TypeError) + ":" + (error instanceof TypeError));
+  }
+}
+}
+function collectCallbackResults() {
+for (let i = 0; i < callbackNames.length; i++) {
+  let name = callbackNames[i];
+  try {
+    iteratorPrototype[name].call(iteratorPrototype, null);
+  } catch (error) {
+    callbackResults.push(name + ":" + (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" + (error instanceof other.TypeError) + ":" + (error instanceof TypeError));
+  }
+}
+}
+function collectRangeResults() {
+for (let i = 0; i < 2; i++) {
+  let name = i === 0 ? "take" : "drop";
+  try {
+    iteratorPrototype[name].call(iteratorPrototype);
+  } catch (error) {
+    rangeResults.push(name + ":" + (Object.getPrototypeOf(error) === other.RangeError.prototype) + ":" + (error instanceof other.RangeError) + ":" + (error instanceof RangeError));
+  }
+}
+}
+collectNullishResults();
+collectCallbackResults();
+collectRangeResults();
+[
+  nullishResults.join(","),
+  callbackResults.join(","),
+  rangeResults.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm eager Iterator helpers should use their defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false,map:true:true:false,filter:true:true:false,flatMap:true:true:false|take:true:true:false,drop:true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_eager_iterator_helpers_validate_results_in_other_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let iteratorPrototype = other.Iterator.prototype;
+let helperNames = ["toArray", "forEach", "every", "some", "find", "reduce"];
+let nextMethodResults = [];
+let nextResultResults = [];
+function collectNextMethodResults() {
+for (let i = 0; i < helperNames.length; i++) {
+  let name = helperNames[i];
+  try {
+    if (name === "toArray") {
+      iteratorPrototype[name].call({ next: null });
+    } else {
+      iteratorPrototype[name].call({ next: null }, function() { return true; });
+    }
+  } catch (error) {
+    nextMethodResults.push(name + ":" + (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" + (error instanceof other.TypeError) + ":" + (error instanceof TypeError));
+  }
+}
+}
+function collectNextResultResults() {
+for (let i = 0; i < helperNames.length; i++) {
+  let name = helperNames[i];
+  try {
+    if (name === "toArray") {
+      iteratorPrototype[name].call({ next: function() { return 1; } });
+    } else {
+      iteratorPrototype[name].call({ next: function() { return 1; } }, function() { return true; });
+    }
+  } catch (error) {
+    nextResultResults.push(name + ":" + (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" + (error instanceof other.TypeError) + ":" + (error instanceof TypeError));
+  }
+}
+}
+collectNextMethodResults();
+collectNextResultResults();
+let reduceEmpty = "none";
+try {
+  iteratorPrototype.reduce.call({ next: function() { return { done: true }; } }, function(a, b) { return a; });
+} catch (error) {
+  reduceEmpty = [(Object.getPrototypeOf(error) === other.TypeError.prototype), error instanceof other.TypeError, error instanceof TypeError].join(":");
+}
+[nextMethodResults.join(","), nextResultResults.join(","), reduceEmpty].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm eager Iterator results should use their defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|toArray:true:true:false,forEach:true:true:false,every:true:true:false,some:true:true:false,find:true:true:false,reduce:true:true:false|true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_lazy_iterator_helpers_use_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let iteratorPrototype = other.Iterator.prototype;
+let nextResults = [];
+let returnResults = [];
+let checks = [
+  ["map", iteratorPrototype.map.call({ next: function() { return 1; } }, function(value) { return value; })],
+  ["filter", iteratorPrototype.filter.call({ next: function() { return 1; } }, function(value) { return true; })],
+  ["flatMap", iteratorPrototype.flatMap.call({ next: function() { return 1; } }, function(value) { return [value]; })],
+  ["take", iteratorPrototype.take.call({ next: function() { return 1; } }, 1)],
+  ["drop", iteratorPrototype.drop.call({ next: function() { return 1; } }, 0)]
+];
+for (let i = 0; i < checks.length; i++) {
+  try {
+    checks[i][1].next();
+  } catch (error) {
+    nextResults.push(
+      checks[i][0] + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+for (let i = 0; i < checks.length; i++) {
+  try {
+    checks[i][1].return.call({});
+  } catch (error) {
+    returnResults.push(
+      checks[i][0] + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+[nextResults.join(","), returnResults.join(",")].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm lazy Iterator helpers should use their defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false|map:true:true:false,filter:true:true:false,flatMap:true:true:false,take:true:true:false,drop:true:true:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_cross_realm_iterator_from_uses_other_realm_type_error() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let C = other.Iterator;
+let throwResults = [];
+function recordThrow(label, thunk) {
+  try {
+    thunk();
+  } catch (error) {
+    throwResults.push(
+      label + ":" +
+      (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
+      (error instanceof other.TypeError) + ":" +
+      (error instanceof TypeError)
+    );
+  }
+}
+recordThrow("null", function() { C.from(null); });
+recordThrow("method", function() {
+  let value = {};
+  value[Symbol.iterator] = 1;
+  C.from(value);
+});
+recordThrow("methodResult", function() {
+  let value = {};
+  value[Symbol.iterator] = function() { return 1; };
+  C.from(value);
+});
+recordThrow("nextMethod", function() {
+  let value = { next: 1 };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next();
+});
+recordThrow("nextResult", function() {
+  let value = { next: function() { return 1; } };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next();
+});
+recordThrow("nextReceiver", function() {
+  let value = { next: function() { return { done: true }; } };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).next.call({});
+});
+recordThrow("returnMethod", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: 1
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return();
+});
+recordThrow("returnResult", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: function() { return 1; }
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return();
+});
+recordThrow("returnReceiver", function() {
+  let value = {
+    next: function() { return { done: false, value: 1 }; },
+    return: function() { return { done: true }; }
+  };
+  value[Symbol.iterator] = function() { return this; };
+  C.from(value).return.call({});
+});
+let nextThis = "unset";
+let result = { done: false, value: 42 };
+let value = {
+  next: function() {
+    nextThis = this === value;
+    return result;
+  }
+};
+value[Symbol.iterator] = function() { return this; };
+let wrapper = C.from(value);
+let nextResult = wrapper.next();
+[
+  throwResults.join(","),
+  nextThis,
+  nextResult === result,
+  typeof wrapper.next
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("cross-realm Iterator.from should use its defining realm");
+        assert!(
+            outcome.note.contains(
+                "string(null:true:true:false,method:true:true:false,methodResult:true:true:false,nextMethod:true:true:false,nextResult:true:true:false,nextReceiver:true:true:false,returnMethod:true:true:false,returnResult:true:true:false,returnReceiver:true:true:false|true|true|function)"
             ),
             "note: {}",
             outcome.note
@@ -4768,6 +5546,64 @@ try {
     }
 
     #[test]
+    fn wasm_backend_script_var_and_function_properties_are_enumerable() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var variable;
+function declared() {}
+let variableDescriptor = Object.getOwnPropertyDescriptor(globalThis, "variable");
+let functionDescriptor = Object.getOwnPropertyDescriptor(globalThis, "declared");
+[
+  variableDescriptor.writable,
+  variableDescriptor.enumerable,
+  variableDescriptor.configurable,
+  functionDescriptor.writable,
+  functionDescriptor.enumerable,
+  functionDescriptor.configurable
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("script global declarations should create ordinary global properties");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|true|false|true|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_arguments_inherits_object_to_string() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function describeArguments() {
+  return arguments.toString();
+}
+describeArguments(1, 2);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("arguments.toString should execute");
+        assert!(
+            outcome.note.contains("string([object Arguments])"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_create_realm_exposes_math_object_methods_and_constants() {
         let outcome = engine()
             .run_script(
@@ -5009,6 +5845,43 @@ let other = __porfCreateRealm().global;
     }
 
     #[test]
+    fn wasm_backend_regexp_source_getter_rejects_cross_realm_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let get = Object.getOwnPropertyDescriptor(RegExp.prototype, "source").get;
+let otherGet = Object.getOwnPropertyDescriptor(other.RegExp.prototype, "source").get;
+let primaryError = false;
+let otherError = false;
+
+try {
+  get.call(other.RegExp.prototype);
+} catch (error) {
+  primaryError = Object.getPrototypeOf(error) === TypeError.prototype;
+}
+try {
+  otherGet.call(RegExp.prototype);
+} catch (error) {
+  otherError = Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+primaryError + "|" + otherError;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp source getters should reject another realm's prototype");
+        assert!(
+            outcome.note.contains("string(true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_cross_realm_regexp_match_all_iterator_uses_defining_realm() {
         let outcome = engine()
             .run_script(
@@ -5051,6 +5924,485 @@ let nextResult = next.call(iterator);
             outcome
                 .note
                 .contains("string(true|false|true:true:false|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_dot_all_matches_line_terminators() {
+        let outcome = engine()
+            .run_script(
+                r#"[
+  /^.$/s.test("\n"),
+  /^.$/.test("\n"),
+  /^.$/s.test("\u{10300}"),
+  /^.$/su.test("\u{10300}")
+].join("|");"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("dotAll matching should retain Unicode code-point behavior");
+        assert!(
+            outcome.note.contains("string(true|false|false|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_search_uses_compiled_named_groups() {
+        let outcome = engine()
+            .run_script(
+                r#"[
+  "xab".search(/(?<x>a)|(?<x>b)/),
+  "xba".search(/(?<x>a)|(?<x>b)/)
+].join("|");"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp search should execute compiled named-group programs");
+        assert!(
+            outcome.note.contains("string(1|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_open_capture_backreferences_match_empty() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let named = /(?<a>\k<a>\w)../.exec("bab");
+let numbered = /(\1\w)../.exec("bab");
+[named[0], named.groups.a, numbered[0], numbered[1]].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("backreferences to open captures should match the empty string");
+        assert!(
+            outcome.note.contains("string(bab|b|bab|b)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_lookbehind_matches_in_reverse() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let fixed = "abcdef".match(/(?<=\w{3})f/);
+let greedy = "abcdef".match(/(?<=\w+)f/);
+let negative = "abc123".match(/(?<!\d{3})c/);
+let alternative = "xy".match(/(?<=(?<first>.)|(?<second>.))y/);
+[fixed[0], greedy[0], negative[0], alternative.groups.first, alternative.groups.second].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("lookbehind should match its body in reverse without consuming input");
+        assert!(
+            outcome.note.contains("string(f|f|c|x|)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_identity_k_with_lookbehind_syntax() {
+        for source in [
+            r#"/\k<a>(?<=>)a/.test("k<a>a");"#,
+            r#"/(?<=>)\k<a>/.test(">k<a>");"#,
+            r#"/\k<a>(?<!a)a/.test("k<a>a");"#,
+            r#"/(?<!a>)\k<a>/.test("k<a>");"#,
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|error| panic!("{source} should execute: {error:?}"));
+            assert!(
+                outcome.note.contains("boolean(true)"),
+                "source: {source}; note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_backend_regexp_split_observes_symbol_match_getter_recompile() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var regExp = /a/;
+Object.defineProperty(regExp, Symbol.match, {
+  get: function() {
+    regExp.compile("b");
+  }
+});
+regExp[Symbol.split]("abba").join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp split should observe Symbol.match getter side effects");
+        assert!(
+            outcome.note.contains("string(a||a)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_catches_regexp_test_abrupt_completions() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var coercionThrow;
+try {
+  /a/.test({ toString: function() { throw "coercion"; } });
+} catch (error) {
+  coercionThrow = error;
+}
+
+var receiverThrow;
+var ordinary = { test: RegExp.prototype.test };
+try {
+  ordinary.test("a");
+} catch (error) {
+  receiverThrow = error instanceof TypeError;
+}
+
+[coercionThrow, receiverThrow].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp test abrupt completions should reach the active catch");
+        assert!(
+            outcome.note.contains("string(coercion|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_subclass_exec_override_is_observable() {
+        let outcome = engine()
+            .run_script(
+                r#"
+class FakeRegExp extends RegExp {
+  exec() {
+    let result = ["ab", "a"];
+    result.index = 0;
+    result.groups = { a: "b" };
+    return result;
+  }
+}
+
+let regexp = new FakeRegExp();
+let result = regexp.exec("ab");
+[result.groups.a, "ab".replace(regexp, "$<a>")].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp subclass exec override should remain observable");
+        assert!(
+            outcome.note.contains("string(b|b)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_let_binding_tracks_tag_after_cross_kind_assignment() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let value = null;
+value = { nested: { answer: 42 } };
+value.nested.answer;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("mutable lexical bindings should retain the assigned runtime tag");
+        assert!(
+            outcome.note.contains("number(42)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_outlines_optional_computed_property_reads_after_nullish_check() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let keyCalls = 0;
+let key = { [Symbol.toPrimitive]() { keyCalls += 1; return "value"; } };
+let object = { value: 42, undefined: 1, null: 2, true: 3, NaN: 4 };
+let absent = null;
+let skipped = absent?.[key];
+let results = [
+  object?.[key], object?.[undefined], object?.[null], object?.[true], object?.[NaN],
+  object?.["value"], object?.[key], object?.[undefined], object?.[null],
+  object?.[true], object?.[NaN], object?.["value"], object?.[key]
+];
+[skipped, keyCalls, results.join("|")].join(";");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "optional computed property reads should compile through the shared dispatcher",
+            );
+        assert!(
+            outcome
+                .note
+                .contains("string(;3;42|1|2|3|4|42|42|1|2|3|4|42|42)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_adds_string_or_number_bindings_by_runtime_tag() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function add(flag) {
+  var value;
+  if (flag) {
+    value = 1;
+  } else {
+    value = "a";
+  }
+  return value + 1;
+}
+[add(true), add(false)].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("string-or-number bindings should use tagged addition");
+        assert!(
+            outcome.note.contains("string(2|a1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_caches_and_freezes_tagged_template_objects() {
+        let outcome = engine()
+            .run_script(
+                r#"
+"use strict";
+let first;
+let second;
+function tag(template) {
+  if (first === undefined) first = template;
+  else second = template;
+}
+function useTemplate() {
+  tag`cooked`;
+}
+useTemplate();
+useTemplate();
+
+let assignmentResult = "missing";
+try {
+  first.extra = true;
+} catch (error) {
+  assignmentResult = error.name;
+}
+let rawDescriptor = Object.getOwnPropertyDescriptor(first, "raw");
+let indexDescriptor = Object.getOwnPropertyDescriptor(first, "0");
+[
+  first === second,
+  assignmentResult,
+  Object.isFrozen(first),
+  Object.isFrozen(first.raw),
+  rawDescriptor.enumerable,
+  rawDescriptor.writable,
+  rawDescriptor.configurable,
+  indexDescriptor.enumerable,
+  indexDescriptor.writable,
+  indexDescriptor.configurable
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("tagged template objects should be cached and deeply frozen");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|TypeError|true|true|false|false|false|true|false|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_tail_calls_tagged_templates_without_growing_the_wasm_stack() {
+        let outcome = engine()
+            .run_script(
+                r#"
+"use strict";
+function recurse(_, remaining) {
+  if (remaining === 0) return "finished";
+  return recurse`${remaining - 1}`;
+}
+recurse(null, 20000);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("tail-position tagged calls should not exhaust the Wasm stack");
+        assert!(
+            outcome.note.contains("string(finished)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_tail_calls_nested_return_expressions_without_growing_the_wasm_stack() {
+        let outcome = engine()
+            .run_script(
+                r#"
+"use strict";
+function conditionalComma(remaining) {
+  return remaining === 0 ? "conditional" : (0, conditionalComma(remaining - 1));
+}
+function logicalAnd(remaining) {
+  return remaining !== 0 && logicalAnd(remaining - 1);
+}
+function logicalOr(remaining) {
+  return remaining === 0 || logicalOr(remaining - 1);
+}
+function coalesce(remaining) {
+  return (remaining === 0 ? "coalesce" : null) ?? coalesce(remaining - 1);
+}
+[
+  conditionalComma(20000),
+  logicalAnd(20000),
+  logicalOr(20000),
+  coalesce(20000)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("nested return-position calls should not exhaust the Wasm stack");
+        assert!(
+            outcome
+                .note
+                .contains("string(conditional|false|true|coalesce)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runtime_regexp_uses_lexical_source_with_finite_flags() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let source = "(?<fst>.)(?<snd>.)|(?<thd>x)";
+let result = "";
+for (let flags of ["g", "gu"]) {
+  let regexp = new RegExp(source, flags);
+  result += "abcd".replace(regexp, "$<snd>$<fst>");
+}
+result;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("runtime RegExp should select lexical source and finite flags");
+        assert!(
+            outcome.note.contains("string(badcbadc)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_regexp_match_all_uses_compiled_named_groups() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let iterator = "ba".matchAll(/(?<x>a)|(?<x>b)/g);
+let first = iterator.next().value;
+let second = iterator.next().value;
+[
+  first[0], first[1], first[2], first.groups.x,
+  second[0], second[1], second[2], second.groups.x
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("RegExp matchAll should iterate compiled named-group programs");
+        assert!(
+            outcome.note.contains("string(b||b|b|a|a||a)"),
             "note: {}",
             outcome.note
         );
@@ -5918,7 +7270,7 @@ results.join(",");
                 r#"
 let other = __porfCreateRealm();
 let names = [
-  "at", "charAt", "endsWith", "includes", "indexOf", "isWellFormed",
+  "at", "charAt", "concat", "endsWith", "includes", "indexOf", "isWellFormed",
   "match", "matchAll", "padEnd", "padStart", "repeat", "replace",
   "replaceAll", "search", "slice", "split", "startsWith", "toUpperCase",
   "toWellFormed", "trim", "trimEnd", "trimStart"
@@ -5963,8 +7315,408 @@ results.join(",");
             .expect("borrowed and bound cross-realm String methods should throw in defining realm");
         assert!(
             outcome.note.contains(
-                "string(at=true:true:false|true:true:false,charAt=true:true:false|true:true:false,endsWith=true:true:false|true:true:false,includes=true:true:false|true:true:false,indexOf=true:true:false|true:true:false,isWellFormed=true:true:false|true:true:false,match=true:true:false|true:true:false,matchAll=true:true:false|true:true:false,padEnd=true:true:false|true:true:false,padStart=true:true:false|true:true:false,repeat=true:true:false|true:true:false,replace=true:true:false|true:true:false,replaceAll=true:true:false|true:true:false,search=true:true:false|true:true:false,slice=true:true:false|true:true:false,split=true:true:false|true:true:false,startsWith=true:true:false|true:true:false,toUpperCase=true:true:false|true:true:false,toWellFormed=true:true:false|true:true:false,trim=true:true:false|true:true:false,trimEnd=true:true:false|true:true:false,trimStart=true:true:false|true:true:false)"
+                "string(at=true:true:false|true:true:false,charAt=true:true:false|true:true:false,concat=true:true:false|true:true:false,endsWith=true:true:false|true:true:false,includes=true:true:false|true:true:false,indexOf=true:true:false|true:true:false,isWellFormed=true:true:false|true:true:false,match=true:true:false|true:true:false,matchAll=true:true:false|true:true:false,padEnd=true:true:false|true:true:false,padStart=true:true:false|true:true:false,repeat=true:true:false|true:true:false,replace=true:true:false|true:true:false,replaceAll=true:true:false|true:true:false,search=true:true:false|true:true:false,slice=true:true:false|true:true:false,split=true:true:false|true:true:false,startsWith=true:true:false|true:true:false,toUpperCase=true:true:false|true:true:false,toWellFormed=true:true:false|true:true:false,trim=true:true:false|true:true:false,trimEnd=true:true:false|true:true:false,trimStart=true:true:false|true:true:false)"
             ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_concat_is_generic_and_orders_string_conversion() {
+        let source = r#"
+let order = [];
+let receiver = {
+  toString() {
+    order.push("receiver");
+    return "base";
+  }
+};
+receiver.concat = String.prototype.concat;
+let first = {
+  toString() {
+    order.push("first");
+    return ":first";
+  }
+};
+let second = {
+  toString() {
+    order.push("second");
+    return ":second";
+  }
+};
+receiver.concat(first, second) + "|" + order.join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.concat should be generic and preserve conversion order");
+        assert!(
+            outcome
+                .note
+                .contains("string(base:first:second|receiver,first,second)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_replace_all_handles_literal_and_function_replacements() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let calls = [];
+let functional = "a,b,".replaceAll(",", function(match, position, string) {
+  calls.push(match + ":" + position + ":" + string);
+  return "$&";
+});
+let substitution = "aba".replaceAll("a", "$`|$&|$'|$$|$1|$<x>");
+let empty = "ab".replaceAll("", "-");
+let first = "aaa".replace("a", "x");
+let regexpCalls = [];
+let regexp = /(a)/g[Symbol.replace]("aaa abc", function(match, capture, position, string) {
+  regexpCalls.push(match + ":" + capture + ":" + position + ":" + string);
+  return "z";
+});
+[functional, calls.join(";"), substitution, empty, first, regexp, regexpCalls.join(";")].join("\n");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should perform literal string replacements");
+        assert!(
+            outcome.note.contains(
+                "string(a$&b$&\n,:1:a,b,;,:3:a,b,\n|a|ba|$|$1|$<x>bab|a||$|$1|$<x>\n-a-b-\nxaa\nzzz zbc\na:a:0:aaa abc;a:a:1:aaa abc;a:a:2:aaa abc;a:a:4:aaa abc)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_split_orders_and_catches_limit_coercion() {
+        let source = "var order = []; var separator = { toString: function() { order.push('separator'); throw 'separator'; } }; var limit = { valueOf: function() { order.push('limit'); throw 'limit'; } }; var caught = 'none'; try { 'x y'.split(separator, limit); } catch (error) { caught = error; } var pieces = new String('one two three').split(/ /, 2); caught + '|' + order.join(',') + '|' + pieces.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.split should preserve coercion order and catches");
+        assert!(
+            outcome.note.contains("string(limit|limit|one,two)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_substring_treats_explicit_undefined_as_string_end() {
+        let source = r#"
+let caught = "none";
+try {
+  "abc".substring({ valueOf() { throw "start"; } }, undefined);
+} catch (error) {
+  caught = error;
+}
+["undefined".substring("e", undefined), caught].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.substring should handle undefined end and coercion throws");
+        assert!(
+            outcome.note.contains("string(undefined|start)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_from_char_code_handles_variadic_uint16_and_detached_calls() {
+        let source = r#"
+let fromCharCode = String.fromCharCode;
+delete String.fromCharCode;
+[
+  fromCharCode(),
+  fromCharCode(65, 66),
+  fromCharCode(Infinity).charCodeAt(0),
+  fromCharCode(-1.2).charCodeAt(0),
+  fromCharCode.name,
+  fromCharCode.length
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.fromCharCode should apply ToUint16 in detached variadic calls");
+        assert!(
+            outcome.note.contains("string(|AB|0|65535|fromCharCode|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_from_code_point_handles_variadic_unicode_and_abrupt_values() {
+        let source = r#"
+let failures = [];
+try {
+  String.fromCodePoint(3.5);
+} catch (error) {
+  failures.push(error.name);
+}
+try {
+  String.fromCodePoint(65, { valueOf() { throw "coercion"; } });
+} catch (error) {
+  failures.push(error);
+}
+[
+  String.fromCodePoint(65, 0x1D306),
+  String.fromCodePoint(0x2F804),
+  String.fromCodePoint.length,
+  String.fromCodePoint.name,
+  failures.join(",")
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.fromCodePoint should encode scalars and preserve abrupt conversions");
+        assert!(
+            outcome
+                .note
+                .contains("string(A𝌆|你|1|fromCodePoint|RangeError,coercion)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_raw_handles_templates_substitutions_and_abrupt_getters() {
+        let source = r#"
+let steps = [];
+let template = {
+  raw: {
+    get length() { steps.push("length"); return 2; },
+    get 0() { steps.push("first"); return "a"; },
+    get 1() { steps.push("second"); throw "segment"; }
+  }
+};
+let substitution = {
+  toString() { steps.push("substitution"); return "b"; }
+};
+let caught = "none";
+try {
+  String.raw(template, substitution);
+} catch (error) {
+  caught = error;
+}
+[
+  String.raw({ raw: ["a", "c"] }, substitution),
+  String.raw`line\\n${"value"}`,
+  String.raw.length,
+  String.raw.name,
+  steps.join(","),
+  caught
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.raw should preserve raw segments and abrupt getter ordering");
+        assert!(
+            outcome.note.contains(
+                "string(abc|line\\\\nvalue|1|raw|length,first,substitution,second,substitution,substitution|segment)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_normalize_handles_all_forms_hangul_and_coercion() {
+        let source = r#"
+let decomposedHangul = "\u1100\u1161\u11A8";
+[
+  "\u1E9B\u0323".normalize("NFD") === "\u017F\u0323\u0307",
+  "\uFB01".normalize("NFKC"),
+  decomposedHangul.normalize("NFC"),
+  "\uAC01".normalize("NFD") === decomposedHangul,
+  "\uD800".normalize() === "\uD800",
+  "\u00E9".normalize({ toString() { return "NFD"; } })
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.normalize should implement all Unicode normalization forms");
+        assert!(
+            outcome.note.contains("string(true|fi|각|true|true|é)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_locale_compare_handles_canonical_equivalence_and_coercion() {
+        let source = r#"
+let receiver = {
+  toString() { return "o\u0308"; }
+};
+let that = {
+  toString() { return "\u00F6"; }
+};
+[
+  String.prototype.localeCompare.call(receiver, that),
+  "a".localeCompare("b"),
+  "b".localeCompare("a"),
+  "undefined".localeCompare(),
+  String.prototype.localeCompare.length,
+  String.prototype.localeCompare.name
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.localeCompare should normalize and compare strings");
+        assert!(
+            outcome.note.contains("string(0|-1|1|0|1|localeCompare)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_to_lower_case_handles_unicode_and_coercion_throws() {
+        let source = r#"
+let receiver = {
+  toString() {
+    throw "coercion";
+  }
+};
+receiver.toLowerCase = String.prototype.toLowerCase;
+let caught = "none";
+try {
+  receiver.toLowerCase();
+} catch (error) {
+  caught = error;
+}
+[
+  "ABC".toLowerCase(),
+  "\u0130".toLowerCase(),
+  "ΟΣ".toLowerCase(),
+  "ΟΣΑ".toLowerCase(),
+  "A\u180EΣ".toLowerCase(),
+  "ΟΣ".toLocaleLowerCase(),
+  caught,
+  "".toLowerCase().index === undefined
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.toLowerCase should implement Unicode casing and coercion");
+        assert!(
+            outcome
+                .note
+                .contains("string(abc|i̇|ος|οσα|a᠎ς|ος|coercion|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_string_to_upper_case_handles_unicode_and_coercion_throws() {
+        let source = r#"
+let receiver = {
+  toString() {
+    throw "coercion";
+  }
+};
+receiver.toUpperCase = String.prototype.toUpperCase;
+let caught = "none";
+try {
+  receiver.toUpperCase();
+} catch (error) {
+  caught = error;
+}
+[
+  "straße".toUpperCase(),
+  "\u0390".toUpperCase(),
+  "\uD801\uDC28".toUpperCase(),
+  "straße".toLocaleUpperCase(),
+  caught
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String.prototype.toUpperCase should implement Unicode casing and coercion");
+        assert!(
+            outcome
+                .note
+                .contains("string(STRASSE|Ϊ́|𐐀|STRASSE|coercion)"),
             "note: {}",
             outcome.note
         );
@@ -6069,7 +7821,7 @@ let proxy = new Proxy(target, { get: null });
     }
 
     #[test]
-    fn wasm_backend_runtime_throws_for_non_callable_method_and_keeps_array_length_brackets() {
+    fn wasm_backend_runtime_throws_for_non_callable_method_and_reads_array_length_brackets() {
         let method_err = engine()
             .run_script(
                 "let obj = { f: 1 }; obj.f();",
@@ -6092,7 +7844,7 @@ let proxy = new Proxy(target, { get: null });
                 },
             )
             .expect("array length bracket should run");
-        assert!(length_outcome.note.contains("undefined(undefined)"));
+        assert!(length_outcome.note.contains("number(1)"));
     }
 
     #[test]
@@ -6138,6 +7890,40 @@ let proxy = new Proxy(target, { get: null });
             )
             .expect("closure mutation should run");
         assert!(outcome.note.contains("number(3"));
+    }
+
+    #[test]
+    fn wasm_backend_numeric_update_coerces_captured_boolean_binding() {
+        let outcome = engine()
+            .run_script(
+                "let value = true; function increment() { return ++value; } increment();",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("numeric update should coerce the captured boolean binding");
+        assert!(outcome.note.contains("number(2"), "note: {}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_numeric_update_preserves_dynamic_bigint() {
+        let outcome = engine()
+            .run_script(
+                "function increment(value) { let previous = value++; return previous === 4n && value === 5n; } increment({ value: 4n }.value);",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("numeric update should preserve a dynamic BigInt binding");
+        assert!(
+            outcome.note.contains("boolean(true"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -6390,6 +8176,148 @@ let proxy = new Proxy(target, { get: null });
     }
 
     #[test]
+    fn wasm_backend_sloppy_assignment_ignores_inherited_accessor_without_setter() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let prototype = {};
+Object.defineProperty(prototype, "value", {
+  get: function() { return 7; }
+});
+let object = Object.create(prototype);
+let before = object.value;
+let prototypeMatches = Object.getPrototypeOf(object) === prototype;
+object.value = 9;
+before + "|" + prototypeMatches + "|" +
+  Object.prototype.hasOwnProperty.call(object, "value") + "|" + object.value;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("sloppy assignment should ignore an inherited accessor without a setter");
+        assert!(
+            outcome.note.contains("string(7|true|false|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_strict_assignment_to_inherited_accessor_without_setter_throws() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let prototype = {};
+Object.defineProperty(prototype, "value", {
+  get: function() { return 7; }
+});
+let object = Object.create(prototype);
+let caught = false;
+try {
+  (function() { "use strict"; object.value = 9; })();
+} catch (error) {
+  caught = error instanceof TypeError;
+}
+caught + "|" + Object.prototype.hasOwnProperty.call(object, "value") + "|" + object.value;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("strict assignment to an inherited accessor without a setter should throw");
+        assert!(
+            outcome.note.contains("string(true|false|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_sloppy_assignment_ignores_inherited_read_only_property() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let prototype = {};
+Object.defineProperty(prototype, "value", { value: 7, writable: false });
+let object = Object.create(prototype);
+object.value = 9;
+Object.prototype.hasOwnProperty.call(object, "value") + "|" + object.value;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("sloppy assignment should ignore an inherited read-only property");
+        assert!(
+            outcome.note.contains("string(false|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_strict_assignment_to_inherited_read_only_property_throws() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let prototype = {};
+Object.defineProperty(prototype, "value", { value: 7, writable: false });
+let object = Object.create(prototype);
+let caught = false;
+try {
+  (function() { "use strict"; object.value = 9; })();
+} catch (error) {
+  caught = error instanceof TypeError;
+}
+caught + "|" + Object.prototype.hasOwnProperty.call(object, "value") + "|" + object.value;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("strict assignment to an inherited read-only property should throw");
+        assert!(
+            outcome.note.contains("string(true|false|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_assignment_shadows_inherited_writable_property() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let prototype = { value: 7 };
+let object = Object.create(prototype);
+object.value = 9;
+Object.prototype.hasOwnProperty.call(object, "value") + "|" +
+  object.value + "|" + prototype.value;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("assignment should shadow an inherited writable property");
+        assert!(
+            outcome.note.contains("string(true|9|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_supports_script_global_object_core() {
         let top_level_this = engine()
             .run_script(
@@ -6525,6 +8453,11 @@ let proxy = new Proxy(target, { get: null });
                 "mapped param write to arguments",
             ),
             (
+                "function f(x, x, x) { var before = arguments[0] + ',' + arguments[1] + ',' + arguments[2]; x = 4; return before + '|' + arguments[0] + ',' + arguments[1] + ',' + arguments[2]; } f(1, 2, 3);",
+                "string(1,2,3|1,2,4)",
+                "only the last duplicate parameter maps to arguments",
+            ),
+            (
                 "function f(x = 1) { arguments[0] = 3; return x; } f(2);",
                 "number(2",
                 "unmapped default param arguments",
@@ -6566,11 +8499,8 @@ let proxy = new Proxy(target, { get: null });
     #[test]
     fn wasm_backend_rejects_unsupported_param_and_arguments_forms() {
         for source in [
-            "function f(x, x) { return x; } f(1, 2);",
             "function f(x = y, y = 1) { return x; } f();",
             "function f(x = x) { return x; } f();",
-            "let f = () => arguments; f();",
-            "function f() { return arguments.callee; } f();",
             "({ get x(a) { return a; } }).x;",
             "({ set x(v = 1) {} }).x = 1;",
         ] {
@@ -6586,6 +8516,22 @@ let proxy = new Proxy(target, { get: null });
                 .expect_err("unsupported param or arguments form should stay unsupported");
             assert!(!err.message().trim().is_empty());
         }
+    }
+
+    #[test]
+    fn wasm_backend_supports_arguments_callee_identity() {
+        let outcome = engine()
+            .run_script(
+                "function f() { return arguments.callee === f; } f();",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("arguments.callee should run");
+
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
     #[test]
@@ -6893,20 +8839,18 @@ let proxy = new Proxy(target, { get: null });
     }
 
     #[test]
-    fn wasm_backend_rejects_label_on_unsupported_statement_kind_precisely() {
-        let err = engine()
+    fn wasm_backend_supports_label_on_non_loop_statement() {
+        let outcome = engine()
             .run_script(
-                "label: 1;",
+                "let value = 0; label: if (true) { value = 1; break label; value = 2; } value;",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
                 },
             )
-            .expect_err("unsupported label target should stay unsupported");
-        assert!(err.message().contains(
-            "unsupported in porffor wasm-aot first slice: label on unsupported statement kind"
-        ));
+            .expect("labels should target any statement");
+        assert!(outcome.note.contains("number(1"), "note: {}", outcome.note);
     }
 
     #[test]
@@ -6937,23 +8881,6 @@ let proxy = new Proxy(target, { get: null });
             )
             .expect("wasm backend should support var in for");
         assert!(outcome.note.contains("number(6"));
-    }
-
-    #[test]
-    fn wasm_backend_rejects_unknown_kind_numeric_use() {
-        let err = engine()
-            .run_script(
-                "var x; if (true) { x = 1; } else { x = \"a\"; } x + 1;",
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect_err("unknown kind numeric use should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice"));
     }
 
     #[test]
@@ -7295,6 +9222,48 @@ let proxy = new Proxy(target, { get: null });
                 .unwrap_or_else(|err| panic!("phase 22B class case should run for `{source}`: {err:?}"));
             assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
         }
+    }
+
+    #[test]
+    fn wasm_backend_preserves_array_subclass_prototype_chain() {
+        let outcome = engine()
+            .run_script(
+                r#"
+class Sub extends Array {}
+let array = new Sub(42, "foo");
+let pushedLength = array.push(true);
+let empty = new Sub();
+let sized = new Sub(7);
+[
+  Object.getPrototypeOf(array) === Sub.prototype,
+  Object.getPrototypeOf(Sub.prototype) === Array.prototype,
+  array.constructor === Sub,
+  array[0],
+  array[1],
+  pushedLength,
+  array.length,
+  array[2],
+  empty.length,
+  sized.length,
+  array instanceof Sub,
+  array instanceof Array,
+  Sub[Symbol.species] === Sub
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array subclasses should preserve their exotic prototype chain");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|true|true|42|foo|3|3|true|0|7|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -7725,6 +9694,22 @@ let proxy = new Proxy(target, { get: null });
     }
 
     #[test]
+    fn wasm_backend_writes_captured_typed_array_indexes() {
+        let source = "const view = new Uint8Array(new ArrayBuffer(4)); function write() { view[1] = 9; } write(); view[1];";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("captured typed array write should run: {err:?}"));
+        assert!(outcome.note.contains("number(9)"), "note: {}", outcome.note);
+    }
+
+    #[test]
     fn wasm_backend_validates_slice_named_function_property_reads() {
         let source = "let o = { slice() { return 1; } }; typeof o.slice === 'function' && ArrayBuffer.prototype.slice.length === 2;";
         let outcome = engine()
@@ -7765,6 +9750,372 @@ let proxy = new Proxy(target, { get: null });
             outcome
                 .note
                 .contains("string(0,1,2|42|undefined|true|true|true|0,1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_map_remains_generic_for_inherited_array_methods() {
+        let source = "function Receiver() {} Receiver.prototype = new Array(1, 2, 3); var receiver = new Receiver(); receiver.length = 1; var calls = 0; var result = receiver.map(function(value, index, array) { calls += 1; return array === receiver && index === 0 && value === 1; }); Array.isArray(result) + '|' + result.length + '|' + result[0] + '|' + calls;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.map should remain generic on non-array receivers");
+        assert!(
+            outcome.note.contains("string(true|1|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_callback_methods_remain_generic_when_inherited() {
+        let source = "function Receiver() {} Receiver.prototype = new Array(1, 2, 3); var receiver = new Receiver(); receiver.length = 1; receiver.every(function(value) { return value === 1; }) + '|' + receiver.some(function(value) { return value === 1; }) + '|' + receiver.filter(function(value) { return value === 1; }).join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("inherited Array callback methods should remain generic");
+        assert!(
+            outcome.note.contains("string(true|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_methods_use_observable_arguments_length() {
+        let source = "function check(a, b) { arguments[2] = 9; var flat = Array.prototype.flat.call(arguments); var flatMapped = Array.prototype.flatMap.call(arguments, function(value) { return [value]; }); var mapped = Array.prototype.map.call(arguments, function(value) { return value; }); var filtered = Array.prototype.filter.call(arguments, function() { return true; }); var every = Array.prototype.every.call(arguments, function(value) { return value > 10; }); var some = Array.prototype.some.call(arguments, function(value) { return value === 9; }); return flat.length + '|' + flatMapped.length + '|' + mapped.length + '|' + filtered.length + '|' + every + '|' + some; } check(12, 11);";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array methods should use the observable arguments length");
+        assert!(
+            outcome.note.contains("string(2|2|2|2|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_for_each_observes_inherited_indexes_after_deletion() {
+        let source = "Array.prototype[4] = 9; var array = [1, 2, 3, 4, 5]; var values = []; array.forEach(function(value, index) { if (index === 0) delete array[4]; values.push(index + ':' + value); }); delete Array.prototype[4]; values.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.forEach should observe inherited indexes after deletion");
+        assert!(
+            outcome.note.contains("string(0:1,1:2,2:3,3:4,4:9)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_compound_assigns_constant_array_indexes() {
+        let source = "var array = [10]; var result = (array[0] += 2); var strings = ['a']; strings[0] += 2; var bigints = [10n]; bigints[0] += 2n; result + '|' + array[0] + '|' + strings[0] + '|' + bigints[0];";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("compound assignment should support constant computed array indexes");
+        assert!(
+            outcome.note.contains("string(12|12|a2|12)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_accessor_redefinition_preserves_omitted_flags() {
+        let source = "var array = [0, 1, 2]; Object.defineProperty(array, '1', { get: function() { return 1; } }); var descriptor = Object.getOwnPropertyDescriptor(array, '1'); array.length = 1; descriptor.enumerable + '|' + descriptor.configurable + '|' + array.length;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("array accessor redefinition should preserve existing index flags");
+        assert!(
+            outcome.note.contains("string(true|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_to_reversed_snapshots_length_and_reads_in_descending_order() {
+        let source = "var order = []; var array = [0, 1, 2, 3, 4]; Array.prototype[1] = 5; Object.defineProperty(array, '3', { get: function() { order.push(3); array.length = 1; return 3; } }); var result = array.toReversed(); delete Array.prototype[1]; result.join(',') + '|' + order.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toReversed should use its length snapshot");
+        assert!(
+            outcome.note.contains("string(4,3,,5,0|3)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_with_replaces_without_reading_the_selected_index() {
+        let source = "var reads = []; var source = { length: 3, get 0() { reads.push(0); return 1; }, get 1() { throw 'selected index was read'; }, get 2() { reads.push(2); return 3; } }; var result = Array.prototype.with.call(source, -2, 9); result.join(',') + '|' + reads.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.with should replace the selected index without reading it");
+        assert!(
+            outcome.note.contains("string(1,9,3|0,2)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_to_spliced_skips_deleted_elements() {
+        let source = "var reads = []; var source = { length: 4, get 0() { reads.push(0); return 1; }, get 1() { throw 'deleted element was read'; }, get 2() { throw 'deleted element was read'; }, get 3() { reads.push(3); return 4; } }; var result = Array.prototype.toSpliced.call(source, 1, 2, 8, 9); result.join(',') + '|' + reads.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toSpliced should not read deleted elements");
+        assert!(
+            outcome.note.contains("string(1,8,9,4|0,3)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_to_sorted_reads_all_elements_before_comparing() {
+        let source = "var reads = []; var comparedAfterReads = true; var source = { length: 3, get 0() { reads.push(0); return 3; }, get 1() { reads.push(1); return 1; }, get 2() { reads.push(2); return 2; } }; var result = Array.prototype.toSorted.call(source, function(a, b) { if (reads.length !== 3) comparedAfterReads = false; return a - b; }); result.join(',') + '|' + reads.join(',') + '|' + comparedAfterReads;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toSorted should collect values before comparing");
+        assert!(
+            outcome.note.contains("string(1,2,3|0,1,2|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_reverse_handles_resizable_typed_array_views() {
+        let source = "const buffer = new ArrayBuffer(4, { maxByteLength: 8 }); const fixed = new Uint8Array(buffer, 0, 4); const tracking = new Uint8Array(buffer); fixed[0] = 1; fixed[1] = 2; fixed[2] = 3; fixed[3] = 4; Array.prototype.reverse.call(fixed); const first = tracking.join(','); buffer.resize(3); tracking[0] = 5; tracking[1] = 6; tracking[2] = 7; Array.prototype.reverse.call(fixed); Array.prototype.reverse.call(tracking); first + '|' + tracking.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.reverse should handle resizable typed array views");
+        assert!(
+            outcome.note.contains("string(4,3,2,1|7,6,5)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_join_validates_receiver_and_uses_current_view() {
+        let source = "const buffer = new ArrayBuffer(4, { maxByteLength: 8 }); const values = new Uint8Array(buffer); values[0] = 1; values[1] = 2; values[2] = 3; values[3] = 4; const before = values.join('-'); buffer.resize(2); const after = values.join(','); let lengthReads = 0; Object.defineProperty(values, 'length', { get() { lengthReads++; return 0; } }); const internalLength = values.join(':'); let borrowed = 'missing'; try { Uint8Array.prototype.join.call({ length: 1, 0: 1 }); } catch (error) { borrowed = error.name; } before + '|' + after + '|' + internalLength + '|' + lengthReads + '|' + borrowed + '|' + (values.join === Array.prototype.join);";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray.prototype.join should use TypedArray semantics");
+        assert!(
+            outcome
+                .note
+                .contains("string(1-2-3-4|1,2|1:2|0|TypeError|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_join_formats_bigint_elements() {
+        let source = "const signed = new BigInt64Array([1n, 0n, 2n, -3n]); const unsigned = new BigUint64Array([1n, 42n]); signed.join(',') + '|' + signed.join(null) + '|' + unsigned.join('-');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray.prototype.join should format BigInt elements");
+        assert!(
+            outcome
+                .note
+                .contains("string(1,0,2,-3|1null0null2null-3|1-42)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_slice_uses_current_resizable_typed_array_bounds() {
+        let source = "const buffer = new ArrayBuffer(4, { maxByteLength: 8 }); const tracking = new Uint8Array(buffer); tracking[0] = 1; tracking[1] = 2; tracking[2] = 3; tracking[3] = 4; const grow = { valueOf() { buffer.resize(6); return 0; } }; Array.prototype.slice.call(tracking, grow); const grown = Array.prototype.slice.call(tracking, 3, 5); const fixed = new Uint8Array(buffer, 0, 4); const shrink = { valueOf() { buffer.resize(2); return 0; } }; const fixedResult = Array.prototype.slice.call(fixed, shrink); const trackingResult = Array.prototype.slice.call(tracking); grown.join(',') + '|' + fixedResult.length + '|' + fixedResult.hasOwnProperty(0) + '|' + trackingResult.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.slice should use current resizable typed array bounds");
+        assert!(
+            outcome.note.contains("string(4,0|4|false|1,2)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_pop_is_generic_and_preserves_inherited_indexes() {
+        let source = "const object = { 0: 'a', length: 1 }; const value = Array.prototype.pop.call(object); const empty = {}; const emptyResult = Array.prototype.pop.call(empty); let stringThrows = false; try { Array.prototype.pop.call(''); } catch (error) { stringThrows = error instanceof TypeError; } Array.prototype[1] = 7; const array = [1]; array.length = 2; const inherited = array.pop(); const remains = array[1]; delete Array.prototype[1]; value + '|' + object.length + '|' + !object.hasOwnProperty('0') + '|' + (emptyResult === undefined) + '|' + empty.length + '|' + (Array.prototype.pop.call(true) === undefined) + '|' + stringThrows + '|' + inherited + '|' + remains;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.pop should work on generic receivers");
+        assert!(
+            outcome
+                .note
+                .contains("string(a|0|true|true|0|true|true|7|7)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_prototype_exposes_standard_unscopables() {
+        let source = "const value = Array.prototype[Symbol.unscopables]; const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.unscopables); Object.getPrototypeOf(value) === null && descriptor.value === value && descriptor.writable === false && descriptor.enumerable === false && descriptor.configurable === true && value.copyWithin === true && value.findLast === true && value.toSpliced === true && !Object.prototype.hasOwnProperty.call(value, 'with');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype should expose the standard unscopables object");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_copy_within_preserves_overlap_and_holes() {
+        let source = "var values = [0, 1, , 3]; var result = values.copyWithin(1, 0, 3); (result === values) + '|' + values.join(',') + '|' + values.hasOwnProperty(3);";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.copyWithin should preserve overlap and holes");
+        assert!(
+            outcome.note.contains("string(true|0,0,1,|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_rejects_result_above_safe_integer_limit() {
+        let source = "var source = { length: Number.MAX_SAFE_INTEGER }; source[Symbol.isConcatSpreadable] = true; var threw = false; try { [1].concat(source); } catch (error) { threw = error instanceof TypeError; } threw;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.concat should reject an oversized result");
+        assert!(
+            outcome.note.contains("boolean(true)"),
             "note: {}",
             outcome.note
         );
@@ -7957,6 +10308,26 @@ let proxy = new Proxy(target, { get: null });
     }
 
     #[test]
+    fn wasm_backend_array_concat_propagates_arguments_index_getter_throw() {
+        let source = "function E() {} var args = (function(a) { return arguments; })(1, 2, 3); Object.defineProperty(args, 0, { get: function() { throw new E(); } }); args[Symbol.isConcatSpreadable] = true; var caught = false; try { [].concat(args, args); } catch (error) { caught = error instanceof E; } caught;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.concat should propagate arguments index getter throws");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_array_concat_spreads_typed_array_from_dynamic_constructor() {
         let source = "function check(type) { var ta = new type(2); for (var i = 0; i < 2; ++i) { ta[i] = i + 1; } ta[Symbol.isConcatSpreadable] = true; var r = [].concat(ta); return r.length === 2 && r[0] === 1 && r[1] === 2 && r.hasOwnProperty('1'); } check(Uint16Array) + '|' + check(Uint32Array) + '|' + check(Float64Array);";
         let outcome = engine()
@@ -7975,6 +10346,26 @@ let proxy = new Proxy(target, { get: null });
             });
         assert!(
             outcome.note.contains("string(true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_reads_typed_array_indexes_from_callback_constructor() {
+        let source = "var values = []; [Uint8Array, Uint16Array, Uint32Array, Float32Array, Float64Array].forEach(function(type) { var array = new type(1); values.push(array[0]); }); values.join(':');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("dynamic property reads should preserve TypedArray integer-index semantics");
+        assert!(
+            outcome.note.contains("string(0:0:0:0:0)"),
             "note: {}",
             outcome.note
         );

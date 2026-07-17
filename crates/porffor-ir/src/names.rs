@@ -104,6 +104,10 @@ pub const BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID: &str = "$builtin.Object.isEx
 pub const BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID: &str = "$builtin.Object.preventExtensions";
 pub const BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID: &str =
     "$builtin.Object.prototype.hasOwnProperty";
+pub const BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.__lookupGetter__";
+pub const BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.__lookupSetter__";
 pub const BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID: &str =
     "$builtin.Object.prototype.propertyIsEnumerable";
 pub const BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID: &str =
@@ -138,12 +142,23 @@ pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
 pub const BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Array[Symbol.species].get";
 pub const BUILTIN_ARRAY_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.Array.prototype.concat";
 pub const BUILTIN_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID: &str = "$builtin.Array.prototype.join";
+pub const BUILTIN_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID: &str = "$builtin.Array.prototype.slice";
 pub const BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID: &str = "$builtin.Array.prototype.splice";
+pub const BUILTIN_ARRAY_PROTOTYPE_SORT_FUNCTION_ID: &str = "$builtin.Array.prototype.sort";
 pub const BUILTIN_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
     "$builtin.Array.prototype.toLocaleString";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_FUNCTION_ID: &str = "$builtin.Array.prototype.flat";
 pub const BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID: &str = "$builtin.Array.prototype.flatMap";
 pub const BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.Array.prototype.at";
+pub const BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.toReversed";
+pub const BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.toSpliced";
+pub const BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID: &str = "$builtin.Array.prototype.toSorted";
+pub const BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID: &str = "$builtin.Array.prototype.with";
+pub const BUILTIN_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID: &str = "$builtin.Array.prototype.reverse";
+pub const BUILTIN_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID: &str =
+    "$builtin.Array.prototype.copyWithin";
 pub const BUILTIN_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID: &str = "$builtin.Array.prototype.includes";
 pub const BUILTIN_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str = "$builtin.Array.prototype.indexOf";
 pub const BUILTIN_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID: &str =
@@ -164,13 +179,22 @@ pub const BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID: &str =
     "$builtin.Array.prototype.reduceRight";
 pub const BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID: &str = "$builtin.Array.prototype.pop";
 pub const BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID: &str = "$builtin.Array.prototype.push";
+pub const BUILTIN_ARRAY_PROTOTYPE_SHIFT_FUNCTION_ID: &str = "$builtin.Array.prototype.shift";
+pub const BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID: &str = "$builtin.Array.prototype.unshift";
+pub const BUILTIN_ARRAY_PROTOTYPE_FILL_FUNCTION_ID: &str = "$builtin.Array.prototype.fill";
 pub const BUILTIN_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID: &str = "$builtin.Array.prototype.keys";
 pub const BUILTIN_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID: &str = "$builtin.Array.prototype.entries";
 pub const BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID: &str = "$builtin.Array.prototype.values";
 pub const BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.ArrayIterator.next";
 pub const BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID: &str = "$builtin.ArrayIterator.identity";
+pub const BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.StringIterator.next";
 pub const BUILTIN_ITERATOR_FUNCTION_ID: &str = "$builtin.Iterator";
 pub const BUILTIN_ITERATOR_FROM_FUNCTION_ID: &str = "$builtin.Iterator.from";
+pub const BUILTIN_ITERATOR_ZIP_FUNCTION_ID: &str = "$builtin.Iterator.zip";
+pub const BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.zip.next";
+pub const BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.zip.return";
+pub const BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.helper.next";
+pub const BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.helper.return";
 pub const BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID: &str =
     "$builtin.Iterator.prototype.toArray";
 pub const BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str =
@@ -263,6 +287,8 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.buffer.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.toString";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.join";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.toLocaleString";
 pub const BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.TypedArray.from";
@@ -403,12 +429,20 @@ pub const BUILTIN_REGEXP_LEGACY_STATIC_GETTER_FUNCTION_ID: &str =
 pub const BUILTIN_REGEXP_LEGACY_STATIC_SETTER_FUNCTION_ID: &str =
     "$builtin.RegExp.legacyStatic.set";
 pub const BUILTIN_REGEXP_PROTOTYPE_EXEC_FUNCTION_ID: &str = "$builtin.RegExp.prototype.exec";
+pub const BUILTIN_REGEXP_PROTOTYPE_TEST_FUNCTION_ID: &str = "$builtin.RegExp.prototype.test";
+pub const BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID: &str = "$builtin.RegExp.prototype.compile";
+pub const BUILTIN_REGEXP_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype.toString";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.match]";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_MATCH_ALL_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.matchAll]";
+pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_REPLACE_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype[Symbol.replace]";
 pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SEARCH_FUNCTION_ID: &str =
     "$builtin.RegExp.prototype[Symbol.search]";
+pub const BUILTIN_REGEXP_PROTOTYPE_SYMBOL_SPLIT_FUNCTION_ID: &str =
+    "$builtin.RegExp.prototype[Symbol.split]";
 pub const BUILTIN_REGEXP_ESCAPE_FUNCTION_ID: &str = "$builtin.RegExp.escape";
 pub const BUILTIN_JSON_PARSE_FUNCTION_ID: &str = "$builtin.JSON.parse";
 pub const BUILTIN_JSON_STRINGIFY_FUNCTION_ID: &str = "$builtin.JSON.stringify";
@@ -453,10 +487,14 @@ pub const BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID: &str = "$builtin.Symbol.keyFor";
 pub const BUILTIN_NUMBER_FUNCTION_ID: &str = "$builtin.Number";
 pub const BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID: &str = "$builtin.Number.isInteger";
 pub const BUILTIN_STRING_FUNCTION_ID: &str = "$builtin.String";
+pub const BUILTIN_STRING_FROM_CHAR_CODE_FUNCTION_ID: &str = "$builtin.String.fromCharCode";
+pub const BUILTIN_STRING_FROM_CODE_POINT_FUNCTION_ID: &str = "$builtin.String.fromCodePoint";
+pub const BUILTIN_STRING_RAW_FUNCTION_ID: &str = "$builtin.String.raw";
 pub const BUILTIN_STRING_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.String.prototype.toString";
 pub const BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str = "$builtin.String.prototype.valueOf";
 pub const BUILTIN_STRING_PROTOTYPE_CHAR_AT_FUNCTION_ID: &str = "$builtin.String.prototype.charAt";
+pub const BUILTIN_STRING_PROTOTYPE_CONCAT_FUNCTION_ID: &str = "$builtin.String.prototype.concat";
 pub const BUILTIN_STRING_PROTOTYPE_CHAR_CODE_AT_FUNCTION_ID: &str =
     "$builtin.String.prototype.charCodeAt";
 pub const BUILTIN_STRING_PROTOTYPE_CODE_POINT_AT_FUNCTION_ID: &str =
@@ -502,8 +540,20 @@ pub const BUILTIN_STRING_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
     "$builtin.String.prototype.includes";
 pub const BUILTIN_STRING_PROTOTYPE_STARTS_WITH_FUNCTION_ID: &str =
     "$builtin.String.prototype.startsWith";
+pub const BUILTIN_STRING_PROTOTYPE_NORMALIZE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.normalize";
+pub const BUILTIN_STRING_PROTOTYPE_LOCALE_COMPARE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.localeCompare";
+pub const BUILTIN_STRING_PROTOTYPE_ITERATOR_FUNCTION_ID: &str =
+    "$builtin.String.prototype[Symbol.iterator]";
 pub const BUILTIN_STRING_PROTOTYPE_TO_UPPER_CASE_FUNCTION_ID: &str =
     "$builtin.String.prototype.toUpperCase";
+pub const BUILTIN_STRING_PROTOTYPE_TO_LOWER_CASE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.toLowerCase";
+pub const BUILTIN_STRING_PROTOTYPE_TO_LOCALE_LOWER_CASE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.toLocaleLowerCase";
+pub const BUILTIN_STRING_PROTOTYPE_TO_LOCALE_UPPER_CASE_FUNCTION_ID: &str =
+    "$builtin.String.prototype.toLocaleUpperCase";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_FUNCTION_ID: &str = "$builtin.String.prototype.trim";
 pub const BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID: &str =
     "$builtin.String.prototype.trimStart";

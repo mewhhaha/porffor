@@ -1655,6 +1655,8 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 name = "porffor-aot-wasm"
 version = "0.1.0"
 dependencies = [
+ "icu_normalizer",
+ "icu_properties",
  "porffor-front",
  "porffor-ir",
  "wasm-encoder 0.245.1",

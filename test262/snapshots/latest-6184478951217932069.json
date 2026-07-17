@@ -15,32 +15,32 @@
     "HostHarness": 0,
     "Lowering": 0,
     "Parser": 0,
-    "Runtime": 1,
-    "Unsupported": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
     "WasmBackend": 0
   },
   "counts_per_outcome": {
-    "Bug": 1,
+    "Bug": 0,
     "Crash": 0,
-    "NotImplemented": 0,
+    "NotImplemented": 1,
     "Success": 0
   },
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js",
-      "duration_ms": 14368
+      "duration_ms": 16576
     }
   ],
   "timeout_list": [],
   "failures": [
     {
       "test_path": "built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
       "origin": "unknown",
-      "detail": "[origin:unknown] wasmtime module validation failed: failed to compile: wasm[0]::function[21]",
-      "detail_hash": 2571773663960183996,
-      "duration_ms": 14368
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: numeric update on non-number binding `codePoint`: KindSet(2047). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 26482613944284618,
+      "duration_ms": 16576
     }
   ],
   "completed_paths": [

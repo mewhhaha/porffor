@@ -9,40 +9,30 @@
   "manifest_hash": 6173779449124592978,
   "run_kind": "full",
   "total": 1,
-  "passed": 0,
+  "passed": 1,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
     "Lowering": 0,
     "Parser": 0,
-    "Runtime": 1,
+    "Runtime": 0,
     "Unsupported": 0,
     "WasmBackend": 0
   },
   "counts_per_outcome": {
-    "Bug": 1,
+    "Bug": 0,
     "Crash": 0,
     "NotImplemented": 0,
-    "Success": 0
+    "Success": 1
   },
   "slowest_tests": [
     {
       "path": "built-ins/Array/prototype/reduce/15.4.4.21-9-c-i-17.js",
-      "duration_ms": 18046
+      "duration_ms": 5811
     }
   ],
   "timeout_list": [],
-  "failures": [
-    {
-      "test_path": "built-ins/Array/prototype/reduce/15.4.4.21-9-c-i-17.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: value is not callable: wasm-aot completion: object(handle@132024)",
-      "detail_hash": 13240019580695741011,
-      "duration_ms": 18046
-    }
-  ],
+  "failures": [],
   "completed_paths": [
     "built-ins/Array/prototype/reduce/15.4.4.21-9-c-i-17.js"
   ],

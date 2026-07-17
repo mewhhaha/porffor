@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
+use boa_ast::operations::{annex_b_function_declarations, lexically_declared_names};
 use boa_ast::property::{MethodDefinitionKind, PropertyName};
 use boa_ast::{
     declaration::{Binding, ExportDeclaration, LexicalDeclaration, VarDeclaration, Variable},
@@ -18,7 +19,9 @@ use boa_ast::{
         update::{UpdateOp, UpdateTarget},
     },
     expression::New,
-    expression::{Call, Expression, Optional, OptionalOperationKind, RegExpLiteral, SuperCall},
+    expression::{
+        Call, Expression, Optional, OptionalOperationKind, RegExpLiteral, SuperCall, TaggedTemplate,
+    },
     function::{
         ArrowFunction, ClassDeclaration, ClassElement, ClassElementName, ClassExpression,
         ClassMethodDefinition, FormalParameter, FormalParameterList, FunctionBody,
@@ -74,9 +77,18 @@ pub use operations::{
     UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
 };
 pub use regexp::{
-    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpProgram,
-    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
+    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,
+    RegExpProgram, REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
+    REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
+    REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKBEHIND_END,
+    REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
+    REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
+    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
+    REGEXP_OPCODE_WHITESPACE, REGEXP_UNICODE_PROPERTY_ASCII, REGEXP_UNICODE_PROPERTY_NOT_ASCII,
+    REGEXP_UNICODE_PROPERTY_SCRIPT_HAN,
 };
 
 pub use names::*;
@@ -98,6 +110,432 @@ mod tests {
     fn lower_module(source: &str) -> ProgramIr {
         let source = parse(source, ParseOptions::module()).expect("module should parse");
         lower(&source)
+    }
+
+    fn collect_annex_b_copies(block: &BlockIr) -> Vec<(String, String, String)> {
+        fn collect(statement: &StatementIr, copies: &mut Vec<(String, String, String)>) {
+            match statement {
+                StatementIr::AnnexBFunctionCopy {
+                    source_name,
+                    block_storage_name,
+                    variable_storage_name,
+                } => copies.push((
+                    source_name.clone(),
+                    block_storage_name.clone(),
+                    variable_storage_name.clone(),
+                )),
+                StatementIr::LexicalBlock(statements) => {
+                    for statement in statements {
+                        collect(statement, copies);
+                    }
+                }
+                StatementIr::Block(block) => {
+                    for statement in &block.statements {
+                        collect(statement, copies);
+                    }
+                }
+                StatementIr::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    collect(then_branch, copies);
+                    if let Some(else_branch) = else_branch {
+                        collect(else_branch, copies);
+                    }
+                }
+                StatementIr::While { body, .. }
+                | StatementIr::DoWhile { body, .. }
+                | StatementIr::For { body, .. }
+                | StatementIr::ForOfArray { body, .. }
+                | StatementIr::ForOfString { body, .. }
+                | StatementIr::ForOfIterator { body, .. }
+                | StatementIr::ForInArray { body, .. }
+                | StatementIr::ForInString { body, .. }
+                | StatementIr::ForInObject { body, .. }
+                | StatementIr::Labelled {
+                    statement: body, ..
+                } => collect(body, copies),
+                StatementIr::Switch {
+                    lexical_declarations,
+                    cases,
+                    ..
+                } => {
+                    for declaration in lexical_declarations {
+                        collect(declaration, copies);
+                    }
+                    for case in cases {
+                        for statement in &case.body.statements {
+                            collect(statement, copies);
+                        }
+                    }
+                }
+                StatementIr::TryCatch {
+                    try_block,
+                    catch_block,
+                    ..
+                } => {
+                    for statement in &try_block.statements {
+                        collect(statement, copies);
+                    }
+                    for statement in &catch_block.statements {
+                        collect(statement, copies);
+                    }
+                }
+                StatementIr::TryFinally {
+                    try_block,
+                    finally_block,
+                } => {
+                    for statement in &try_block.statements {
+                        collect(statement, copies);
+                    }
+                    for statement in &finally_block.statements {
+                        collect(statement, copies);
+                    }
+                }
+                StatementIr::TryCatchFinally {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    for block in [try_block, catch_block, finally_block] {
+                        for statement in &block.statements {
+                            collect(statement, copies);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut copies = Vec::new();
+        for statement in &block.statements {
+            collect(statement, &mut copies);
+        }
+        copies
+    }
+
+    fn collect_binding_storage_names(block: &BlockIr) -> BTreeSet<String> {
+        fn collect(statement: &StatementIr, names: &mut BTreeSet<String>) {
+            match statement {
+                StatementIr::Lexical { name, .. } => {
+                    names.insert(name.clone());
+                }
+                StatementIr::Var(declarators) => {
+                    names.extend(declarators.iter().map(|declarator| declarator.name.clone()));
+                }
+                StatementIr::LexicalBlock(statements) => {
+                    for statement in statements {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::Block(block) => {
+                    for statement in &block.statements {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    collect(then_branch, names);
+                    if let Some(else_branch) = else_branch {
+                        collect(else_branch, names);
+                    }
+                }
+                StatementIr::While { body, .. }
+                | StatementIr::DoWhile { body, .. }
+                | StatementIr::Labelled {
+                    statement: body, ..
+                } => collect(body, names),
+                StatementIr::For { init, body, .. } => {
+                    if let Some(init) = init {
+                        match init {
+                            ForInitIr::Lexical { name, .. } => {
+                                names.insert(name.clone());
+                            }
+                            ForInitIr::LexicalBlock(bindings) => {
+                                names.extend(bindings.iter().map(|binding| binding.name.clone()));
+                            }
+                            ForInitIr::Var(declarators) => {
+                                names.extend(
+                                    declarators.iter().map(|declarator| declarator.name.clone()),
+                                );
+                            }
+                            ForInitIr::Expression(_) => {}
+                        }
+                    }
+                    collect(body, names);
+                }
+                StatementIr::ForOfArray { name, body, .. }
+                | StatementIr::ForOfString { name, body, .. }
+                | StatementIr::ForOfIterator { name, body, .. }
+                | StatementIr::ForInArray { name, body, .. }
+                | StatementIr::ForInString { name, body, .. }
+                | StatementIr::ForInObject { name, body, .. } => {
+                    names.insert(name.clone());
+                    collect(body, names);
+                }
+                StatementIr::Switch {
+                    lexical_declarations,
+                    cases,
+                    ..
+                } => {
+                    for declaration in lexical_declarations {
+                        collect(declaration, names);
+                    }
+                    for case in cases {
+                        for statement in &case.body.statements {
+                            collect(statement, names);
+                        }
+                    }
+                }
+                StatementIr::TryCatch {
+                    catch_name,
+                    try_block,
+                    catch_block,
+                    ..
+                } => {
+                    names.insert(catch_name.clone());
+                    for block in [try_block, catch_block] {
+                        for statement in &block.statements {
+                            collect(statement, names);
+                        }
+                    }
+                }
+                StatementIr::TryFinally {
+                    try_block,
+                    finally_block,
+                } => {
+                    for block in [try_block, finally_block] {
+                        for statement in &block.statements {
+                            collect(statement, names);
+                        }
+                    }
+                }
+                StatementIr::TryCatchFinally {
+                    catch_name,
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    names.insert(catch_name.clone());
+                    for block in [try_block, catch_block, finally_block] {
+                        for statement in &block.statements {
+                            collect(statement, names);
+                        }
+                    }
+                }
+                StatementIr::Expression(TypedExpr {
+                    expr:
+                        ExprIr::ArrayDestructure {
+                            pattern,
+                            assignment: false,
+                            ..
+                        },
+                    ..
+                }) => {
+                    pattern.visit_bindings(&mut |_, name| {
+                        names.insert(name.to_string());
+                    });
+                }
+                StatementIr::Empty
+                | StatementIr::AnnexBFunctionCopy { .. }
+                | StatementIr::Expression(_)
+                | StatementIr::Debugger
+                | StatementIr::Throw(_)
+                | StatementIr::Return(_)
+                | StatementIr::Break { .. }
+                | StatementIr::Continue { .. } => {}
+            }
+        }
+
+        let mut names = BTreeSet::new();
+        for statement in &block.statements {
+            collect(statement, &mut names);
+        }
+        names
+    }
+
+    fn block_environment_owns_binding(block: &BlockIr, name: &str, slot: u32) -> bool {
+        fn lexical_environment_owns_binding(
+            environment: Option<&LexicalEnvironmentIr>,
+            name: &str,
+            slot: u32,
+        ) -> bool {
+            environment.as_ref().is_some_and(|environment| {
+                environment
+                    .bindings
+                    .iter()
+                    .any(|binding| binding.name == name && binding.slot == slot)
+            })
+        }
+
+        if lexical_environment_owns_binding(block.lexical_environment.as_ref(), name, slot) {
+            return true;
+        }
+
+        fn statement_owns_binding(statement: &StatementIr, name: &str, slot: u32) -> bool {
+            match statement {
+                StatementIr::Block(block) => block_environment_owns_binding(block, name, slot),
+                StatementIr::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    statement_owns_binding(then_branch, name, slot)
+                        || else_branch
+                            .as_deref()
+                            .is_some_and(|branch| statement_owns_binding(branch, name, slot))
+                }
+                StatementIr::While { body, .. }
+                | StatementIr::DoWhile { body, .. }
+                | StatementIr::Labelled {
+                    statement: body, ..
+                } => statement_owns_binding(body, name, slot),
+                StatementIr::For {
+                    body,
+                    lexical_environment,
+                    ..
+                } => {
+                    lexical_environment.as_ref().is_some_and(|environment| {
+                        environment
+                            .bindings
+                            .iter()
+                            .any(|binding| binding.name == name && binding.slot == slot)
+                    }) || statement_owns_binding(body, name, slot)
+                }
+                StatementIr::ForOfArray {
+                    body,
+                    lexical_environment,
+                    ..
+                }
+                | StatementIr::ForOfString {
+                    body,
+                    lexical_environment,
+                    ..
+                }
+                | StatementIr::ForOfIterator {
+                    body,
+                    lexical_environment,
+                    ..
+                }
+                | StatementIr::ForInArray {
+                    body,
+                    lexical_environment,
+                    ..
+                }
+                | StatementIr::ForInString {
+                    body,
+                    lexical_environment,
+                    ..
+                }
+                | StatementIr::ForInObject {
+                    body,
+                    lexical_environment,
+                    ..
+                } => {
+                    lexical_environment.as_ref().is_some_and(|environment| {
+                        lexical_environment_owns_binding(
+                            environment.tdz_environment.as_ref(),
+                            name,
+                            slot,
+                        ) || lexical_environment_owns_binding(
+                            environment.iteration_environment.as_ref(),
+                            name,
+                            slot,
+                        )
+                    }) || statement_owns_binding(body, name, slot)
+                }
+                StatementIr::Switch {
+                    lexical_environment,
+                    cases,
+                    ..
+                } => {
+                    lexical_environment_owns_binding(lexical_environment.as_ref(), name, slot)
+                        || cases
+                            .iter()
+                            .any(|case| block_environment_owns_binding(&case.body, name, slot))
+                }
+                StatementIr::TryCatch {
+                    try_block,
+                    catch_parameter_environment,
+                    catch_block,
+                    ..
+                } => {
+                    block_environment_owns_binding(try_block, name, slot)
+                        || lexical_environment_owns_binding(
+                            catch_parameter_environment.as_ref(),
+                            name,
+                            slot,
+                        )
+                        || block_environment_owns_binding(catch_block, name, slot)
+                }
+                StatementIr::TryFinally {
+                    try_block,
+                    finally_block,
+                } => {
+                    block_environment_owns_binding(try_block, name, slot)
+                        || block_environment_owns_binding(finally_block, name, slot)
+                }
+                StatementIr::TryCatchFinally {
+                    try_block,
+                    catch_parameter_environment,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    block_environment_owns_binding(try_block, name, slot)
+                        || lexical_environment_owns_binding(
+                            catch_parameter_environment.as_ref(),
+                            name,
+                            slot,
+                        )
+                        || block_environment_owns_binding(catch_block, name, slot)
+                        || block_environment_owns_binding(finally_block, name, slot)
+                }
+                _ => false,
+            }
+        }
+
+        block
+            .statements
+            .iter()
+            .any(|statement| statement_owns_binding(statement, name, slot))
+    }
+
+    fn assert_function_capture_storage_contract(
+        source: &str,
+        owner_name: &str,
+        capture_function_name: Option<&str>,
+        expected_storage_prefix: &str,
+    ) {
+        let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == owner_name)
+            .expect("capture owner should be lowered");
+        let capture = script
+            .functions
+            .iter()
+            .filter(|function| capture_function_name.map_or(true, |name| function.name == name))
+            .flat_map(|function| &function.captured_bindings)
+            .find(|binding| binding.name.starts_with(expected_storage_prefix))
+            .expect("capturing function should use the expected physical binding");
+        assert!(
+            owner
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == capture.name && binding.slot == capture.slot)
+                || block_environment_owns_binding(&owner.body, &capture.name, capture.slot)
+        );
+        assert!(collect_binding_storage_names(&owner.body).contains(&capture.name));
     }
 
     fn assert_canonical_derived_activation(function: &FunctionIr) {
@@ -131,6 +569,428 @@ mod tests {
                 (DERIVED_ACTIVATION_THIS_NAME, 2),
                 (DERIVED_ACTIVATION_THIS_STATUS_NAME, 3),
             ]
+        );
+    }
+
+    fn with_script_analysis(source: &str, assert_analysis: impl FnOnce(&Analysis<'_>)) {
+        let mut interner = Interner::default();
+        let scope = Scope::new_global();
+        let parsed_script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&scope, &mut interner)
+            .expect("script should parse");
+        let analysis = AnalysisBuilder::default().finish(&parsed_script, &interner, source);
+        assert_analysis(&analysis);
+    }
+
+    fn function_owner_plan_by_name<'a>(analysis: &'a Analysis<'_>, name: &str) -> &'a OwnerPlan {
+        let function = analysis
+            .function_plans
+            .values()
+            .find(|function| function.name == name)
+            .expect("function should be planned");
+        &analysis.owner_plans[&function.id]
+    }
+
+    fn environment_with_binding_suffix<'a>(
+        analysis: &'a Analysis<'_>,
+        suffix: &str,
+    ) -> &'a EnvironmentPlan {
+        analysis
+            .environment_plans
+            .values()
+            .find(|environment| {
+                environment
+                    .binding_storage_names
+                    .iter()
+                    .any(|binding| binding.ends_with(suffix))
+            })
+            .expect("environment should own the physical binding")
+    }
+
+    fn binding_with_suffix<'a>(environment: &'a EnvironmentPlan, suffix: &str) -> &'a str {
+        environment
+            .binding_storage_names
+            .iter()
+            .find(|binding| binding.ends_with(suffix))
+            .map(String::as_str)
+            .expect("environment should contain the physical binding")
+    }
+
+    fn assert_physical_binding_owner(
+        analysis: &Analysis<'_>,
+        binding_storage_name: &str,
+        environment: &EnvironmentPlan,
+    ) {
+        let owners = analysis
+            .physical_binding_environments
+            .get(binding_storage_name)
+            .expect("physical binding should have an environment owner");
+        assert_eq!(owners.len(), 1);
+        assert!(owners.contains(&environment.id));
+    }
+
+    #[test]
+    fn analysis_tracks_nested_block_environment_ownership() {
+        with_script_analysis(
+            "\"use strict\"; { let outer = 1; { const inner = 2; function read() { return outer + inner; } } }",
+            |analysis| {
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+                let outer = environment_with_binding_suffix(analysis, ".outer");
+                let inner = environment_with_binding_suffix(analysis, ".inner");
+
+                assert_eq!(outer.kind, EnvironmentKind::Block);
+                assert_eq!(
+                    outer
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_eq!(inner.kind, EnvironmentKind::Block);
+                assert_eq!(
+                    inner
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(outer.id)
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(outer, ".outer"),
+                    outer,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(inner, ".inner"),
+                    inner,
+                );
+
+                let read = function_owner_plan_by_name(analysis, "read");
+                assert_eq!(read.definition_environment_cursor.environment_id, inner.id);
+            },
+        );
+    }
+
+    #[test]
+    fn analysis_shares_one_environment_for_switch_cases() {
+        with_script_analysis(
+            "switch (0) { case 0: let first = 1; break; default: const second = 2; }",
+            |analysis| {
+                let first = environment_with_binding_suffix(analysis, ".first");
+                let second = environment_with_binding_suffix(analysis, ".second");
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+
+                assert_eq!(first.kind, EnvironmentKind::SwitchCaseBlock);
+                assert_eq!(first.id, second.id);
+                assert_eq!(analysis.switch_environment_ids.len(), 1);
+                assert!(analysis
+                    .switch_environment_ids
+                    .values()
+                    .any(|environment_id| environment_id == &first.id));
+                assert_eq!(
+                    first
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(first, ".first"),
+                    first,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(second, ".second"),
+                    second,
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn analysis_separates_try_catch_parameter_catch_body_and_finally_blocks() {
+        with_script_analysis(
+            "\"use strict\"; try { let tried = 1; } catch (error) { let handled = error; function reader() { return error + handled; } } finally { const cleaned = 1; }",
+            |analysis| {
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+                let tried = environment_with_binding_suffix(analysis, ".tried");
+                let error = environment_with_binding_suffix(analysis, ".error");
+                let handled = environment_with_binding_suffix(analysis, ".handled");
+                let cleaned = environment_with_binding_suffix(analysis, ".cleaned");
+
+                assert_eq!(tried.kind, EnvironmentKind::Block);
+                assert_eq!(error.kind, EnvironmentKind::CatchParameter);
+                assert_eq!(handled.kind, EnvironmentKind::Block);
+                assert_eq!(cleaned.kind, EnvironmentKind::Block);
+                assert_eq!(analysis.catch_parameter_environment_ids.len(), 1);
+                assert!(
+                    analysis
+                        .catch_parameter_environment_ids
+                        .values()
+                        .any(|environment_id| environment_id == &error.id)
+                );
+                for environment in [tried, handled, cleaned] {
+                    assert!(
+                        analysis
+                            .block_environment_ids
+                            .values()
+                            .any(|environment_id| environment_id == &environment.id)
+                    );
+                }
+                for environment in [tried, error, cleaned] {
+                    assert_eq!(
+                        environment
+                            .parent_cursor
+                            .as_ref()
+                            .map(|cursor| cursor.environment_id),
+                        Some(script_activation)
+                    );
+                }
+                assert_eq!(
+                    handled
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(error.id)
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(tried, ".tried"),
+                    tried,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(error, ".error"),
+                    error,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(handled, ".handled"),
+                    handled,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(cleaned, ".cleaned"),
+                    cleaned,
+                );
+
+                let reader = function_owner_plan_by_name(analysis, "reader");
+                assert_eq!(
+                    reader.definition_environment_cursor.environment_id,
+                    handled.id
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn analysis_tracks_classic_for_lexical_head_environment() {
+        with_script_analysis(
+            "\"use strict\"; for (let index = 0; index < 1; index++) { const value = index; function read() { return index + value; } }",
+            |analysis| {
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+                let index = environment_with_binding_suffix(analysis, ".index");
+                let value = environment_with_binding_suffix(analysis, ".value");
+
+                assert_eq!(index.kind, EnvironmentKind::ForLexicalHead);
+                assert_eq!(value.kind, EnvironmentKind::Block);
+                assert!(
+                    analysis
+                        .for_lexical_environment_ids
+                        .values()
+                        .any(|environment_id| *environment_id == index.id)
+                );
+                assert_eq!(
+                    index
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_eq!(
+                    value
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(index.id)
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(index, ".index"),
+                    index,
+                );
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(value, ".value"),
+                    value,
+                );
+
+                let read = function_owner_plan_by_name(analysis, "read");
+                assert_eq!(read.definition_environment_cursor.environment_id, value.id);
+            },
+        );
+    }
+
+    #[test]
+    fn analysis_tracks_for_in_and_for_of_tdz_and_iteration_environments() {
+        with_script_analysis(
+            "\"use strict\"; for (let property in property) { const inRead = () => property; } for (const value of value) { const ofRead = () => value; }",
+            |analysis| {
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+                let property_tdz = analysis
+                    .environment_plans
+                    .values()
+                    .find(|environment| {
+                        environment.kind == EnvironmentKind::ForInOfTdzHead
+                            && environment.binding_storage_names.contains("$tdz.property")
+                    })
+                    .expect("for-in TDZ environment should be planned");
+                let property_iteration = analysis
+                    .environment_plans
+                    .values()
+                    .find(|environment| {
+                        environment.kind == EnvironmentKind::ForInOfIteration
+                            && environment.binding_storage_names.iter().any(|binding| {
+                                binding.starts_with("$forin.lex.") && binding.ends_with(".property")
+                            })
+                    })
+                    .expect("for-in iteration environment should be planned");
+                let value_tdz = analysis
+                    .environment_plans
+                    .values()
+                    .find(|environment| {
+                        environment.kind == EnvironmentKind::ForInOfTdzHead
+                            && environment.binding_storage_names.contains("$tdz.value")
+                    })
+                    .expect("for-of TDZ environment should be planned");
+                let value_iteration = analysis
+                    .environment_plans
+                    .values()
+                    .find(|environment| {
+                        environment.kind == EnvironmentKind::ForInOfIteration
+                            && environment.binding_storage_names.iter().any(|binding| {
+                                binding.starts_with("$forof.lex.") && binding.ends_with(".value")
+                            })
+                    })
+                    .expect("for-of iteration environment should be planned");
+
+                for environment in [property_tdz, value_tdz] {
+                    assert!(
+                        analysis
+                            .for_in_of_tdz_environment_ids
+                            .values()
+                            .any(|environment_id| *environment_id == environment.id)
+                    );
+                }
+                for environment in [property_iteration, value_iteration] {
+                    assert!(
+                        analysis
+                            .for_in_of_iteration_environment_ids
+                            .values()
+                            .any(|environment_id| *environment_id == environment.id)
+                    );
+                }
+
+                assert_eq!(
+                    property_iteration
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_eq!(
+                    property_tdz
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_eq!(
+                    value_iteration
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_eq!(
+                    value_tdz
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| cursor.environment_id),
+                    Some(script_activation)
+                );
+                assert_physical_binding_owner(analysis, "$tdz.property", property_tdz);
+                assert_physical_binding_owner(analysis, "$tdz.value", value_tdz);
+                let property_binding = property_iteration
+                    .binding_storage_names
+                    .iter()
+                    .find(|binding| {
+                        binding.starts_with("$forin.lex.") && binding.ends_with(".property")
+                    })
+                    .expect("for-in iteration should own its physical binding");
+                let value_binding = value_iteration
+                    .binding_storage_names
+                    .iter()
+                    .find(|binding| {
+                        binding.starts_with("$forof.lex.") && binding.ends_with(".value")
+                    })
+                    .expect("for-of iteration should own its physical binding");
+                assert_physical_binding_owner(analysis, property_binding, property_iteration);
+                assert_physical_binding_owner(analysis, value_binding, value_iteration);
+            },
+        );
+    }
+
+    #[test]
+    fn analysis_stamps_root_and_block_function_definition_cursors() {
+        with_script_analysis(
+            "\"use strict\"; function root(parameter) { var variable = parameter; } { function nested() {} }",
+            |analysis| {
+                let script_activation =
+                    analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+                let nested_environment = analysis
+                    .environment_plans
+                    .values()
+                    .find(|environment| {
+                        environment.kind == EnvironmentKind::Block
+                            && environment
+                                .binding_storage_names
+                                .iter()
+                                .any(|binding| binding.ends_with(".nested"))
+                    })
+                    .expect("nested function block should be planned");
+                let root = function_owner_plan_by_name(analysis, "root");
+                let root_activation = &analysis.environment_plans[&root.activation_environment_id];
+
+                assert_eq!(
+                    root.definition_environment_cursor.environment_id,
+                    script_activation
+                );
+                assert_eq!(root_activation.kind, EnvironmentKind::Activation);
+                assert_eq!(
+                    root_activation
+                        .parent_cursor
+                        .as_ref()
+                        .map(|cursor| (cursor.owner_id.as_str(), cursor.environment_id)),
+                    Some((SCRIPT_OWNER_ID, script_activation))
+                );
+                assert!(root_activation.binding_storage_names.contains("parameter"));
+                assert!(root_activation.binding_storage_names.contains("variable"));
+                assert_physical_binding_owner(analysis, "parameter", root_activation);
+                assert_physical_binding_owner(analysis, "variable", root_activation);
+                assert_eq!(
+                    function_owner_plan_by_name(analysis, "nested")
+                        .definition_environment_cursor
+                        .environment_id,
+                    nested_environment.id
+                );
+            },
         );
     }
 
@@ -249,6 +1109,36 @@ mod tests {
                 }) if *possible_kinds == KindSet::all_runtime_tags()
             )
         }));
+    }
+
+    #[test]
+    fn preserves_call_spreads_in_source_argument_order() {
+        let program = lower_script(
+            "function collect() {} let values = [2, 3]; collect(42, ...[1], ...values,);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().expect("call expression")
+        else {
+            panic!("expected call expression");
+        };
+        let args = match &call.expr {
+            ExprIr::CallNamed { args, .. } | ExprIr::CallIndirect { args, .. } => args,
+            other => panic!("expected function call, got {other:?}"),
+        };
+
+        assert_eq!(args.len(), 3);
+        assert!(matches!(args[0].expr, ExprIr::Number(_)));
+        assert!(matches!(
+            args[1].expr,
+            ExprIr::SpreadArgument(ref value)
+                if matches!(value.expr, ExprIr::ArrayLiteral(_))
+        ));
+        assert!(matches!(
+            args[2].expr,
+            ExprIr::SpreadArgument(ref value)
+                if matches!(value.expr, ExprIr::Identifier(ref name) if name == "values")
+        ));
     }
 
     #[test]
@@ -492,6 +1382,7 @@ mod tests {
     fn species_capable_array_results_preserve_runtime_object_tags() {
         for (source, result_statement) in [
             ("let result = [1].flat();", 0),
+            ("let result = [1].slice();", 0),
             (
                 "let result = [1].flatMap(function (value) { return value; });",
                 0,
@@ -554,6 +1445,24 @@ mod tests {
         assert!(summary.contains("postfix_updates=1"));
         assert!(summary.contains("prefix_updates=1"));
         assert!(summary.contains("compound_assigns=1"));
+    }
+
+    #[test]
+    fn lowers_numeric_update_for_dynamically_typed_binding() {
+        let program = lower_script(
+            "function visitRange(start, end) { for (let codePoint = start; codePoint <= end; codePoint++) {} }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program.ir_summary().contains("postfix_updates=1"));
+    }
+
+    #[test]
+    fn lowers_property_update_after_generic_get_v() {
+        let program = lower_script(
+            "var count = -1; function increment() { this.count++; } Array.from([0], increment, this);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program.ir_summary().contains("postfix_updates=1"));
     }
 
     #[test]
@@ -669,6 +1578,46 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn operations_keeps_number_call_with_reassigned_parameter_off_to_number_spec_operation() {
+        let program = lower_script(
+            "function convert(value) { value = Number(value); return value; } convert(1); convert(1n);",
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script.functions.first().expect("convert function");
+        let StatementIr::Expression(expr) = &function.body.statements[0] else {
+            panic!("expected assignment expression statement");
+        };
+        let ExprIr::AssignIdentifier { value, .. } = &expr.expr else {
+            panic!("expected identifier assignment");
+        };
+        assert!(!matches!(
+            value.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToNumber,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn array_sort_call_keeps_comparator_parameters_dynamic() {
+        let program = lower_script(
+            "function compare(a, b) { a = Number(a); b = Number(b); return a - b; } const values = new BigInt64Array([2n, 1n]); Array.prototype.sort.call(values, compare);",
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let compare = script
+            .functions
+            .iter()
+            .find(|function| function.name == "compare")
+            .expect("compare function");
+
+        assert!(compare
+            .params
+            .iter()
+            .all(|param| param.kind == ValueKind::Dynamic));
     }
 
     #[test]
@@ -909,10 +1858,21 @@ mod tests {
             "var x; var base = {}; ([x = 1, base.y = 3] = [2, 4]); ({x = 5} = {x: 6});",
         );
         assert!(program.is_wasm_supported());
-        let summary = program.ir_summary();
-        assert!(summary.contains("assigns=2"));
-        assert!(summary.contains("property_writes=1"));
-        assert!(summary.contains("comma_ops=1"));
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ArrayDestructure { pattern, .. },
+            ..
+        }) = &script.body.statements[2]
+        else {
+            panic!("expected semantic array destructuring assignment");
+        };
+        assert!(matches!(
+            pattern.elements[1],
+            ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::AssignmentProperty { .. },
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -922,12 +1882,776 @@ mod tests {
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(matches!(
             script.body.statements[0],
-            StatementIr::Lexical { .. }
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ArrayDestructure {
+                    assignment: false,
+                    ..
+                },
+                ..
+            })
         ));
         assert!(matches!(
             script.body.statements[1],
-            StatementIr::Lexical { .. }
+            StatementIr::LexicalBlock(_)
         ));
+    }
+
+    #[test]
+    fn lowers_object_destructuring_rhs_once_before_ordered_property_reads() {
+        let program = lower_script(
+            "let { first: renamed = 10, second, missing, } = source(); renamed + second + missing;",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::LexicalBlock(statements) = &script.body.statements[0] else {
+            panic!("expected destructuring lexical block");
+        };
+        assert_eq!(statements.len(), 4);
+
+        let StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: temporary_name,
+            init,
+        } = &statements[0]
+        else {
+            panic!("expected RHS materialization");
+        };
+        assert!(temporary_name.starts_with("$destructure.internal."));
+        assert!(matches!(
+            init.expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+
+        for (statement, expected_name, expected_key) in [
+            (&statements[1], "renamed", "first"),
+            (&statements[2], "second", "second"),
+            (&statements[3], "missing", "missing"),
+        ] {
+            let StatementIr::Lexical { name, init, .. } = statement else {
+                panic!("expected lexical property binding");
+            };
+            assert_eq!(name, expected_name);
+            let value = if expected_name == "renamed" {
+                let ExprIr::Conditional { else_expr, .. } = &init.expr else {
+                    panic!("expected default initializer");
+                };
+                else_expr
+            } else {
+                init
+            };
+            let ExprIr::PropertyRead { target, key } = &value.expr else {
+                panic!("expected property read");
+            };
+            assert!(matches!(target.expr, ExprIr::Identifier(ref name) if name == temporary_name));
+            assert_eq!(key, &PropertyKeyIr::StaticString(expected_key.to_string()));
+        }
+    }
+
+    #[test]
+    fn materializes_literal_array_before_pattern_defaults_and_bindings() {
+        let program =
+            lower_script("let [, selected = fallback()] = [leading(), , trailing()]; selected;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    value,
+                    pattern,
+                    assignment: false,
+                },
+            ..
+        }) = &script.body.statements[0]
+        else {
+            panic!("expected semantic array destructuring expression");
+        };
+        let ExprIr::ArrayLiteral(elements) = &value.expr else {
+            panic!("expected the complete literal array RHS");
+        };
+        assert_eq!(elements.len(), 3);
+        assert!(matches!(
+            elements[0].expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+        assert!(matches!(elements[1].expr, ExprIr::ArrayHole));
+        assert!(matches!(
+            elements[2].expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+        assert!(matches!(
+            pattern.elements[0],
+            ArrayDestructuringElementIr::Elision
+        ));
+        let ArrayDestructuringElementIr::Target {
+            target: DestructuringTargetIr::Binding { name, .. },
+            default: Some(default),
+        } = &pattern.elements[1]
+        else {
+            panic!("expected selected binding with a default initializer");
+        };
+        assert_eq!(name, "selected");
+        assert!(matches!(
+            default.expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+    }
+
+    #[test]
+    fn materializes_literal_array_assignment_before_target_writes() {
+        let program = lower_script(
+            "var selected; var result = ([, selected] = [leading(), chosen(), trailing()]); result;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Var(declarators) = &script.body.statements[1] else {
+            panic!("expected result declaration");
+        };
+        let init = declarators[0]
+            .init
+            .as_ref()
+            .expect("result should have an initializer");
+        let ExprIr::ArrayDestructure {
+            value,
+            pattern,
+            assignment: true,
+        } = &init.expr
+        else {
+            panic!("expected semantic array assignment");
+        };
+        let ExprIr::ArrayLiteral(elements) = &value.expr else {
+            panic!("expected the complete literal array RHS");
+        };
+        assert_eq!(elements.len(), 3);
+        assert!(matches!(
+            pattern.elements[0],
+            ArrayDestructuringElementIr::Elision
+        ));
+        assert!(matches!(
+            pattern.elements[1],
+            ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::AssignmentIdentifier { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn lowers_for_of_array_assignment_pattern_as_iteration_prefix() {
+        let program = lower_script("var x; for ([x] of [[1]]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfArray { body, .. } = &script.body.statements[1] else {
+            panic!("expected array for-of statement");
+        };
+        let StatementIr::Block(block) = body.as_ref() else {
+            panic!("expected assignment prefix block");
+        };
+        assert!(matches!(
+            block.statements[0],
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ArrayDestructure {
+                    assignment: true,
+                    ..
+                },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn lowers_private_loop_heads_as_per_iteration_writes() {
+        let program = lower_script(
+            "class C {
+                #value;
+                assign() {
+                    for (this.#value of [1, 2]) {}
+                    for (this.#value in { first: 1, second: 2 }) {}
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.assign")
+            .expect("assign method should be lowered");
+
+        let mut private_loop_count = 0;
+        for statement in &function.body.statements {
+            let body = match statement {
+                StatementIr::ForOfArray { body, .. } | StatementIr::ForInObject { body, .. } => {
+                    body
+                }
+                _ => continue,
+            };
+            private_loop_count += 1;
+            let StatementIr::Block(block) = body.as_ref() else {
+                panic!("private loop head should add an iteration prefix");
+            };
+            assert!(matches!(
+                block.statements.first(),
+                Some(StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::PrivateWrite { .. },
+                    ..
+                }))
+            ));
+        }
+        assert_eq!(private_loop_count, 2);
+    }
+
+    #[test]
+    fn preserves_private_array_assignment_targets_in_destructuring_ir() {
+        let program = lower_script(
+            "class C {
+                #value;
+                assign() { [this.#value, ...this.#value] = [1, 2, 3]; }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.assign")
+            .expect("assign method should be lowered");
+        let pattern = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ArrayDestructure { pattern, .. },
+                    ..
+                }) => Some(pattern),
+                _ => None,
+            })
+            .expect("array assignment should be lowered");
+
+        assert!(matches!(
+            pattern.elements.as_slice(),
+            [
+                ArrayDestructuringElementIr::Target {
+                    target: DestructuringTargetIr::AssignmentPrivate { .. },
+                    ..
+                },
+                ArrayDestructuringElementIr::Rest {
+                    target: DestructuringTargetIr::AssignmentPrivate { .. }
+                }
+            ]
+        ));
+    }
+
+    #[test]
+    fn lowers_object_assignment_properties_and_private_rest_target() {
+        let program = lower_script(
+            "class C {
+                #value;
+                assign(source, key, target) {
+                    ({ [key]: target.value, fallback = 1, ...this.#value } = source);
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.assign")
+            .expect("assign method should be lowered");
+        let pattern = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ObjectDestructure { pattern, .. },
+                    ..
+                }) => Some(pattern),
+                _ => None,
+            })
+            .expect("object assignment should be lowered");
+
+        assert_eq!(pattern.properties.len(), 2);
+        assert!(matches!(
+            pattern.properties[0],
+            ObjectDestructuringPropertyIr {
+                key: DestructuringPropertyKeyIr::Computed(_),
+                target: DestructuringTargetIr::AssignmentProperty { .. },
+                default: None,
+            }
+        ));
+        assert!(pattern.properties[1].default.is_some());
+        assert!(matches!(
+            pattern.rest,
+            Some(DestructuringTargetIr::AssignmentPrivate { .. })
+        ));
+    }
+
+    #[test]
+    fn plans_functions_in_array_pattern_defaults() {
+        let program = lower_script(
+            "let [first = function() { return 1; }] = []; var second; [second = function() { return 2; }] = [];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        assert_eq!(
+            script
+                .functions
+                .iter()
+                .filter(|function| function.is_expression)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn array_assignment_targets_are_captured_in_nested_functions() {
+        let program = lower_script(
+            "function owner(iterable) { let outer = 0; function assign() { [outer] = iterable; return outer; } return assign; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let assign = script
+            .functions
+            .iter()
+            .find(|function| function.name == "assign")
+            .expect("nested assign function should be lowered");
+        assert!(assign
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == "outer"));
+    }
+
+    #[test]
+    fn captured_const_array_assignment_target_remains_immutable() {
+        let program =
+            lower_script("const outer = 0; function assign(iterable) { [outer] = iterable; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let assign = script
+            .functions
+            .iter()
+            .find(|function| function.name == "assign")
+            .expect("assign function should be lowered");
+        assert!(
+            matches!(
+                &assign.body.statements[0],
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ArrayDestructure { pattern, .. },
+                    ..
+                }) if matches!(
+                    &pattern.elements[0],
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::AssignmentIdentifier {
+                            immutable: true,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            ),
+            "{:?}",
+            assign.body
+        );
+    }
+
+    #[test]
+    fn depth_two_function_const_capture_preserves_array_target_immutability() {
+        let program = lower_script(
+            "function outer() { const value = 0; function middle() { function inner() { [value] = [1]; } return inner; } return middle; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let inner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "inner")
+            .expect("inner function should be lowered");
+        assert!(inner.captured_bindings.iter().any(|binding| {
+            binding.source_name == "value" && binding.mode == BindingMode::Const
+        }));
+        assert!(
+            matches!(
+                &inner.body.statements[0],
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ArrayDestructure { pattern, .. },
+                    ..
+                }) if matches!(
+                    &pattern.elements[0],
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::AssignmentIdentifier {
+                            immutable: true,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            ),
+            "{:?}",
+            inner.body
+        );
+    }
+
+    #[test]
+    fn depth_two_block_const_capture_uses_selected_environment_mode() {
+        let source = "function outer() { { const value = 0; function middle() { function inner() { [value] = [1]; } return inner; } return middle; } }";
+        with_script_analysis(source, |analysis| {
+            let inner = analysis
+                .function_plans
+                .values()
+                .find(|function| function.name == "inner")
+                .expect("inner function should be planned");
+            let (storage_name, capture) = inner
+                .captures
+                .iter()
+                .find(|(_, capture)| capture.source_name == "value")
+                .expect("inner should capture the block const binding");
+            let environment = &analysis.environment_plans[&capture.environment_id];
+            assert_eq!(environment.kind, EnvironmentKind::Block);
+            assert_ne!(storage_name, "value");
+            assert!(
+                capture.environment_id
+                    != analysis.owner_plans[&capture.owner_id].activation_environment_id
+            );
+            assert_eq!(capture.mode, BindingMode::Const);
+            assert_eq!(
+                environment.binding_modes.get(storage_name),
+                Some(&BindingMode::Const)
+            );
+        });
+    }
+
+    #[test]
+    fn generated_class_method_capture_preserves_planned_const_mode() {
+        let program = lower_script(
+            "function outer() { const value = 0; class Holder { assign() { [value] = [1]; } } return Holder; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let method = script
+            .functions
+            .iter()
+            .find(|function| function.name.ends_with(".assign"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "class method should be lowered: {:?}",
+                    script
+                        .functions
+                        .iter()
+                        .map(|function| function.name.as_str())
+                        .collect::<Vec<_>>()
+                )
+            });
+        assert!(method.captured_bindings.iter().any(|binding| {
+            binding.source_name == "value" && binding.mode == BindingMode::Const
+        }));
+        assert!(
+            matches!(
+                &method.body.statements[0],
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ArrayDestructure { pattern, .. },
+                    ..
+                }) if matches!(
+                    &pattern.elements[0],
+                    ArrayDestructuringElementIr::Target {
+                        target: DestructuringTargetIr::AssignmentIdentifier {
+                            immutable: true,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            ),
+            "{:?}",
+            method.body
+        );
+    }
+
+    #[test]
+    fn capture_planning_preserves_annex_b_and_mutable_binding_modes() {
+        with_script_analysis("if (true) { function copied() {} }", |analysis| {
+            let activation = &analysis.environment_plans
+                [&analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id];
+            assert_eq!(
+                activation.binding_modes.get("copied"),
+                Some(&BindingMode::Var)
+            );
+            assert!(analysis.environment_plans.values().any(|environment| {
+                environment.binding_modes.iter().any(|(name, mode)| {
+                    name.starts_with("$annexb.block.") && *mode == BindingMode::Let
+                })
+            }));
+        });
+
+        let program =
+            lower_script("function outer() { let value = 0; function read() { return value; } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let read = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("reader function should be lowered");
+        assert!(read
+            .captured_bindings
+            .iter()
+            .any(|binding| { binding.source_name == "value" && binding.mode == BindingMode::Let }));
+    }
+
+    #[test]
+    fn materializes_defaulted_object_var_property_reads_once() {
+        let program = lower_script(
+            "var getterHits = 0; var receiver = { get value() { getterHits += 1; return undefined; } }; function fallback() { return 1; } var { value = fallback() } = receiver; value;",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let statements = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::LexicalBlock(statements)
+                    if matches!(statements.first(), Some(StatementIr::Lexical { .. }))
+                        && matches!(statements.get(1), Some(StatementIr::Lexical { .. }))
+                        && matches!(statements.get(2), Some(StatementIr::Var(_))) =>
+                {
+                    Some(statements)
+                }
+                _ => None,
+            })
+            .expect("expected destructuring var bindings");
+
+        let StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: temporary_name,
+            init,
+        } = &statements[0]
+        else {
+            panic!("expected RHS materialization");
+        };
+        assert!(temporary_name.starts_with("$destructure.internal."));
+        assert!(matches!(
+            init.expr,
+            ExprIr::Identifier(ref name) | ExprIr::GlobalPropertyRead { ref name }
+                if name == "receiver"
+        ));
+
+        let StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: property_value_name,
+            init: property_value,
+        } = &statements[1]
+        else {
+            panic!("expected materialized property read");
+        };
+        assert!(property_value_name.starts_with("$destructure.value.internal."));
+        let ExprIr::PropertyRead { target, key } = &property_value.expr else {
+            panic!("expected property read");
+        };
+        assert!(matches!(target.expr, ExprIr::Identifier(ref name) if name == temporary_name));
+        assert_eq!(key, &PropertyKeyIr::StaticString("value".to_string()));
+
+        let StatementIr::Var(declarators) = &statements[2] else {
+            panic!("expected var property binding");
+        };
+        let [declarator] = declarators.as_slice() else {
+            panic!("expected one var property binding");
+        };
+        assert_eq!(declarator.name, "value");
+        let init = declarator.init.as_ref().expect("expected var initializer");
+        let ExprIr::Conditional {
+            condition,
+            else_expr,
+            ..
+        } = &init.expr
+        else {
+            panic!("expected default initializer");
+        };
+        let ExprIr::StrictEquality { lhs, .. } = &condition.expr else {
+            panic!("expected undefined check");
+        };
+        assert!(matches!(lhs.expr, ExprIr::Identifier(ref name) if name == property_value_name));
+        assert!(
+            matches!(else_expr.expr, ExprIr::Identifier(ref name) if name == property_value_name)
+        );
+    }
+
+    #[test]
+    fn hoists_object_var_bindings_in_for_of_loops() {
+        let program = lower_script(
+            "for (var { iterator, error } of [{ iterator: 1, error: 2 }]) {} iterator + error;",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        for name in ["iterator", "error"] {
+            assert!(script.global_bindings.iter().any(|binding| {
+                binding.name == name && matches!(binding.kind, ScriptGlobalBindingKind::Var)
+            }));
+        }
+
+        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
+            panic!("expected array for-of loop");
+        };
+        let StatementIr::Block(block) = body.as_ref() else {
+            panic!("expected destructuring loop body block");
+        };
+        let StatementIr::Var(declarators) = &block.statements[0] else {
+            panic!("expected hoisted var property bindings");
+        };
+        assert_eq!(
+            declarators
+                .iter()
+                .map(|declarator| declarator.name.as_str())
+                .collect::<Vec<_>>(),
+            ["iterator", "error"]
+        );
+    }
+
+    #[test]
+    fn materializes_defaulted_object_var_property_reads_in_for_of_loops() {
+        let program =
+            lower_script("for (var { value = fallback() } of [{ value: undefined }]) {} value;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
+            panic!("expected array for-of loop");
+        };
+        let StatementIr::Block(block) = body.as_ref() else {
+            panic!("expected destructuring loop body block");
+        };
+        let StatementIr::Lexical {
+            name: property_value_name,
+            init: property_value,
+            ..
+        } = &block.statements[0]
+        else {
+            panic!("expected materialized property read");
+        };
+        assert!(property_value_name.starts_with("$destructure.value.internal."));
+        assert!(matches!(property_value.expr, ExprIr::PropertyRead { .. }));
+
+        let StatementIr::Var(declarators) = &block.statements[1] else {
+            panic!("expected var property binding");
+        };
+        let [declarator] = declarators.as_slice() else {
+            panic!("expected one var property binding");
+        };
+        let init = declarator.init.as_ref().expect("expected var initializer");
+        let ExprIr::Conditional {
+            condition,
+            else_expr,
+            ..
+        } = &init.expr
+        else {
+            panic!("expected default initializer");
+        };
+        let ExprIr::StrictEquality { lhs, .. } = &condition.expr else {
+            panic!("expected undefined check");
+        };
+        assert!(matches!(lhs.expr, ExprIr::Identifier(ref name) if name == property_value_name));
+        assert!(
+            matches!(else_expr.expr, ExprIr::Identifier(ref name) if name == property_value_name)
+        );
+    }
+
+    #[test]
+    fn hoists_object_var_bindings_from_for_of_loops_in_functions() {
+        let program = lower_script(
+            "function values() { for (var { value } of [{ value: 1 }]) {} return value; } values();",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(!script
+            .global_bindings
+            .iter()
+            .any(|binding| binding.name == "value"));
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "values")
+            .expect("function should be lowered");
+        assert!(matches!(
+            function.body.statements.last(),
+            Some(StatementIr::Return(TypedExpr {
+                expr: ExprIr::Identifier(name),
+                ..
+            })) if name == "value"
+        ));
+    }
+
+    #[test]
+    fn object_destructuring_predeclares_tdz_and_coerces_empty_patterns() {
+        let program = lower_script("let { value } = value; let {} = null; let {} = undefined;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::LexicalBlock(value_binding) = &script.body.statements[0] else {
+            panic!("expected value destructuring block");
+        };
+        let StatementIr::Lexical { init, .. } = &value_binding[0] else {
+            panic!("expected RHS materialization");
+        };
+        assert!(matches!(init.expr, ExprIr::RuntimeThrow { .. }));
+
+        for statement in &script.body.statements[1..] {
+            let StatementIr::LexicalBlock(bindings) = statement else {
+                panic!("expected empty destructuring block");
+            };
+            assert_eq!(bindings.len(), 2);
+            let StatementIr::Expression(coercion) = &bindings[1] else {
+                panic!("expected RequireObjectCoercible representation");
+            };
+            assert!(matches!(
+                coercion.expr,
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::ToObject,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn object_var_destructuring_coerces_empty_patterns() {
+        let program = lower_script("var {} = null;");
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::LexicalBlock(bindings) = &script.body.statements[0] else {
+            panic!("expected empty destructuring block");
+        };
+        assert_eq!(bindings.len(), 2);
+        let StatementIr::Expression(coercion) = &bindings[1] else {
+            panic!("expected RequireObjectCoercible representation");
+        };
+        assert!(matches!(
+            coercion.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::ToObject,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_object_destructuring_forms() {
+        for source in [
+            "let { [key]: value } = source;",
+            "let { ['value']: value } = source;",
+            "let { value: { nested } } = source;",
+            "let { value, ...rest } = source;",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                !program.is_wasm_supported(),
+                "expected unsupported lowering for {source}"
+            );
+            assert!(program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("destructuring")
+                    || diagnostic.message.contains("computed object key")));
+        }
     }
 
     #[test]
@@ -1052,6 +2776,38 @@ mod tests {
     }
 
     #[test]
+    fn lowers_array_binding_patterns_in_function_parameters() {
+        let program = lower_script("function dstr(a, [b]) { return b; } dstr(1, [2]);");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "dstr")
+            .expect("dstr should be lowered");
+        assert_eq!(function.params[1].name, "$destructured.param.1");
+        let StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    pattern,
+                    assignment: false,
+                    ..
+                },
+            ..
+        }) = &function.body.statements[0]
+        else {
+            panic!("expected parameter array destructuring");
+        };
+        assert!(matches!(
+            pattern.elements.as_slice(),
+            [ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::Binding { name, .. },
+                ..
+            }] if name == "b"
+        ));
+    }
+
+    #[test]
     fn marks_function_body_use_strict_directive() {
         let program = lower_script(r#"function f() { "use strict"; return this; } f();"#);
         assert!(program.is_wasm_supported());
@@ -1154,13 +2910,15 @@ mod tests {
             .expect("base constructor should be lowered");
         assert!(!base.is_derived_constructor);
         assert!(base.lexical_derived_activation.is_none());
-        assert!(base.owned_env_bindings.iter().all(|binding| ![
-            DERIVED_ACTIVATION_THIS_NAME,
-            DERIVED_ACTIVATION_THIS_STATUS_NAME,
-            DERIVED_ACTIVATION_NEW_TARGET_NAME,
-            DERIVED_ACTIVATION_FUNCTION_NAME,
-        ]
-        .contains(&binding.name.as_str())));
+        assert!(base.owned_env_bindings.iter().all(|binding| {
+            ![
+                DERIVED_ACTIVATION_THIS_NAME,
+                DERIVED_ACTIVATION_THIS_STATUS_NAME,
+                DERIVED_ACTIVATION_NEW_TARGET_NAME,
+                DERIVED_ACTIVATION_FUNCTION_NAME,
+            ]
+            .contains(&binding.name.as_str())
+        }));
 
         let derived = script
             .functions
@@ -1206,7 +2964,9 @@ mod tests {
 
     #[test]
     fn nested_arrows_share_derived_activation_this_and_new_target() {
-        let program = lower_script("class A {} class B extends A { constructor() { (() => (() => [this, new.target, super()]))(); } }");
+        let program = lower_script(
+            "class A {} class B extends A { constructor() { (() => (() => [this, new.target, super()]))(); } }",
+        );
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
         let constructor = script
@@ -1329,6 +3089,7 @@ mod tests {
                     callee,
                     this_arg: Some(this_arg),
                     args,
+                    ..
                 },
             ..
         })) = arrow.body.statements.first()
@@ -1440,6 +3201,17 @@ mod tests {
     }
 
     #[test]
+    fn array_callback_exact_context_preserves_this_argument_shape() {
+        let source = "['source', 'flags'].forEach(function (key) { Object.defineProperty(this, key, { value: '' }); }, this);";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
     fn base_arrow_does_not_capture_derived_activation() {
         let program = lower_script("class B { constructor() { (() => this)(); } }");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
@@ -1526,6 +3298,387 @@ mod tests {
     }
 
     #[test]
+    fn private_in_rhs_preserves_shift_precedence_and_unresolvable_reference() {
+        for (source, expected_rhs) in [
+            (
+                "class C { #field; probe() { try { #field in {} << 0; } catch (error) {} } }",
+                "shift",
+            ),
+            (
+                "class C { #field; probe() { try { #field in missingName; } catch (error) {} } }",
+                "reference-error",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let probe = script
+                .functions
+                .iter()
+                .find(|function| function.name == "C.probe")
+                .expect("private-in probe should be lowered");
+            let StatementIr::TryCatch { try_block, .. } = &probe.body.statements[0] else {
+                panic!("expected private-in try/catch");
+            };
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::PrivateIn { rhs, .. },
+                ..
+            }) = &try_block.statements[0]
+            else {
+                panic!("expected private-in expression");
+            };
+
+            match expected_rhs {
+                "shift" => assert!(matches!(
+                    &rhs.expr,
+                    ExprIr::BitwiseNumber {
+                        op: BitwiseBinaryOp::Shl,
+                        ..
+                    }
+                )),
+                "reference-error" => assert!(matches!(
+                    &rhs.expr,
+                    ExprIr::RuntimeThrow {
+                        name: REFERENCE_ERROR_NAME,
+                        ..
+                    }
+                )),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn private_in_captured_error_widens_the_enclosing_binding() {
+        let program = lower_script(
+            "let caught = null;
+             class C {
+                 #field;
+                 constructor() {
+                     try { #field in 0; } catch (error) { caught = error; }
+                 }
+             }
+             new C();
+             caught.constructor;",
+        );
+
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn same_spelling_in_distinct_nested_classes_has_distinct_private_identity() {
+        let program = lower_script(
+            "function first() { return class { #value; }; }
+             function second() { return class { #value; }; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let private_name_id = |function_name: &str| {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("{function_name} should be lowered"));
+            let class = function
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::Return(TypedExpr {
+                        expr: ExprIr::ClassDefinition(class),
+                        ..
+                    }) => Some(class),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{function_name} should return a class"));
+            *class
+                .private_name_ids
+                .get("value")
+                .unwrap_or_else(|| panic!("{function_name} should declare #value"))
+        };
+
+        assert_ne!(private_name_id("first"), private_name_id("second"));
+    }
+
+    #[test]
+    fn resolves_private_names_through_nested_function_and_class_boundaries() {
+        let program = lower_script(
+            "class Outer {
+                #value;
+                make() {
+                    function nested(receiver) { return receiver.#value; }
+                    return class Inner extends (function Heritage(receiver) {
+                        return receiver.#value;
+                    }) {
+                        #value;
+                        read(receiver) { return receiver.#value; }
+                    };
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected outer class declaration");
+        };
+        let ExprIr::ClassDefinition(outer_class) = &init.expr else {
+            panic!("expected outer class definition");
+        };
+        let outer_private_name_id = outer_class.private_name_ids["value"];
+
+        let make = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Outer.make")
+            .expect("outer method should be lowered");
+        let inner_class = make
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(TypedExpr {
+                    expr: ExprIr::ClassDefinition(class),
+                    ..
+                }) => Some(class),
+                _ => None,
+            })
+            .expect("outer method should return the inner class");
+        let inner_private_name_id = inner_class.private_name_ids["value"];
+        assert_ne!(inner_private_name_id, outer_private_name_id);
+
+        let returned_private_name_id = |function_name: &str| {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("function `{function_name}` should be lowered"));
+            function
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::Return(TypedExpr {
+                        expr:
+                            ExprIr::PrivateRead {
+                                private_name_id, ..
+                            },
+                        ..
+                    }) => Some(*private_name_id),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("function `{function_name}` should read a private name"))
+        };
+
+        assert_eq!(returned_private_name_id("nested"), outer_private_name_id);
+        assert_eq!(returned_private_name_id("Heritage"), outer_private_name_id);
+        assert_eq!(
+            returned_private_name_id("Inner.read"),
+            inner_private_name_id
+        );
+    }
+
+    #[test]
+    fn resolves_shadowed_private_names_in_a_nested_class_field_initializer() {
+        let program = lower_script(
+            "class Outer {
+                set #value(next) {}
+                field = class Inner {
+                    #value;
+                    write(receiver, next) { receiver.#value = next; }
+                    read() { return this.#value; }
+                };
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+
+        let outer_setter = script
+            .functions
+            .iter()
+            .find(|function| function.name == "set #value")
+            .expect("outer setter should be lowered");
+        let write = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Inner.write")
+            .expect("inner writer should be lowered");
+        let read = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Inner.read")
+            .expect("inner reader should be lowered");
+
+        let write_private_name_id = write
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr:
+                        ExprIr::PrivateWrite {
+                            private_name_id, ..
+                        },
+                    ..
+                }) => Some(*private_name_id),
+                _ => None,
+            })
+            .expect("inner writer should write a private name");
+        let read_private_name_id = read
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(TypedExpr {
+                    expr:
+                        ExprIr::PrivateRead {
+                            private_name_id, ..
+                        },
+                    ..
+                }) => Some(*private_name_id),
+                _ => None,
+            })
+            .expect("inner reader should read a private name");
+
+        assert_eq!(write_private_name_id, read_private_name_id);
+        assert_eq!(write.private_name_ids["value"], write_private_name_id);
+        assert_eq!(read.private_name_ids["value"], read_private_name_id);
+        assert_ne!(outer_setter.private_name_ids["value"], read_private_name_id);
+        assert_eq!(read.return_kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn resolves_private_names_in_field_initializers_and_static_blocks() {
+        let program = lower_script(
+            "class C {
+                #instance;
+                field = this.#instance;
+                static #staticValue;
+                static field = this.#staticValue;
+                static { this.#staticValue; }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected class declaration");
+        };
+        let ExprIr::ClassDefinition(class) = &init.expr else {
+            panic!("expected class definition");
+        };
+
+        let private_read_id = |execution_kind: ClassElementExecutionKind| {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.class_element_execution_kind == execution_kind)
+                .unwrap_or_else(|| panic!("{execution_kind:?} should be lowered"));
+            function
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| {
+                    let expression = match statement {
+                        StatementIr::Expression(expression) | StatementIr::Return(expression) => {
+                            expression
+                        }
+                        _ => return None,
+                    };
+                    match &expression.expr {
+                        ExprIr::PrivateRead {
+                            private_name_id, ..
+                        } => Some(*private_name_id),
+                        _ => None,
+                    }
+                })
+                .unwrap_or_else(|| panic!("{execution_kind:?} should read a private name"))
+        };
+
+        assert_eq!(
+            private_read_id(ClassElementExecutionKind::InstanceFieldInitializer),
+            class.private_name_ids["instance"]
+        );
+        assert_eq!(
+            private_read_id(ClassElementExecutionKind::StaticFieldInitializer),
+            class.private_name_ids["staticValue"]
+        );
+        assert_eq!(
+            private_read_id(ClassElementExecutionKind::StaticBlock),
+            class.private_name_ids["staticValue"]
+        );
+    }
+
+    #[test]
+    fn class_declarations_have_mutable_lexical_bindings() {
+        let program = lower_script("class C {} C = 1;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        assert!(matches!(
+            script.body.statements[0],
+            StatementIr::Lexical {
+                mode: BindingMode::Let,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn class_setters_capture_the_immutable_inner_name_binding() {
+        let program = lower_script("var C2; class C { set value(next) { C2 = C; } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[1] else {
+            panic!("expected class declaration");
+        };
+        let ExprIr::ClassDefinition(class) = &init.expr else {
+            panic!("expected class definition");
+        };
+        let name_binding = class
+            .name_binding
+            .as_ref()
+            .expect("named class should own an inner name binding");
+        let setter = script
+            .functions
+            .iter()
+            .find(|function| function.class_kind == ClassFunctionKind::Setter)
+            .expect("class setter should be lowered");
+
+        assert_eq!(name_binding.environment.bindings.len(), 1);
+        assert_eq!(setter.captured_bindings.len(), 1);
+        let capture = &setter.captured_bindings[0];
+        assert_eq!(capture.source_name, "C");
+        assert_eq!(capture.name, name_binding.storage_name);
+        assert_eq!(capture.mode, BindingMode::Const);
+    }
+
+    #[test]
+    fn class_shape_retains_paired_getter_and_setter() {
+        let program = lower_script("class C { get value() { return C; } set value(next) {} }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected class declaration");
+        };
+        let Some(HeapShape::Object(class_shape)) = init.heap_shape.as_deref() else {
+            panic!("expected class shape");
+        };
+        let Some(ObjectShapeProperty::Data(prototype)) = class_shape.properties.get("prototype")
+        else {
+            panic!("expected class prototype");
+        };
+        let Some(HeapShape::Object(prototype_shape)) = prototype.heap_shape.as_deref() else {
+            panic!("expected prototype shape");
+        };
+
+        assert!(matches!(
+            prototype_shape.properties.get("value"),
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(_),
+                setter: Some(_),
+            })
+        ));
+    }
+
+    #[test]
     fn array_subclass_overrides_lower_as_runtime_property_calls() {
         let program = lower_script(
             "class A extends Array {
@@ -1577,7 +3730,7 @@ mod tests {
     }
 
     #[test]
-    fn private_method_call_retains_brand_checked_private_read() {
+    fn private_method_call_materializes_receiver_before_brand_checked_read() {
         let program = lower_script(
             "class A extends Array {
                 #method() { return 1; }
@@ -1593,25 +3746,35 @@ mod tests {
             .find(|function| function.name == "A.call")
             .expect("class method should be lowered");
         let StatementIr::Return(TypedExpr {
-            expr:
-                ExprIr::CallIndirect {
-                    callee,
-                    this_arg: Some(this_arg),
-                    ..
-                },
+            expr: ExprIr::MaterializeBinding { name, value, body },
             ..
         }) = &function.body.statements[0]
         else {
-            panic!("expected indirect private method call: {:?}", function.body);
+            panic!(
+                "expected materialized private method call: {:?}",
+                function.body
+            );
+        };
+        assert!(matches!(value.expr, ExprIr::This));
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(this_arg),
+            ..
+        } = &body.expr
+        else {
+            panic!("expected indirect private method call body: {body:?}");
+        };
+        let ExprIr::PrivateRead { target, .. } = &callee.expr else {
+            panic!("expected brand-checked private read: {callee:?}");
         };
         assert!(matches!(
-            callee.expr,
-            ExprIr::PrivateRead {
-                target: _,
-                private_name_id: _
-            }
+            &target.expr,
+            ExprIr::Identifier(target_name) if target_name == name
         ));
-        assert!(matches!(this_arg.expr, ExprIr::This));
+        assert!(matches!(
+            &this_arg.expr,
+            ExprIr::Identifier(this_name) if this_name == name
+        ));
     }
 
     #[test]
@@ -2024,6 +4187,177 @@ mod tests {
     }
 
     #[test]
+    fn supported_block_patterns_share_span_stable_capture_storage() {
+        for declaration in ["let { value } = { value: 2 };", "let [value] = [2];"] {
+            let source = format!(
+                "function owner() {{ let value = 1; {{ {declaration} return (() => value)(); }} }} owner();"
+            );
+            assert_function_capture_storage_contract(&source, "owner", None, "$scoped.lex.");
+        }
+    }
+
+    #[test]
+    fn object_catch_pattern_shares_span_stable_capture_storage() {
+        assert_function_capture_storage_contract(
+            "function owner() { let value = 1; try { throw { value: 2 }; } catch ({ value }) { return (() => value)(); } } owner();",
+            "owner",
+            None,
+            "$scoped.lex.",
+        );
+    }
+
+    #[test]
+    fn script_supported_patterns_keep_source_named_capture_storage() {
+        for source in [
+            "let { value } = { value: 2 }; (() => value)();",
+            "let [value] = [2]; (() => value)();",
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let capture = script
+                .functions
+                .iter()
+                .flat_map(|function| &function.captured_bindings)
+                .find(|binding| binding.name == "value")
+                .expect("arrow should capture the root lexical binding");
+            assert!(script
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == capture.name && binding.slot == capture.slot));
+            assert!(collect_binding_storage_names(&script.body).contains(&capture.name));
+        }
+    }
+
+    #[test]
+    fn pattern_initializer_closures_capture_eventual_lexical_storage() {
+        for source in [
+            "let { value } = { value: (() => value)() };",
+            "let [value] = [(() => value)()];",
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let capture = script
+                .functions
+                .iter()
+                .flat_map(|function| &function.captured_bindings)
+                .find(|binding| binding.name == "value")
+                .expect("initializer arrow should capture the eventual lexical binding");
+            assert!(script
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == capture.name && binding.slot == capture.slot));
+        }
+    }
+
+    #[test]
+    fn object_var_pattern_keeps_owner_capture_storage() {
+        assert_function_capture_storage_contract(
+            "function owner() { var { value } = { value: 2 }; return () => value; } owner()();",
+            "owner",
+            None,
+            "value",
+        );
+    }
+
+    #[test]
+    fn object_for_of_pattern_shares_dedicated_loop_capture_storage() {
+        assert_function_capture_storage_contract(
+            "function owner() { let value = 1; let read; for (let { value } of [{ value: 2 }]) { read = () => value; break; } return read(); } owner();",
+            "owner",
+            None,
+            "$forof.lex.",
+        );
+    }
+
+    #[test]
+    fn classic_for_head_shares_span_stable_capture_storage() {
+        assert_function_capture_storage_contract(
+            "function owner() { let value = 1; let read; for (let value = 2; value < 3; value++) { read = () => value; break; } return read(); } owner();",
+            "owner",
+            None,
+            "$scoped.lex.",
+        );
+    }
+
+    #[test]
+    fn classic_for_update_targets_lexical_storage() {
+        let program = lower_script("for (let value = 0; value < 2; value++) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::For {
+            init: Some(ForInitIr::Lexical { name, .. }),
+            update: Some(update),
+            ..
+        } = &script.body.statements[0]
+        else {
+            panic!("expected classic for lexical initializer and update");
+        };
+        assert!(name.starts_with("$scoped.lex."));
+        assert!(matches!(
+            &update.expr,
+            ExprIr::UpdateIdentifier {
+                name: update_name,
+                ..
+            } if update_name == name
+        ));
+    }
+
+    #[test]
+    fn classic_for_initializers_capture_eventual_physical_bindings() {
+        for source in [
+            "function owner() { let value = 1; let read; for (let value = 2, unused = read = () => value; false;) {} return read(); } owner();",
+            "function owner() { let read; for (let inner = read = () => later, later = 2; false;) {} return read(); } owner();",
+        ] {
+            assert_function_capture_storage_contract(source, "owner", None, "$scoped.lex.");
+        }
+    }
+
+    #[test]
+    fn classic_for_direct_self_initializer_read_uses_tdz() {
+        let program = lower_script(
+            "function owner() { let value = 1; for (let value = value;;) { break; } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let init = owner
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::For {
+                    init: Some(ForInitIr::Lexical { init, .. }),
+                    ..
+                } => Some(init),
+                _ => None,
+            })
+            .expect("classic for lexical initializer should be lowered");
+        assert!(matches!(
+            &init.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn nested_root_declarations_preserve_transitive_creation_aliases() {
+        assert_function_capture_storage_contract(
+            "function owner() { let value = 0; { let value = 2; function middle() { function inner() { return value; } return inner(); } return middle(); } } owner();",
+            "owner",
+            Some("inner"),
+            "$scoped.lex.",
+        );
+    }
+
+    #[test]
     fn lowers_for_in_let_closure_capture_metadata() {
         let program = lower_script(
             "function fn(x) { let callbacks = []; for (let p in x) { callbacks.push(function () { return p; }); } return callbacks[0](); } fn({ a: 1 });",
@@ -2035,17 +4369,25 @@ mod tests {
             .iter()
             .find(|function| function.name == "fn")
             .expect("outer function should be lowered");
-        let owned_names = outer
-            .owned_env_bindings
-            .iter()
-            .map(|binding| binding.name.as_str())
-            .collect::<Vec<_>>();
         let loop_binding = outer
-            .owned_env_bindings
+            .body
+            .statements
             .iter()
-            .find(|binding| binding.name.starts_with("$forin.lex.") && binding.name.ends_with(".p"))
-            .expect("loop binding should own an aliased env slot");
-        assert!(owned_names.contains(&loop_binding.name.as_str()));
+            .find_map(|statement| match statement {
+                StatementIr::ForInObject {
+                    lexical_environment: Some(environment),
+                    ..
+                } => environment
+                    .iteration_environment
+                    .as_ref()
+                    .and_then(|environment| {
+                        environment.bindings.iter().find(|binding| {
+                            binding.name.starts_with("$forin.lex.") && binding.name.ends_with(".p")
+                        })
+                    }),
+                _ => None,
+            })
+            .expect("loop binding should own an iteration environment slot");
         let closure = script
             .functions
             .iter()
@@ -2073,10 +4415,20 @@ mod tests {
         assert!(captured.name.starts_with("$forin.lex."));
         assert!(captured.name.ends_with(".x"));
         assert_ne!(captured.name, "x");
-        assert!(script
-            .owned_env_bindings
-            .iter()
-            .any(|binding| binding.name == captured.name && binding.slot == captured.slot));
+        let StatementIr::ForInObject {
+            lexical_environment: Some(environment),
+            ..
+        } = &script.body.statements[2]
+        else {
+            panic!("expected captured for-in iteration environment");
+        };
+        assert!(environment
+            .iteration_environment
+            .as_ref()
+            .is_some_and(|environment| environment
+                .bindings
+                .iter()
+                .any(|binding| binding.name == captured.name && binding.slot == captured.slot)));
     }
 
     #[test]
@@ -2121,6 +4473,32 @@ mod tests {
             panic!("expected for-in object statement");
         };
         assert!(has_reference_error_throw(target));
+    }
+
+    #[test]
+    fn lowers_for_of_object_pattern_head_under_lexical_tdz() {
+        let program = lower_script("let x = 1; for (let { x } of [{ x }]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfArray { iterable, .. } = &script.body.statements[1] else {
+            panic!("expected for-of array statement");
+        };
+        let ExprIr::ArrayLiteral(elements) = &iterable.expr else {
+            panic!("expected array iterable");
+        };
+        let ExprIr::ObjectLiteral(properties) = &elements[0].expr else {
+            panic!("expected object element");
+        };
+        let ObjectPropertyIr::Data { value, .. } = &properties[0] else {
+            panic!("expected shorthand data property");
+        };
+        assert!(matches!(
+            value.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -2186,10 +4564,12 @@ mod tests {
             .owned_env_bindings
             .iter()
             .any(|binding| binding.name == "C"));
-        assert!(script.functions.iter().any(|function| function
-            .captured_bindings
-            .iter()
-            .any(|binding| binding.name == "C")));
+        assert!(script.functions.iter().any(|function| {
+            function
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.name == "C")
+        }));
     }
 
     #[test]
@@ -2212,6 +4592,689 @@ mod tests {
             .captured_bindings
             .iter()
             .any(|binding| binding.name == "args"));
+    }
+
+    #[test]
+    fn class_members_preserve_scoped_capture_source_names() {
+        for (source, member_name) in [
+            (
+                "function owner() { let x = \"outer\"; { let x = 2; class C { m() { return x + 3; } } return new C().m(); } } owner();",
+                "C.m",
+            ),
+            (
+                "function owner() { let x = \"outer\"; { let x = 2; class C { constructor() { this.value = x + 3; } } return new C().value; } } owner();",
+                "C",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let owner = script
+                .functions
+                .iter()
+                .find(|function| function.name == "owner")
+                .expect("owner function should be lowered");
+            let member = script
+                .functions
+                .iter()
+                .find(|function| function.name == member_name)
+                .expect("class member should be lowered");
+            let capture = member
+                .captured_bindings
+                .iter()
+                .find(|binding| binding.source_name == "x")
+                .expect("class member should capture the scoped binding");
+
+            assert!(capture.name.starts_with("$scoped.lex."));
+            assert_eq!(capture.hops, 1);
+            assert!(
+                !owner
+                    .owned_env_bindings
+                    .iter()
+                    .any(|binding| binding.name == capture.name)
+            );
+            assert!(block_environment_owns_binding(
+                &owner.body,
+                &capture.name,
+                capture.slot
+            ));
+            if member_name == "C.m" {
+                assert_eq!(member.return_kind, ValueKind::Dynamic);
+            } else {
+                assert!(member.body.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        StatementIr::Expression(TypedExpr {
+                            expr: ExprIr::PropertyWrite { value, .. },
+                            ..
+                        }) if value.kind == ValueKind::Dynamic
+                    )
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn class_members_retain_transitive_root_function_captures() {
+        for (source, member_name) in [
+            (
+                "function owner() { let x = \"outer\"; { let x = 2; class C { m() { function inner() { return x + 3; } return inner(); } } return new C().m(); } } owner();",
+                "C.m",
+            ),
+            (
+                "function owner() { let x = \"outer\"; { let x = 2; class C { constructor() { function inner() { return x + 3; } this.value = inner(); } } return new C().value; } } owner();",
+                "C",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let member = script
+                .functions
+                .iter()
+                .find(|function| function.name == member_name)
+                .expect("class member should be lowered");
+            let member_capture = member
+                .captured_bindings
+                .iter()
+                .find(|binding| binding.source_name == "x")
+                .expect("class member should retain the nested root capture");
+            let root_function = script
+                .functions
+                .iter()
+                .find(|function| function.name == "inner")
+                .expect("nested root function should be lowered");
+            let root_capture = root_function
+                .captured_bindings
+                .iter()
+                .find(|binding| binding.source_name == "x")
+                .expect("nested root function should capture the scoped binding");
+
+            assert!(member_capture.name.starts_with("$scoped.lex."));
+            assert_eq!(member_capture.name, root_capture.name);
+            assert_eq!(member_capture.slot, root_capture.slot);
+            assert_eq!(member_capture.hops, 1);
+            assert_eq!(root_capture.hops, 1);
+            assert_eq!(root_function.return_kind, ValueKind::Dynamic);
+        }
+    }
+
+    #[test]
+    fn instance_field_initializer_retains_transitive_block_capture_from_class_definition() {
+        let program = lower_script(
+            "function owner() { { const blockValue = 7; class C { value = (() => blockValue)(); } return C; } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let field = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.field.value")
+            .expect("field initializer should be lowered");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C")
+            .expect("default constructor should be lowered");
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.flavor == FunctionFlavor::Arrow)
+            .expect("nested arrow should be lowered");
+        let field_capture = field
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "blockValue")
+            .expect("field initializer should retain the nested arrow capture");
+        let arrow_capture = arrow
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "blockValue")
+            .expect("nested arrow should capture the block binding");
+
+        assert_eq!(field_capture.mode, BindingMode::Const);
+        assert_eq!(field_capture.name, arrow_capture.name);
+        assert_eq!(field_capture.slot, arrow_capture.slot);
+        assert!(!constructor
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.source_name == "blockValue"));
+    }
+
+    #[test]
+    fn instance_field_capture_uses_the_class_definition_environment() {
+        let program = lower_script(
+            "function owner() { let x = 7; class C { constructor() { let local = 1; (() => local)(); } value = x; } return C; } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let field = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.field.value")
+            .expect("field initializer should be lowered");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C")
+            .expect("explicit constructor should be lowered");
+        let field_capture = field
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "x")
+            .expect("field initializer should capture the outer binding");
+        assert!(constructor
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == "local"));
+        assert_eq!(field_capture.hops, 1);
+        assert!(!constructor
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.source_name == "x"));
+    }
+
+    #[test]
+    fn static_field_initializer_captures_switch_environment_binding() {
+        let program = lower_script(
+            "switch (0) { case 0: let switchValue = 3; class C { static value = switchValue; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let field = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.field.value")
+            .expect("static field initializer should be lowered");
+        let capture = field
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "switchValue")
+            .expect("static field should capture the switch binding");
+
+        assert_eq!(capture.mode, BindingMode::Let);
+        assert_ne!(capture.name, capture.source_name);
+    }
+
+    #[test]
+    fn static_block_retains_nested_function_capture_from_catch_environment() {
+        let program = lower_script(
+            "try { throw 1; } catch (caught) { class C { static { function readCaught() { return caught; } this.value = readCaught(); } } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let static_block = script
+            .functions
+            .iter()
+            .find(|function| function.name == "C.<static>")
+            .expect("static block should be lowered");
+        let nested = script
+            .functions
+            .iter()
+            .find(|function| function.name == "readCaught")
+            .expect("nested function should be lowered");
+        let static_capture = static_block
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "caught")
+            .expect("static block should retain the nested function capture");
+        let nested_capture = nested
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "caught")
+            .expect("nested function should capture the catch binding");
+
+        assert_eq!(static_capture.mode, BindingMode::Let);
+        assert_eq!(static_capture.name, nested_capture.name);
+        assert_eq!(static_capture.slot, nested_capture.slot);
+    }
+
+    #[test]
+    fn class_execution_ids_are_distinct_for_multiple_fields_and_static_blocks() {
+        let program = lower_script("class C { first = 1; second = 2; static {} static {} }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("constructor should own its instance element plan");
+        let execution_ids =
+            instance_plan
+                .fields
+                .iter()
+                .filter_map(|field| field.init_function_id.clone())
+                .chain(class.element_plan.static_elements.iter().filter_map(
+                    |element| match element {
+                        ClassStaticElementIr::Field(field) => field.init_function_id.clone(),
+                        ClassStaticElementIr::Block(block) => Some(block.function_id.clone()),
+                    },
+                ))
+                .collect::<BTreeSet<_>>();
+
+        assert_eq!(instance_plan.fields.len(), 2);
+        assert_eq!(class.element_plan.static_elements.len(), 2);
+        assert_eq!(execution_ids.len(), 4);
+    }
+
+    #[test]
+    fn class_element_plan_preserves_definition_and_field_source_order() {
+        let program = lower_script(
+            "function first() { return 'first'; }
+             function second() { return 'second'; }
+             function third() { return 'third'; }
+             class C {
+                 [first()]() {}
+                 #method() {}
+                 static publicField = 1;
+                 static {}
+                 static #privateField = 2;
+                 get [second()]() {}
+                 set [third()](value) {}
+                 publicInstance = 3;
+                 #privateInstance = 4;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+
+        assert!(matches!(
+            class.element_plan.definitions.as_slice(),
+            [
+                ClassElementDefinitionIr::PublicMethod(first),
+                ClassElementDefinitionIr::PrivateMethod(_),
+                ClassElementDefinitionIr::PublicMethod(second),
+                ClassElementDefinitionIr::PublicMethod(third),
+            ] if first.kind == ClassFunctionKind::Method
+                && matches!(&first.key, PropertyKeyIr::StringExpr(_))
+                && second.kind == ClassFunctionKind::Getter
+                && matches!(&second.key, PropertyKeyIr::StringExpr(_))
+                && third.kind == ClassFunctionKind::Setter
+                && matches!(&third.key, PropertyKeyIr::StringExpr(_))
+        ));
+        assert!(matches!(
+            class.element_plan.static_elements.as_slice(),
+            [
+                ClassStaticElementIr::Field(public),
+                ClassStaticElementIr::Block(_),
+                ClassStaticElementIr::Field(private),
+            ] if matches!(&public.key, ClassFieldKeyIr::Public(key) if key == "publicField")
+                && matches!(&private.key, ClassFieldKeyIr::Private(_))
+        ));
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("constructor should own its instance element plan");
+        assert!(matches!(
+            instance_plan.fields.as_slice(),
+            [public, private]
+                if matches!(&public.key, ClassFieldKeyIr::Public(key) if key == "publicInstance")
+                    && matches!(&private.key, ClassFieldKeyIr::Private(_))
+        ));
+        assert_eq!(instance_plan.private_method_brands.len(), 1);
+    }
+
+    #[test]
+    fn computed_class_field_keys_use_definition_order_cache_slots() {
+        let program = lower_script(
+            "function first() { return 'instance'; }
+             function second() { return 'static'; }
+             class C { [first()] = 1; static [second()] = 2; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+        assert!(matches!(
+            class.element_plan.definitions.as_slice(),
+            [
+                ClassElementDefinitionIr::ComputedFieldKey { slot: 0, .. },
+                ClassElementDefinitionIr::ComputedFieldKey { slot: 1, .. },
+            ]
+        ));
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("constructor should own its instance field plan");
+        assert!(matches!(
+            instance_plan.fields.as_slice(),
+            [ClassFieldInitIr {
+                key: ClassFieldKeyIr::ComputedPublic(0),
+                ..
+            }]
+        ));
+        assert!(matches!(
+            class.element_plan.static_elements.as_slice(),
+            [ClassStaticElementIr::Field(ClassFieldInitIr {
+                key: ClassFieldKeyIr::ComputedPublic(1),
+                ..
+            })]
+        ));
+    }
+
+    #[test]
+    fn computed_class_field_key_preserves_nested_unbound_reference_error() {
+        let program = lower_script(
+            "function evaluate() { class C { [missingComputedName] = 1; } } evaluate();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let evaluate = script
+            .functions
+            .iter()
+            .find(|function| function.name == "evaluate")
+            .expect("evaluate function should be lowered");
+        let class = evaluate
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+        let [ClassElementDefinitionIr::ComputedFieldKey {
+            key: PropertyKeyIr::StringExpr(key),
+            ..
+        }] = class.element_plan.definitions.as_slice()
+        else {
+            panic!("expected one computed field key");
+        };
+        assert!(matches!(
+            key.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn later_instance_field_can_call_an_earlier_private_function_field() {
+        let program = lower_script(
+            "class C { #callable = () => 42; value = this.#callable(); } new C().value;",
+        );
+
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn generated_class_elements_record_their_execution_kind_and_strictness() {
+        let program = lower_script(
+            "function ordinary() {}
+             class C {
+                 instance = 1;
+                 #private = 2;
+                 static shared = 3;
+                 static {}
+                 method() {}
+                 get value() {}
+                 set value(next) {}
+                 static sharedMethod() {}
+                 static get sharedValue() {}
+                 static set sharedValue(next) {}
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("constructor should own its instance element plan");
+        for field in &instance_plan.fields {
+            let initializer_id = field
+                .init_function_id
+                .as_ref()
+                .expect("field should have an initializer");
+            let initializer = script
+                .functions
+                .iter()
+                .find(|function| &function.id == initializer_id)
+                .expect("field initializer function should be lowered");
+            assert_eq!(
+                initializer.class_element_execution_kind,
+                ClassElementExecutionKind::InstanceFieldInitializer
+            );
+            assert!(initializer.strict);
+            assert_eq!(initializer.class_kind, ClassFunctionKind::None);
+        }
+        for field in class
+            .element_plan
+            .static_elements
+            .iter()
+            .filter_map(|element| match element {
+                ClassStaticElementIr::Field(field) => Some(field),
+                ClassStaticElementIr::Block(_) => None,
+            })
+        {
+            let initializer_id = field
+                .init_function_id
+                .as_ref()
+                .expect("field should have an initializer");
+            let initializer = script
+                .functions
+                .iter()
+                .find(|function| &function.id == initializer_id)
+                .expect("field initializer function should be lowered");
+            assert_eq!(
+                initializer.class_element_execution_kind,
+                ClassElementExecutionKind::StaticFieldInitializer
+            );
+            assert!(initializer.strict);
+            assert_eq!(initializer.class_kind, ClassFunctionKind::None);
+        }
+
+        let static_block_id = class
+            .element_plan
+            .static_elements
+            .iter()
+            .find_map(|element| match element {
+                ClassStaticElementIr::Block(block) => Some(&block.function_id),
+                ClassStaticElementIr::Field(_) => None,
+            })
+            .expect("static block should be planned");
+        let static_block = script
+            .functions
+            .iter()
+            .find(|function| &function.id == static_block_id)
+            .expect("static block function should be lowered");
+        assert_eq!(
+            static_block.class_element_execution_kind,
+            ClassElementExecutionKind::StaticBlock
+        );
+        assert!(static_block.strict);
+
+        for function in script.functions.iter().filter(|function| {
+            function.id == class.constructor_function_id
+                || class.element_plan.definitions.iter().any(|definition| {
+                    matches!(
+                        definition,
+                        ClassElementDefinitionIr::PublicMethod(method)
+                            if method.function_id == function.id
+                    )
+                })
+                || function.name == "ordinary"
+        }) {
+            assert_eq!(
+                function.class_element_execution_kind,
+                ClassElementExecutionKind::None
+            );
+            if function.name == "ordinary" {
+                assert!(!function.strict);
+            } else {
+                assert!(function.strict, "{} should be strict", function.name);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_arrows_in_class_elements_capture_the_home_object() {
+        let program = lower_script(
+            "class Base {} Base.prototype.marker = 1; Base.marker = 2; class C extends Base { instance = (() => super.marker)(); static shared = (() => super.marker)(); static { this.block = (() => super.marker)(); } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.flavor == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+
+        assert_eq!(arrows.len(), 3);
+        assert!(arrows.iter().all(|arrow| arrow
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.source_name == LEXICAL_HOME_OBJECT_NAME)));
+    }
+
+    #[test]
+    fn class_parameter_defaults_capture_outer_bindings() {
+        let program = lower_script(
+            "function owner() { const fallback = 1; class C { constructor(value = fallback) {} method(value = fallback) { return value; } } return C; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        for member_name in ["C", "C.method"] {
+            let member = script
+                .functions
+                .iter()
+                .find(|function| function.name == member_name)
+                .unwrap_or_else(|| panic!("class member `{member_name}` should be lowered"));
+            assert!(member.captured_bindings.iter().any(|binding| {
+                binding.source_name == "fallback" && binding.mode == BindingMode::Const
+            }));
+        }
+    }
+
+    #[test]
+    fn private_class_callable_names_preserve_source_spelling_and_accessor_prefixes() {
+        let program = lower_script(
+            "class C {
+                #instanceMethod() {}
+                static #staticMethod() {}
+                get #value() { return 1; }
+                set #value(next) {}
+                publicMethod() {}
+            }
+            class D { #instanceMethod() {} }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function_names = script
+            .functions
+            .iter()
+            .map(|function| function.name.as_str())
+            .collect::<BTreeSet<_>>();
+
+        for private_name in [
+            "#instanceMethod",
+            "#staticMethod",
+            "get #value",
+            "set #value",
+        ] {
+            assert!(
+                function_names.contains(private_name),
+                "missing private callable name `{private_name}` in {function_names:?}"
+            );
+        }
+        assert!(function_names.contains("C.publicMethod"));
+
+        let same_spelling = script
+            .functions
+            .iter()
+            .filter(|function| function.name == "#instanceMethod")
+            .collect::<Vec<_>>();
+        assert_eq!(same_spelling.len(), 2);
+        assert_ne!(same_spelling[0].id, same_spelling[1].id);
     }
 
     #[test]
@@ -2268,16 +5331,6 @@ mod tests {
     }
 
     #[test]
-    fn records_unsupported_var_destructuring_without_failing_lower() {
-        let program = lower_script("var { x } = foo;");
-        assert!(!program.is_wasm_supported());
-        assert!(program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("destructuring var declaration")));
-    }
-
-    #[test]
     fn rejects_assignment_to_const() {
         let program = lower_script("const x = 1; x = 2;");
         assert!(!program.is_wasm_supported());
@@ -2318,21 +5371,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_label_on_unsupported_statement_kind() {
+    fn lowers_label_on_expression_statement() {
         let program = lower_script("label: 1;");
-        assert!(!program.is_wasm_supported());
-        assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("label on unsupported statement kind")));
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(matches!(
+            script.body.statements.first(),
+            Some(StatementIr::Labelled { .. })
+        ));
     }
 
     #[test]
-    fn rejects_unknown_kind_numeric_use_after_var_merge() {
+    fn lowers_string_or_number_binding_addition_as_coercive_add() {
         let program = lower_script("var x; if (true) { x = 1; } else { x = \"a\"; } x + 1;");
-        assert!(!program.is_wasm_supported());
-        assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("unsupported in porffor wasm-aot first slice")));
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("heap_coercions=1"));
     }
 
     #[test]
@@ -2372,6 +5425,99 @@ mod tests {
             "function helper() { var index = 0; index = index + 1; return index; } var index; for (var index in []) {} helper();",
         );
         assert!(program.is_wasm_supported());
+    }
+
+    #[test]
+    fn merges_nested_function_arguments_into_script_global_value_info() {
+        let program = lower_script(
+            "var args = null; var close = function() { args = arguments; }; close(); args.length;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn lowers_arguments_reads_with_computed_string_keys() {
+        let program = lower_script(
+            "function readArgument(propertyKey) { return arguments[propertyKey]; } readArgument(\"0\");",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn lowers_arguments_symbol_iterator_reads() {
+        let program = lower_script(
+            "function readArgument(propertyKey) { return arguments[propertyKey]; } readArgument(\"0\"); readArgument(Symbol.iterator) === Array.prototype.values;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn lowers_arguments_object_to_string_reads() {
+        let program = lower_script(
+            "function describeArguments() { return arguments.toString(); } describeArguments();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn retains_nested_function_script_global_value_info_after_root_update() {
+        let program = lower_script(
+            "var args = null; var close = function() { args = arguments; }; close(); args = 1; args.length;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) = script.body.statements.last().unwrap() else {
+            panic!("expected final expression");
+        };
+        let ExprIr::SpecOperation { operands, .. } = &expression.expr else {
+            panic!(
+                "expected final property read operation: {:?}",
+                expression.expr
+            );
+        };
+        let target = operands.first().expect("property read target");
+        assert!(target.possible_kinds.contains(ValueKind::Arguments));
+        assert!(target.possible_kinds.contains(ValueKind::Number));
+    }
+
+    #[test]
+    fn nested_arrow_writes_script_global_before_property_read() {
+        let program = lower_script(
+            "var args = null; var close = () => { args = []; }; close(); args.length;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn nested_script_global_write_is_known_before_later_root_function_lowering() {
+        let program = lower_script(
+            "var args = null; function reader() { args.length; } function writer() { args = arguments; } reader(); writer(); args.length;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn nested_writer_in_later_root_function_is_known_to_earlier_reader() {
+        let program = lower_script(
+            "var args = null; function reader() { args.length; } function container() { var writer = function() { args = arguments; }; writer(); } reader(); container(); args.length;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn read_only_nested_script_global_does_not_widen_later_root_update() {
+        let program = lower_script(
+            "var value = null; function reader() { value; } reader(); value = 1; value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) = script.body.statements.last().unwrap() else {
+            panic!("expected final expression");
+        };
+        assert_eq!(
+            expression.possible_kinds,
+            KindSet::from_kind(ValueKind::Number)
+        );
     }
 
     #[test]
@@ -2439,9 +5585,11 @@ mod tests {
         let ExprIr::ClassDefinition(class) = class_expr else {
             panic!("expected class definition");
         };
-        assert_eq!(class.fields.len(), 1);
-        assert_eq!(class.fields[0].placement, ClassMethodPlacementIr::Static);
-        assert!(class.fields[0].init_function_id.is_some());
+        let ClassStaticElementIr::Field(field) = &class.element_plan.static_elements[0] else {
+            panic!("expected static field");
+        };
+        assert!(matches!(&field.key, ClassFieldKeyIr::Public(key) if key == "x"));
+        assert!(field.init_function_id.is_some());
     }
 
     #[test]
@@ -2524,17 +5672,225 @@ mod tests {
         );
         assert!(!matches!(supported.expr, ExprIr::Construct { .. }));
 
-        let StatementIr::Expression(unsupported) = &script.body.statements[1] else {
-            panic!("expected unsupported regexp literal expression");
+        let StatementIr::Expression(supported_alternation) = &script.body.statements[1] else {
+            panic!("expected supported regexp literal expression");
         };
-        let ExprIr::RegExpLiteral { program, .. } = &unsupported.expr else {
+        let ExprIr::RegExpLiteral { program, .. } = &supported_alternation.expr else {
             panic!(
                 "expected intrinsic regexp literal, got {:?}",
-                unsupported.expr
+                supported_alternation.expr
             );
         };
-        assert_eq!(program, &None);
-        assert!(!matches!(unsupported.expr, ExprIr::Construct { .. }));
+        assert!(program.is_some());
+        assert!(!matches!(
+            supported_alternation.expr,
+            ExprIr::Construct { .. }
+        ));
+    }
+
+    #[test]
+    fn annotates_only_supported_constant_regexp_construction() {
+        let program = lower_script(
+            r#"new RegExp("(.|\r|\n)*", ""); new RegExp("World"); new RegExp(); let pattern = "a"; new RegExp(pattern, ""); let expression = /a/; new RegExp(expression); new RegExp("(?=a)", ""); new RegExp("[", ""); new Date("2020-01-01");"#,
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(constructed) = &script.body.statements[0] else {
+            panic!("expected constructed regexp");
+        };
+        let ExprIr::Construct {
+            static_regexp_compilation: Some(StaticRegExpCompilation::Program(static_program)),
+            ..
+        } = &constructed.expr
+        else {
+            panic!("expected supported constant constructed regexp annotation");
+        };
+        assert_eq!(
+            static_program,
+            &RegExpProgram::compile("(.|\r|\n)*", "").expect("program should compile")
+        );
+        assert!(static_program
+            .instructions
+            .iter()
+            .any(|instruction| instruction.opcode == REGEXP_OPCODE_DOT));
+        assert_eq!(static_program.capture_count, 1);
+
+        let StatementIr::Expression(constructed_with_default_flags) = &script.body.statements[1]
+        else {
+            panic!("expected one-argument constructed regexp");
+        };
+        let ExprIr::Construct {
+            static_regexp_compilation: Some(StaticRegExpCompilation::Program(static_program)),
+            ..
+        } = &constructed_with_default_flags.expr
+        else {
+            panic!("expected one-argument constructed regexp annotation");
+        };
+        assert_eq!(
+            static_program,
+            &RegExpProgram::compile("World", "").expect("program should compile")
+        );
+
+        for index in [2, 4, 6, 9] {
+            let StatementIr::Expression(expr) = &script.body.statements[index] else {
+                panic!("expected construct expression at {index}");
+            };
+            assert!(matches!(
+                expr.expr,
+                ExprIr::Construct {
+                    static_regexp_compilation: None,
+                    ..
+                }
+            ));
+        }
+        let StatementIr::Expression(constructed_lookahead) = &script.body.statements[7] else {
+            panic!("expected lookahead construct expression");
+        };
+        assert!(matches!(
+            constructed_lookahead.expr,
+            ExprIr::Construct {
+                static_regexp_compilation: Some(StaticRegExpCompilation::Program(_)),
+                ..
+            }
+        ));
+        let StatementIr::Expression(constructed_invalid) = &script.body.statements[8] else {
+            panic!("expected invalid construct expression");
+        };
+        assert!(matches!(
+            constructed_invalid.expr,
+            ExprIr::Construct {
+                static_regexp_compilation: Some(StaticRegExpCompilation::InvalidSyntax { .. }),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn annotates_only_direct_constant_regexp_calls() {
+        let static_program_for = |source: &str| {
+            let program = lower_script(source);
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(TypedExpr {
+                expr:
+                    ExprIr::CallIndirect {
+                        static_regexp_compilation,
+                        ..
+                    },
+                ..
+            }) = script.body.statements.last().expect("expected RegExp call")
+            else {
+                panic!("expected indirect RegExp call");
+            };
+            static_regexp_compilation.clone()
+        };
+
+        assert_eq!(
+            static_program_for(r#"RegExp("(?<name>a)");"#),
+            Some(StaticRegExpCompilation::Program(
+                RegExpProgram::compile("(?<name>a)", "").expect("program should compile")
+            ))
+        );
+        assert_eq!(
+            static_program_for(r#"RegExp("(?<π>a)", "u");"#),
+            Some(StaticRegExpCompilation::Program(
+                RegExpProgram::compile("(?<π>a)", "u").expect("program should compile")
+            ))
+        );
+        assert!(
+            static_program_for(r#"var pattern = "a"; RegExp(pattern);"#).is_none(),
+            "dynamic patterns must not be annotated"
+        );
+        assert!(
+            static_program_for(r#"var expression = /a/; RegExp(expression);"#).is_none(),
+            "RegExp object identity calls must not be annotated"
+        );
+        assert!(
+            static_program_for(r#"function RegExp() {} RegExp("a");"#).is_none(),
+            "shadowed RegExp calls must not be annotated"
+        );
+        assert!(
+            static_program_for(r#"RegExp = function () {}; RegExp("a");"#).is_none(),
+            "reassigned RegExp calls must not be annotated"
+        );
+    }
+
+    #[test]
+    fn annotates_constant_regexp_prototype_compile_calls() {
+        let program =
+            lower_script(r#"let subject = /original/; subject.compile("[\ud834\udf06]", "u");"#);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::CallIndirect {
+                    static_regexp_compilation:
+                        Some(StaticRegExpCompilation::Program(static_program)),
+                    ..
+                },
+            ..
+        }) = script
+            .body
+            .statements
+            .last()
+            .expect("expected compile call")
+        else {
+            panic!(
+                "expected annotated indirect RegExp.prototype.compile call, got {:#?}",
+                script.body.statements.last()
+            );
+        };
+        assert_eq!(
+            static_program.instructions[0],
+            RegExpInstruction::literal_code_point(0x1d306)
+        );
+    }
+
+    #[test]
+    fn annotates_invalid_constant_regexp_prototype_compile_calls() {
+        let program = lower_script(r#"let subject = /original/; subject.compile(".{2,1}");"#);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::CallIndirect {
+                    static_regexp_compilation:
+                        Some(StaticRegExpCompilation::InvalidSyntax { message }),
+                    ..
+                },
+            ..
+        }) = script
+            .body
+            .statements
+            .last()
+            .expect("expected compile call")
+        else {
+            panic!("expected invalid static RegExp compilation annotation");
+        };
+        assert!(message.contains("regular-expression quantifier bounds are reversed"));
+    }
+
+    #[test]
+    fn lowers_numbered_capture_programs_with_alternation() {
+        let program = lower_script(r"/(\d+)/g; /(a|b)/;");
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(supported) = &script.body.statements[0] else {
+            panic!("expected supported regexp literal expression");
+        };
+        let ExprIr::RegExpLiteral {
+            program: Some(capture_program),
+            ..
+        } = &supported.expr
+        else {
+            panic!("expected first-slice capture matcher program");
+        };
+        assert_eq!(capture_program.capture_count, 1);
+
+        let StatementIr::Expression(supported_alternation) = &script.body.statements[1] else {
+            panic!("expected supported regexp literal expression");
+        };
+        let ExprIr::RegExpLiteral { program, .. } = &supported_alternation.expr else {
+            panic!("expected intrinsic regexp literal");
+        };
+        assert!(program.is_some());
     }
 
     #[test]
@@ -2602,6 +5958,7 @@ mod tests {
                     .iter()
                     .map(|operation| match operation {
                         OptionalChainOperationIr::Property { shorted, .. }
+                        | OptionalChainOperationIr::PrivateProperty { shorted, .. }
                         | OptionalChainOperationIr::Call { shorted, .. } => *shorted,
                     })
                     .collect::<Vec<_>>(),
@@ -2609,6 +5966,84 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn optional_private_access_preserves_chain_order_receiver_and_private_identity() {
+        let source = "
+            class A {
+                #field = 1;
+                #method() { return this; }
+                read(o) { return o?.c.#field; }
+                call(o) { return o?.#method(); }
+            }
+            class B {
+                #field = 2;
+                read(o) { return o?.c.#field; }
+            }
+        ";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let mut field_ids = Vec::new();
+
+        for function_name in ["A.read", "B.read"] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("missing `{function_name}`"));
+            let StatementIr::Return(expr) = &function.body.statements[0] else {
+                panic!("expected return from `{function_name}`");
+            };
+            let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
+                panic!("expected optional chain from `{function_name}`");
+            };
+            assert!(matches!(
+                chain.first(),
+                Some(OptionalChainOperationIr::Property {
+                    key: PropertyKeyIr::StaticString(key),
+                    shorted: true,
+                }) if key == "c"
+            ));
+            let Some(OptionalChainOperationIr::PrivateProperty {
+                private_name_id,
+                shorted: false,
+            }) = chain.get(1)
+            else {
+                panic!("expected private tail from `{function_name}`: {chain:?}");
+            };
+            field_ids.push(*private_name_id);
+        }
+        assert_ne!(field_ids[0], field_ids[1]);
+
+        let call = script
+            .functions
+            .iter()
+            .find(|function| function.name == "A.call")
+            .expect("missing `A.call`");
+        let StatementIr::Return(expr) = &call.body.statements[0] else {
+            panic!("expected return from `A.call`");
+        };
+        let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
+            panic!("expected optional chain from `A.call`");
+        };
+        assert!(matches!(
+            chain.as_slice(),
+            [
+                OptionalChainOperationIr::PrivateProperty { shorted: true, .. },
+                OptionalChainOperationIr::Call {
+                    args,
+                    receiver: OptionalChainCallReceiverIr::ReferenceOrUndefined,
+                    shorted: false,
+                    boundary_before: false,
+                },
+            ] if args.is_empty()
+        ));
     }
 
     #[test]
@@ -2708,6 +6143,9 @@ mod tests {
                         OptionalChainOperationIr::Property { shorted, .. } => {
                             ("property", *shorted)
                         }
+                        OptionalChainOperationIr::PrivateProperty { shorted, .. } => {
+                            ("private", *shorted)
+                        }
                         OptionalChainOperationIr::Call { shorted, .. } => ("call", *shorted),
                     })
                     .collect::<Vec<_>>(),
@@ -2797,7 +6235,8 @@ mod tests {
                             boundary_before,
                             ..
                         } => Some((*shorted, *boundary_before)),
-                        OptionalChainOperationIr::Property { .. } => None,
+                        OptionalChainOperationIr::Property { .. }
+                        | OptionalChainOperationIr::PrivateProperty { .. } => None,
                     })
                     .collect::<Vec<_>>(),
                 expected_call_flags,
@@ -2850,7 +6289,11 @@ mod tests {
             ),
         ] {
             let program = lower_script(source);
-            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
             let script = program.script.as_ref().expect("script ir should exist");
             let function = script
                 .functions
@@ -2916,14 +6359,21 @@ mod tests {
             ),
         ] {
             let program = lower_script(source);
-            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
             let script = program.script.as_ref().expect("script ir should exist");
             let factory = script
                 .functions
                 .iter()
                 .find(|function| function.name == factory_name)
                 .unwrap_or_else(|| panic!("missing {factory_name} for {source}"));
-            assert_eq!(factory.return_kind, expected_kind, "factory return for {source}");
+            assert_eq!(
+                factory.return_kind, expected_kind,
+                "factory return for {source}"
+            );
             let function = script
                 .functions
                 .iter()
@@ -3018,5 +6468,829 @@ mod tests {
             "expected explicit optional private-call diagnostic: {:?}",
             program.diagnostics
         );
+    }
+
+    #[test]
+    fn annex_b_block_functions_create_undefined_owner_bindings_and_copy_when_selected() {
+        let program = lower_script(
+            "if (false) { function unselected() {} } if (true) { function selected() {} }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        for name in ["unselected", "selected"] {
+            assert!(script.global_bindings.iter().any(|binding| {
+                binding.name == name && binding.kind == ScriptGlobalBindingKind::Var
+            }));
+        }
+        let copies = collect_annex_b_copies(&script.body);
+        assert_eq!(copies.len(), 2);
+        assert!(copies.iter().any(|(source, block, target)| {
+            source == "unselected" && block.starts_with("$annexb.block.") && target == source
+        }));
+        assert!(copies.iter().any(|(source, block, target)| {
+            source == "selected" && block.starts_with("$annexb.block.") && target == source
+        }));
+    }
+
+    #[test]
+    fn annex_b_block_function_self_reference_captures_the_block_binding() {
+        let program =
+            lower_script("function owner() { { function f() { return f; } } return f; } owner();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("block function should be lowered");
+        assert!(function
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$annexb.block.")));
+    }
+
+    #[test]
+    fn script_annex_b_block_function_self_reference_captures_the_block_binding() {
+        let program = lower_script("if (true) function f() { return f; } f();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("block function should be lowered");
+        assert!(function.captured_bindings.iter().any(|binding| {
+            binding.name.starts_with("$annexb.block.") && binding.source_name == "f"
+        }));
+    }
+
+    #[test]
+    fn annex_b_sibling_block_function_captures_the_block_binding() {
+        let program = lower_script(
+            "function owner() { let f = function () { return 2; }; { function f() { return 1; } function g() { return f(); } return g(); } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let sibling = script
+            .functions
+            .iter()
+            .find(|function| function.name == "g")
+            .expect("sibling block function should be lowered");
+        let captured = sibling
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$annexb.block."))
+            .expect("sibling should capture the block function binding");
+        assert_ne!(captured.name, "f");
+        assert!(!owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == captured.name));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn block_function_captures_same_block_let_binding() {
+        let program = lower_script(
+            "function owner() { 'use strict'; let value = 2; { let value = 1; function read() { return value; } return read(); } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("block function should be lowered");
+        let captured = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$scoped.lex."))
+            .expect("block function should capture the block lexical binding");
+        assert!(!owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == captured.name));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn block_function_captures_same_block_class_binding() {
+        let program = lower_script(
+            "function owner() { 'use strict'; class Outer {} { class Local {} function read() { return Local; } return read(); } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("block function should be lowered");
+        let captured = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$scoped.lex."))
+            .expect("block function should capture the block class binding");
+        assert!(!owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == captured.name));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn nested_block_function_capture_uses_the_nearest_shadowing_binding() {
+        let program = lower_script(
+            "function owner() { 'use strict'; let value = 0; { let value = 1; { const value = 2; function read() { return value; } return read(); } } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("nested block function should be lowered");
+        let captured = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$scoped.lex."))
+            .expect("nested block function should capture a scoped lexical binding");
+        assert_ne!(captured.name, "value");
+        assert!(!owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == captured.name));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn captured_block_bindings_use_nested_environment_hops_without_owner_activation() {
+        let program = lower_script(
+            "function owner() { { let outer = 1; { let inner = 2; function read() { return outer + inner; } return read; } } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("reader function should be lowered");
+        let outer = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "outer")
+            .expect("outer block binding should be captured");
+        let inner = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "inner")
+            .expect("inner block binding should be captured");
+
+        assert!(owner.owned_env_bindings.is_empty());
+        assert_eq!(outer.hops, 1);
+        assert_eq!(inner.hops, 0);
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &outer.name,
+            outer.slot
+        ));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &inner.name,
+            inner.slot
+        ));
+    }
+
+    #[test]
+    fn captured_for_of_binding_uses_one_hop_from_the_body_block() {
+        let program = lower_script(
+            "function owner() { let saved; for (let value of [1]) { let body = 2; function read() { return value + body; } saved = read; } return saved; } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("reader function should be lowered");
+        let capture_hops = reader
+            .captured_bindings
+            .iter()
+            .map(|binding| (binding.source_name.as_str(), binding.hops))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(capture_hops.get("body"), Some(&0));
+        assert_eq!(capture_hops.get("value"), Some(&1));
+    }
+
+    #[test]
+    fn captured_block_bindings_skip_to_owner_activation_when_it_exists() {
+        let program = lower_script(
+            "function owner(argument) { { let outer = 1; { let inner = 2; function read() { return argument + outer + inner; } return read; } } } owner(3);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("reader function should be lowered");
+        let capture_hops = reader
+            .captured_bindings
+            .iter()
+            .map(|binding| (binding.source_name.as_str(), binding.hops))
+            .collect::<BTreeMap<_, _>>();
+
+        assert!(owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == "argument"));
+        assert_eq!(capture_hops.get("inner"), Some(&0));
+        assert_eq!(capture_hops.get("outer"), Some(&1));
+        assert_eq!(capture_hops.get("argument"), Some(&2));
+    }
+
+    #[test]
+    fn switch_case_block_functions_share_lexical_capture_aliases() {
+        let program = lower_script(
+            "function owner() { 'use strict'; let value = 0; switch (1) { case 1: let value = 1; case 2: function read() { return value; } return read(); } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("case block function should be lowered");
+        let captured = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$scoped.lex."))
+            .expect("case block function should capture the case lexical binding");
+        assert!(owner.owned_env_bindings.is_empty());
+        let StatementIr::Switch {
+            lexical_environment,
+            ..
+        } = owner
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Switch { .. }))
+            .expect("owner should contain switch statement")
+        else {
+            panic!("expected switch statement");
+        };
+        assert!(lexical_environment.as_ref().is_some_and(|environment| {
+            environment
+                .bindings
+                .iter()
+                .any(|binding| binding.name == captured.name && binding.slot == captured.slot)
+        }));
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn switch_selector_reads_its_shared_lexical_environment_in_tdz() {
+        let program = lower_script(
+            "function select() { let value = 1; switch (value) { case value: let value = 2; } } select();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let select = script
+            .functions
+            .iter()
+            .find(|function| function.name == "select")
+            .expect("select function should be lowered");
+        let StatementIr::Switch { cases, .. } = select
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Switch { .. }))
+            .expect("select should contain switch statement")
+        else {
+            panic!("expected switch statement");
+        };
+        let condition = cases[0]
+            .condition
+            .as_ref()
+            .expect("case should have a selector");
+
+        assert!(matches!(condition.expr, ExprIr::RuntimeThrow { .. }));
+    }
+
+    #[test]
+    fn block_shadow_read_before_declaration_uses_the_inner_tdz_binding() {
+        let program =
+            lower_script("function owner() { let value = 1; { value; let value = 2; } } owner();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let block = owner
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Block(block) => Some(block),
+                _ => None,
+            })
+            .expect("owner should contain the shadowing block");
+
+        assert!(matches!(
+            &block.statements[0],
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::RuntimeThrow {
+                    name: REFERENCE_ERROR_NAME,
+                    ..
+                },
+                ..
+            })
+        ));
+        let StatementIr::Lexical { name, .. } = &block.statements[1] else {
+            panic!("expected the inner lexical declaration");
+        };
+        assert!(name.starts_with("$scoped.lex."));
+    }
+
+    #[test]
+    fn block_self_initializer_uses_the_inner_tdz_binding() {
+        let program =
+            lower_script("function owner() { let value = 1; { let value = value; } } owner();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let block = owner
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Block(block) => Some(block),
+                _ => None,
+            })
+            .expect("owner should contain the shadowing block");
+        let StatementIr::Lexical { init, .. } = &block.statements[0] else {
+            panic!("expected the inner lexical declaration");
+        };
+
+        assert!(matches!(
+            &init.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn switch_later_selector_reads_its_shared_lexical_environment_in_tdz() {
+        let program = lower_script(
+            "function select() { switch (1) { case 0: let value = 1; break; case value: } } select();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let select = script
+            .functions
+            .iter()
+            .find(|function| function.name == "select")
+            .expect("select function should be lowered");
+        let StatementIr::Switch { cases, .. } = select
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Switch { .. }))
+            .expect("select should contain switch statement")
+        else {
+            panic!("expected switch statement");
+        };
+        let condition = cases[1]
+            .condition
+            .as_ref()
+            .expect("second case should have a selector");
+
+        assert!(matches!(
+            &condition.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn catch_block_functions_capture_catch_scope_lexical_bindings() {
+        let program = lower_script(
+            "function owner() { 'use strict'; let value = 0; try { throw 1; } catch (error) { let value = 1; function read() { return value; } return read(); } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let reader = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("catch block function should be lowered");
+        let captured = reader
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$scoped.lex."))
+            .expect("catch block function should capture the catch lexical binding");
+        assert!(owner.owned_env_bindings.is_empty());
+        assert!(block_environment_owns_binding(
+            &owner.body,
+            &captured.name,
+            captured.slot
+        ));
+    }
+
+    #[test]
+    fn lowers_parent_linked_try_catch_finally_environment_layouts_and_hops() {
+        let program = lower_script(
+            "function owner() { try { let tried = 1; function readTried() { return tried; } throw 2; } catch (error) { let handled = error; function readHandled() { return error + handled; } return readHandled; } finally { let cleaned = 3; function readCleaned() { return cleaned; } } } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner function should be lowered");
+        let StatementIr::TryCatchFinally {
+            try_block,
+            catch_parameter_environment,
+            catch_block,
+            finally_block,
+            ..
+        } = owner
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::TryCatchFinally { .. }))
+            .expect("owner should contain try/catch/finally")
+        else {
+            panic!("expected try/catch/finally statement");
+        };
+
+        assert!(try_block.lexical_environment.is_some());
+        assert!(catch_parameter_environment.is_some());
+        assert!(catch_block.lexical_environment.is_some());
+        assert!(finally_block.lexical_environment.is_some());
+
+        let handled = script
+            .functions
+            .iter()
+            .find(|function| function.name == "readHandled")
+            .expect("catch reader should be lowered");
+        let capture_hops = handled
+            .captured_bindings
+            .iter()
+            .map(|binding| (binding.source_name.as_str(), binding.hops))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(capture_hops.get("handled"), Some(&0));
+        assert_eq!(capture_hops.get("error"), Some(&1));
+    }
+
+    #[test]
+    fn strict_block_bindings_do_not_leak_to_sibling_functions() {
+        let program = lower_script(
+            "function owner() { 'use strict'; { function hidden() { return 1; } } function outside() { return typeof hidden; } return outside(); } owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let outside = script
+            .functions
+            .iter()
+            .find(|function| function.name == "outside")
+            .expect("sibling function should be lowered");
+        assert!(outside.captured_bindings.is_empty());
+    }
+
+    #[test]
+    fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() {
+        for source in [
+            "function owner(f) { { function f() {} } return f; }",
+            "function owner() { { function arguments() {} } return arguments; }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script IR should exist");
+            assert!(script
+                .functions
+                .iter()
+                .all(|function| collect_annex_b_copies(&function.body).is_empty()));
+        }
+    }
+
+    #[test]
+    fn annex_b_top_level_lexical_binding_blocks_outer_copy() {
+        let program = lower_script("let f = 1; { function f() {} } f;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        assert!(collect_annex_b_copies(&script.body).is_empty());
+        assert!(!script
+            .global_bindings
+            .iter()
+            .any(|binding| binding.name == "f"));
+    }
+
+    #[test]
+    fn annex_b_blocked_candidates_do_not_create_script_owner_bindings() {
+        for (shape, source) in [
+            (
+                "block",
+                "{ let f; { function f() {} } } typeof f; f; function outside() { return typeof f; }",
+            ),
+            (
+                "switch",
+                "switch (0) { default: let f; { function f() {} } } typeof f; f; function outside() { return typeof f; }",
+            ),
+        ] {
+            let mut interner = Interner::default();
+            let scope = Scope::new_global();
+            let parsed_script = Parser::new(Source::from_bytes(source.as_bytes()))
+                .parse_script(&scope, &mut interner)
+                .expect("script should parse");
+            let analysis = AnalysisBuilder::default().finish(&parsed_script, &interner, source);
+            assert!(
+                !analysis.owner_plans[SCRIPT_OWNER_ID]
+                    .root_bindings
+                    .contains("f"),
+                "{shape}: blocked Annex B candidate must not create a script owner binding"
+            );
+
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{shape}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script IR should exist");
+            assert!(
+                !script
+                    .global_bindings
+                    .iter()
+                    .any(|binding| binding.name == "f"),
+                "{shape}: blocked Annex B candidate must not create a script global binding"
+            );
+            assert!(
+                collect_annex_b_copies(&script.body)
+                    .iter()
+                    .all(|(source, _, _)| source != "f"),
+                "{shape}: blocked Annex B candidate must not copy to the variable environment"
+            );
+            assert!(
+                script.body.statements.iter().any(|statement| matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::TypeOfUnresolvedIdentifier { .. },
+                        ..
+                    })
+                )),
+                "{shape}: outer typeof f must be unresolved"
+            );
+            assert!(
+                script.body.statements.iter().any(|statement| matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::RuntimeThrow {
+                            name: REFERENCE_ERROR_NAME,
+                            ..
+                        },
+                        ..
+                    })
+                )),
+                "{shape}: outer f read must throw ReferenceError"
+            );
+
+            let outside = script
+                .functions
+                .iter()
+                .find(|function| function.name == "outside")
+                .expect("outside function should be lowered");
+            assert!(
+                outside.captured_bindings.is_empty(),
+                "{shape}: outside callback must not capture blocked f"
+            );
+            assert!(
+                outside.body.statements.iter().any(|statement| matches!(
+                    statement,
+                    StatementIr::Return(TypedExpr {
+                        expr: ExprIr::TypeOfUnresolvedIdentifier { .. },
+                        ..
+                    })
+                )),
+                "{shape}: outside callback typeof f must be unresolved"
+            );
+        }
+    }
+
+    #[test]
+    fn annex_b_existing_var_and_function_bindings_are_reused() {
+        let program = lower_script(
+            "function owner() { var f = 1; { function f() {} } function g() {} { function g() {} } return f; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let copies = collect_annex_b_copies(&owner.body);
+        assert_eq!(copies.len(), 2);
+        assert!(copies
+            .iter()
+            .any(|(source, _, target)| source == "f" && target == "f"));
+        assert!(copies
+            .iter()
+            .any(|(source, _, target)| source == "g" && target == "g"));
+    }
+
+    #[test]
+    fn annex_b_copy_bypasses_a_same_named_catch_binding() {
+        let program = lower_script(
+            "function owner() { try { throw 1; } catch (f) { { function f() {} } } return f; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let copies = collect_annex_b_copies(&owner.body);
+        assert_eq!(copies.len(), 1);
+        assert_eq!(copies[0].0, "f");
+        assert_eq!(copies[0].2, "f");
+    }
+
+    #[test]
+    fn annex_b_duplicate_declarations_share_the_last_block_binding() {
+        let program = lower_script(
+            "function owner() { { function f() { return 1; } function f() { return 2; } } return f; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let copies = collect_annex_b_copies(&owner.body);
+        assert_eq!(copies.len(), 2);
+        assert_eq!(copies[0].1, copies[1].1);
+    }
+
+    #[test]
+    fn annex_b_switch_declarations_share_one_case_block_binding() {
+        let program = lower_script(
+            "function owner(v) { switch (v) { case 0: function f() { return 1; } break; default: function f() { return 2; } } return f; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let switch = owner
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Switch {
+                    lexical_declarations,
+                    cases,
+                    ..
+                } => Some((lexical_declarations, cases)),
+                _ => None,
+            })
+            .expect("switch should be lowered");
+        assert_eq!(switch.0.len(), 1);
+        assert_eq!(collect_annex_b_copies(&owner.body).len(), 2);
+    }
+
+    #[test]
+    fn nested_labelled_function_declaration_remains_block_scoped() {
+        let program = lower_script(
+            "function owner() { var result; { label: function f() { return 6; } result = f(); } return result; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        assert!(collect_annex_b_copies(&owner.body).is_empty());
+        assert!(script.functions.iter().any(|function| function.name == "f"));
+    }
+
+    #[test]
+    fn annex_b_for_lexical_binding_blocks_outer_copy() {
+        let program = lower_script(
+            "function owner() { for (let f;;) { if (false) function _f() {} else function f() {} break; } return typeof f; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let copies = collect_annex_b_copies(&owner.body);
+        assert!(copies.iter().any(|(source, _, _)| source == "_f"));
+        assert!(copies.iter().all(|(source, _, _)| source != "f"));
+    }
+
+    #[test]
+    fn tagged_template_lowers_its_tag_and_template_site() {
+        let program = lower_script("(function(template) { return template; })`a${1}b`;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[0] else {
+            panic!("tagged template should lower as an expression statement");
+        };
+        let ExprIr::CallIndirect { callee, args, .. } = &expression.expr else {
+            panic!("plain tagged template should lower as an indirect call");
+        };
+        assert!(matches!(callee.expr, ExprIr::FunctionValue(_)));
+        let ExprIr::TemplateObject(template) = &args[0].expr else {
+            panic!("first tagged-template argument should identify its template site");
+        };
+        assert_eq!(
+            template.cooked,
+            vec![Some("a".to_string()), Some("b".to_string())]
+        );
+        assert_eq!(template.raw, vec!["a".to_string(), "b".to_string()]);
     }
 }

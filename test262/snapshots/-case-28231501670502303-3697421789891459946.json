@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/name.js",
-      "duration_ms": 34899
+      "duration_ms": 8833
     }
   ],
   "timeout_list": [],

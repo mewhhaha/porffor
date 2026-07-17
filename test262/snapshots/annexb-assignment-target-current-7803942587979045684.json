@@ -1,0 +1,81 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7803942587979045684,
+  "run_kind": "full",
+  "total": 7,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression-in-compound-assignment.js",
+      "duration_ms": 8290
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression-in-prefix-update.js",
+      "duration_ms": 7968
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression.js",
+      "duration_ms": 7825
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression-as-for-of-lhs.js",
+      "duration_ms": 7274
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js",
+      "duration_ms": 7130
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression-as-for-in-lhs.js",
+      "duration_ms": 5894
+    },
+    {
+      "path": "annexB/language/expressions/assignmenttargettype/callexpression-in-postfix-update.js",
+      "duration_ms": 5603
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "annexB/language/expressions/assignmenttargettype/callexpression-as-for-in-lhs.js",
+    "annexB/language/expressions/assignmenttargettype/callexpression-as-for-of-lhs.js",
+    "annexB/language/expressions/assignmenttargettype/callexpression-in-compound-assignment.js",
+    "annexB/language/expressions/assignmenttargettype/callexpression-in-postfix-update.js",
+    "annexB/language/expressions/assignmenttargettype/callexpression-in-prefix-update.js",
+    "annexB/language/expressions/assignmenttargettype/callexpression.js",
+    "annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

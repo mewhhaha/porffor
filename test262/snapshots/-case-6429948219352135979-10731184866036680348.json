@@ -9,40 +9,30 @@
   "manifest_hash": 10731184866036680348,
   "run_kind": "full",
   "total": 1,
-  "passed": 0,
+  "passed": 1,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
     "Lowering": 0,
     "Parser": 0,
-    "Runtime": 1,
+    "Runtime": 0,
     "Unsupported": 0,
     "WasmBackend": 0
   },
   "counts_per_outcome": {
-    "Bug": 1,
+    "Bug": 0,
     "Crash": 0,
     "NotImplemented": 0,
-    "Success": 0
+    "Success": 1
   },
   "slowest_tests": [
     {
       "path": "built-ins/Array/prototype/reduceRight/length.js",
-      "duration_ms": 38247
+      "duration_ms": 8546
     }
   ],
   "timeout_list": [],
-  "failures": [
-    {
-      "test_path": "built-ins/Array/prototype/reduceRight/length.js",
-      "kind": "Runtime",
-      "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] uncaught throw: Object.getOwnPropertyDescriptor called on null or undefined: wasm-aot completion: object(handle@158496)",
-      "detail_hash": 15260203541895092586,
-      "duration_ms": 38247
-    }
-  ],
+  "failures": [],
   "completed_paths": [
     "built-ins/Array/prototype/reduceRight/length.js"
   ],

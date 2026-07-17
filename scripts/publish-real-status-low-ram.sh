@@ -7,10 +7,16 @@ PORF_BIN="${PORF_BIN:-./target/release/porf}"
 SUITE_ROOT="${SUITE_ROOT:-test262/vendor/test262}"
 SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
+JOBS="${JOBS:-1}"
+ISOLATE_CASES="${ISOLATE_CASES:-1}"
 MAX_MATRIX_NODES="${MAX_MATRIX_NODES:-1}"
 README_PATH="${README_PATH:-}"
 MATRIX_TOTAL=""
 MATRIX_COMPLETED=0
+
+if [[ "$ISOLATE_CASES" == "1" ]]; then
+  export PORFFOR_TEST262_FORCE_CASE_RUNNER=1
+fi
 
 if [[ ! -x "$PORF_BIN" ]]; then
   echo "missing executable: $PORF_BIN" >&2
@@ -295,6 +301,7 @@ while true; do
   fi
 
   "$PORF_BIN" test262 report-all \
+    --jobs "$JOBS" \
     --execution-backend "$BACKEND" \
     --suite-root "$SUITE_ROOT" \
     --snapshot-dir "$SNAPSHOT_DIR" \

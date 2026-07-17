@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-tolength-lastindex-throws.js",
-      "duration_ms": 19917
+      "duration_ms": 6685
     }
   ],
   "timeout_list": [],

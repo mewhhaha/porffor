@@ -1,0 +1,149 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13539790241780379691,
+  "run_kind": "full",
+  "total": 63,
+  "passed": 63,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 63
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/name.js",
+      "duration_ms": 9475
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/length.js",
+      "duration_ms": 8194
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_8.js",
+      "duration_ms": 7905
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A13.js",
+      "duration_ms": 7655
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/topropertykey_before_toobject.js",
+      "duration_ms": 7431
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T3.js",
+      "duration_ms": 7413
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_9.js",
+      "duration_ms": 7403
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_20.js",
+      "duration_ms": 7201
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_2.js",
+      "duration_ms": 7197
+    },
+    {
+      "path": "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_10.js",
+      "duration_ms": 6957
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_1.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_10.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_11.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_12.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_13.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_14.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_15.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_16.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_17.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_18.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_19.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_2.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_20.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_21.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_22.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_23.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_24.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_25.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_26.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_27.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_28.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_29.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_3.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_30.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_31.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_32.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_33.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_34.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_35.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_36.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_37.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_38.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_39.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_4.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_40.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_41.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_42.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_43.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_44.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_45.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_46.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_47.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_48.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_49.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_5.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_6.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_7.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_8.js",
+    "built-ins/Object/prototype/hasOwnProperty/8.12.1-1_9.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A12.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A13.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T1.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T2.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A1_T3.js",
+    "built-ins/Object/prototype/hasOwnProperty/S15.2.4.5_A6.js",
+    "built-ins/Object/prototype/hasOwnProperty/length.js",
+    "built-ins/Object/prototype/hasOwnProperty/name.js",
+    "built-ins/Object/prototype/hasOwnProperty/not-a-constructor.js",
+    "built-ins/Object/prototype/hasOwnProperty/symbol_own_property.js",
+    "built-ins/Object/prototype/hasOwnProperty/symbol_property_toPrimitive.js",
+    "built-ins/Object/prototype/hasOwnProperty/symbol_property_toString.js",
+    "built-ins/Object/prototype/hasOwnProperty/symbol_property_valueOf.js",
+    "built-ins/Object/prototype/hasOwnProperty/topropertykey_before_toobject.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,5 +1,25 @@
 use super::*;
-use porffor_ir::{OptionalChainOperationIr, RegExpProgram};
+use icu_normalizer::{
+    properties::{CanonicalCombiningClassMapBorrowed, CanonicalCompositionBorrowed},
+    properties::{CanonicalDecompositionBorrowed, Decomposed},
+    DecomposingNormalizerBorrowed,
+};
+use icu_properties::{props, CodePointSetData};
+use porffor_ir::{
+    OptionalChainOperationIr, RegExpProgram, StaticRegExpCompilation, TemplateObjectIr,
+    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT,
+    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
+    REGEXP_OPCODE_WHITESPACE,
+};
+use std::sync::OnceLock;
+
+/// Packed magic/version word at the start of an immutable named-group table.
+/// The high 32 bits are the format version and the low 32 bits are `NRGT`.
+pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
+    (1_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
 
 #[derive(Debug)]
 struct StringRef {
@@ -11,23 +31,112 @@ struct StringRef {
 pub(crate) struct RegExpProgramRef {
     pub(crate) ptr: u32,
     pub(crate) instruction_count: u32,
+    pub(crate) capture_count: u32,
+    pub(crate) split_count: u32,
+    pub(crate) repeatable_split_count: u32,
+    pub(crate) named_group_table_ptr: u32,
+}
+
+/// Semantic identity for immutable static RegExp programs. The bytecode blob
+/// contains instructions only, so capture metadata must participate here
+/// instead of being appended to the static program bytes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RegExpProgramStaticKey {
+    encoded_instructions: Vec<u8>,
+    capture_count: u32,
+    named_groups: Vec<(String, Vec<u32>)>,
+}
+
+struct LowercaseTables {
+    mappings: Vec<u8>,
+    mapping_count: u32,
+    cased_ranges: Vec<std::ops::RangeInclusive<u32>>,
+    case_ignorable_ranges: Vec<std::ops::RangeInclusive<u32>>,
+}
+
+static LOWERCASE_TABLES: OnceLock<LowercaseTables> = OnceLock::new();
+
+struct UppercaseTables {
+    mappings: Vec<u8>,
+    mapping_count: u32,
+}
+
+static UPPERCASE_TABLES: OnceLock<UppercaseTables> = OnceLock::new();
+
+struct NormalizationMapping {
+    codepoint: u32,
+    sequence_index: u32,
+    sequence_len: u32,
+}
+
+struct NormalizationTables {
+    canonical_mappings: Vec<NormalizationMapping>,
+    canonical_sequences: Vec<u32>,
+    compatibility_mappings: Vec<NormalizationMapping>,
+    compatibility_sequences: Vec<u32>,
+    combining_classes: Vec<(u32, u8)>,
+    compositions: Vec<(u32, u32, u32)>,
+}
+
+static NORMALIZATION_TABLES: OnceLock<NormalizationTables> = OnceLock::new();
+
+impl RegExpProgramStaticKey {
+    pub(crate) fn from_program(program: &RegExpProgram) -> Self {
+        Self {
+            encoded_instructions: program.encode(),
+            capture_count: program.capture_count,
+            named_groups: program
+                .named_groups
+                .iter()
+                .map(|group| (group.name.clone(), group.capture_ids.clone()))
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
+    pub(crate) template_objects: BTreeMap<u64, TemplateObjectIr>,
     refs: BTreeMap<String, StringRef>,
-    regexp_programs: BTreeMap<Vec<u8>, RegExpProgramRef>,
-    pending_regexp_programs: Vec<(Vec<u8>, u32)>,
+    script_string_literals: BTreeSet<String>,
+    runtime_regexp_candidate_literals: BTreeSet<String>,
+    regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
+    pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
+    runtime_regexp_programs: Vec<(String, String, RegExpProgramRef)>,
+    needs_runtime_regexp_programs: bool,
+    pub(crate) runtime_regexp_program_table_ptr: u32,
+    pub(crate) runtime_regexp_program_count: u32,
     pub(crate) uses_heap: bool,
+    pub(crate) lowercase_mapping_table_ptr: u32,
+    pub(crate) lowercase_mapping_count: u32,
+    pub(crate) uppercase_mapping_table_ptr: u32,
+    pub(crate) uppercase_mapping_count: u32,
+    pub(crate) cased_range_table_ptr: u32,
+    pub(crate) cased_range_count: u32,
+    pub(crate) case_ignorable_range_table_ptr: u32,
+    pub(crate) case_ignorable_range_count: u32,
+    pub(crate) canonical_decomposition_table_ptr: u32,
+    pub(crate) canonical_decomposition_count: u32,
+    pub(crate) compatibility_decomposition_table_ptr: u32,
+    pub(crate) compatibility_decomposition_count: u32,
+    pub(crate) combining_class_table_ptr: u32,
+    pub(crate) combining_class_count: u32,
+    pub(crate) composition_table_ptr: u32,
+    pub(crate) composition_count: u32,
 }
 
 impl StringPool {
     pub(crate) fn collect(
         script: &ScriptIr,
         function_metas: &BTreeMap<FunctionId, WasmFunctionMeta>,
+        compiled_standard_builtins: &[StandardBuiltinId],
     ) -> Self {
         let mut pool = Self::default();
+        pool.needs_runtime_regexp_programs = script.functions.iter().any(|function| {
+            function.super_constructor_target.as_deref() == Some(BUILTIN_REGEXP_FUNCTION_ID)
+        }) || compiled_standard_builtins
+            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit);
         for value in [
             "",
             " ",
@@ -108,6 +217,7 @@ impl StringPool {
             "[object Object]",
             "[object Arguments]",
             "[object ",
+            "/",
             "prototype",
             "lastIndex",
             "index",
@@ -121,6 +231,7 @@ impl StringPool {
             "leftContext",
             "$`",
             "rightContext",
+            "$",
             "$'",
             "$1",
             "$2",
@@ -148,6 +259,11 @@ impl StringPool {
             "valueOf",
             "toString",
             "toUpperCase",
+            "toLowerCase",
+            "toLocaleLowerCase",
+            "toLocaleUpperCase",
+            "fromCodePoint",
+            "String.fromCodePoint argument must be an integer from 0 through 0x10FFFF",
             "padStart",
             "padEnd",
             "repeat",
@@ -266,7 +382,9 @@ impl StringPool {
             "pop",
             "push",
             "shift",
+            "unshift",
             "splice",
+            "sort",
             "entries",
             "values",
             "create",
@@ -295,6 +413,11 @@ impl StringPool {
             "for-of iterator method must return object",
             "for-of iterator next must be callable",
             "for-of iterator next result must be object",
+            "destructuring value is not iterable",
+            "destructuring iterator method must return object",
+            "destructuring iterator next must be callable",
+            "destructuring iterator next result must be object",
+            "Cannot destructure undefined or null",
             "return",
             "IteratorClose return method must be callable",
             "IteratorClose return result must be object",
@@ -302,6 +425,8 @@ impl StringPool {
             "$ArrayIterator.index",
             "$ArrayIterator.done",
             "$ArrayIterator.kind",
+            "$StringIterator.string",
+            "$StringIterator.index",
             PORFFOR_STATIC_GENERATOR_VALUES_METHOD,
             PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
             "$RegExpStringIterator.regexp",
@@ -310,9 +435,11 @@ impl StringPool {
             "$RegExpStringIterator.unicode",
             "$RegExpStringIterator.done",
             "Array Iterator",
+            "String Iterator",
             "Array.prototype iterator method called on null or undefined",
             "Array Iterator next called on incompatible receiver",
             "Array Iterator next called on out-of-bounds TypedArray",
+            "String Iterator next called on incompatible receiver",
             "RegExp String Iterator next called on incompatible receiver",
             "RegExp String Iterator exec returned non-object",
             "Iterator",
@@ -327,6 +454,8 @@ impl StringPool {
             "take",
             "drop",
             "Iterator constructor cannot be called",
+            "Iterator Helper",
+            "Iterator helper called on incompatible receiver",
             "Iterator.from called on null or undefined",
             "Iterator.from iterator method must return object",
             "Iterator.from iterator method must be callable",
@@ -361,13 +490,39 @@ impl StringPool {
             "Iterator map helper return called on incompatible receiver",
             "Iterator map helper return method must be callable",
             "Iterator map helper return result must be object",
-            "$PorfforIteratorMapHelper",
             "$IteratorMapIterator",
             "$IteratorMapNext",
             "$IteratorMapMapper",
             "$IteratorMapIndex",
             "$IteratorMapDone",
             "$IteratorMapExecuting",
+            "Iterator.zip called with a non-object iterables value",
+            "Iterator.zip iterator method must be callable",
+            "Iterator.zip iterator method must return object",
+            "Iterator.zip next method must be callable",
+            "Iterator.zip next result must be object",
+            "Iterator.zip options must be an object or undefined",
+            "Iterator.zip mode must be a string or undefined",
+            "Iterator.zip mode must be shortest, longest, or strict",
+            "Iterator.zip padding must be an object or undefined",
+            "Iterator.zip strict mode has iterators of different lengths",
+            "Iterator zip helper next called on incompatible receiver",
+            "Iterator zip helper is already running",
+            "Iterator zip helper next result must be object",
+            "Iterator zip helper return called on incompatible receiver",
+            "$IteratorZipIterators",
+            "$IteratorZipNextMethods",
+            "$IteratorZipOpen",
+            "$IteratorZipMode",
+            "$IteratorZipPadding",
+            "$IteratorZipDone",
+            "$IteratorZipExecuting",
+            "$IteratorZipStarted",
+            "mode",
+            "padding",
+            "shortest",
+            "longest",
+            "strict",
             "Iterator.prototype.filter called on null or undefined",
             "Iterator.prototype.filter predicate must be callable",
             "Iterator.prototype.filter next method must be callable",
@@ -377,7 +532,6 @@ impl StringPool {
             "Iterator filter helper return called on incompatible receiver",
             "Iterator filter helper return method must be callable",
             "Iterator filter helper return result must be object",
-            "$PorfforIteratorFilterHelper",
             "$IteratorFilterIterator",
             "$IteratorFilterNext",
             "$IteratorFilterPredicate",
@@ -398,7 +552,6 @@ impl StringPool {
             "Iterator flatMap helper return called on incompatible receiver",
             "Iterator flatMap helper return method must be callable",
             "Iterator flatMap helper return result must be object",
-            "$PorfforIteratorFlatMapHelper",
             "$IteratorFlatMapIterator",
             "$IteratorFlatMapNext",
             "$IteratorFlatMapMapper",
@@ -411,7 +564,6 @@ impl StringPool {
             "Iterator.prototype.take called on null or undefined",
             "Iterator.prototype.take next method must be callable",
             "Iterator.prototype.take limit must be a non-negative number",
-            "$PorfforIteratorTakeHelper",
             "$IteratorTakeIterator",
             "$IteratorTakeNext",
             "$IteratorTakeRemaining",
@@ -426,7 +578,6 @@ impl StringPool {
             "Iterator.prototype.drop called on null or undefined",
             "Iterator.prototype.drop next method must be callable",
             "Iterator.prototype.drop limit must be a non-negative number",
-            "$PorfforIteratorDropHelper",
             "$IteratorDropIterator",
             "$IteratorDropNext",
             "$IteratorDropRemaining",
@@ -478,6 +629,7 @@ impl StringPool {
             "TypedArray byteLength out of bounds",
             "TypedArray length out of range",
             "TypedArray.prototype.toString requires TypedArray",
+            "TypedArray.prototype.join requires a TypedArray",
             "TypedArray.prototype.toLocaleString requires TypedArray",
             "construct",
             "ownKeys",
@@ -710,6 +862,8 @@ impl StringPool {
             "RegExp.prototype.exec receiver is not RegExp",
             "RegExp.prototype.exec source is not string",
             "RegExp.prototype.exec unsupported pattern",
+            "RegExp.prototype.test receiver is not an object",
+            "RegExp.prototype.test exec result is not an object or null",
             "RegExp.prototype[Symbol.match] flags is not string",
             "RegExp.prototype[Symbol.match] exec result is not object or null",
             "RegExp.prototype[Symbol.match] is unsupported in wasm-aot",
@@ -725,6 +879,7 @@ impl StringPool {
             "RegExp.prototype[Symbol.search] flags is not string",
             "RegExp.prototype[Symbol.search] exec result is not object or null",
             "RegExp.prototype[Symbol.search] is unsupported in wasm-aot",
+            "RegExp.prototype[Symbol.split] receiver must be an object",
             "\u{20BB7}",
             "\u{10FFFF}",
             "\u{20BB7}a\u{20BB7}b\u{20BB7}",
@@ -887,6 +1042,9 @@ impl StringPool {
             "Array.prototype.concat constructor is not object",
             "Array.prototype.concat cannot add property to non-extensible target",
             "Array.prototype.concat cannot define non-configurable target property",
+            "Array species constructor is not a constructor",
+            "Cannot add property to non-extensible target",
+            "Cannot define non-configurable target property",
             "Array.prototype.map receiver is not array",
             "Array.prototype.map called on null or undefined",
             "Array.prototype.map mapper is not callable",
@@ -906,6 +1064,9 @@ impl StringPool {
             "Array.prototype.filter cannot add property to non-extensible target",
             "Array.prototype.filter cannot define non-configurable target property",
             "Invalid array length",
+            "Array.prototype.with index out of range",
+            "Array.prototype.toSpliced result exceeds maximum safe length",
+            "Array.prototype.concat result exceeds maximum safe length",
             "Object.prototype.valueOf called on null or undefined",
             "Cannot convert undefined or null to object",
             "Object.setPrototypeOf target must be object",
@@ -935,12 +1096,23 @@ impl StringPool {
             "Cannot delete property",
             "Cannot add property to non-extensible object",
             "Array.prototype.push index write failed",
-            "Array.prototype.shift receiver is not array",
+            "Array.prototype.unshift called on null or undefined",
+            "Array.prototype.unshift cannot modify a string",
+            "Array.prototype.unshift length exceeds safe integer",
+            "Array.prototype.unshift cannot delete destination property",
+            "Array.prototype.shift called on null or undefined",
+            "Array.prototype.shift cannot modify a string",
+            "Array.prototype.shift cannot delete property",
             "Array.prototype.splice receiver is not array",
+            "Array.prototype.sort receiver is not array",
             "TypedArray accessor requires TypedArray",
             "Date constructor requires new",
             "Date method receiver is not Date",
             "RegExp.escape input must be a string",
+            "RegExp.prototype.compile receiver is not a direct RegExp instance",
+            "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
+            "invalid regular-expression flag",
+            "duplicate regular-expression flag",
             "Array.prototype.forEach receiver is not array",
             "Array.prototype.forEach called on null or undefined",
             "Array.prototype.forEach callback is not callable",
@@ -1082,6 +1254,21 @@ impl StringPool {
             ));
         }
         for function in &script.functions {
+            if let Some(plan) = &function.class_instance_element_plan {
+                for private_name_id in &plan.private_method_brands {
+                    pool.intern_string(&private_brand_key(*private_name_id));
+                }
+                for field in &plan.fields {
+                    match &field.key {
+                        ClassFieldKeyIr::Public(key) => pool.intern_string(key),
+                        ClassFieldKeyIr::ComputedPublic(_) => {}
+                        ClassFieldKeyIr::Private(private_name_id) => {
+                            pool.intern_string(&private_data_key(*private_name_id));
+                            pool.intern_string(&private_brand_key(*private_name_id));
+                        }
+                    }
+                }
+            }
             for param in &function.params {
                 pool.intern_string(&param.name);
                 if let Some(default_init) = &param.default_init {
@@ -1097,8 +1284,275 @@ impl StringPool {
             pool.collect_block(&function.body);
         }
         pool.collect_block(&script.body);
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::StringPrototypeToLowerCase
+                    | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+            )
+        }) {
+            pool.intern_string("ς");
+        }
+        if pool.needs_runtime_regexp_programs {
+            pool.queue_runtime_regexp_programs();
+        }
         pool.append_regexp_programs();
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::StringPrototypeToLowerCase
+                    | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+            )
+        }) {
+            pool.append_lowercase_tables();
+        }
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::StringPrototypeToUpperCase
+                    | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+            )
+        }) {
+            pool.append_uppercase_tables();
+        }
+        if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)
+            || compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeLocaleCompare)
+        {
+            for form in ["NFC", "NFD", "NFKC", "NFKD"] {
+                pool.intern_string(form);
+            }
+            pool.intern_string("String.prototype.normalize receiver is null or undefined");
+            pool.intern_string("String.prototype.normalize form must be NFC, NFD, NFKC, or NFKD");
+            pool.append_normalization_tables();
+        }
         pool
+    }
+
+    fn append_normalization_tables(&mut self) {
+        let tables = NORMALIZATION_TABLES.get_or_init(|| {
+            let nfd = DecomposingNormalizerBorrowed::new_nfd();
+            let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
+            let combining_classes = CanonicalCombiningClassMapBorrowed::new();
+            let compositions = CanonicalCompositionBorrowed::new();
+            let canonical_decomposition = CanonicalDecompositionBorrowed::new();
+            let mut tables = NormalizationTables {
+                canonical_mappings: Vec::new(),
+                canonical_sequences: Vec::new(),
+                compatibility_mappings: Vec::new(),
+                compatibility_sequences: Vec::new(),
+                combining_classes: Vec::new(),
+                compositions: Vec::new(),
+            };
+
+            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
+                let source = codepoint.to_string();
+                let canonical: Vec<u32> = nfd.normalize(&source).chars().map(u32::from).collect();
+                if canonical.as_slice() != [u32::from(codepoint)] {
+                    tables.canonical_mappings.push(NormalizationMapping {
+                        codepoint: u32::from(codepoint),
+                        sequence_index: tables.canonical_sequences.len() as u32,
+                        sequence_len: canonical.len() as u32,
+                    });
+                    tables.canonical_sequences.extend(canonical);
+                }
+
+                let compatibility: Vec<u32> =
+                    nfkd.normalize(&source).chars().map(u32::from).collect();
+                if compatibility.as_slice() != [u32::from(codepoint)] {
+                    tables.compatibility_mappings.push(NormalizationMapping {
+                        codepoint: u32::from(codepoint),
+                        sequence_index: tables.compatibility_sequences.len() as u32,
+                        sequence_len: compatibility.len() as u32,
+                    });
+                    tables.compatibility_sequences.extend(compatibility);
+                }
+
+                let combining_class = combining_classes.get_u8(codepoint);
+                if combining_class != 0 {
+                    tables
+                        .combining_classes
+                        .push((u32::from(codepoint), combining_class));
+                }
+
+                if let Decomposed::Expansion(first, second) =
+                    canonical_decomposition.decompose(codepoint)
+                {
+                    if let Some(composed) = compositions.compose(first, second) {
+                        tables.compositions.push((
+                            u32::from(first),
+                            u32::from(second),
+                            u32::from(composed),
+                        ));
+                    }
+                }
+            }
+            tables.compositions.sort_unstable();
+            tables.compositions.dedup();
+            tables
+        });
+
+        let canonical_sequences_ptr = self.append_codepoints(&tables.canonical_sequences);
+        self.canonical_decomposition_table_ptr =
+            self.append_normalization_mappings(&tables.canonical_mappings, canonical_sequences_ptr);
+        self.canonical_decomposition_count = tables.canonical_mappings.len() as u32;
+        let compatibility_sequences_ptr = self.append_codepoints(&tables.compatibility_sequences);
+        self.compatibility_decomposition_table_ptr = self.append_normalization_mappings(
+            &tables.compatibility_mappings,
+            compatibility_sequences_ptr,
+        );
+        self.compatibility_decomposition_count = tables.compatibility_mappings.len() as u32;
+
+        self.align_bytes(8);
+        self.combining_class_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        for (codepoint, combining_class) in &tables.combining_classes {
+            self.bytes.extend_from_slice(&codepoint.to_le_bytes());
+            self.bytes
+                .extend_from_slice(&u32::from(*combining_class).to_le_bytes());
+        }
+        self.combining_class_count = tables.combining_classes.len() as u32;
+
+        self.align_bytes(8);
+        self.composition_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        for (first, second, composed) in &tables.compositions {
+            self.bytes.extend_from_slice(&first.to_le_bytes());
+            self.bytes.extend_from_slice(&second.to_le_bytes());
+            self.bytes.extend_from_slice(&composed.to_le_bytes());
+            self.bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
+        self.composition_count = tables.compositions.len() as u32;
+    }
+
+    fn append_codepoints(&mut self, codepoints: &[u32]) -> u32 {
+        self.align_bytes(8);
+        let table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        for codepoint in codepoints {
+            self.bytes.extend_from_slice(&codepoint.to_le_bytes());
+        }
+        table_ptr
+    }
+
+    fn append_normalization_mappings(
+        &mut self,
+        mappings: &[NormalizationMapping],
+        sequences_ptr: u32,
+    ) -> u32 {
+        self.align_bytes(8);
+        let table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        for mapping in mappings {
+            self.bytes
+                .extend_from_slice(&mapping.codepoint.to_le_bytes());
+            self.bytes
+                .extend_from_slice(&(sequences_ptr + mapping.sequence_index * 4).to_le_bytes());
+            self.bytes
+                .extend_from_slice(&mapping.sequence_len.to_le_bytes());
+            self.bytes.extend_from_slice(&0_u32.to_le_bytes());
+        }
+        table_ptr
+    }
+
+    fn append_lowercase_tables(&mut self) {
+        let tables = LOWERCASE_TABLES.get_or_init(|| {
+            let mut mappings = Vec::new();
+            let mut mapping_count = 0;
+            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
+                let mut lowercase = codepoint.to_lowercase();
+                let first = lowercase.next().expect("lowercase mapping is never empty");
+                let second = lowercase.next();
+                if first == codepoint && second.is_none() {
+                    continue;
+                }
+
+                let mut lowercase_bytes = Vec::with_capacity(4);
+                for lowercase_codepoint in std::iter::once(first).chain(second).chain(lowercase) {
+                    let mut encoded = [0; 4];
+                    lowercase_bytes.extend_from_slice(
+                        lowercase_codepoint.encode_utf8(&mut encoded).as_bytes(),
+                    );
+                }
+                debug_assert!(lowercase_bytes.len() <= 4);
+                mappings.extend_from_slice(&(codepoint as u32).to_le_bytes());
+                mappings.extend_from_slice(&(lowercase_bytes.len() as u32).to_le_bytes());
+                mappings.extend_from_slice(&lowercase_bytes);
+                mappings.resize(mappings.len() + 4 - lowercase_bytes.len(), 0);
+                mappings.extend_from_slice(&0_u32.to_le_bytes());
+                mapping_count += 1;
+            }
+
+            LowercaseTables {
+                mappings,
+                mapping_count,
+                cased_ranges: CodePointSetData::new::<props::Cased>()
+                    .iter_ranges()
+                    .collect(),
+                case_ignorable_ranges: CodePointSetData::new::<props::CaseIgnorable>()
+                    .iter_ranges()
+                    .collect(),
+            }
+        });
+
+        self.align_bytes(8);
+        self.lowercase_mapping_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        self.bytes.extend_from_slice(&tables.mappings);
+        self.lowercase_mapping_count = tables.mapping_count;
+        self.cased_range_table_ptr = self.append_codepoint_ranges(&tables.cased_ranges);
+        self.cased_range_count = tables.cased_ranges.len() as u32;
+        self.case_ignorable_range_table_ptr =
+            self.append_codepoint_ranges(&tables.case_ignorable_ranges);
+        self.case_ignorable_range_count = tables.case_ignorable_ranges.len() as u32;
+    }
+
+    fn append_uppercase_tables(&mut self) {
+        let tables = UPPERCASE_TABLES.get_or_init(|| {
+            let mut mappings = Vec::new();
+            let mut mapping_count = 0;
+            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
+                let mut uppercase = codepoint.to_uppercase();
+                let first = uppercase.next().expect("uppercase mapping is never empty");
+                let second = uppercase.next();
+                if first == codepoint && second.is_none() {
+                    continue;
+                }
+
+                let mut uppercase_bytes = Vec::with_capacity(8);
+                for uppercase_codepoint in std::iter::once(first).chain(second).chain(uppercase) {
+                    let mut encoded = [0; 4];
+                    uppercase_bytes.extend_from_slice(
+                        uppercase_codepoint.encode_utf8(&mut encoded).as_bytes(),
+                    );
+                }
+                debug_assert!(uppercase_bytes.len() <= 8);
+                mappings.extend_from_slice(&(codepoint as u32).to_le_bytes());
+                mappings.extend_from_slice(&(uppercase_bytes.len() as u32).to_le_bytes());
+                mappings.extend_from_slice(&uppercase_bytes);
+                mappings.resize(mappings.len() + 8 - uppercase_bytes.len(), 0);
+                mapping_count += 1;
+            }
+
+            UppercaseTables {
+                mappings,
+                mapping_count,
+            }
+        });
+
+        self.align_bytes(8);
+        self.uppercase_mapping_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        self.bytes.extend_from_slice(&tables.mappings);
+        self.uppercase_mapping_count = tables.mapping_count;
+    }
+
+    fn append_codepoint_ranges(&mut self, ranges: &[std::ops::RangeInclusive<u32>]) -> u32 {
+        self.align_bytes(8);
+        let table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        for range in ranges {
+            self.bytes.extend_from_slice(&range.start().to_le_bytes());
+            self.bytes.extend_from_slice(&range.end().to_le_bytes());
+        }
+        table_ptr
+    }
+
+    fn align_bytes(&mut self, alignment: usize) {
+        let padding = (alignment - self.bytes.len() % alignment) % alignment;
+        self.bytes.resize(self.bytes.len() + padding, 0);
     }
 
     fn collect_block(&mut self, block: &BlockIr) {
@@ -1115,7 +1569,17 @@ impl StringPool {
             | StatementIr::Continue { .. } => {}
             StatementIr::Lexical { name, init, .. } => {
                 self.intern_string(name);
+                collect_finite_string_choices(init, &mut self.runtime_regexp_candidate_literals);
                 self.collect_expr(init);
+            }
+            StatementIr::AnnexBFunctionCopy {
+                source_name,
+                block_storage_name,
+                variable_storage_name,
+            } => {
+                self.intern_string(source_name);
+                self.intern_string(block_storage_name);
+                self.intern_string(variable_storage_name);
             }
             StatementIr::Expression(init) => self.collect_expr(init),
             StatementIr::Return(value) => self.collect_expr(value),
@@ -1184,6 +1648,7 @@ impl StringPool {
                 test,
                 update,
                 body,
+                ..
             } => {
                 if let Some(init) = init {
                     self.collect_for_init(init);
@@ -1219,9 +1684,14 @@ impl StringPool {
             }
             StatementIr::Switch {
                 discriminant,
+                lexical_declarations,
                 cases,
+                ..
             } => {
                 self.collect_expr(discriminant);
+                for declaration in lexical_declarations {
+                    self.collect_statement(declaration);
+                }
                 for case in cases {
                     if let Some(condition) = &case.condition {
                         self.collect_expr(condition);
@@ -1235,9 +1705,16 @@ impl StringPool {
 
     fn collect_for_init(&mut self, init: &ForInitIr) {
         match init {
-            ForInitIr::Lexical { init, .. } => self.collect_expr(init),
+            ForInitIr::Lexical { init, .. } => {
+                collect_finite_string_choices(init, &mut self.runtime_regexp_candidate_literals);
+                self.collect_expr(init);
+            }
             ForInitIr::LexicalBlock(bindings) => {
                 for binding in bindings {
+                    collect_finite_string_choices(
+                        &binding.init,
+                        &mut self.runtime_regexp_candidate_literals,
+                    );
                     self.collect_expr(&binding.init);
                 }
             }
@@ -1250,6 +1727,7 @@ impl StringPool {
         for declarator in declarators {
             self.intern_string(&declarator.name);
             if let Some(init) = &declarator.init {
+                collect_finite_string_choices(init, &mut self.runtime_regexp_candidate_literals);
                 self.collect_expr(init);
             }
         }
@@ -1265,6 +1743,23 @@ impl StringPool {
             }
             ExprIr::String(value) => {
                 self.intern_string(value);
+                self.script_string_literals.insert(value.clone());
+            }
+            ExprIr::TemplateObject(template) => {
+                self.uses_heap = true;
+                for cooked in template.cooked.iter().flatten() {
+                    self.intern_string(cooked);
+                }
+                for raw in &template.raw {
+                    self.intern_string(raw);
+                }
+                self.intern_string("raw");
+                if let Some(previous) = self
+                    .template_objects
+                    .insert(template.site_id, template.clone())
+                {
+                    debug_assert_eq!(previous, *template);
+                }
             }
             ExprIr::RegExpLiteral {
                 source,
@@ -1313,6 +1808,10 @@ impl StringPool {
             ExprIr::ArrayLiteral(elements) => {
                 self.uses_heap = true;
                 for element in elements {
+                    collect_finite_string_choices(
+                        element,
+                        &mut self.runtime_regexp_candidate_literals,
+                    );
                     self.collect_expr(element);
                 }
             }
@@ -1329,6 +1828,7 @@ impl StringPool {
                         OptionalChainOperationIr::Property { key, .. } => {
                             self.collect_property_key(key);
                         }
+                        OptionalChainOperationIr::PrivateProperty { .. } => {}
                         OptionalChainOperationIr::Call { args, .. } => {
                             for arg in args {
                                 self.collect_expr(arg);
@@ -1348,8 +1848,17 @@ impl StringPool {
                 self.collect_expr(target);
                 self.collect_property_key(key);
             }
+            ExprIr::PropertyCompoundAssign {
+                target, key, value, ..
+            } => {
+                self.uses_heap = true;
+                self.collect_expr(target);
+                self.collect_property_key(key);
+                self.collect_expr(value);
+            }
             ExprIr::AssignIdentifier { name, value } => {
                 self.intern_string(name);
+                collect_finite_string_choices(value, &mut self.runtime_regexp_candidate_literals);
                 self.collect_expr(value);
             }
             ExprIr::CompoundAssignIdentifier { name, value, .. } => {
@@ -1466,6 +1975,82 @@ impl StringPool {
                 self.collect_expr(lhs);
                 self.collect_expr(rhs);
             }
+            ExprIr::MaterializeBinding { name, value, body } => {
+                self.intern_string(name);
+                self.collect_expr(value);
+                self.collect_expr(body);
+            }
+            ExprIr::ArrayDestructure { value, pattern, .. } => {
+                self.uses_heap = true;
+                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                    self.intern_string(key);
+                }
+                self.collect_expr(value);
+                pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
+                fn collect_static_keys(
+                    collector: &mut StringPool,
+                    pattern: &ArrayDestructuringPatternIr,
+                ) {
+                    for element in &pattern.elements {
+                        let target = match element {
+                            ArrayDestructuringElementIr::Elision => continue,
+                            ArrayDestructuringElementIr::Target { target, .. }
+                            | ArrayDestructuringElementIr::Rest { target } => target,
+                        };
+                        match target {
+                            DestructuringTargetIr::AssignmentProperty {
+                                key: DestructuringPropertyKeyIr::Static(key),
+                                ..
+                            } => collector.intern_string(key),
+                            DestructuringTargetIr::NestedArray(pattern) => {
+                                collect_static_keys(collector, pattern)
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                collect_static_keys(self, pattern);
+            }
+            ExprIr::ObjectDestructure { value, pattern } => {
+                self.uses_heap = true;
+                self.intern_string("enumerable");
+                self.collect_expr(value);
+                pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
+
+                fn collect_target_static_keys(
+                    collector: &mut StringPool,
+                    target: &DestructuringTargetIr,
+                ) {
+                    match target {
+                        DestructuringTargetIr::AssignmentProperty {
+                            key: DestructuringPropertyKeyIr::Static(key),
+                            ..
+                        } => collector.intern_string(key),
+                        DestructuringTargetIr::NestedArray(pattern) => {
+                            for element in &pattern.elements {
+                                match element {
+                                    ArrayDestructuringElementIr::Elision => {}
+                                    ArrayDestructuringElementIr::Target { target, .. }
+                                    | ArrayDestructuringElementIr::Rest { target } => {
+                                        collect_target_static_keys(collector, target);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                for property in &pattern.properties {
+                    if let DestructuringPropertyKeyIr::Static(key) = &property.key {
+                        self.intern_string(key);
+                    }
+                    collect_target_static_keys(self, &property.target);
+                }
+                if let Some(rest) = &pattern.rest {
+                    collect_target_static_keys(self, rest);
+                }
+            }
             ExprIr::Conditional {
                 condition,
                 then_expr,
@@ -1522,7 +2107,14 @@ impl StringPool {
             }
             ExprIr::SpreadArgument(value) => {
                 self.uses_heap = true;
-                self.intern_string("Spread argument is not an array");
+                for message in [
+                    "Spread argument is not iterable",
+                    "Spread iterator method must return object",
+                    "Spread iterator next must be callable",
+                    "Spread iterator next result must be object",
+                ] {
+                    self.intern_string(message);
+                }
                 self.collect_expr(value);
             }
             ExprIr::AssertSameValue {
@@ -1563,8 +2155,31 @@ impl StringPool {
                 callee,
                 this_arg,
                 args,
+                static_regexp_compilation,
             } => {
                 self.uses_heap = true;
+                if static_regexp_compilation.is_none()
+                    && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
+                        || callee.function_targets.iter().any(|target| {
+                            matches!(
+                                target.as_str(),
+                                BUILTIN_REGEXP_FUNCTION_ID
+                                    | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
+                            )
+                        }))
+                {
+                    self.needs_runtime_regexp_programs = true;
+                }
+                if let Some(compilation) = static_regexp_compilation {
+                    match compilation {
+                        StaticRegExpCompilation::Program(program) => {
+                            self.queue_regexp_program(program)
+                        }
+                        StaticRegExpCompilation::InvalidSyntax { message } => {
+                            self.intern_string(message);
+                        }
+                    }
+                }
                 self.collect_expr(callee);
                 if let Some(this_arg) = this_arg {
                     self.collect_expr(this_arg);
@@ -1580,9 +2195,29 @@ impl StringPool {
                 self.intern_string("");
                 self.intern_string("source");
             }
-            ExprIr::Construct { callee, args } => {
+            ExprIr::Construct {
+                callee,
+                args,
+                static_regexp_compilation,
+            } => {
                 self.uses_heap = true;
+                if static_regexp_compilation.is_none()
+                    && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
+                        || callee.function_targets.contains(BUILTIN_REGEXP_FUNCTION_ID))
+                {
+                    self.needs_runtime_regexp_programs = true;
+                }
                 self.intern_string("prototype");
+                if let Some(compilation) = static_regexp_compilation {
+                    match compilation {
+                        StaticRegExpCompilation::Program(program) => {
+                            self.queue_regexp_program(program)
+                        }
+                        StaticRegExpCompilation::InvalidSyntax { message } => {
+                            self.intern_string(message);
+                        }
+                    }
+                }
                 self.collect_expr(callee);
                 for arg in args {
                     self.collect_expr(arg);
@@ -1639,35 +2274,55 @@ impl StringPool {
                 self.collect_property_key(key);
                 self.collect_expr(value);
             }
-            ExprIr::ClassDefinition(_)
-            | ExprIr::PrivateRead { .. }
-            | ExprIr::PrivateWrite { .. }
-            | ExprIr::PrivateIn { .. } => {
+            ExprIr::ClassDefinition(class) => {
                 self.uses_heap = true;
-                if let ExprIr::ClassDefinition(class) = &expr.expr {
-                    self.intern_string("prototype");
-                    self.intern_string("constructor");
-                    self.intern_string("$IsHTMLDDA");
-                    self.intern_string("class extends value is not a constructor or null");
-                    for method in &class.public_methods {
-                        self.collect_property_key(&method.key);
-                    }
-                    for method in &class.private_methods {
-                        self.intern_string(&private_data_key(method.private_name_id));
-                        self.intern_string(&private_brand_key(method.private_name_id));
-                    }
-                    for field in &class.fields {
-                        if let Some(key) = &field.key {
-                            self.intern_string(key);
-                        } else if let Some(private_name_id) = field.private_name_id {
-                            self.intern_string(&private_data_key(private_name_id));
-                            self.intern_string(&private_brand_key(private_name_id));
+                self.intern_string("prototype");
+                self.intern_string("constructor");
+                self.intern_string("$IsHTMLDDA");
+                self.intern_string("class extends value is not a constructor or null");
+                for definition in &class.element_plan.definitions {
+                    match definition {
+                        ClassElementDefinitionIr::PublicMethod(method) => {
+                            self.collect_property_key(&method.key);
+                        }
+                        ClassElementDefinitionIr::PrivateMethod(method) => {
+                            self.intern_string(&private_data_key(method.private_name_id));
+                            self.intern_string(&private_brand_key(method.private_name_id));
+                        }
+                        ClassElementDefinitionIr::ComputedFieldKey { key, .. } => {
+                            self.collect_property_key(key);
                         }
                     }
-                    if let Some(heritage) = &class.heritage {
-                        self.collect_expr(heritage);
+                }
+                for static_element in &class.element_plan.static_elements {
+                    let ClassStaticElementIr::Field(field) = static_element else {
+                        continue;
+                    };
+                    match &field.key {
+                        ClassFieldKeyIr::Public(key) => self.intern_string(key),
+                        ClassFieldKeyIr::ComputedPublic(_) => {}
+                        ClassFieldKeyIr::Private(private_name_id) => {
+                            self.intern_string(&private_data_key(*private_name_id));
+                            self.intern_string(&private_brand_key(*private_name_id));
+                        }
                     }
                 }
+                if let Some(heritage) = &class.heritage {
+                    self.collect_expr(heritage);
+                }
+            }
+            ExprIr::PrivateRead { target, .. } => {
+                self.uses_heap = true;
+                self.collect_expr(target);
+            }
+            ExprIr::PrivateWrite { target, value, .. } => {
+                self.uses_heap = true;
+                self.collect_expr(target);
+                self.collect_expr(value);
+            }
+            ExprIr::PrivateIn { rhs, .. } => {
+                self.uses_heap = true;
+                self.collect_expr(rhs);
             }
             ExprIr::Undefined
             | ExprIr::ArrayHole
@@ -1737,17 +2392,126 @@ impl StringPool {
     }
 
     fn queue_regexp_program(&mut self, program: &RegExpProgram) {
-        let encoded = program.encode();
-        if self.regexp_programs.contains_key(&encoded)
+        assert!(
+            !has_non_consuming_cycle(program),
+            "compiler-created RegExp program contains a non-consuming control-flow cycle"
+        );
+        // Names are part of the immutable metadata table and must be present
+        // in the string pool before any program blobs are appended.
+        for group in &program.named_groups {
+            self.intern_string(&group.name);
+        }
+        let key = RegExpProgramStaticKey::from_program(program);
+        if self.regexp_programs.contains_key(&key)
             || self
                 .pending_regexp_programs
                 .iter()
-                .any(|(pending, _)| pending == &encoded)
+                .any(|(pending, _, _, _)| pending == &key)
         {
             return;
         }
-        self.pending_regexp_programs
-            .push((encoded, program.instructions.len() as u32));
+        let split_count = program
+            .instructions
+            .iter()
+            .filter(|instruction| instruction.opcode == REGEXP_OPCODE_SPLIT)
+            .count() as u32;
+        self.pending_regexp_programs.push((
+            key,
+            program.instructions.len() as u32,
+            split_count,
+            repeatable_split_count(program),
+        ));
+    }
+
+    fn queue_runtime_regexp_programs(&mut self) {
+        let candidate_literals = if self.runtime_regexp_candidate_literals.is_empty() {
+            &self.script_string_literals
+        } else {
+            &self.runtime_regexp_candidate_literals
+        };
+        let mut literals = candidate_literals.iter().cloned().collect::<Vec<_>>();
+        if !literals.iter().any(|source| source == "(?:)") {
+            literals.push("(?:)".to_string());
+        }
+        if !literals.iter().any(|source| source == "[object Object]") {
+            literals.push("[object Object]".to_string());
+        }
+        let mut flags = self
+            .script_string_literals
+            .iter()
+            .filter(|value| is_regexp_flags_literal(value))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !flags.iter().any(String::is_empty) {
+            flags.push(String::new());
+        }
+        let sticky_flags = flags
+            .iter()
+            .filter(|flags| !flags.contains('y'))
+            .map(|flags| format!("{flags}y"))
+            .collect::<Vec<_>>();
+        flags.extend(sticky_flags);
+        for literal in &literals {
+            self.intern_string(literal);
+        }
+        for flags in &flags {
+            self.intern_string(flags);
+        }
+        let mut candidates = Vec::new();
+
+        for source in &literals {
+            let normalized_source = if source.is_empty() { "(?:)" } else { source };
+            let compilation_source = if normalized_source == "(?:)" {
+                ""
+            } else {
+                normalized_source
+            };
+            for flags in &flags {
+                let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
+                    continue;
+                };
+                let key = RegExpProgramStaticKey::from_program(&program);
+                self.queue_regexp_program(&program);
+                candidates.push((normalized_source.to_string(), flags.clone(), key));
+            }
+        }
+
+        self.append_regexp_programs();
+        self.runtime_regexp_programs = candidates
+            .into_iter()
+            .map(|(source, flags, key)| {
+                let program = *self
+                    .regexp_programs
+                    .get(&key)
+                    .expect("queued runtime RegExp program must have static data");
+                (source, flags, program)
+            })
+            .collect();
+        self.append_runtime_regexp_program_table();
+    }
+
+    fn append_runtime_regexp_program_table(&mut self) {
+        if self.runtime_regexp_programs.is_empty() {
+            return;
+        }
+        let padding = (8 - self.bytes.len() % 8) % 8;
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        self.runtime_regexp_program_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        self.runtime_regexp_program_count = self.runtime_regexp_programs.len() as u32;
+        for (source, flags, program) in &self.runtime_regexp_programs {
+            for value in [
+                self.payload(source) as u64,
+                self.payload(flags) as u64,
+                program.ptr as u64,
+                program.instruction_count as u64,
+                program.capture_count as u64,
+                program.split_count as u64,
+                program.repeatable_split_count as u64,
+                program.named_group_table_ptr as u64,
+            ] {
+                self.bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
     }
 
     fn append_regexp_programs(&mut self) {
@@ -1756,17 +2520,66 @@ impl StringPool {
         }
         let padding = (8 - self.bytes.len() % 8) % 8;
         self.bytes.resize(self.bytes.len() + padding, 0);
-        for (encoded, instruction_count) in self.pending_regexp_programs.drain(..) {
+        let pending = std::mem::take(&mut self.pending_regexp_programs);
+        for (key, instruction_count, split_count, repeatable_split_count) in pending {
             let ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-            self.bytes.extend_from_slice(&encoded);
+            let capture_count = key.capture_count;
+            self.bytes.extend_from_slice(&key.encoded_instructions);
+            let named_group_table_ptr = self.append_named_group_table(&key.named_groups);
             self.regexp_programs.insert(
-                encoded,
+                key,
                 RegExpProgramRef {
                     ptr,
                     instruction_count,
+                    capture_count,
+                    split_count,
+                    repeatable_split_count,
+                    named_group_table_ptr,
                 },
             );
         }
+    }
+
+    fn append_named_group_table(&mut self, named_groups: &[(String, Vec<u32>)]) -> u32 {
+        if named_groups.is_empty() {
+            return 0;
+        }
+
+        let padding = (8 - self.bytes.len() % 8) % 8;
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        let table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+        let records_ptr = table_ptr + 32;
+        let total_candidate_count: usize = named_groups
+            .iter()
+            .map(|(_, candidates)| candidates.len())
+            .sum();
+        let candidates_base = records_ptr + (named_groups.len() as u32 * 24);
+
+        for value in [
+            REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION,
+            named_groups.len() as u64,
+            total_candidate_count as u64,
+            records_ptr as u64,
+        ] {
+            self.bytes.extend_from_slice(&value.to_le_bytes());
+        }
+
+        let mut candidate_offset = 0_u32;
+        for (name, candidates) in named_groups {
+            let name_payload = self.payload(name) as u64;
+            let candidates_ptr = candidates_base + candidate_offset;
+            for value in [name_payload, candidates_ptr as u64, candidates.len() as u64] {
+                self.bytes.extend_from_slice(&value.to_le_bytes());
+            }
+            candidate_offset += (candidates.len() * 8) as u32;
+        }
+        for (_, candidates) in named_groups {
+            for &capture_id in candidates {
+                self.bytes
+                    .extend_from_slice(&(capture_id as u64).to_le_bytes());
+            }
+        }
+        table_ptr
     }
 
     pub(crate) fn runtime_bytes_for_string(value: &str) -> Vec<u8> {
@@ -1840,8 +2653,256 @@ impl StringPool {
     pub(crate) fn regexp_program(&self, program: &RegExpProgram) -> RegExpProgramRef {
         *self
             .regexp_programs
-            .get(&program.encode())
+            .get(&RegExpProgramStaticKey::from_program(program))
             .expect("collected RegExp literal program must have static data")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn collect_regexp_program_for_test(
+        &mut self,
+        program: &RegExpProgram,
+    ) -> RegExpProgramRef {
+        self.queue_regexp_program(program);
+        self.append_regexp_programs();
+        self.regexp_program(program)
+    }
+}
+
+fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String>) {
+    match &expr.expr {
+        ExprIr::String(value) => {
+            choices.insert(value.clone());
+        }
+        ExprIr::ArrayLiteral(elements) => {
+            for element in elements {
+                collect_finite_string_choices(element, choices);
+            }
+        }
+        ExprIr::ObjectLiteral(properties) => {
+            for property in properties {
+                match property {
+                    ObjectPropertyIr::PrototypeSetter { value }
+                    | ObjectPropertyIr::Data { value, .. }
+                    | ObjectPropertyIr::NonEnumerableData { value, .. }
+                    | ObjectPropertyIr::ComputedData { value, .. } => {
+                        collect_finite_string_choices(value, choices);
+                    }
+                    ObjectPropertyIr::ComputedMethod { .. }
+                    | ObjectPropertyIr::ComputedGetter { .. }
+                    | ObjectPropertyIr::ComputedSetter { .. }
+                    | ObjectPropertyIr::Method { .. }
+                    | ObjectPropertyIr::Getter { .. }
+                    | ObjectPropertyIr::Setter { .. } => {}
+                }
+            }
+        }
+        ExprIr::Conditional {
+            then_expr,
+            else_expr,
+            ..
+        } => {
+            collect_finite_string_choices(then_expr, choices);
+            collect_finite_string_choices(else_expr, choices);
+        }
+        _ => {}
+    }
+}
+
+fn is_regexp_flags_literal(value: &str) -> bool {
+    let mut seen = BTreeSet::new();
+    value.chars().all(|flag| {
+        matches!(flag, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v' | 'y') && seen.insert(flag)
+    }) && !(seen.contains(&'u') && seen.contains(&'v'))
+}
+
+/// Counts `Split`s that can execute again through a control-flow cycle.
+///
+/// RegExp programs are capped at 4096 instructions, so a small, precise DFS
+/// per split is clearer than maintaining a separate SCC representation here.
+fn repeatable_split_count(program: &RegExpProgram) -> u32 {
+    let instructions = &program.instructions;
+    let successors = |pc: usize| -> Vec<usize> {
+        let Some(instruction) = instructions.get(pc) else {
+            return Vec::new();
+        };
+        let valid = |target: u64| {
+            usize::try_from(target)
+                .ok()
+                .filter(|target| *target < instructions.len())
+        };
+        match instruction.opcode {
+            REGEXP_OPCODE_SPLIT => [valid(instruction.operand0), valid(instruction.operand1)]
+                .into_iter()
+                .flatten()
+                .collect(),
+            REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
+            REGEXP_OPCODE_ACCEPT => Vec::new(),
+            _ if pc + 1 < instructions.len() => vec![pc + 1],
+            _ => Vec::new(),
+        }
+    };
+
+    instructions
+        .iter()
+        .enumerate()
+        .filter(|(_, instruction)| instruction.opcode == REGEXP_OPCODE_SPLIT)
+        .filter(|(split_pc, _)| {
+            let mut visited = vec![false; instructions.len()];
+            let mut stack = successors(*split_pc);
+            while let Some(pc) = stack.pop() {
+                if pc == *split_pc {
+                    return true;
+                }
+                if visited[pc] {
+                    continue;
+                }
+                visited[pc] = true;
+                stack.extend(successors(pc));
+            }
+            false
+        })
+        .count() as u32
+}
+
+fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
+    fn is_consuming(instruction: &porffor_ir::RegExpInstruction) -> bool {
+        matches!(
+            instruction.opcode,
+            REGEXP_OPCODE_LITERAL_ASCII
+                | REGEXP_OPCODE_LITERAL_CODE_POINT
+                | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
+                | REGEXP_OPCODE_NOT_WHITESPACE
+                | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
+                | REGEXP_OPCODE_WHITESPACE
+                | REGEXP_OPCODE_DOT
+                | REGEXP_OPCODE_UNICODE_PROPERTY
+        ) || (instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE
+            && instruction.operand1 != 0)
+    }
+
+    fn visit(pc: usize, instructions: &[porffor_ir::RegExpInstruction], state: &mut [u8]) -> bool {
+        if state[pc] == 1 {
+            return true;
+        }
+        if state[pc] == 2 || is_consuming(&instructions[pc]) {
+            return false;
+        }
+        state[pc] = 1;
+        let instruction = instructions[pc];
+        let valid_target = |target: u64| {
+            usize::try_from(target)
+                .ok()
+                .filter(|target| *target < instructions.len())
+        };
+        let successors = match instruction.opcode {
+            REGEXP_OPCODE_SPLIT => [
+                valid_target(instruction.operand0),
+                valid_target(instruction.operand1),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+            REGEXP_OPCODE_JUMP => valid_target(instruction.operand0).into_iter().collect(),
+            REGEXP_OPCODE_ACCEPT => Vec::new(),
+            _ if pc + 1 < instructions.len() => vec![pc + 1],
+            _ => Vec::new(),
+        };
+        if successors
+            .into_iter()
+            .any(|successor| visit(successor, instructions, state))
+        {
+            return true;
+        }
+        state[pc] = 2;
+        false
+    }
+
+    let mut state = vec![0; program.instructions.len()];
+    (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
+}
+
+#[cfg(test)]
+mod regexp_program_validation_tests {
+    use super::*;
+    use porffor_ir::{RegExpFlags, RegExpInstruction};
+
+    fn program(instructions: Vec<RegExpInstruction>) -> RegExpProgram {
+        RegExpProgram {
+            flags: RegExpFlags::default(),
+            capture_count: 0,
+            named_groups: Vec::new(),
+            instructions,
+        }
+    }
+
+    #[test]
+    fn static_program_named_group_table_is_serialized_and_no_names_use_zero() {
+        let unnamed = RegExpProgram::compile("a", "").expect("program should compile");
+        let named = RegExpProgram::compile("(?<x>a)(?<y>b)", "").expect("program should compile");
+        let mut pool = StringPool::default();
+        let unnamed_ref = pool.collect_regexp_program_for_test(&unnamed);
+        let named_ref = pool.collect_regexp_program_for_test(&named);
+
+        assert_eq!(unnamed_ref.named_group_table_ptr, 0);
+        assert_ne!(named_ref.named_group_table_ptr, 0);
+        let offset = (named_ref.named_group_table_ptr - STATIC_DATA_OFFSET) as usize;
+        let read = |at: usize| u64::from_le_bytes(pool.bytes[at..at + 8].try_into().unwrap());
+        assert_eq!(read(offset), REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION);
+        assert_eq!(read(offset + 8), 2);
+        assert_eq!(read(offset + 16), 2);
+        assert_eq!(
+            read(offset + 24),
+            (named_ref.named_group_table_ptr + 32) as u64
+        );
+        let records = offset + 32;
+        assert_eq!(read(records + 16), 1);
+        assert_eq!(read(records + 40), 1);
+        let candidates = (read(records + 8) - STATIC_DATA_OFFSET as u64) as usize;
+        assert_eq!(read(candidates), 1);
+        assert_eq!(read(candidates + 8), 2);
+        assert_eq!(read(records), pool.payload("x") as u64);
+        assert_eq!(read(records + 24), pool.payload("y") as u64);
+    }
+
+    #[test]
+    fn static_program_dedup_key_includes_named_group_mappings() {
+        let base = RegExpProgram::compile("a", "").expect("program should compile");
+        let mut first = base.clone();
+        first.named_groups.push(porffor_ir::RegExpNamedGroup {
+            name: "x".into(),
+            capture_ids: vec![1],
+        });
+        let mut second = first.clone();
+        second.named_groups[0].capture_ids = vec![2];
+        let mut pool = StringPool::default();
+        let first_ref = pool.collect_regexp_program_for_test(&first);
+        let second_ref = pool.collect_regexp_program_for_test(&second);
+        assert_ne!(first_ref.ptr, second_ref.ptr);
+    }
+
+    #[test]
+    fn rejects_non_consuming_program_cycles_without_rejecting_valid_repetition() {
+        let self_jump = program(vec![RegExpInstruction::jump(0)]);
+        assert!(has_non_consuming_cycle(&self_jump));
+
+        let failed_consuming_loop = program(vec![
+            RegExpInstruction::split(1, 2),
+            RegExpInstruction::literal_ascii(b'a'),
+            RegExpInstruction::jump(0),
+        ]);
+        assert!(has_non_consuming_cycle(&failed_consuming_loop));
+
+        let valid_star = RegExpProgram::compile("a*", "").expect("star should compile");
+        assert!(!has_non_consuming_cycle(&valid_star));
+        let valid_lazy_star = RegExpProgram::compile("a*?b", "").expect("lazy star should compile");
+        assert!(!has_non_consuming_cycle(&valid_lazy_star));
+    }
+
+    #[test]
+    fn counts_repeatable_splits_inside_lookbehind() {
+        let program =
+            RegExpProgram::compile(r"(?<=\w+)f", "").expect("lookbehind repetition should compile");
+        assert_eq!(repeatable_split_count(&program), 1);
     }
 }
 

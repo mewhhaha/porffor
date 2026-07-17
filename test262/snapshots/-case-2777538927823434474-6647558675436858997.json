@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.matchAll/this-not-object-throws.js",
-      "duration_ms": 16952
+      "duration_ms": 8749
     }
   ],
   "timeout_list": [],

@@ -1,0 +1,102 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12659453969415984370,
+  "run_kind": "full",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-symbol-pos-to-integer.js",
+      "duration_ms": 12326
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-this.js",
+      "duration_ms": 11622
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/this-is-null-throws.js",
+      "duration_ms": 9888
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/this-is-undefined-throws.js",
+      "duration_ms": 9759
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-object-pos-to-integer.js",
+      "duration_ms": 9619
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/not-a-constructor.js",
+      "duration_ms": 9438
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-this-as-symbol.js",
+      "duration_ms": 9071
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-utf16-decode.js",
+      "duration_ms": 3680
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-first-code-unit.js",
+      "duration_ms": 3671
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/returns-undefined-on-position-less-than-zero.js",
+      "duration_ms": 3584
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/String/prototype/codePointAt/codePointAt.js",
+    "built-ins/String/prototype/codePointAt/length.js",
+    "built-ins/String/prototype/codePointAt/name.js",
+    "built-ins/String/prototype/codePointAt/not-a-constructor.js",
+    "built-ins/String/prototype/codePointAt/return-abrupt-from-object-pos-to-integer.js",
+    "built-ins/String/prototype/codePointAt/return-abrupt-from-symbol-pos-to-integer.js",
+    "built-ins/String/prototype/codePointAt/return-abrupt-from-this-as-symbol.js",
+    "built-ins/String/prototype/codePointAt/return-abrupt-from-this.js",
+    "built-ins/String/prototype/codePointAt/return-code-unit-coerced-position.js",
+    "built-ins/String/prototype/codePointAt/return-first-code-unit.js",
+    "built-ins/String/prototype/codePointAt/return-single-code-unit.js",
+    "built-ins/String/prototype/codePointAt/return-utf16-decode.js",
+    "built-ins/String/prototype/codePointAt/returns-undefined-on-position-equal-or-more-than-size.js",
+    "built-ins/String/prototype/codePointAt/returns-undefined-on-position-less-than-zero.js",
+    "built-ins/String/prototype/codePointAt/this-is-null-throws.js",
+    "built-ins/String/prototype/codePointAt/this-is-undefined-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -4,15 +4,19 @@ use std::{
 };
 
 use porffor_ir::{
-    private_brand_key, private_data_key, ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, BlockIr,
-    CallableToStringRepresentation, ClassDefinitionIr, ClassFunctionKind, ClassHeritageKind,
-    ClassMethodPlacementIr, DeleteIdentifierKindIr, EqualityBinaryOp, ExprIr, ForInitIr,
-    FunctionFlavor, FunctionId, FunctionIr, FunctionParamIr, HeapShape, HostBuiltinId,
-    JsonStaticValueIr, KindSet, LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr,
-    ObjectShapeProperty, OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr, RelationalBinaryOp,
-    ScriptGlobalBindingIr, ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId,
-    StatementIr, SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode,
-    ValueInfo, ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_BYTE_LENGTH_SLOT,
+    private_brand_key, private_data_key, ArithmeticBinaryOp, ArrayDestructuringElementIr,
+    ArrayDestructuringPatternIr, BindingMode, BitwiseBinaryOp, BlockIr,
+    CallableToStringRepresentation, ClassDefinitionIr, ClassElementDefinitionIr,
+    ClassElementExecutionKind, ClassFieldKeyIr, ClassFunctionKind, ClassHeritageKind,
+    ClassInstanceElementPlanIr, ClassMethodPlacementIr, ClassStaticElementIr,
+    DeleteIdentifierKindIr, DestructuringPropertyKeyIr, DestructuringTargetIr, EqualityBinaryOp,
+    ExprIr, ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr, FunctionFlavor, FunctionId,
+    FunctionIr, FunctionParamIr, HeapShape, HostBuiltinId, JsonStaticValueIr, KindSet,
+    LexicalEnvironmentIr, LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty,
+    OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
+    ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr,
+    SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode, ValueInfo,
+    ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_DATA_PTR_SLOT, ARRAY_BUFFER_IMMUTABLE_SLOT, ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_NAME, ARRAY_BUFFER_RESIZABLE_SLOT, ARRAY_BUFFER_SHARED_SLOT, ARRAY_NAME,
     ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT,
@@ -52,7 +56,7 @@ use data::*;
 pub use emit::emit;
 pub(crate) use emit::{
     BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
-    LabelTargets, LoopTargets, ReturnAbi,
+    LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
 use heap::*;
 use module::*;
@@ -87,6 +91,7 @@ fn typed_expr_has_typed_array_shape(expr: &TypedExpr) -> bool {
 static EMPTY_BLOCK: LazyLock<BlockIr> = LazyLock::new(|| BlockIr {
     statements: Vec::new(),
     result_kind: ValueKind::Undefined,
+    lexical_environment: None,
 });
 
 #[cfg(test)]
@@ -109,6 +114,40 @@ mod tests {
         assert!(program.ir_summary().contains("spec_operations=2"));
         let artifact = emit(&program).expect("spec operation should emit");
         assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn call_spread_iterator_paths_emit_valid_module() {
+        let artifact = emit_script(
+            r#"
+function iterable(values) {
+  return {
+    [Symbol.iterator]() {
+      let index = 0;
+      return {
+        next() {
+          if (index === values.length) return { done: true };
+          return { done: false, value: values[index++] };
+        }
+      };
+    }
+  };
+}
+function collect() { return arguments.length; }
+class Base { constructor(first, second) { this.total = first + second; } }
+class Derived extends Base {
+  constructor(values) { super(1, ...values); }
+}
+let source = iterable([2, 3]);
+let indirect = collect;
+collect(0, ...source, 4);
+indirect(...source);
+new Base(...source);
+new Derived(source);
+"#,
+        )
+        .expect("call spread iterator paths should emit");
+        expect_valid_module(&artifact, 0);
     }
 
     #[test]
@@ -808,6 +847,29 @@ pick(true);"#,
         false
     }
 
+    fn contains_i64_const_store_at_offset(bytes: &[u8], value: i64, offset: u64) -> bool {
+        for payload in Parser::new(0).parse_all(bytes) {
+            if let Payload::CodeSectionEntry(body) = payload.expect("wasm parse should succeed") {
+                let mut reader = body
+                    .get_operators_reader()
+                    .expect("operators should decode");
+                let mut previous_i64_const = None;
+                while !reader.eof() {
+                    match reader.read().expect("operator should decode") {
+                        Operator::I64Const { value } => previous_i64_const = Some(value),
+                        Operator::I64Store { memarg }
+                            if previous_i64_const == Some(value) && memarg.offset == offset =>
+                        {
+                            return true;
+                        }
+                        _ => previous_i64_const = None,
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn global_init_i64s(bytes: &[u8]) -> Vec<i64> {
         let mut values = Vec::new();
         for payload in Parser::new(0).parse_all(bytes) {
@@ -931,6 +993,205 @@ pick(true);"#,
     }
 
     #[test]
+    fn named_class_accessor_capture_module_validates() {
+        let artifact = emit_script(
+            "var seen;
+             class C {
+                 get value() { return C; }
+                 set value(next) { seen = C; }
+             }
+             const original = C;
+             const instance = new C();
+             instance.value;
+             instance.value = null;
+             seen === original;",
+        )
+        .expect("named class accessors should emit");
+        expect_valid_module(&artifact, 3);
+    }
+
+    #[test]
+    fn ordered_class_elements_module_validates() {
+        let artifact = emit_script(
+            "let order = '';
+             function key(name) { order += name; return name; }
+             class C {
+                 [key('a')]() {}
+                 static first = (order += '1', C.later());
+                 static { order += '2'; }
+                 [key('b')]() {}
+                 static #private = (order += '3', 3);
+                 static later() { return 1; }
+                 before = #instance in this;
+                 #instance = 1;
+             }
+             new C();
+             order === 'ab123';",
+        )
+        .expect("ordered class elements should emit");
+        expect_valid_module(&artifact, 8);
+    }
+
+    #[test]
+    fn class_instance_element_boundaries_module_validates() {
+        let artifact = emit_script(
+            "let order = '';
+             class Base { constructor() { order += 's'; } }
+             class Derived extends Base {
+                 field = (order += 'f', 1);
+                 constructor(value = (order += 'p', 1)) {
+                     order += value;
+                     (() => super())();
+                     order += 'a';
+                 }
+             }
+             new Derived();
+             order === 'p1sfa';",
+        )
+        .expect("constructor-bound instance elements should emit");
+        expect_valid_module(&artifact, 4);
+    }
+
+    #[test]
+    fn strict_class_callable_arguments_module_validates() {
+        let artifact = emit_script(
+            "class C {
+                 constructor(value) { value = 2; this.first = arguments[0]; }
+                 method(value) { value = 2; return arguments[0]; }
+                 get value() { return arguments.length; }
+                 set value(next) { next = 2; this.second = arguments[0]; }
+                 static method(value) { value = 2; return arguments[0]; }
+             }
+             const instance = new C(1);
+             instance.method(1);
+             instance.value = 1;
+             C.method(1);",
+        )
+        .expect("strict class callable arguments should emit");
+        expect_valid_module(&artifact, 6);
+    }
+
+    #[test]
+    fn computed_class_field_keys_module_validates() {
+        let artifact = emit_script(
+            "let calls = 0;
+             function key(name) { calls += 1; return name; }
+             class C {
+                 [key('instance')] = 1;
+                 static [key('shared')] = 2;
+             }
+             const first = new C();
+             const second = new C();
+             calls === 2 && first.instance === 1 && second.instance === 1 && C.shared === 2;",
+        )
+        .expect("computed class field keys should emit");
+        expect_valid_module(&artifact, 4);
+    }
+
+    #[test]
+    fn private_expression_operands_are_collected_before_emission() {
+        let artifact = emit_script(
+            "class C {
+                 #value = 0;
+                 read() { return (void 'private-read-target-literal', this).#value; }
+                 write() {
+                     (void 'private-write-target-literal', this).#value =
+                         'private-write-value-literal';
+                 }
+                 has() { return #value in (void 'private-in-rhs-literal', this); }
+             }
+             const instance = new C();
+             instance.read();
+             instance.write();
+             instance.has();",
+        )
+        .expect("private expression operands should be collected");
+        expect_valid_module(&artifact, 4);
+    }
+
+    #[test]
+    fn private_in_rhs_boundary_module_validates() {
+        let artifact = emit_script(
+            "class C {
+                 #field;
+                 nonObject() {
+                     try { #field in {} << 0; } catch (error) {
+                         return error.name === 'TypeError';
+                     }
+                 }
+                 unresolvable() {
+                     try { #field in missingName; } catch (error) {
+                         return error.name === 'ReferenceError';
+                     }
+                 }
+             }
+             const instance = new C();
+             instance.nonObject() && instance.unresolvable();",
+        )
+        .expect("private-in RHS boundaries should emit");
+        expect_valid_module(&artifact, 3);
+    }
+
+    #[test]
+    fn private_assignment_reference_module_validates() {
+        let artifact = emit_script(
+            "class C {
+                 #field;
+                 assign(iterable, object) {
+                     for (this.#field of iterable) {}
+                     for (this.#field in object) {}
+                     [this.#field, ...this.#field] = iterable;
+                     ({ value: this.#field } = { value: 1 });
+                     return this.#field;
+                 }
+             }
+             new C().assign([1, 2], { first: 1, second: 2 });",
+        )
+        .expect("private assignment references should emit");
+        expect_valid_module(&artifact, 4);
+    }
+
+    #[test]
+    fn private_callable_source_names_module_validates() {
+        let artifact = emit_script(
+            "class C {
+                 #instanceMethod() {}
+                 static #staticMethod() {}
+                 instanceName() { return this.#instanceMethod.name; }
+                 static staticName() { return this.#staticMethod.name; }
+                 publicMethod() {}
+             }
+             const instance = new C();
+             instance.instanceName() === '#instanceMethod'
+                 && C.staticName() === '#staticMethod'
+                 && C.publicMethod.name === 'C.publicMethod';",
+        )
+        .expect("private callable source names should emit");
+        expect_valid_module(&artifact, 5);
+    }
+
+    #[test]
+    fn optional_private_access_module_validates() {
+        let artifact = emit_script(
+            "class C {
+                 #field = 1;
+                 get #value() { return this.#field; }
+                 #method() { return this; }
+                 read(o) { return o?.c.#field; }
+                 readGetter(o) { return o?.#value; }
+                 call(o) { return o?.#method(); }
+             }
+             const instance = new C();
+             instance.read({ c: instance }) === 1
+                 && instance.read(null) === undefined
+                 && instance.readGetter(instance) === 1
+                 && instance.call(instance) === instance;",
+        )
+        .expect("optional private access should emit");
+        expect_valid_module(&artifact, 7);
+    }
+
+    #[test]
     fn json_parse_number_validation_module_validates() {
         let artifact = emit_script(r#"JSON.parse("00");"#).expect("emit should work");
         expect_valid_module(&artifact, 0);
@@ -979,6 +1240,46 @@ desc;
         )
         .expect("emit should work");
         expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn outlined_ordinary_set_receiver_paths_validate() {
+        let artifact = emit_script(
+            r#"
+var setterReceiver;
+var prototype = {};
+Object.defineProperty(prototype, "value", {
+  set(next) { setterReceiver = this; }
+});
+var receiver = Object.create(prototype);
+receiver.value = 1;
+
+var symbol = Symbol("value");
+Reflect.set(receiver, symbol, 2);
+
+function updateMapped(argument) {
+  Object.defineProperty(arguments, "0", { writable: true });
+  arguments[0] = 3;
+  return argument;
+}
+updateMapped(2);
+
+var array = [];
+Reflect.set(array, "length", 1);
+
+var target = {};
+Object.defineProperty(target, "fixed", {
+  configurable: false,
+  writable: false,
+  value: 4
+});
+var proxy = new Proxy(target, { set() { return true; } });
+try { proxy.fixed = 5; } catch (error) {}
+setterReceiver === receiver;
+"#,
+        )
+        .expect("ordinary receiver set paths should emit");
+        expect_valid_module(&artifact, 3);
     }
 
     #[test]
@@ -1056,6 +1357,193 @@ desc;
     }
 
     #[test]
+    fn regexp_static_program_refs_preserve_capture_count_metadata() {
+        let capture_program = porffor_ir::RegExpProgram::compile(r"(\d+)", "")
+            .expect("capture program should compile");
+        let no_capture_program = porffor_ir::RegExpProgram::compile(r"\d+", "")
+            .expect("non-capture program should compile");
+        let mut pool = StringPool::default();
+
+        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
+        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
+
+        assert_eq!(capture_ref.capture_count, 1);
+        assert_eq!(no_capture_ref.capture_count, 0);
+        assert_eq!(
+            capture_ref.split_count as usize,
+            capture_program
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.opcode == porffor_ir::REGEXP_OPCODE_SPLIT)
+                .count()
+        );
+        assert_eq!(
+            no_capture_ref.split_count as usize,
+            no_capture_program
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.opcode == porffor_ir::REGEXP_OPCODE_SPLIT)
+                .count()
+        );
+        assert_eq!(capture_ref.repeatable_split_count, 1);
+        assert_eq!(no_capture_ref.repeatable_split_count, 1);
+    }
+
+    #[test]
+    fn regexp_static_program_refs_distinguish_repeatable_splits() {
+        let cases = [
+            ("a?a?", 2, 0),
+            ("a?b*", 2, 1),
+            ("(a|b)*", 2, 2),
+            (r"(?<=\w+)f", 2, 1),
+        ];
+        let mut pool = StringPool::default();
+        for (pattern, split_count, repeatable_split_count) in cases {
+            let program =
+                porffor_ir::RegExpProgram::compile(pattern, "").expect("program should compile");
+            let reference = pool.collect_regexp_program_for_test(&program);
+            assert_eq!(reference.split_count, split_count, "{pattern}");
+            assert_eq!(
+                reference.repeatable_split_count, repeatable_split_count,
+                "{pattern}"
+            );
+        }
+    }
+
+    #[test]
+    fn regexp_static_program_dedup_key_includes_capture_count() {
+        let no_capture_program =
+            porffor_ir::RegExpProgram::compile("a", "").expect("program should compile");
+        let mut capture_program = no_capture_program.clone();
+        capture_program.capture_count = 1;
+        assert_eq!(no_capture_program.encode(), capture_program.encode());
+        assert_ne!(
+            RegExpProgramStaticKey::from_program(&no_capture_program),
+            RegExpProgramStaticKey::from_program(&capture_program),
+            "capture metadata must be part of static-program identity"
+        );
+
+        let mut pool = StringPool::default();
+        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
+        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
+        assert_ne!(no_capture_ref.ptr, capture_ref.ptr);
+        assert_eq!(pool.bytes.len(), no_capture_program.encode().len() * 2);
+    }
+
+    #[test]
+    fn regexp_literal_initializes_capture_count_slot() {
+        let artifact = emit_script(r"/(\d+)/;").expect("emit should work");
+        assert!(
+            contains_i64_const_store_at_offset(
+                &artifact.bytes,
+                1,
+                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            ),
+            "literal allocation should initialize the immutable capture count"
+        );
+
+        let no_capture_artifact = emit_script(r"/\d+/;").expect("emit should work");
+        assert!(
+            contains_i64_const_store_at_offset(
+                &no_capture_artifact.bytes,
+                0,
+                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            ),
+            "no-capture literal allocation should initialize capture count to zero"
+        );
+    }
+
+    #[test]
+    fn regexp_literal_initializes_split_count_slot() {
+        let artifact = emit_script(r"/(a|b)/;").expect("emit should work");
+        assert!(
+            contains_i64_const_store_at_offset(
+                &artifact.bytes,
+                1,
+                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            ),
+            "literal allocation should initialize immutable split metadata"
+        );
+
+        let no_choice_artifact = emit_script(r"/(a)/;").expect("emit should work");
+        assert!(
+            contains_i64_const_store_at_offset(
+                &no_choice_artifact.bytes,
+                0,
+                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            ),
+            "choice-free literal allocation should initialize split metadata to zero"
+        );
+    }
+
+    #[test]
+    fn regexp_literal_initializes_repeatable_split_count_slot() {
+        let artifact = emit_script(r"/a?b*/;").expect("emit should work");
+        assert!(contains_i64_const_store_at_offset(
+            &artifact.bytes,
+            1,
+            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+        ));
+
+        let no_repeat_artifact = emit_script(r"/a?a?/;").expect("emit should work");
+        assert!(contains_i64_const_store_at_offset(
+            &no_repeat_artifact.bytes,
+            0,
+            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+        ));
+    }
+
+    #[test]
+    fn constructed_constant_regexp_collects_deduplicated_program_and_initializes_slots() {
+        let artifact =
+            emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).expect("emit should work");
+        let program =
+            porffor_ir::RegExpProgram::compile("(a|b)*", "").expect("program should compile");
+        let encoded = program.encode();
+        let data = data_segment_bytes(&artifact.bytes);
+        assert_eq!(
+            data.windows(encoded.len())
+                .filter(|candidate| *candidate == encoded)
+                .count(),
+            1,
+            "identical constructed programs should share one blob"
+        );
+        let program_ptr = STATIC_DATA_OFFSET as i64
+            + data
+                .windows(encoded.len())
+                .position(|candidate| candidate == encoded)
+                .expect("program data should be present") as i64;
+        let reference = {
+            let mut pool = StringPool::default();
+            pool.collect_regexp_program_for_test(&program)
+        };
+        for (value, offset) in [
+            (program_ptr, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
+            (
+                reference.instruction_count as i64,
+                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            ),
+            (
+                reference.capture_count as i64,
+                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            ),
+            (
+                reference.split_count as i64,
+                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            ),
+            (
+                reference.repeatable_split_count as i64,
+                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            ),
+        ] {
+            assert!(
+                contains_i64_const_store_at_offset(&artifact.bytes, value, offset),
+                "constructed regexp should initialize matcher slot {offset}"
+            );
+        }
+    }
+
+    #[test]
     fn large_static_string_data_increases_initial_memory_pages() {
         let source = format!("\"{}\";", "x".repeat(WASM_PAGE_SIZE as usize));
         let artifact = emit_script(&source).expect("emit should work");
@@ -1096,6 +1584,60 @@ desc;
         .expect("emit should work");
         expect_valid_module(&artifact, 1);
         assert!(artifact.debug_dump.contains("internal functions: "));
+    }
+
+    #[test]
+    fn outlined_function_call_preserves_receiver_and_arguments_module_validates() {
+        let artifact = emit_script(
+            "function combine(left, right) { return this.base + left + right; } let receiver = { base: 4, combine: combine }; receiver.combine(2, 3);",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn outlined_function_call_throw_routing_module_validates() {
+        let artifact = emit_script(
+            "function fail(value) { throw value; } let caught = 0; try { fail(7); } catch (error) { caught = error; } caught;",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn outlined_proxy_fallback_call_module_validates() {
+        let artifact = emit_script(
+            "function combine(left, right) { return this.base + left + right; } let callable = new Proxy(combine, {}); let receiver = { base: 4, callable: callable }; receiver.callable(2, 3);",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn outlined_dynamic_property_read_normalizes_computed_key_once_module_validates() {
+        let artifact = emit_script(
+            "let calls = 0; let key = { [Symbol.toPrimitive]() { calls += 1; return \"value\"; } }; let object = { value: 3 }; let absent = null; let skipped = absent?.[key]; let read = object?.[key]; calls === 1 && skipped === undefined && read === 3;",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn outlined_dynamic_property_read_preserves_runtime_exotics_module_validates() {
+        let artifact = emit_script(
+            "function readArguments() { return arguments?.length === 3 && arguments?.[1] === 2; } let key = Symbol(\"key\"); let object = { [key]: 5 }; let values = [1, 2]; \"ab\"?.[1] === \"b\" && values?.length === 2 && object?.[key] === 5 && readArguments(1, 2, 3);",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn outlined_dynamic_property_read_preserves_proxy_receiver_module_validates() {
+        let artifact = emit_script(
+            "let seen = false; let proxy; let target = { get value() { return this === proxy ? 7 : 0; } }; proxy = new Proxy(target, { get(target, key, receiver) { seen = key === \"value\" && receiver === proxy; return Reflect.get(target, key, receiver); } }); proxy?.value === 7 && seen;",
+        )
+        .expect("emit should work");
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]

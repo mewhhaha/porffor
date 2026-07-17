@@ -313,6 +313,8 @@ fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boa_ast::operations::{annex_b_function_declarations, annex_b_function_declarations_names};
+    use boa_ast::{Declaration, StatementListItem};
 
     #[test]
     fn script_rejects_module_syntax() {
@@ -447,5 +449,314 @@ var ref = async (aFalse = falseCount +=1, aString = stringCount += 1, aNaN = nan
     fn parser_accepts_simple_module_syntax() {
         parse("export const value = 1;", ParseOptions::module())
             .expect("module goal should accept export");
+    }
+
+    #[test]
+    fn parser_accepts_sloppy_annex_b_block_functions() {
+        for source in [
+            "if (true) function then_branch() {} else function else_branch() {}",
+            "label: function labelled() {}",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect("sloppy Annex B block function should parse");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_annex_b_block_functions_in_strict_and_module_code() {
+        let cases = [
+            (
+                "'use strict'; if (true) function strict_script() {}",
+                ParseOptions::script(),
+            ),
+            (
+                "function outer() { 'use strict'; if (true) function strict_function() {} }",
+                ParseOptions::script(),
+            ),
+            (
+                "'use strict'; label: function strict_label() {}",
+                ParseOptions::script(),
+            ),
+            ("if (true) function module_if() {}", ParseOptions::module()),
+            ("label: function module_label() {}", ParseOptions::module()),
+        ];
+
+        for (source, options) in cases {
+            parse(source, options).expect_err("strict and module Annex B forms should fail");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_labelled_functions_nested_under_if_and_loop() {
+        for source in [
+            "if (true) label: function nested_if() {}",
+            "while (false) label: function nested_loop() {}",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect_err("labelled function nested under a control-flow statement should fail");
+        }
+    }
+
+    #[test]
+    fn annex_b_declarations_preserve_each_eligible_function_identity() {
+        let source = r#"
+{
+    function sibling() {}
+}
+{
+    function sibling() {}
+}
+switch (0) {
+    case 0:
+        function switch_function() {}
+        break;
+    default:
+        function switch_function() {}
+}
+{
+    function protected() {}
+}
+{
+    let protected;
+    {
+        function protected() {}
+    }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            [
+                "sibling",
+                "sibling",
+                "switch_function",
+                "switch_function",
+                "protected",
+            ]
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert!(!core::ptr::eq(declarations[0], declarations[1]));
+        assert!(!core::ptr::eq(declarations[2], declarations[3]));
+        assert_eq!(
+            annex_b_function_declarations_names(&script)
+                .into_iter()
+                .map(|name| interner.resolve_expect(name).to_string())
+                .collect::<Vec<_>>(),
+            ["sibling", "switch_function", "protected"]
+        );
+    }
+
+    #[test]
+    fn annex_b_script_direct_function_allows_nested_candidate_with_the_same_name() {
+        let source = "function f() { return 1; } { function f() { return 2; } } f() === 2;";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+        let StatementListItem::Declaration(declaration) = &script.statements().statements()[0]
+        else {
+            panic!("script should begin with a function declaration");
+        };
+        let Declaration::FunctionDeclaration(direct_function) = declaration.as_ref() else {
+            panic!("script should begin with an ordinary function declaration");
+        };
+
+        let declarations = annex_b_function_declarations(&script);
+
+        assert_eq!(declarations.len(), 1);
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f() { return 2; }",
+            "the nested Annex B declaration should update the script's var-scoped binding"
+        );
+        assert!(
+            !core::ptr::eq(declarations[0], direct_function),
+            "the direct script declaration is not itself an Annex B candidate"
+        );
+    }
+
+    #[test]
+    fn annex_b_function_body_direct_function_allows_nested_candidate_with_the_same_name() {
+        let source = "function outer() { function f() { return 1; } { function f() { return 2; } } return f() === 2; }";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+        let StatementListItem::Declaration(declaration) = &script.statements().statements()[0]
+        else {
+            panic!("script should begin with the enclosing function declaration");
+        };
+        let Declaration::FunctionDeclaration(outer_function) = declaration.as_ref() else {
+            panic!("script should begin with an ordinary function declaration");
+        };
+        let StatementListItem::Declaration(declaration) = &outer_function.body().statements()[0]
+        else {
+            panic!("function body should begin with a function declaration");
+        };
+        let Declaration::FunctionDeclaration(direct_function) = declaration.as_ref() else {
+            panic!("function body should begin with an ordinary function declaration");
+        };
+
+        let declarations = annex_b_function_declarations(outer_function.body());
+
+        assert_eq!(declarations.len(), 1);
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f() { return 2; }",
+            "the nested Annex B declaration should update the function body's var-scoped binding"
+        );
+        assert!(
+            !core::ptr::eq(declarations[0], direct_function),
+            "the direct function-body declaration is not itself an Annex B candidate"
+        );
+    }
+
+    #[test]
+    fn annex_b_direct_function_blocks_only_nested_candidate_with_same_name() {
+        let source = r#"
+{
+    { function before() {} }
+    function protected() {}
+    { function protected() {} }
+    { function sibling() {} }
+    { function after() {} }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["before", "protected", "sibling", "after"]);
+        assert_eq!(
+            declarations[1].linear_span().start().pos(),
+            source
+                .find("function protected() {}")
+                .expect("source should contain the direct declaration")
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert_eq!(
+            annex_b_function_declarations_names(&script)
+                .into_iter()
+                .map(|name| interner.resolve_expect(name).to_string())
+                .collect::<Vec<_>>(),
+            ["before", "protected", "sibling", "after"]
+        );
+    }
+
+    #[test]
+    fn annex_b_direct_function_blocks_nested_if_candidate_with_same_name() {
+        let source = "{ function f(){1} if (true) function f(){2} }";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(
+            interner
+                .resolve_expect(declarations[0].name().sym())
+                .to_string(),
+            "f",
+            "the direct declaration should remain eligible"
+        );
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f(){1}",
+            "the nested if declaration must not replace the direct declaration"
+        );
+    }
+
+    #[test]
+    fn annex_b_switch_direct_functions_block_nested_candidates_with_the_same_name() {
+        let source = r#"
+switch (0) {
+    case 0:
+        { function f() { 0 } }
+        { function before() {} }
+        function f() { 1 }
+        break;
+    case 1:
+        { function after() {} }
+        function f() { 2 }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["before", "f", "after", "f"]);
+        assert_eq!(
+            declarations
+                .iter()
+                .map(|function| {
+                    let span = function.linear_span();
+                    &source[span.start().pos()..span.end().pos()]
+                })
+                .collect::<Vec<_>>(),
+            [
+                "function before() {}",
+                "function f() { 1 }",
+                "function after() {}",
+                "function f() { 2 }",
+            ]
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert!(!core::ptr::eq(declarations[1], declarations[3]));
+    }
+
+    #[test]
+    fn parser_accepts_annex_b_html_comments_in_scripts() {
+        for source in [
+            "<!-- open comment\nconst open_comment = 1;",
+            "const close_comment = 1;\n--> close comment",
+            "'use strict';\n<!-- strict comment\nconst strict_comment = 1;\n--> close comment",
+        ] {
+            parse(source, ParseOptions::script()).expect("script HTML comment should parse");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_annex_b_html_comments_in_modules() {
+        for source in [
+            "<!-- open comment\nexport const open_comment = 1;",
+            "export const close_comment = 1;\n--> close comment",
+        ] {
+            parse(source, ParseOptions::module()).expect_err("module HTML comment should fail");
+        }
     }
 }

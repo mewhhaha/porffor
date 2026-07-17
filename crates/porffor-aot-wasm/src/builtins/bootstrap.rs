@@ -274,6 +274,38 @@ impl<'a> FunctionBuilder<'a> {
                     has_own_property_meta,
                     function,
                 )?;
+                let lookup_getter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectPrototypeLookupGetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.__lookupGetter__`",
+                        )
+                    })?;
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "__lookupGetter__",
+                    lookup_getter_meta,
+                    function,
+                )?;
+                let lookup_setter_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectPrototypeLookupSetter.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.prototype.__lookupSetter__`",
+                        )
+                    })?;
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "__lookupSetter__",
+                    lookup_setter_meta,
+                    function,
+                )?;
                 let property_is_enumerable_meta = self
                     .functions
                     .get(
@@ -616,6 +648,33 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.exec`",
                         )
                     })?;
+                let test_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeTest.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.test`",
+                        )
+                    })?;
+                let compile_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeCompile.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.compile`",
+                        )
+                    })?;
+                let to_string_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeToString.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype.toString`",
+                        )
+                    })?;
                 let match_all_meta = self
                     .functions
                     .get(&StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id())
@@ -625,8 +684,38 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.matchAll]`",
                         )
                     })?;
+                let split_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeSymbolSplit.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.split]`",
+                        )
+                    })?;
+                let replace_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::RegExpPrototypeSymbolReplace.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `RegExp.prototype[Symbol.replace]`",
+                        )
+                    })?;
                 function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(object_local));
+                self.emit_object_define_function_data(
+                    object_local,
+                    "compile",
+                    &compile_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "toString",
+                    &to_string_meta,
+                    function,
+                )?;
                 function.instruction(&Instruction::I64Const(self.strings.payload("exec")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&exec_meta, function)?;
@@ -647,6 +736,7 @@ impl<'a> FunctionBuilder<'a> {
                     true,
                     function,
                 )?;
+                self.emit_object_define_function_data(object_local, "test", &test_meta, function)?;
                 for (name, getter) in [
                     ("source", StandardBuiltinId::RegExpPrototypeSourceGetter),
                     (
@@ -734,12 +824,46 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.replace"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(&replace_meta, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
                     self.strings.payload("Symbol.search"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(
                     REGEXP_PROTOTYPE_SYMBOL_SEARCH_GLOBAL_INDEX,
                 ));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.split")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(&split_meta, function)?;
                 function.instruction(&Instruction::LocalSet(payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(tag_local));
@@ -993,6 +1117,14 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from`",
                         )
                     })?;
+                let zip_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorZip.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zip`",
+                        )
+                    })?;
                 let wrapper_return_meta = self
                     .functions
                     .get(&StandardBuiltinId::IteratorFromWrapperReturn.function_id())
@@ -1007,6 +1139,22 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `%WrapForValidIteratorPrototype%.next`",
+                        )
+                    })?;
+                let helper_next_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorHelperNext.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorHelperPrototype%.next`",
+                        )
+                    })?;
+                let helper_return_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorHelperReturn.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `%IteratorHelperPrototype%.return`",
                         )
                     })?;
                 let iterator_meta = self
@@ -1043,6 +1191,7 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
 
                 self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+                self.emit_object_define_function_data(object_local, "zip", zip_meta, function)?;
                 function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
@@ -1196,6 +1345,42 @@ impl<'a> FunctionBuilder<'a> {
                     wrapper_return_meta,
                     function,
                 )?;
+                function.instruction(&Instruction::GlobalGet(
+                    ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "next",
+                    helper_next_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "return",
+                    helper_return_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Iterator Helper"),
+                ));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
                 self.release_temp_local(setter_tag_local);
                 self.release_temp_local(setter_payload_local);
                 self.release_temp_local(tag_local);
@@ -1290,8 +1475,17 @@ impl<'a> FunctionBuilder<'a> {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.join`",
                         )
-                    })?;
+                })?;
                 self.emit_object_define_function_data(object_local, "join", join_meta, function)?;
+                let slice_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSlice.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.slice`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "slice", slice_meta, function)?;
                 let splice_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypeSplice.function_id())
@@ -1306,6 +1500,24 @@ impl<'a> FunctionBuilder<'a> {
                     splice_meta,
                     function,
                 )?;
+                let fill_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.fill`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "fill", fill_meta, function)?;
+                let sort_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeSort.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.sort`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "sort", sort_meta, function)?;
                 let to_locale_string_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypeToLocaleString.function_id())
@@ -1352,6 +1564,85 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 self.emit_object_define_function_data(object_local, "at", at_meta, function)?;
+                let to_reversed_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeToReversed.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.toReversed`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "toReversed",
+                    to_reversed_meta,
+                    function,
+                )?;
+                let to_spliced_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeToSpliced.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.toSpliced`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "toSpliced",
+                    to_spliced_meta,
+                    function,
+                )?;
+                let to_sorted_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeToSorted.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.toSorted`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "toSorted",
+                    to_sorted_meta,
+                    function,
+                )?;
+                let with_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeWith.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.with`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "with", with_meta, function)?;
+                let reverse_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeReverse.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.reverse`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "reverse",
+                    reverse_meta,
+                    function,
+                )?;
+                let copy_within_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeCopyWithin.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.copyWithin`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "copyWithin",
+                    copy_within_meta,
+                    function,
+                )?;
                 let includes_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypeIncludes.function_id())
@@ -1546,6 +1837,29 @@ impl<'a> FunctionBuilder<'a> {
                         )
                 })?;
                 self.emit_object_define_function_data(object_local, "push", push_meta, function)?;
+                let shift_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeShift.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.shift`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "shift", shift_meta, function)?;
+                let unshift_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ArrayPrototypeUnshift.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.unshift`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "unshift",
+                    unshift_meta,
+                    function,
+                )?;
                 let keys_meta = self
                     .functions
                     .get(&StandardBuiltinId::ArrayPrototypeKeys.function_id())
@@ -1577,18 +1891,77 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Array.prototype.values`",
                         )
                     })?;
-                self.emit_object_define_function_data(
+                self.emit_object_define_function_data_with_aliases(
                     object_local,
                     "values",
+                    &["Symbol.iterator"],
                     values_meta,
                     function,
                 )?;
-                self.emit_object_define_function_data(
+
+                let unscopables_local = self.reserve_temp_local();
+                let unscopables_key_local = self.reserve_temp_local();
+                let unscopables_value_local = self.reserve_temp_local();
+                let unscopables_value_tag_local = self.reserve_temp_local();
+                self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+                function.instruction(&Instruction::LocalSet(unscopables_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(unscopables_value_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(unscopables_value_tag_local));
+                for name in [
+                    "at",
+                    "copyWithin",
+                    "entries",
+                    "fill",
+                    "find",
+                    "findIndex",
+                    "findLast",
+                    "findLastIndex",
+                    "flat",
+                    "flatMap",
+                    "includes",
+                    "keys",
+                    "toReversed",
+                    "toSorted",
+                    "toSpliced",
+                    "values",
+                ] {
+                    function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                    function.instruction(&Instruction::LocalSet(unscopables_key_local));
+                    self.emit_object_append_data_property_with_flags(
+                        unscopables_local,
+                        unscopables_key_local,
+                        unscopables_value_local,
+                        unscopables_value_tag_local,
+                        true,
+                        true,
+                        true,
+                        function,
+                    )?;
+                }
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.unscopables"),
+                ));
+                function.instruction(&Instruction::LocalSet(unscopables_key_local));
+                function.instruction(&Instruction::LocalGet(unscopables_local));
+                function.instruction(&Instruction::LocalSet(unscopables_value_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(unscopables_value_tag_local));
+                self.emit_object_append_data_property_with_flags(
                     object_local,
-                    "Symbol.iterator",
-                    values_meta,
+                    unscopables_key_local,
+                    unscopables_value_local,
+                    unscopables_value_tag_local,
+                    false,
+                    false,
+                    true,
                     function,
                 )?;
+                self.release_temp_local(unscopables_value_tag_local);
+                self.release_temp_local(unscopables_value_local);
+                self.release_temp_local(unscopables_key_local);
+                self.release_temp_local(unscopables_local);
             }
             StandardBuiltinId::StringConstructor => {
                 function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
@@ -1608,6 +1981,7 @@ impl<'a> FunctionBuilder<'a> {
                     StandardBuiltinId::StringPrototypeToString,
                     StandardBuiltinId::StringPrototypeValueOf,
                     StandardBuiltinId::StringPrototypeCharAt,
+                    StandardBuiltinId::StringPrototypeConcat,
                     StandardBuiltinId::StringPrototypeCharCodeAt,
                     StandardBuiltinId::StringPrototypeCodePointAt,
                     StandardBuiltinId::StringPrototypeAt,
@@ -1641,6 +2015,11 @@ impl<'a> FunctionBuilder<'a> {
                     StandardBuiltinId::StringPrototypeEndsWith,
                     StandardBuiltinId::StringPrototypeIncludes,
                     StandardBuiltinId::StringPrototypeStartsWith,
+                    StandardBuiltinId::StringPrototypeNormalize,
+                    StandardBuiltinId::StringPrototypeLocaleCompare,
+                    StandardBuiltinId::StringPrototypeToLocaleLowerCase,
+                    StandardBuiltinId::StringPrototypeToLocaleUpperCase,
+                    StandardBuiltinId::StringPrototypeToLowerCase,
                     StandardBuiltinId::StringPrototypeToUpperCase,
                     StandardBuiltinId::StringPrototypeTrim,
                     StandardBuiltinId::StringPrototypeTrimStart,
@@ -1681,9 +2060,9 @@ impl<'a> FunctionBuilder<'a> {
                         )?,
                     }
                 }
-                let values_meta = self
+                let iterator_meta = self
                     .functions
-                    .get(&StandardBuiltinId::ArrayPrototypeValues.function_id())
+                    .get(&StandardBuiltinId::StringPrototypeIterator.function_id())
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `String.prototype[Symbol.iterator]`",
@@ -1692,7 +2071,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_object_define_function_data(
                     object_local,
                     "Symbol.iterator",
-                    values_meta,
+                    iterator_meta,
                     function,
                 )?;
             }
@@ -2745,6 +3124,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::StringPrototypeToString
             | StandardBuiltinId::StringPrototypeValueOf
             | StandardBuiltinId::StringPrototypeCharAt
+            | StandardBuiltinId::StringPrototypeConcat
             | StandardBuiltinId::StringPrototypeCharCodeAt
             | StandardBuiltinId::StringPrototypeCodePointAt
             | StandardBuiltinId::StringPrototypeAt
@@ -2766,6 +3146,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ObjectIsExtensible
             | StandardBuiltinId::ObjectPreventExtensions
             | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+            | StandardBuiltinId::ObjectPrototypeLookupGetter
+            | StandardBuiltinId::ObjectPrototypeLookupSetter
             | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
             | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
             | StandardBuiltinId::ObjectPrototypeToString
@@ -2841,11 +3223,19 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::MathMax
             | StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypeJoin
+            | StandardBuiltinId::ArrayPrototypeSlice
             | StandardBuiltinId::ArrayPrototypeSplice
+            | StandardBuiltinId::ArrayPrototypeSort
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::ArrayPrototypeFlat
             | StandardBuiltinId::ArrayPrototypeFlatMap
             | StandardBuiltinId::ArrayPrototypeAt
+            | StandardBuiltinId::ArrayPrototypeToReversed
+            | StandardBuiltinId::ArrayPrototypeToSpliced
+            | StandardBuiltinId::ArrayPrototypeToSorted
+            | StandardBuiltinId::ArrayPrototypeWith
+            | StandardBuiltinId::ArrayPrototypeReverse
+            | StandardBuiltinId::ArrayPrototypeCopyWithin
             | StandardBuiltinId::ArrayPrototypeIncludes
             | StandardBuiltinId::ArrayPrototypeIndexOf
             | StandardBuiltinId::ArrayPrototypeLastIndexOf
@@ -2862,12 +3252,18 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ArrayPrototypeReduceRight
             | StandardBuiltinId::ArrayPrototypePop
             | StandardBuiltinId::ArrayPrototypePush
+            | StandardBuiltinId::ArrayPrototypeShift
+            | StandardBuiltinId::ArrayPrototypeUnshift
+            | StandardBuiltinId::ArrayPrototypeFill
             | StandardBuiltinId::ArrayPrototypeKeys
             | StandardBuiltinId::ArrayPrototypeEntries
             | StandardBuiltinId::ArrayPrototypeValues
             | StandardBuiltinId::ArrayIteratorNext
             | StandardBuiltinId::ArrayIteratorIdentity
+            | StandardBuiltinId::StringIteratorNext
             | StandardBuiltinId::IteratorFrom
+            | StandardBuiltinId::IteratorHelperNext
+            | StandardBuiltinId::IteratorHelperReturn
             | StandardBuiltinId::IteratorPrototypeToArray
             | StandardBuiltinId::IteratorPrototypeForEach
             | StandardBuiltinId::IteratorPrototypeEvery
@@ -2937,6 +3333,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
             | StandardBuiltinId::TypedArrayPrototypeLengthGetter
             | StandardBuiltinId::TypedArrayPrototypeToString
+            | StandardBuiltinId::TypedArrayPrototypeJoin
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString
             | StandardBuiltinId::TypedArrayFrom
             | StandardBuiltinId::TypedArrayOf
@@ -2983,13 +3380,24 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::RegExpPrototypeUnicodeGetter
             | StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter
             | StandardBuiltinId::RegExpPrototypeStickyGetter
+            | StandardBuiltinId::RegExpPrototypeCompile
             | StandardBuiltinId::RegExpPrototypeExec
+            | StandardBuiltinId::RegExpPrototypeTest
+            | StandardBuiltinId::RegExpPrototypeToString
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+            | StandardBuiltinId::RegExpPrototypeSymbolReplace
             | StandardBuiltinId::RegExpPrototypeSymbolSearch
+            | StandardBuiltinId::RegExpPrototypeSymbolSplit
             | StandardBuiltinId::StringPrototypeEndsWith
             | StandardBuiltinId::StringPrototypeIncludes
             | StandardBuiltinId::StringPrototypeStartsWith
+            | StandardBuiltinId::StringPrototypeNormalize
+            | StandardBuiltinId::StringPrototypeLocaleCompare
+            | StandardBuiltinId::StringPrototypeIterator
+            | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+            | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+            | StandardBuiltinId::StringPrototypeToLowerCase
             | StandardBuiltinId::StringPrototypeToUpperCase
             | StandardBuiltinId::StringPrototypeTrim
             | StandardBuiltinId::StringPrototypeTrimStart
@@ -3036,6 +3444,9 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::DatePrototypeToUtcString
             | StandardBuiltinId::DateUtc
             | StandardBuiltinId::ArrayOf
+            | StandardBuiltinId::IteratorZip
+            | StandardBuiltinId::IteratorZipNext
+            | StandardBuiltinId::IteratorZipReturn
             | StandardBuiltinId::ErrorPrototypeToString
             | StandardBuiltinId::BoundFunctionInvoker
             | StandardBuiltinId::RegExpLegacyStaticGetter
@@ -3060,6 +3471,9 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::AtomicsXor
             | StandardBuiltinId::AtomicsIsLockFree
             | StandardBuiltinId::EvalFunction
+            | StandardBuiltinId::StringFromCharCode
+            | StandardBuiltinId::StringFromCodePoint
+            | StandardBuiltinId::StringRaw
             | StandardBuiltinId::ThrowTypeError
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape
@@ -3100,6 +3514,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(thrower_payload_local));
         function.instruction(&Instruction::LocalGet(thrower_payload_local));
         function.instruction(&Instruction::GlobalSet(THROW_TYPE_ERROR_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            THROW_TYPE_ERROR_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
+            function,
+        );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(thrower_tag_local));
 
@@ -3632,6 +4051,21 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        let join_meta = self
+            .functions
+            .get(&StandardBuiltinId::TypedArrayPrototypeJoin.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `TypedArray.prototype.join`",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            typed_array_prototype_local,
+            "join",
+            join_meta,
+            function,
+        )?;
+
         let values_meta = self
             .functions
             .get(&StandardBuiltinId::ArrayPrototypeValues.function_id())
@@ -4006,6 +4440,54 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn init_string_iterator_prototype(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prototype_local = self.reserve_temp_local();
+        let next_meta = self
+            .functions
+            .get(&StandardBuiltinId::StringIteratorNext.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `String Iterator.prototype.next`",
+                )
+            })?;
+        function.instruction(&Instruction::GlobalGet(
+            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.emit_object_define_function_data(prototype_local, "next", next_meta, function)?;
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("String Iterator"),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
     pub(crate) fn init_runtime_roots(&mut self, function: &mut Function) -> Result<(), EmitError> {
         if !self.is_main() {
             return Ok(());
@@ -4070,6 +4552,24 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -4078,6 +4578,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -4085,6 +4590,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::GlobalSet(
             ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
         ));
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -4343,12 +4856,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
             regexp_prototype_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_REGEXP,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            regexp_prototype_local,
             HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
             self.strings.payload("(?:)") as u64,
             function,
@@ -4361,6 +4868,14 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(regexp_prototype_local));
         function.instruction(&Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_intrinsic_prototype(
+            self.scratch_local,
+            HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+            regexp_prototype_local,
+            function,
+        );
         self.release_temp_local(regexp_prototype_local);
         // These per-realm function-value globals cache the `@@match`/`@@matchAll`/
         // `@@search` methods and the shared Array/TypedArray `toString`. Their only
@@ -4478,6 +4993,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
         self.init_array_iterator_prototype(function)?;
+        self.init_string_iterator_prototype(function)?;
         let array_iterator_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(
             ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
@@ -4491,6 +5007,19 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.release_temp_local(array_iterator_prototype_local);
+        let string_iterator_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(
+            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(string_iterator_prototype_local));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_store_realm_string_iterator_prototype(
+            self.scratch_local,
+            string_iterator_prototype_local,
+            function,
+        );
+        self.release_temp_local(string_iterator_prototype_local);
         if self
             .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::ArrayBufferConstructor)
@@ -4607,6 +5136,52 @@ impl<'a> FunctionBuilder<'a> {
                 STRING_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
+            let string_constructor_local = self.reserve_temp_local();
+            let from_code_point_meta = self
+                .functions
+                .get(&StandardBuiltinId::StringFromCodePoint.function_id())
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `String.fromCodePoint`",
+                    )
+                })?;
+            function.instruction(&Instruction::GlobalGet(STRING_CONSTRUCTOR_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalSet(string_constructor_local));
+            let from_char_code_meta = self
+                .functions
+                .get(&StandardBuiltinId::StringFromCharCode.function_id())
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `String.fromCharCode`",
+                    )
+                })?;
+            self.emit_object_define_function_data(
+                string_constructor_local,
+                "fromCharCode",
+                from_char_code_meta,
+                function,
+            )?;
+            self.emit_object_define_function_data(
+                string_constructor_local,
+                "fromCodePoint",
+                from_code_point_meta,
+                function,
+            )?;
+            let raw_meta = self
+                .functions
+                .get(&StandardBuiltinId::StringRaw.function_id())
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `String.raw`",
+                    )
+                })?;
+            self.emit_object_define_function_data(
+                string_constructor_local,
+                "raw",
+                raw_meta,
+                function,
+            )?;
+            self.release_temp_local(string_constructor_local);
         }
         if self
             .runtime_bootstrap_plan
@@ -4929,7 +5504,10 @@ impl<'a> FunctionBuilder<'a> {
                         | ScriptGlobalBindingKind::NaN
                         | ScriptGlobalBindingKind::Undefined
                 ),
-                false,
+                matches!(
+                    binding.kind,
+                    ScriptGlobalBindingKind::Var | ScriptGlobalBindingKind::Function
+                ),
                 !matches!(
                     binding.kind,
                     ScriptGlobalBindingKind::Intrinsic

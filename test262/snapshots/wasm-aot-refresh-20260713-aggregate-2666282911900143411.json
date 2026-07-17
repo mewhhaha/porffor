@@ -1,0 +1,121 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2666282911900143411,
+  "run_kind": "aggregate-matrix",
+  "total": 1094,
+  "passed": 280,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 197,
+    "Runtime": 107,
+    "Unsupported": 510,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 303,
+    "Crash": 1,
+    "NotImplemented": 510,
+    "Success": 280
+  },
+  "slowest_tests": [],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [],
+  "matrix_path": [
+    "top-level"
+  ],
+  "completed_nodes": [
+    "annexB",
+    "built-ins/AbstractModuleSource"
+  ],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 197,
+    "Runtime": 107,
+    "Unsupported": 510,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": [
+    {
+      "node_id": "annexB",
+      "node_kind": "filter-leaf",
+      "filter": "annexB",
+      "matrix_path": [
+        "annexB"
+      ],
+      "total": 1086,
+      "passed": 272,
+      "failed": 814,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 197,
+        "Runtime": 107,
+        "Unsupported": 510,
+        "WasmBackend": 0
+      },
+      "counts_per_outcome": {
+        "Bug": 303,
+        "Crash": 1,
+        "NotImplemented": 510,
+        "Success": 272
+      },
+      "counts_per_origin": {
+        "boa-parser": 197,
+        "boa-runtime": 43,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 574
+      },
+      "manifest_hash": 18171915806871913666
+    },
+    {
+      "node_id": "built-ins/AbstractModuleSource",
+      "node_kind": "filter-leaf",
+      "filter": "built-ins/AbstractModuleSource",
+      "matrix_path": [
+        "built-ins",
+        "AbstractModuleSource"
+      ],
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "counts_per_kind": {
+        "EarlyError": 0,
+        "HostHarness": 0,
+        "Lowering": 0,
+        "Parser": 0,
+        "Runtime": 0,
+        "Unsupported": 0,
+        "WasmBackend": 0
+      },
+      "counts_per_outcome": {
+        "Bug": 0,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 8
+      },
+      "counts_per_origin": {
+        "boa-parser": 0,
+        "boa-runtime": 0,
+        "icu-intl": 0,
+        "local-harness": 0,
+        "spec-exec-host": 0,
+        "unknown": 0
+      },
+      "manifest_hash": 8861412093302264844
+    }
+  ]
+}

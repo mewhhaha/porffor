@@ -1,0 +1,114 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13843279910362640341,
+  "run_kind": "matrix-filter-leaf",
+  "total": 25,
+  "passed": 25,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 25
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AggregateError/errors-iterabletolist-failures.js",
+      "duration_ms": 11342
+    },
+    {
+      "path": "built-ins/AggregateError/order-of-args-evaluation.js",
+      "duration_ms": 9899
+    },
+    {
+      "path": "built-ins/AggregateError/message-tostring-abrupt.js",
+      "duration_ms": 9332
+    },
+    {
+      "path": "built-ins/AggregateError/message-tostring-abrupt-symbol.js",
+      "duration_ms": 8959
+    },
+    {
+      "path": "built-ins/AggregateError/newtarget-is-undefined.js",
+      "duration_ms": 8345
+    },
+    {
+      "path": "built-ins/AggregateError/errors-iterabletolist.js",
+      "duration_ms": 6858
+    },
+    {
+      "path": "built-ins/AggregateError/is-a-constructor.js",
+      "duration_ms": 6692
+    },
+    {
+      "path": "built-ins/AggregateError/newtarget-proto-custom.js",
+      "duration_ms": 4353
+    },
+    {
+      "path": "built-ins/AggregateError/proto-from-ctor-realm.js",
+      "duration_ms": 3800
+    },
+    {
+      "path": "built-ins/AggregateError/message-method-prop.js",
+      "duration_ms": 3519
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/AggregateError/cause-property.js",
+    "built-ins/AggregateError/errors-iterabletolist-failures.js",
+    "built-ins/AggregateError/errors-iterabletolist.js",
+    "built-ins/AggregateError/is-a-constructor.js",
+    "built-ins/AggregateError/length.js",
+    "built-ins/AggregateError/message-method-prop-cast.js",
+    "built-ins/AggregateError/message-method-prop.js",
+    "built-ins/AggregateError/message-tostring-abrupt-symbol.js",
+    "built-ins/AggregateError/message-tostring-abrupt.js",
+    "built-ins/AggregateError/message-undefined-no-prop.js",
+    "built-ins/AggregateError/name.js",
+    "built-ins/AggregateError/newtarget-is-undefined.js",
+    "built-ins/AggregateError/newtarget-proto-custom.js",
+    "built-ins/AggregateError/newtarget-proto-fallback.js",
+    "built-ins/AggregateError/newtarget-proto.js",
+    "built-ins/AggregateError/order-of-args-evaluation.js",
+    "built-ins/AggregateError/prop-desc.js",
+    "built-ins/AggregateError/proto-from-ctor-realm.js",
+    "built-ins/AggregateError/proto.js",
+    "built-ins/AggregateError/prototype/constructor.js",
+    "built-ins/AggregateError/prototype/errors-absent-on-prototype.js",
+    "built-ins/AggregateError/prototype/message.js",
+    "built-ins/AggregateError/prototype/name.js",
+    "built-ins/AggregateError/prototype/prop-desc.js",
+    "built-ins/AggregateError/prototype/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AggregateError"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

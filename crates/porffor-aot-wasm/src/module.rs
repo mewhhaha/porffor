@@ -97,6 +97,8 @@ pub(crate) const PARSE_FLOAT_FUNCTION_GLOBAL_INDEX: u32 = 79;
 // The main realm's original RegExp.prototype.exec function object. The
 // RegExp @@match and @@search compact paths require this exact identity.
 pub(crate) const REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX: u32 = 80;
+pub(crate) const ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX: u32 = 81;
+pub(crate) const STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 82;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -440,6 +442,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%RegExp.prototype.exec%",
         index: REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "%IteratorHelperPrototype%",
+        index: ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%StringIteratorPrototype%",
+        index: STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -508,11 +518,18 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::FunctionPrototypeApply
         | StandardBuiltinId::FunctionPrototypeBind
         | StandardBuiltinId::FunctionPrototypeToString
+        | StandardBuiltinId::RegExpPrototypeCompile
         | StandardBuiltinId::RegExpPrototypeExec
+        | StandardBuiltinId::RegExpPrototypeTest
+        | StandardBuiltinId::RegExpPrototypeToString
         | StandardBuiltinId::EvalFunction
+        | StandardBuiltinId::StringFromCharCode
+        | StandardBuiltinId::StringFromCodePoint
+        | StandardBuiltinId::StringRaw
         | StandardBuiltinId::StringPrototypeToString
         | StandardBuiltinId::StringPrototypeValueOf
         | StandardBuiltinId::StringPrototypeCharAt
+        | StandardBuiltinId::StringPrototypeConcat
         | StandardBuiltinId::StringPrototypeCharCodeAt
         | StandardBuiltinId::StringPrototypeCodePointAt
         | StandardBuiltinId::StringPrototypeAt
@@ -546,6 +563,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::StringPrototypeEndsWith
         | StandardBuiltinId::StringPrototypeIncludes
         | StandardBuiltinId::StringPrototypeStartsWith
+        | StandardBuiltinId::StringPrototypeNormalize
+        | StandardBuiltinId::StringPrototypeLocaleCompare
+        | StandardBuiltinId::StringPrototypeIterator
+        | StandardBuiltinId::StringPrototypeToLocaleLowerCase
+        | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+        | StandardBuiltinId::StringPrototypeToLowerCase
         | StandardBuiltinId::StringPrototypeToUpperCase
         | StandardBuiltinId::StringPrototypeTrim
         | StandardBuiltinId::StringPrototypeTrimStart
@@ -606,7 +629,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::RegExpPrototypeStickyGetter
         | StandardBuiltinId::RegExpPrototypeSymbolMatch
         | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+        | StandardBuiltinId::RegExpPrototypeSymbolReplace
         | StandardBuiltinId::RegExpPrototypeSymbolSearch
+        | StandardBuiltinId::RegExpPrototypeSymbolSplit
         | StandardBuiltinId::RegExpEscape
         | StandardBuiltinId::ObjectCreate
         | StandardBuiltinId::ObjectGetPrototypeOf
@@ -626,6 +651,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ObjectIsExtensible
         | StandardBuiltinId::ObjectPreventExtensions
         | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+        | StandardBuiltinId::ObjectPrototypeLookupGetter
+        | StandardBuiltinId::ObjectPrototypeLookupSetter
         | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
         | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
         | StandardBuiltinId::ObjectPrototypeToString
@@ -652,11 +679,19 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArraySpeciesGetter
         | StandardBuiltinId::ArrayPrototypeConcat
         | StandardBuiltinId::ArrayPrototypeJoin
+        | StandardBuiltinId::ArrayPrototypeSlice
         | StandardBuiltinId::ArrayPrototypeSplice
+        | StandardBuiltinId::ArrayPrototypeSort
         | StandardBuiltinId::ArrayPrototypeToLocaleString
         | StandardBuiltinId::ArrayPrototypeFlat
         | StandardBuiltinId::ArrayPrototypeFlatMap
         | StandardBuiltinId::ArrayPrototypeAt
+        | StandardBuiltinId::ArrayPrototypeToReversed
+        | StandardBuiltinId::ArrayPrototypeToSpliced
+        | StandardBuiltinId::ArrayPrototypeToSorted
+        | StandardBuiltinId::ArrayPrototypeWith
+        | StandardBuiltinId::ArrayPrototypeReverse
+        | StandardBuiltinId::ArrayPrototypeCopyWithin
         | StandardBuiltinId::ArrayPrototypeIncludes
         | StandardBuiltinId::ArrayPrototypeIndexOf
         | StandardBuiltinId::ArrayPrototypeLastIndexOf
@@ -673,12 +708,21 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayPrototypeReduceRight
         | StandardBuiltinId::ArrayPrototypePop
         | StandardBuiltinId::ArrayPrototypePush
+        | StandardBuiltinId::ArrayPrototypeShift
+        | StandardBuiltinId::ArrayPrototypeUnshift
+        | StandardBuiltinId::ArrayPrototypeFill
         | StandardBuiltinId::ArrayPrototypeKeys
         | StandardBuiltinId::ArrayPrototypeEntries
         | StandardBuiltinId::ArrayPrototypeValues
         | StandardBuiltinId::ArrayIteratorNext
         | StandardBuiltinId::ArrayIteratorIdentity
+        | StandardBuiltinId::StringIteratorNext
         | StandardBuiltinId::IteratorFrom
+        | StandardBuiltinId::IteratorZip
+        | StandardBuiltinId::IteratorZipNext
+        | StandardBuiltinId::IteratorZipReturn
+        | StandardBuiltinId::IteratorHelperNext
+        | StandardBuiltinId::IteratorHelperReturn
         | StandardBuiltinId::IteratorPrototypeToArray
         | StandardBuiltinId::IteratorPrototypeForEach
         | StandardBuiltinId::IteratorPrototypeEvery
@@ -789,6 +833,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
         | StandardBuiltinId::TypedArrayPrototypeLengthGetter
         | StandardBuiltinId::TypedArrayPrototypeToString
+        | StandardBuiltinId::TypedArrayPrototypeJoin
         | StandardBuiltinId::TypedArrayPrototypeToLocaleString
         | StandardBuiltinId::TypedArrayFrom
         | StandardBuiltinId::TypedArrayOf

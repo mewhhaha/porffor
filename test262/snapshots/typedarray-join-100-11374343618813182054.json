@@ -1,0 +1,150 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11374343618813182054,
+  "run_kind": "full",
+  "total": 32,
+  "passed": 29,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 3,
+    "NotImplemented": 0,
+    "Success": 29
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+      "duration_ms": 60086
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 60079
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 60075
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/get-length-uses-internal-arraylength.js",
+      "duration_ms": 53908
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/custom-separator-result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 44349
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/result-from-tostring-on-each-simple-value.js",
+      "duration_ms": 43411
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-value.js",
+      "duration_ms": 31579
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/detached-buffer.js",
+      "duration_ms": 12671
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/BigInt/detached-buffer.js",
+      "duration_ms": 11484
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/join/resizable-buffer.js",
+      "duration_ms": 11294
+    }
+  ],
+  "timeout_list": [
+    "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-simple-value.js"
+  ],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 60079ms",
+      "detail_hash": 15896156224081373726,
+      "duration_ms": 60079
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 60086ms",
+      "detail_hash": 9890462977813640023,
+      "duration_ms": 60086
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-simple-value.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 60075ms",
+      "detail_hash": 5005875935629533747,
+      "duration_ms": 60075
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/join/BigInt/custom-separator-result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/BigInt/detached-buffer-during-fromIndex-returns-single-comma.js",
+    "built-ins/TypedArray/prototype/join/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/join/BigInt/empty-instance-empty-string.js",
+    "built-ins/TypedArray/prototype/join/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/join/BigInt/result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-separator-symbol.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-separator.js",
+    "built-ins/TypedArray/prototype/join/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/join/coerced-separator-grow.js",
+    "built-ins/TypedArray/prototype/join/coerced-separator-shrink.js",
+    "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-value.js",
+    "built-ins/TypedArray/prototype/join/detached-buffer-during-fromIndex-returns-single-comma.js",
+    "built-ins/TypedArray/prototype/join/detached-buffer.js",
+    "built-ins/TypedArray/prototype/join/empty-instance-empty-string.js",
+    "built-ins/TypedArray/prototype/join/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/join/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/join/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/join/length.js",
+    "built-ins/TypedArray/prototype/join/name.js",
+    "built-ins/TypedArray/prototype/join/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/join/prop-desc.js",
+    "built-ins/TypedArray/prototype/join/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-simple-value.js",
+    "built-ins/TypedArray/prototype/join/result-from-tostring-on-each-value.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-separator-symbol.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-separator.js",
+    "built-ins/TypedArray/prototype/join/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/join/separator-tostring-once-after-resized.js",
+    "built-ins/TypedArray/prototype/join/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/join/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

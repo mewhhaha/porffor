@@ -43,7 +43,17 @@ impl<'a> FunctionBuilder<'a> {
         expr: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if !expr.possible_kinds.is_singleton() {
+        let emits_own_dynamic_result = matches!(
+            expr.expr,
+            ExprIr::UpdateIdentifier {
+                value_kind: ValueKind::Dynamic,
+                ..
+            } | ExprIr::GlobalPropertyUpdate {
+                value_kind: ValueKind::Dynamic,
+                ..
+            }
+        );
+        if !expr.possible_kinds.is_singleton() && !emits_own_dynamic_result {
             self.compile_expr_to_locals(expr, self.scratch_local, self.result_tag_local, function)?;
             function.instruction(&Instruction::LocalGet(self.scratch_local));
             return Ok(());
@@ -120,6 +130,11 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::String(value) => {
                 function.instruction(&Instruction::I64Const(self.strings.payload(value)));
             }
+            ExprIr::TemplateObject(template) => {
+                function.instruction(&Instruction::GlobalGet(
+                    self.template_object_global_index(template.site_id),
+                ));
+            }
             ExprIr::RegExpLiteral {
                 source,
                 flags,
@@ -160,7 +175,7 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in porffor wasm-aot first slice: missing `arguments` binding",
                     )
                 })?;
-                self.read_binding_payload(storage, function);
+                self.read_binding_payload(storage, function)?;
             }
             ExprIr::ObjectLiteral(properties) => {
                 self.compile_object_literal_payload(properties, function)?;
@@ -197,7 +212,7 @@ impl<'a> FunctionBuilder<'a> {
                             self.scratch_local,
                             self.result_tag_local,
                             function,
-                        );
+                        )?;
                         function.instruction(&Instruction::End);
                     }
                     function.instruction(&Instruction::LocalGet(self.scratch_local));
@@ -232,7 +247,7 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
                     ))
                 })?;
-                self.read_binding_payload(storage, function);
+                self.read_binding_payload(storage, function)?;
             }
             ExprIr::GlobalPropertyRead { name } => {
                 self.emit_global_property_read(
@@ -306,6 +321,23 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
+            ExprIr::PropertyCompoundAssign {
+                target,
+                key,
+                op,
+                value,
+            } => {
+                self.compile_property_compound_assign_to_locals(
+                    target,
+                    key,
+                    *op,
+                    value,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::UpdateIdentifier {
                 name,
                 op,
@@ -319,13 +351,31 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
-                self.read_binding_to_locals(storage, value_local, tag_local, function);
+                self.read_binding_to_locals(storage, value_local, tag_local, function)?;
+                if *value_kind == ValueKind::Dynamic {
+                    self.emit_value_to_numeric_locals(value_local, tag_local, function)?;
+                } else if *value_kind == ValueKind::Number {
+                    self.emit_value_to_number_payload(tag_local, value_local, function)?;
+                    function.instruction(&Instruction::LocalSet(value_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_return_current_completion_if_throw(function);
+                }
                 match return_mode {
                     UpdateReturnMode::Prefix => {
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        self.emit_update_delta(*op, *value_kind, function);
+                        self.emit_update_delta_from_locals(
+                            *op,
+                            *value_kind,
+                            value_local,
+                            tag_local,
+                            function,
+                        );
                         function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        if *value_kind == ValueKind::Dynamic {
+                            function.instruction(&Instruction::LocalGet(tag_local));
+                        } else {
+                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        }
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         self.write_binding_from_locals(
                             storage,
@@ -340,13 +390,22 @@ impl<'a> FunctionBuilder<'a> {
                         let old_value_local = self.reserve_temp_local();
                         function.instruction(&Instruction::LocalGet(value_local));
                         function.instruction(&Instruction::LocalSet(old_value_local));
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        self.emit_update_delta(*op, *value_kind, function);
+                        self.emit_update_delta_from_locals(
+                            *op,
+                            *value_kind,
+                            value_local,
+                            tag_local,
+                            function,
+                        );
                         function.instruction(&Instruction::LocalSet(value_local));
-                        function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(tag_local));
+                        if *value_kind != ValueKind::Dynamic {
+                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                            function.instruction(&Instruction::LocalSet(tag_local));
+                        }
                         self.write_binding_from_locals(storage, value_local, tag_local, function);
                         self.mirror_binding_to_global_object(name, storage, function)?;
+                        function.instruction(&Instruction::LocalGet(tag_local));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         function.instruction(&Instruction::LocalGet(old_value_local));
                         self.release_temp_local(old_value_local);
                     }
@@ -363,7 +422,7 @@ impl<'a> FunctionBuilder<'a> {
                 let temp_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 let rhs_tag_local = self.reserve_temp_local();
-                self.read_binding_to_locals(storage, temp_local, tag_local, function);
+                self.read_binding_to_locals(storage, temp_local, tag_local, function)?;
                 self.compile_expr_to_locals(value, self.scratch_local, rhs_tag_local, function)?;
                 if matches!(op, ArithmeticBinaryOp::Add) {
                     let lhs_string_local = self.reserve_temp_local();
@@ -470,12 +529,30 @@ impl<'a> FunctionBuilder<'a> {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.emit_global_property_read(name, value_local, tag_local, function)?;
+                if *value_kind == ValueKind::Dynamic {
+                    self.emit_value_to_numeric_locals(value_local, tag_local, function)?;
+                } else if *value_kind == ValueKind::Number {
+                    self.emit_value_to_number_payload(tag_local, value_local, function)?;
+                    function.instruction(&Instruction::LocalSet(value_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_return_current_completion_if_throw(function);
+                }
                 match return_mode {
                     UpdateReturnMode::Prefix => {
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        self.emit_update_delta(*op, *value_kind, function);
+                        self.emit_update_delta_from_locals(
+                            *op,
+                            *value_kind,
+                            value_local,
+                            tag_local,
+                            function,
+                        );
                         function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        if *value_kind == ValueKind::Dynamic {
+                            function.instruction(&Instruction::LocalGet(tag_local));
+                        } else {
+                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        }
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         self.emit_global_property_write(
                             name,
@@ -489,12 +566,21 @@ impl<'a> FunctionBuilder<'a> {
                         let old_value_local = self.reserve_temp_local();
                         function.instruction(&Instruction::LocalGet(value_local));
                         function.instruction(&Instruction::LocalSet(old_value_local));
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        self.emit_update_delta(*op, *value_kind, function);
+                        self.emit_update_delta_from_locals(
+                            *op,
+                            *value_kind,
+                            value_local,
+                            tag_local,
+                            function,
+                        );
                         function.instruction(&Instruction::LocalSet(value_local));
-                        function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(tag_local));
+                        if *value_kind != ValueKind::Dynamic {
+                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                            function.instruction(&Instruction::LocalSet(tag_local));
+                        }
                         self.emit_global_property_write(name, value_local, tag_local, function)?;
+                        function.instruction(&Instruction::LocalGet(tag_local));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         function.instruction(&Instruction::LocalGet(old_value_local));
                         self.release_temp_local(old_value_local);
                     }
@@ -660,7 +746,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.scratch_local,
                     self.result_tag_local,
                     function,
-                );
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::LogicalNot { expr } => {
@@ -1003,13 +1089,15 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64ExtendI32U);
             }
             ExprIr::CompareValue { op, lhs, rhs } => {
-                if lhs
-                    .possible_kinds
-                    .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::String))
-                    && rhs
-                        .possible_kinds
-                        .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::String))
-                {
+                if lhs.possible_kinds.is_subset_of(
+                    KindSet::PRIMITIVE_ONLY
+                        .without(ValueKind::String)
+                        .without(ValueKind::BigInt),
+                ) && rhs.possible_kinds.is_subset_of(
+                    KindSet::PRIMITIVE_ONLY
+                        .without(ValueKind::String)
+                        .without(ValueKind::BigInt),
+                ) {
                     self.compile_expr_to_number_payload_nonstring(lhs, function)?;
                     function.instruction(&Instruction::F64ReinterpretI64);
                     self.compile_expr_to_number_payload_nonstring(rhs, function)?;
@@ -1131,6 +1219,42 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.compile_expr_payload(rhs, function)?;
             }
+            ExprIr::MaterializeBinding { name, value, body } => {
+                self.compile_materialized_binding_to_locals(
+                    name,
+                    value,
+                    body,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ArrayDestructure {
+                value,
+                pattern,
+                assignment,
+            } => {
+                self.compile_array_destructure_to_locals(
+                    value,
+                    pattern,
+                    *assignment,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ObjectDestructure { value, pattern } => {
+                self.compile_object_destructure_to_locals(
+                    value,
+                    pattern,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::CallNamed { name, args } => {
                 self.emit_call(
                     name,
@@ -1168,21 +1292,28 @@ impl<'a> FunctionBuilder<'a> {
                 callee,
                 this_arg,
                 args,
+                static_regexp_compilation,
             } => {
                 self.emit_indirect_call(
                     callee,
                     this_arg.as_deref(),
                     args,
+                    static_regexp_compilation.as_ref(),
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
-            ExprIr::Construct { callee, args } => {
+            ExprIr::Construct {
+                callee,
+                args,
+                static_regexp_compilation,
+            } => {
                 self.emit_construct(
                     callee,
                     args,
+                    static_regexp_compilation.as_ref(),
                     self.scratch_local,
                     self.result_tag_local,
                     function,
@@ -1401,48 +1532,46 @@ impl<'a> FunctionBuilder<'a> {
             } => {
                 let rhs_payload_local = self.reserve_temp_local();
                 let rhs_tag_local = self.reserve_temp_local();
-                let key_local = self.reserve_temp_local();
-                let read_payload_local = self.reserve_temp_local();
-                let read_tag_local = self.reserve_temp_local();
+                let token_local = self.reserve_temp_local();
                 let result_local = self.reserve_temp_local();
 
                 self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    rhs_payload_local,
+                    rhs_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(result_local));
                 self.emit_is_heap_object_like_tag_i32(rhs_tag_local, function);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(&private_brand_key(*private_name_id)) as i64,
-                ));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_object_read(
+                self.emit_private_name_token_to_local(*private_name_id, token_local, function)?;
+                self.emit_private_brand_has_i32(
                     rhs_payload_local,
-                    rhs_tag_local,
-                    rhs_payload_local,
-                    rhs_tag_local,
-                    key_local,
-                    read_payload_local,
-                    read_tag_local,
+                    token_local,
+                    result_local,
+                    function,
+                );
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    "TypeError",
+                    "right-hand side of private in is not an object",
+                    self.result_local,
+                    self.result_tag_local,
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(read_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(read_payload_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(result_local));
+                if let Some(target) = self.active_throw_target() {
+                    self.emit_branch_to_target(target, 1, function);
+                } else {
+                    self.emit_return_current_completion(function);
+                }
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
                 self.release_temp_local(result_local);
-                self.release_temp_local(read_tag_local);
-                self.release_temp_local(read_payload_local);
-                self.release_temp_local(key_local);
+                self.release_temp_local(token_local);
                 self.release_temp_local(rhs_tag_local);
                 self.release_temp_local(rhs_payload_local);
             }
@@ -1826,7 +1955,9 @@ impl<'a> FunctionBuilder<'a> {
         let dynamic_receiver = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
+                possible_kinds: KindSet::all_runtime_tags()
+                    .without(ValueKind::Undefined)
+                    .without(ValueKind::Null),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             },
@@ -1904,6 +2035,74 @@ impl<'a> FunctionBuilder<'a> {
                         tag_local,
                         function,
                     )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+
+                    function.instruction(&Instruction::LocalGet(payload_local));
+                    function.instruction(&Instruction::LocalSet(receiver_local));
+                    function.instruction(&Instruction::LocalGet(tag_local));
+                    function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                }
+                OptionalChainOperationIr::PrivateProperty {
+                    private_name_id,
+                    shorted,
+                } => {
+                    if *shorted {
+                        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.push_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(payload_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(receiver_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(receiver_tag_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(has_reference_local));
+                        function.instruction(&Instruction::Br(1));
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                    }
+
+                    function.instruction(&Instruction::LocalGet(receiver_local));
+                    function.instruction(&Instruction::LocalSet(reference_receiver_local));
+                    function.instruction(&Instruction::LocalGet(receiver_tag_local));
+                    function.instruction(&Instruction::LocalSet(reference_receiver_tag_local));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(has_reference_local));
+
+                    let receiver_name = "$optional.private.receiver";
+                    self.push_scope();
+                    self.binding_scopes
+                        .last_mut()
+                        .expect("binding scope stack must exist")
+                        .insert(
+                            receiver_name.to_string(),
+                            BindingStorage::Dynamic {
+                                tag_local: receiver_tag_local,
+                                payload_local: receiver_local,
+                            },
+                        );
+                    let receiver = TypedExpr::from_info(
+                        dynamic_receiver.value_info(),
+                        ExprIr::Identifier(receiver_name.to_string()),
+                    );
+                    let result = self.compile_private_read_to_locals(
+                        &receiver,
+                        *private_name_id,
+                        payload_local,
+                        tag_local,
+                        function,
+                    );
+                    self.pop_scope();
+                    result?;
                     self.emit_propagate_throw_from_locals_if_needed(
                         payload_local,
                         tag_local,
@@ -2027,6 +2226,161 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_regexp_program_slots(
+        &mut self,
+        object_local: u32,
+        program: Option<&RegExpProgram>,
+        function: &mut Function,
+    ) {
+        let (
+            program_ptr,
+            instruction_count,
+            capture_count,
+            split_count,
+            repeatable_split_count,
+            named_group_table_ptr,
+        ) = program
+            .map(|program| {
+                let reference = self.strings.regexp_program(program);
+                (
+                    reference.ptr,
+                    reference.instruction_count,
+                    reference.capture_count,
+                    reference.split_count,
+                    reference.repeatable_split_count,
+                    reference.named_group_table_ptr,
+                )
+            })
+            .unwrap_or((0, 0, 0, 0, 0, 0));
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+            program_ptr as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            instruction_count as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            capture_count as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            split_count as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            repeatable_split_count as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
+            named_group_table_ptr as u64,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_runtime_regexp_program_slots(
+        &mut self,
+        object_local: u32,
+        source_payload_local: u32,
+        flags_payload_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_regexp_program_slots(object_local, None, function);
+        if self.strings.runtime_regexp_program_count == 0 {
+            return;
+        }
+        const REGEXP_PROGRAM_TABLE_RECORD_SIZE: u64 = 64;
+        let index_local = self.reserve_temp_local();
+        let record_ptr_local = self.reserve_temp_local();
+        let candidate_payload_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.runtime_regexp_program_count as i64,
+        ));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::I64Const(
+            self.strings.runtime_regexp_program_table_ptr as i64,
+        ));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_PROGRAM_TABLE_RECORD_SIZE as i64,
+        ));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(record_ptr_local));
+        function.instruction(&Instruction::LocalGet(record_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::LocalSet(candidate_payload_local));
+        self.emit_string_payload_equality_i32(
+            source_payload_local,
+            candidate_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(record_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(8)));
+        function.instruction(&Instruction::LocalSet(candidate_payload_local));
+        self.emit_string_payload_equality_i32(
+            flags_payload_local,
+            candidate_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for (record_offset, heap_offset) in [
+            (16, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
+            (24, HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET),
+            (32, HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET),
+            (40, HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET),
+            (48, HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET),
+            (56, HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET),
+        ] {
+            function.instruction(&Instruction::LocalGet(record_ptr_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load(Self::memarg8(record_offset)));
+            function.instruction(&Instruction::LocalSet(candidate_payload_local));
+            self.store_i64_local_at_offset(
+                object_local,
+                heap_offset,
+                candidate_payload_local,
+                function,
+            );
+        }
+        function.instruction(&Instruction::Br(3));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(candidate_payload_local);
+        self.release_temp_local(record_ptr_local);
+        self.release_temp_local(index_local);
+    }
+
     fn compile_regexp_literal_payload(
         &mut self,
         source: &str,
@@ -2063,24 +2417,7 @@ impl<'a> FunctionBuilder<'a> {
             self.strings.payload(flags) as u64,
             function,
         );
-        let (program_ptr, instruction_count) = program
-            .map(|program| {
-                let reference = self.strings.regexp_program(program);
-                (reference.ptr, reference.instruction_count)
-            })
-            .unwrap_or((0, 0));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_PTR_OFFSET,
-            program_ptr as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-            instruction_count as u64,
-            function,
-        );
+        self.emit_regexp_program_slots(object_local, program, function);
 
         function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
         function.instruction(&Instruction::LocalSet(key_local));
@@ -2140,6 +2477,41 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn compile_materialized_binding_to_locals(
+        &mut self,
+        name: &str,
+        value: &TypedExpr,
+        body: &TypedExpr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let binding_payload_local = self.reserve_temp_local();
+        let binding_tag_local = self.reserve_temp_local();
+        self.compile_expr_to_locals(value, binding_payload_local, binding_tag_local, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            binding_payload_local,
+            binding_tag_local,
+            function,
+        )?;
+        self.push_scope();
+        self.binding_scopes
+            .last_mut()
+            .expect("binding scope stack must exist")
+            .insert(
+                name.to_string(),
+                BindingStorage::Dynamic {
+                    tag_local: binding_tag_local,
+                    payload_local: binding_payload_local,
+                },
+            );
+        self.compile_expr_to_locals(body, payload_local, tag_local, function)?;
+        self.pop_scope();
+        self.release_temp_local(binding_tag_local);
+        self.release_temp_local(binding_payload_local);
+        Ok(())
+    }
+
     pub(crate) fn compile_expr_to_locals(
         &mut self,
         expr: &TypedExpr,
@@ -2163,7 +2535,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.read_binding_to_locals(storage, payload_local, tag_local, function);
+                    self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
                     function.instruction(&Instruction::End);
                 }
                 return Ok(());
@@ -2199,10 +2571,10 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in porffor wasm-aot first slice: missing `arguments` binding",
                     )
                 })?;
-                self.read_binding_to_locals(storage, payload_local, tag_local, function);
+                self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
             }
             ExprIr::NewTarget => {
-                self.compile_new_target_to_locals(payload_local, tag_local, function);
+                self.compile_new_target_to_locals(payload_local, tag_local, function)?;
             }
             ExprIr::SpecOperation {
                 operation,
@@ -2238,7 +2610,7 @@ impl<'a> FunctionBuilder<'a> {
                             .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                         function.instruction(&Instruction::I64Eq);
                         function.instruction(&Instruction::If(BlockType::Empty));
-                        self.read_binding_to_locals(storage, payload_local, tag_local, function);
+                        self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
                         function.instruction(&Instruction::End);
                     }
                     return Ok(());
@@ -2265,7 +2637,7 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
                     ))
                 })?;
-                self.read_binding_to_locals(storage, payload_local, tag_local, function);
+                self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
             }
             ExprIr::GlobalPropertyRead { name } => {
                 self.emit_global_property_read(name, payload_local, tag_local, function)?;
@@ -2345,6 +2717,22 @@ impl<'a> FunctionBuilder<'a> {
                     *op,
                     *return_mode,
                     *value_kind,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::PropertyCompoundAssign {
+                target,
+                key,
+                op,
+                value,
+            } => {
+                self.compile_property_compound_assign_to_locals(
+                    target,
+                    key,
+                    *op,
+                    value,
                     payload_local,
                     tag_local,
                     function,
@@ -2525,10 +2913,49 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.compile_expr_to_locals(rhs, payload_local, tag_local, function)?;
             }
-            ExprIr::GlobalPropertyUpdate { .. } | ExprIr::GlobalPropertyCompoundAssign { .. } => {
+            ExprIr::MaterializeBinding { name, value, body } => {
+                self.compile_materialized_binding_to_locals(
+                    name,
+                    value,
+                    body,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::ArrayDestructure {
+                value,
+                pattern,
+                assignment,
+            } => {
+                self.compile_array_destructure_to_locals(
+                    value,
+                    pattern,
+                    *assignment,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::ObjectDestructure { value, pattern } => {
+                self.compile_object_destructure_to_locals(
+                    value,
+                    pattern,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::UpdateIdentifier { .. }
+            | ExprIr::GlobalPropertyUpdate { .. }
+            | ExprIr::GlobalPropertyCompoundAssign { .. } => {
                 self.compile_expr_payload(expr, function)?;
                 function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(expr.kind.tag() as i64));
+                if expr_result_tag_is_runtime_dynamic(&expr.expr) {
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                } else {
+                    function.instruction(&Instruction::I64Const(expr.kind.tag() as i64));
+                }
                 function.instruction(&Instruction::LocalSet(tag_local));
             }
             ExprIr::CoerciveBinaryNumber { op, lhs, rhs }
@@ -2581,18 +3008,31 @@ impl<'a> FunctionBuilder<'a> {
                 callee,
                 this_arg,
                 args,
+                static_regexp_compilation,
             } => {
                 self.emit_indirect_call(
                     callee,
                     this_arg.as_deref(),
                     args,
+                    static_regexp_compilation.as_ref(),
                     payload_local,
                     tag_local,
                     function,
                 )?;
             }
-            ExprIr::Construct { callee, args } => {
-                self.emit_construct(callee, args, payload_local, tag_local, function)?;
+            ExprIr::Construct {
+                callee,
+                args,
+                static_regexp_compilation,
+            } => {
+                self.emit_construct(
+                    callee,
+                    args,
+                    static_regexp_compilation.as_ref(),
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
             }
             ExprIr::CallMethod {
                 receiver,

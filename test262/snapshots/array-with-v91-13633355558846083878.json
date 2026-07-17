@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13633355558846083878,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/with/name.js",
+      "duration_ms": 14201
+    },
+    {
+      "path": "built-ins/Array/prototype/with/length.js",
+      "duration_ms": 14180
+    },
+    {
+      "path": "built-ins/Array/prototype/with/property-descriptor.js",
+      "duration_ms": 13249
+    },
+    {
+      "path": "built-ins/Array/prototype/with/index-casted-to-number.js",
+      "duration_ms": 10296
+    },
+    {
+      "path": "built-ins/Array/prototype/with/immutable.js",
+      "duration_ms": 9572
+    },
+    {
+      "path": "built-ins/Array/prototype/with/this-value-boolean.js",
+      "duration_ms": 9527
+    },
+    {
+      "path": "built-ins/Array/prototype/with/index-negative.js",
+      "duration_ms": 9121
+    },
+    {
+      "path": "built-ins/Array/prototype/with/holes-not-preserved.js",
+      "duration_ms": 9060
+    },
+    {
+      "path": "built-ins/Array/prototype/with/length-tolength.js",
+      "duration_ms": 9023
+    },
+    {
+      "path": "built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+      "duration_ms": 8848
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Array/prototype/with/frozen-this-value.js",
+    "built-ins/Array/prototype/with/holes-not-preserved.js",
+    "built-ins/Array/prototype/with/ignores-species.js",
+    "built-ins/Array/prototype/with/immutable.js",
+    "built-ins/Array/prototype/with/index-bigger-or-eq-than-length.js",
+    "built-ins/Array/prototype/with/index-casted-to-number.js",
+    "built-ins/Array/prototype/with/index-negative.js",
+    "built-ins/Array/prototype/with/index-smaller-than-minus-length.js",
+    "built-ins/Array/prototype/with/index-throw-completion.js",
+    "built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+    "built-ins/Array/prototype/with/length-exceeding-array-length-limit.js",
+    "built-ins/Array/prototype/with/length-increased-while-iterating.js",
+    "built-ins/Array/prototype/with/length-tolength.js",
+    "built-ins/Array/prototype/with/length.js",
+    "built-ins/Array/prototype/with/name.js",
+    "built-ins/Array/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "built-ins/Array/prototype/with/no-get-replaced-index.js",
+    "built-ins/Array/prototype/with/not-a-constructor.js",
+    "built-ins/Array/prototype/with/property-descriptor.js",
+    "built-ins/Array/prototype/with/this-value-boolean.js",
+    "built-ins/Array/prototype/with/this-value-nullish.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/RegExp/prototype/Symbol.match/this-val-non-regexp.js",
-      "duration_ms": 7001
+      "duration_ms": 9483
     }
   ],
   "timeout_list": [],
