@@ -10,30 +10,31 @@ use porffor_ir::{
     ClassElementExecutionKind, ClassFieldKeyIr, ClassFunctionKind, ClassHeritageKind,
     ClassInstanceElementPlanIr, ClassMethodPlacementIr, ClassStaticElementIr,
     DeleteIdentifierKindIr, DestructuringPropertyKeyIr, DestructuringTargetIr, EqualityBinaryOp,
-    ExprIr, ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr, FunctionFlavor, FunctionId,
-    FunctionIr, FunctionParamIr, HeapShape, HostBuiltinId, JsonStaticValueIr, KindSet,
-    LexicalEnvironmentIr, LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty,
-    OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
+    ExprIr, ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr, FunctionExecutionKind,
+    FunctionFlavor, FunctionId, FunctionIr, FunctionParamIr, GeneratorResumeModeIr,
+    GeneratorTryPlanIr, HeapShape, HostBuiltinId, JsonStaticValueIr, KindSet, LexicalEnvironmentIr,
+    LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty, OwnedEnvBindingIr,
+    PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
     ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr,
     SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode, ValueInfo,
     ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_DATA_PTR_SLOT, ARRAY_BUFFER_IMMUTABLE_SLOT, ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
     ARRAY_BUFFER_NAME, ARRAY_BUFFER_RESIZABLE_SLOT, ARRAY_BUFFER_SHARED_SLOT, ARRAY_NAME,
-    ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT,
-    DATA_VIEW_DATA_PTR_SLOT, DATA_VIEW_LENGTH_TRACKING_SLOT, DATA_VIEW_NAME, DATE_NAME,
-    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
-    FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
-    INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
-    JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
-    LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME,
-    PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
+    ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
+    DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT, DATA_VIEW_DATA_PTR_SLOT,
+    DATA_VIEW_LENGTH_TRACKING_SLOT, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
+    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
+    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
+    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
+    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MAP_NAME, MATH_NAME,
+    NUMBER_NAME, OBJECT_NAME, PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
     PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME,
-    REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME,
-    SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
-    TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT, TYPED_ARRAY_ELEMENT_KIND_SLOT,
-    TYPED_ARRAY_LENGTH_TRACKING_SLOT, TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT, TYPE_ERROR_NAME,
-    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
-    URI_ERROR_NAME,
+    REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME,
+    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
+    TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT, TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT,
+    TYPED_ARRAY_ELEMENT_KIND_SLOT, TYPED_ARRAY_LENGTH_TRACKING_SLOT,
+    TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME,
+    UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
 use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
 
@@ -45,11 +46,13 @@ mod emit;
 mod environments;
 mod expressions;
 mod functions;
+mod generator_delegation;
 mod heap;
 mod module;
 mod objects;
 mod operations;
 mod planning;
+mod runtime_abi;
 use abi::*;
 use builtins::*;
 use data::*;
@@ -61,6 +64,7 @@ pub(crate) use emit::{
 use heap::*;
 use module::*;
 use planning::*;
+pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
     match shape {
@@ -77,15 +81,6 @@ fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<Objec
                 .and_then(|prototype| read_static_heap_shape_property(prototype, key))
         }),
     }
-}
-
-fn typed_expr_has_typed_array_shape(expr: &TypedExpr) -> bool {
-    expr.heap_shape
-        .as_deref()
-        .and_then(|shape| {
-            read_static_heap_shape_property(shape, TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT)
-        })
-        .is_some()
 }
 
 static EMPTY_BLOCK: LazyLock<BlockIr> = LazyLock::new(|| BlockIr {
@@ -114,6 +109,13 @@ mod tests {
         assert!(program.ir_summary().contains("spec_operations=2"));
         let artifact = emit(&program).expect("spec operation should emit");
         assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn full_bootstrap_emits_without_proto_source_reference() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+
+        expect_valid_module(&artifact, 0);
     }
 
     #[test]
@@ -151,6 +153,351 @@ new Derived(source);
     }
 
     #[test]
+    fn generator_parameter_modules_emit_valid_intrinsic_global_references() {
+        let artifact = emit_script("function* f({ value }) {} f({ value: 1 });")
+            .expect("generator parameter script should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_parameter_initialization_module_validates() {
+        let artifact = emit_script(
+            "let g = async function* (value = (g.prototype = null)) {}; let oldPrototype = g.prototype; let iterator = g(); Object.getPrototypeOf(iterator) !== oldPrototype;",
+        )
+        .expect("async-generator parameter initialization should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_no_suspension_conditional_module_validates() {
+        let artifact = emit_script(
+            "async function* choose(flag) { let value = 0; if (flag) { value = 1; if (false) value = 2; } else { value = 3; } return value; } choose(true).next(); choose(false).next();",
+        )
+        .expect("async-generator ordinary conditionals should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_conditional_suspension_remains_explicit() {
+        let error = emit_script(
+            "async function* choose(flag) { if (flag) await 1; return 2; } choose(true).next();",
+        )
+        .expect_err("async-generator conditional suspension should remain explicit");
+
+        assert!(error
+            .to_string()
+            .contains("does not yet support branches containing suspension"));
+    }
+
+    #[test]
+    fn completed_async_generator_return_reaction_module_validates() {
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_call(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Function),
+                ExprIr::FunctionValue(
+                    StandardBuiltinId::AsyncGeneratorPrototypeReturn.function_id(),
+                ),
+            ),
+            TypedExpr::from_info(ValueInfo::new(ValueKind::Undefined), ExprIr::Undefined),
+            vec![TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0f64.to_bits()),
+            )],
+        ));
+        script.body.result_kind = ValueKind::Dynamic;
+
+        let artifact =
+            emit(&program).expect("completed async-generator return reaction should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_body_await_dispatcher_module_validates() {
+        let artifact = emit_script(
+            "let started = false; async function* stream(value) { started = true; await value; return value; } const iterator = stream(1); iterator.next();",
+        )
+        .expect("async-generator body Await dispatcher should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_await_terminal_modules_validate() {
+        for source in [
+            "async function* stream(promise) { await promise; return 1; } stream(Promise.resolve()).next();",
+            "async function* stream(value) { return value; } stream(1).next();",
+            "async function* stream(value) { return await value; } stream(1).next();",
+            "async function* stream(promise) { await promise; } stream(Promise.reject(1)).next();",
+        ] {
+            let artifact = emit_script(source).expect("async-generator body Await should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_yield_lifecycle_modules_validate() {
+        for source in [
+            "async function* stream() { yield; } const iterator = stream(); iterator.next(); iterator.next();",
+            "async function* stream() { yield yield 1; } const iterator = stream(); iterator.next(); iterator.next(); iterator.next();",
+            "async function* stream() { yield 1; throw 2; } const iterator = stream(); iterator.next(); iterator.return(2); iterator.next();",
+            "async function* stream() { yield 1; throw 2; } const iterator = stream(); iterator.next(); iterator.return(Promise.resolve(2)); iterator.next();",
+            "async function* stream() { yield 1; throw 2; } const reason = {}; const iterator = stream(); iterator.next(); iterator.throw(reason); iterator.next();",
+            "async function* stream() { yield 1; throw 2; } const reason = Promise.resolve(2); const iterator = stream(); iterator.next(); iterator.throw(reason); iterator.next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator Yield lifecycle should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_yield_thenable_modules_validate() {
+        for source in [
+            "let thenable = { then: function (resolve, reject) { resolve(1); reject(2); } }; async function* stream() { yield thenable; } stream().next();",
+            "let thenable = { then: function (resolve, reject) { reject(1); resolve(2); } }; async function* stream() { yield thenable; } stream().next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator thenable yield should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_yield_await_staging_module_validates() {
+        let artifact = emit_script(
+            "async function* stream(value) { yield await value; } const iterator = stream(1); iterator.next(); iterator.next();",
+        )
+        .expect("async-generator yield-await staging should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_delegation_module_validates() {
+        let artifact = emit_script(
+            "async function* inner() { yield 1; } async function* outer() { yield* inner(); } const iterator = outer(); iterator.next(); iterator.next();",
+        )
+        .expect("async-generator delegation should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_delegation_completion_module_validates() {
+        for source in [
+            "let source = { [Symbol.asyncIterator]: function () { return this; }, next: function () { return Promise.resolve({ value: 1, done: true }); } }; async function* outer() { var completion = yield* source; return completion; } outer().next();",
+            "let source = { [Symbol.iterator]: function () { return this; }, next: function () { return { value: 1, done: false }; }, return: function (value) { return { value: value, done: true }; } }; let iterator = (async function*() { yield* source; }()); iterator.next(); iterator.return(2);",
+            "let source = { [Symbol.iterator]: function () { return this; }, next: function () { return { value: 1, done: false }; }, throw: function (value) { return { value: value, done: true }; } }; let iterator = (async function*() { var completion = yield* source; return completion; }()); iterator.next(); iterator.throw(2);",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator delegated completion should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_rejected_yield_routing_modules_validate() {
+        for source in [
+            "async function* stream(reason) { yield Promise.reject(reason); yield 'unreachable'; } stream({}).next();",
+            "async function* source(reason) { yield Promise.reject(reason); } async function* stream(reason) { for await (let value of source(reason)) { yield value; } } stream({}).next();",
+            "async function* stream(reason) { for await (let value of [Promise.reject(reason)]) { yield value; } } stream({}).next();",
+        ] {
+            let artifact = emit_script(source)
+                .expect("async-generator rejected yield routing should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_yield_spread_modules_validate() {
+        for source in [
+            "async function* stream() { yield [...yield]; } stream().next();",
+            "async function* stream() { yield [...yield yield]; } stream().next();",
+            "async function* stream() { yield { ...yield, y: 1, ...yield yield }; } stream().next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator yield spread should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_yield_spread_conditional_remains_explicit() {
+        let error = emit_script(
+            "async function* stream(flag) { yield [...(flag ? yield [] : [])]; } stream(true).next();",
+        )
+        .expect_err("conditional yield inside spread should remain explicit");
+
+        assert!(error
+            .to_string()
+            .contains("generator expression suspension"));
+    }
+
+    #[test]
+    fn promise_all_iterable_module_validates() {
+        let artifact = emit_script(
+            r#"let iterable = {};
+iterable[Symbol.iterator] = function () {
+  let index = 0;
+  return { next: function () {
+    if (index === 2) return { done: true };
+    return { done: false, value: index++ };
+  } };
+};
+Promise.all(iterable).then(function (values) { return values.length; });"#,
+        )
+        .expect("Promise.all iterable should emit");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn promise_race_iterable_module_validates() {
+        let artifact = emit_script(
+            r#"let iterable = {};
+iterable[Symbol.iterator] = function () {
+  let index = 0;
+  return { next: function () {
+    if (index === 2) return { done: true };
+    return { done: false, value: index++ };
+  } };
+};
+Promise.race(iterable).then(function (value) { return value; });"#,
+        )
+        .expect("Promise.race iterable should emit");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn promise_finally_module_validates() {
+        let artifact = emit_script(
+            r#"Promise.resolve(1)
+  .finally(function () { return Promise.resolve(2); })
+  .then(function (value) { return value; });
+Promise.reject(3)
+  .finally(function () {})
+  .catch(function (reason) { return reason; });"#,
+        )
+        .expect("Promise.prototype.finally should emit");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_mixed_await_and_yield_module_validates() {
+        let artifact = emit_script(
+            "async function* stream(value) { await value; yield value; } stream(1).next();",
+        )
+        .expect("mixed async-generator suspension should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_generator_resumable_loop_modules_validate() {
+        for source in [
+            "async function* stream() { for (let i = 0; i < 0; i++) { yield i; } yield 9; } stream().next();",
+            "async function* stream() { for (let i = 0; i < 1; i++) { yield i; } yield 9; } stream().next();",
+            "async function* stream() { for (let i = 0; i < 3; i++) { yield Promise.resolve(i * 2); } yield 9; } stream().next();",
+            "async function* stream() { for (let i = 0; i < 2; i++) { let observed; try { observed = value; } catch (error) { observed = 'tdz'; } yield observed; let value = i; } } stream().next();",
+            "let observed; async function* stream() { for (let i = 0; i < 1; i++) { let value = 7; yield value; observed = value; } } stream().next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator resumable loop should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_terminal_completion_and_completed_queue_modules_validate() {
+        for source in [
+            "async function* stream() {} const iterator = stream(); iterator.next(); iterator.next(); iterator.throw(1); iterator.return(2);",
+            "const stream = async function* named() {}; stream().next(); stream().throw(1); stream().return(2);",
+            "async function* stream() { return 1; } stream().next();",
+            "async function* stream() { throw 1; } stream().next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator terminal body completion should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_body_dispatcher_rejects_for_await_iteration() {
+        let error = emit_script(
+            "async function* stream(source) { for await (const value of source) { print(value); yield value; } }",
+        )
+        .expect_err("for-await body dispatch should remain explicit");
+
+        assert!(error
+            .to_string()
+            .contains("does not yet support for-await iteration"));
+    }
+
+    #[test]
+    fn map_cross_realm_new_target_modules_validate() {
+        for source in [
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+Reflect.construct(Map, [], C);"#,
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+var bound = C.bind(null);
+Reflect.construct(Map, [], bound);"#,
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+var revocable;
+revocable = Proxy.revocable(C, {
+  get: function(target, key) {
+    if (key === "prototype") revocable.revoke();
+    return null;
+  }
+});
+try { Reflect.construct(Map, [], revocable.proxy); } catch (error) {}"#,
+        ] {
+            let artifact = emit_script(source).expect("Map newTarget script should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn set_cross_realm_new_target_modules_validate() {
+        for source in [
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+Reflect.construct(Set, [], C);"#,
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+var bound = C.bind(null);
+Reflect.construct(Set, [], bound);"#,
+            r#"var other = __porfCreateRealm().global;
+var C = other.Object;
+C.prototype = null;
+var revocable;
+revocable = Proxy.revocable(C, {
+  get: function(target, key) {
+    if (key === "prototype") revocable.revoke();
+    return null;
+  }
+});
+try { Reflect.construct(Set, [], revocable.proxy); } catch (error) {}"#,
+        ] {
+            let artifact = emit_script(source).expect("Set newTarget script should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
     fn operations_emits_to_numeric_spec_operation() {
         let source = parse("0;", ParseOptions::script()).expect("script should parse");
         let mut program = lower(&source);
@@ -168,16 +515,26 @@ new Derived(source);
     }
 
     #[test]
-    fn rejects_arbitrary_precision_bigint_literal_until_heap_storage_lands() {
+    fn arbitrary_precision_bigint_literal_initializes_heap_record_and_limbs() {
         let source = parse("184467440737095516161234567890n;", ParseOptions::script())
             .expect("script should parse");
         let program = lower(&source);
-        let err = emit(&program).expect_err("arbitrary precision BigInt should not truncate");
-        let message = err.to_string();
+        let artifact = emit(&program).expect("arbitrary precision BigInt should emit");
+
+        expect_valid_module(&artifact, 0);
+        for (value, offset) in [(1_234_567_890, 0), (10_000_000_000, 8)] {
+            assert!(
+                contains_i64_const_store_at_offset(&artifact.bytes, value, offset),
+                "BigInt literal should initialize magnitude limb {offset}"
+            );
+        }
         assert!(
-            message.contains("BigInt literal requires heap-backed arbitrary precision storage"),
-            "{}",
-            message
+            contains_i64_const_store_at_offset(&artifact.bytes, 2, HEAP_BIGINT_LIMBS_LEN_OFFSET,),
+            "BigInt record should retain both magnitude limbs"
+        );
+        assert!(
+            contains_i64_const_store_at_offset(&artifact.bytes, 2, HEAP_BIGINT_LIMBS_CAP_OFFSET,),
+            "BigInt record capacity should cover both magnitude limbs"
         );
     }
 
@@ -963,10 +1320,7 @@ pick(true);"#,
     /// production wasmtime configuration (`porffor-engine`'s
     /// `run_with_wasm_aot_inner`: threads, function-references, gc, and
     /// exceptions all enabled) instead of an embedding engine's own default
-    /// feature set, which may lag behind (e.g. wasmi 0.31's validator
-    /// hardcodes `threads: false` with no way to opt in, so it rejects the
-    /// atomic rmw ops this compiler emits for `Atomics.*` even though
-    /// production wasmtime accepts them).
+    /// feature set, which may lag behind the production target.
     fn expect_valid_module(artifact: &WasmArtifact, _script_function_count: usize) {
         let features = WasmFeatures::default()
             | WasmFeatures::THREADS
@@ -984,12 +1338,73 @@ pick(true);"#,
             });
     }
 
+    fn declared_function_local_counts(bytes: &[u8]) -> Vec<u32> {
+        let mut counts = Vec::new();
+        for payload in Parser::new(0).parse_all(bytes) {
+            let Payload::CodeSectionEntry(body) = payload.expect("wasm parse should succeed")
+            else {
+                continue;
+            };
+            let locals = body
+                .get_locals_reader()
+                .expect("function locals should decode");
+            let mut count = 0_u32;
+            for local in locals {
+                let (consecutive_count, _) = local.expect("function local should decode");
+                count = count
+                    .checked_add(consecutive_count)
+                    .expect("function local count should fit in u32");
+            }
+            counts.push(count);
+        }
+        counts
+    }
+
     #[test]
     fn emitted_module_validates() {
         let artifact = emit_script("let x = 40; const y = 2; x + y;").expect("emit should work");
         expect_valid_module(&artifact, 0);
         assert!(artifact.debug_dump.contains("export func: main"));
         assert!(artifact.debug_dump.contains("export global: result_tag"));
+    }
+
+    #[test]
+    fn emitted_functions_declare_only_referenced_temporary_locals() {
+        let artifact = emit_script(
+            r#"
+function ordinary(value) { return value + 1; }
+let buffer = new ArrayBuffer(8);
+let view = new Uint8Array(buffer);
+let parsed = JSON.parse("1.1e-1");
+let serialized = JSON.stringify({ parsed });
+ordinary(view.byteLength) === 9 && /1/.test(serialized);
+"#,
+        )
+        .expect("ordinary, builtin, JSON, decimal, and RegExp paths should emit");
+        expect_valid_module(&artifact, 1);
+
+        let local_counts = declared_function_local_counts(&artifact.bytes);
+        let declared_main_local_count = local_counts
+            .first()
+            .copied()
+            .expect("emitted module should contain a main function");
+        let reported_main_local_count = artifact
+            .debug_dump
+            .lines()
+            .find_map(|line| line.strip_prefix("locals: "))
+            .expect("debug dump should report main locals")
+            .parse::<u32>()
+            .expect("reported main local count should be numeric");
+        assert_eq!(reported_main_local_count, declared_main_local_count);
+        let max_local_count = local_counts
+            .iter()
+            .copied()
+            .max()
+            .expect("emitted module should contain functions");
+        assert!(
+            max_local_count < 2048,
+            "emitted function retained temporary-local planning capacity: {max_local_count}"
+        );
     }
 
     #[test]
@@ -1781,6 +2196,146 @@ Object.getOwnPropertyDescriptor(revocationFunction, "name");
 Object.getOwnPropertyNames(revocationFunction);"#,
         )
         .expect("proxy revocation metadata script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_own_property_keys_module_validates() {
+        let artifact = emit_script(
+            r#"var buffer = new ArrayBuffer(4, { maxByteLength: 8 });
+var view = new Uint8Array(buffer, 1);
+var symbol = Symbol("key");
+view.visible = 1;
+Object.defineProperty(view, "hidden", { value: 2, enumerable: false });
+view[symbol] = 3;
+Reflect.ownKeys(view);
+Object.getOwnPropertyNames(view);
+Reflect.ownKeys(view.subarray(1));
+buffer.resize(8);
+Reflect.ownKeys(view);
+buffer.resize(0);
+Reflect.ownKeys(view);"#,
+        )
+        .expect("typed array own property keys script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_get_own_property_descriptor_module_validates() {
+        let artifact = emit_script(
+            r#"var numeric = new Uint8Array([42]);
+Object.getOwnPropertyDescriptor(numeric, "0");
+Object.getOwnPropertyDescriptor(numeric, "-0");
+Object.getOwnPropertyDescriptor(numeric, "1.0");
+Object.getOwnPropertyDescriptor(numeric, "1.1");
+Object.getOwnPropertyDescriptor(numeric, "Infinity");
+var bigint = new BigInt64Array([42n]);
+Object.getOwnPropertyDescriptor(bigint, 0);
+var detached = new Uint8Array([1]);
+__porfDetachArrayBuffer(detached.buffer);
+Object.getOwnPropertyDescriptor(detached, 0);
+var other = __porfCreateRealm().global;
+var otherDetached = new other.Uint8Array(1);
+__porfDetachArrayBuffer(otherDetached.buffer);
+Object.getOwnPropertyDescriptor(otherDetached, 0);"#,
+        )
+        .expect("typed array get own property script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_has_property_module_validates() {
+        let artifact = emit_script(
+            r#"var view = new Uint8Array([42, 43]);
+Reflect.has(view, 0);
+Reflect.has(view, "-0");
+Reflect.has(view, "1.0");
+Reflect.has(view, "Infinity");
+var bigint = new BigInt64Array([42n]);
+Reflect.has(bigint, 0);
+var buffer = new ArrayBuffer(4, { maxByteLength: 8 });
+var tracking = new Uint8Array(buffer, 1);
+Reflect.has(tracking, 2);
+buffer.resize(1);
+Reflect.has(tracking, 0);
+var detached = new Uint8Array([1]);
+__porfDetachArrayBuffer(detached.buffer);
+Reflect.has(detached, 0);"#,
+        )
+        .expect("typed array has property script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_delete_module_validates() {
+        let artifact = emit_script(
+            r#"var numeric = new Uint8Array([42]);
+delete numeric[0];
+delete numeric["-0"];
+delete numeric["1.1"];
+Reflect.deleteProperty(numeric, "Infinity");
+var bigint = new BigInt64Array([42n]);
+delete bigint[0];
+var shared = new Uint8Array(new SharedArrayBuffer(1));
+delete shared[0];
+var detached = new Uint8Array([1]);
+__porfDetachArrayBuffer(detached.buffer);
+delete detached[0];
+function strictDelete(view) {
+  "use strict";
+  delete view[0];
+}
+try { strictDelete(numeric); } catch (error) {}
+var proxy = new Proxy(numeric, { deleteProperty: function() { return true; } });
+delete proxy[0];"#,
+        )
+        .expect("typed array delete script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_define_own_property_module_validates() {
+        let artifact = emit_script(
+            r#"var numeric = new Uint8Array([1]);
+Object.defineProperty(numeric, 0, { value: 2 });
+Reflect.defineProperty(numeric, "-0", { value: 3 });
+Reflect.defineProperty(numeric, "1.1", { value: 4 });
+Reflect.defineProperty(numeric, "Infinity", { value: 5 });
+var bigint = new BigInt64Array([1n]);
+Object.defineProperty(bigint, 0, { value: 2n, configurable: true });
+var ordinary = Symbol("ordinary");
+Reflect.defineProperty(numeric, "1.0", { value: 6 });
+Reflect.defineProperty(numeric, ordinary, { value: 7 });
+var detached = new Uint8Array([1]);
+__porfDetachArrayBuffer(detached.buffer);
+Reflect.defineProperty(detached, 0, { value: 2 });
+var proxy = new Proxy(numeric, { defineProperty: function() { return true; } });
+Object.defineProperty(proxy, 0, { value: 8 });"#,
+        )
+        .expect("typed array define own property script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn typedarray_set_module_validates() {
+        let artifact = emit_script(
+            r#"var target = new Uint8Array([1]);
+var directValue = { valueOf: function() { return 2; } };
+target["-0"] = directValue;
+target["1.1"] = directValue;
+target["-1"] = directValue;
+Reflect.set(target, 0, directValue);
+Reflect.set(target, "1.1", directValue);
+var receiver = {};
+Reflect.set(target, 0, directValue, receiver);
+Reflect.set(target, "1.1", directValue, receiver);
+var typedReceiver = new Uint8Array([0]);
+Reflect.set(target, 0, 257, typedReceiver);
+var inheritedReceiver = Object.create(target);
+inheritedReceiver[0] = directValue;
+inheritedReceiver["1.1"] = directValue;"#,
+        )
+        .expect("typed array set script should emit");
         expect_valid_module(&artifact, 0);
     }
 

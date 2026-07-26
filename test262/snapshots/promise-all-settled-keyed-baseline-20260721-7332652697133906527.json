@@ -1,0 +1,122 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7332652697133906527,
+  "run_kind": "full",
+  "total": 6,
+  "passed": 1,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 5,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 5,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 1
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/allSettledKeyed/prop-desc.js",
+      "duration_ms": 28977
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/name.js",
+      "duration_ms": 23761
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/length.js",
+      "duration_ms": 22579
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/not-a-constructor.js",
+      "duration_ms": 16859
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/extensible.js",
+      "duration_ms": 13550
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/proto.js",
+      "duration_ms": 7376
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Promise/allSettledKeyed/extensible.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected true but got false)",
+      "detail_hash": 2934276716105832339,
+      "duration_ms": 13550
+    },
+    {
+      "test_path": "built-ins/Promise/allSettledKeyed/length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1438312)",
+      "detail_hash": 17709374424519257514,
+      "duration_ms": 22579
+    },
+    {
+      "test_path": "built-ins/Promise/allSettledKeyed/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1438312)",
+      "detail_hash": 17709374424519257514,
+      "duration_ms": 23761
+    },
+    {
+      "test_path": "built-ins/Promise/allSettledKeyed/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
+      "detail_hash": 4157586038938152846,
+      "duration_ms": 28977
+    },
+    {
+      "test_path": "built-ins/Promise/allSettledKeyed/proto.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1392312)",
+      "detail_hash": 15529381672652689860,
+      "duration_ms": 7376
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Promise/allSettledKeyed/extensible.js",
+    "built-ins/Promise/allSettledKeyed/length.js",
+    "built-ins/Promise/allSettledKeyed/name.js",
+    "built-ins/Promise/allSettledKeyed/not-a-constructor.js",
+    "built-ins/Promise/allSettledKeyed/prop-desc.js",
+    "built-ins/Promise/allSettledKeyed/proto.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

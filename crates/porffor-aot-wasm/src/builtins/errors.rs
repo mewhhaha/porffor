@@ -1,5 +1,12 @@
 use super::super::*;
 
+#[derive(Clone, Copy)]
+pub(crate) enum NewTargetPrototypeFallback {
+    CurrentGlobal,
+    FunctionSnapshot(u64),
+    RealmIntrinsic(u64),
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_alloc_error_instance_from_locals(
         &mut self,
@@ -236,6 +243,24 @@ impl<'a> FunctionBuilder<'a> {
         prototype_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let fallback = fallback_realm_prototype_offset
+            .map(NewTargetPrototypeFallback::FunctionSnapshot)
+            .unwrap_or(NewTargetPrototypeFallback::CurrentGlobal);
+        self.emit_new_target_prototype_to_local(
+            default_prototype_global_index,
+            fallback,
+            prototype_payload_local,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_new_target_prototype_to_local(
+        &mut self,
+        default_prototype_global_index: u32,
+        fallback: NewTargetPrototypeFallback,
+        prototype_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
         let prototype_key_local = self.reserve_temp_local();
@@ -243,6 +268,8 @@ impl<'a> FunctionBuilder<'a> {
         let realm_source_payload_local = self.reserve_temp_local();
         let proxy_handler_payload_local = self.reserve_temp_local();
         let proxy_target_tag_local = self.reserve_temp_local();
+        let prototype_realm_local = self.reserve_temp_local();
+        let prototype_realm_revoked_local = self.reserve_temp_local();
 
         self.compile_new_target_to_locals(
             new_target_payload_local,
@@ -311,20 +338,53 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        if let Some(fallback_realm_prototype_offset) = fallback_realm_prototype_offset {
-            self.load_i64_to_local_from_offset(
-                realm_source_payload_local,
-                fallback_realm_prototype_offset,
-                prototype_payload_local,
-                function,
-            );
-        } else {
-            function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        match fallback {
+            NewTargetPrototypeFallback::CurrentGlobal => {
+                function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+            }
+            NewTargetPrototypeFallback::FunctionSnapshot(offset) => {
+                self.load_i64_to_local_from_offset(
+                    realm_source_payload_local,
+                    offset,
+                    prototype_payload_local,
+                    function,
+                );
+            }
+            NewTargetPrototypeFallback::RealmIntrinsic(offset) => {
+                self.emit_get_function_realm_to_locals(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    prototype_realm_local,
+                    prototype_realm_revoked_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(prototype_realm_revoked_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "cannot get function realm from a revoked Proxy",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_load_realm_intrinsic_prototype_or_global(
+                    prototype_realm_local,
+                    offset,
+                    default_prototype_global_index,
+                    prototype_payload_local,
+                    function,
+                );
+            }
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(prototype_realm_revoked_local);
+        self.release_temp_local(prototype_realm_local);
         self.release_temp_local(proxy_target_tag_local);
         self.release_temp_local(proxy_handler_payload_local);
         self.release_temp_local(realm_source_payload_local);

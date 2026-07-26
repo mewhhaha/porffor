@@ -254,4 +254,17 @@ try {
   if (!(error instanceof RangeError)) throw "big auto getBigUint64 error";
 }
 
+let growableShared = new SharedArrayBuffer(4, { maxByteLength: 8 });
+let sharedAuto = new DataView(growableShared, 1);
+let sharedFixed = new DataView(growableShared, 1, 2);
+sharedAuto.setUint8(0, 0x91);
+growableShared.grow(8);
+if (sharedAuto.buffer !== growableShared) throw "shared auto buffer";
+if (sharedAuto.byteOffset !== 1) throw "shared auto byteOffset";
+if (sharedAuto.byteLength !== 7) throw "shared auto grow byteLength";
+if (sharedFixed.byteOffset !== 1) throw "shared fixed byteOffset";
+if (sharedFixed.byteLength !== 2) throw "shared fixed grow byteLength";
+if (sharedAuto.getUint8(0) !== 0x91) throw "shared grow preserved byte";
+if (sharedAuto.getUint8(6) !== 0) throw "shared grow zero fill";
+
 123;

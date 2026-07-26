@@ -1,0 +1,140 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7031645897862764810,
+  "run_kind": "full",
+  "total": 54,
+  "passed": 54,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 54
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/conversion-operation-consistent-nan.js",
+      "duration_ms": 65790
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/non-extensible-redefine-key.js",
+      "duration_ms": 36962
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-symbol.js",
+      "duration_ms": 36539
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/conversion-operation.js",
+      "duration_ms": 35860
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-canonical-index.js",
+      "duration_ms": 31956
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/non-extensible-redefine-key.js",
+      "duration_ms": 30980
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-canonical-index.js",
+      "duration_ms": 30443
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-numeric-index.js",
+      "duration_ms": 29878
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-numeric-index.js",
+      "duration_ms": 29157
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-symbol.js",
+      "duration_ms": 28024
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/desc-value-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/detached-buffer-throws-realm.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/detached-buffer-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-numeric-index-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-accessor-desc-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-accessor-desc.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-configurable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-not-configurable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-not-enumerable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-not-enumerable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-not-writable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex-desc-not-writable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-numericindex.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/non-extensible-new-key.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/non-extensible-redefine-key.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/set-value.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/this-is-not-extensible.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/BigInt/tonumber-value-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/conversion-operation-consistent-nan.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/conversion-operation.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/desc-value-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/detached-buffer-throws-realm.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/detached-buffer-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-numeric-index-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-accessor-desc-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-accessor-desc.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-configurable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-not-configurable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-not-enumerable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-not-enumerable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-not-writable-throws.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex-desc-not-writable.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-numericindex.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/non-extensible-new-key.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/non-extensible-redefine-key.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/set-value.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/this-is-not-extensible.js",
+    "built-ins/TypedArrayConstructors/internals/DefineOwnProperty/tonumber-value-detached-buffer.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

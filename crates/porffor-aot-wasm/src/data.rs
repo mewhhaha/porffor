@@ -149,6 +149,7 @@ impl StringPool {
             "true",
             "false",
             "0",
+            "-0",
             "\"",
             "{",
             "}",
@@ -253,6 +254,11 @@ impl StringPool {
             "RegExp legacy static accessor receiver must be RegExp",
             "%ThrowTypeError%",
             "constructor",
+            "withResolvers",
+            "try",
+            "promise",
+            "resolve",
+            "reject",
             "callee",
             "arguments",
             "caller",
@@ -385,6 +391,7 @@ impl StringPool {
             "unshift",
             "splice",
             "sort",
+            "subarray",
             "entries",
             "values",
             "create",
@@ -403,6 +410,7 @@ impl StringPool {
             "freeze",
             "isExtensible",
             "hasOwnProperty",
+            "__proto__",
             "propertyIsEnumerable",
             "Object.prototype.propertyIsEnumerable called on null or undefined",
             "toString",
@@ -436,15 +444,63 @@ impl StringPool {
             "$RegExpStringIterator.done",
             "Array Iterator",
             "String Iterator",
+            "Map Iterator",
+            "Set Iterator",
+            "Generator",
+            "Generator method called on incompatible receiver",
+            "Generator is already running",
+            "AsyncGenerator method called on incompatible receiver",
+            "Promise.resolve receiver is not an object",
+            "Promise keyed constructor resolve property is not callable",
+            "Promise keyed input must be an object",
+            "allKeyed",
+            "allSettledKeyed",
+            "status",
+            "fulfilled",
+            "rejected",
+            "value",
+            "reason",
             "Array.prototype iterator method called on null or undefined",
             "Array Iterator next called on incompatible receiver",
             "Array Iterator next called on out-of-bounds TypedArray",
             "String Iterator next called on incompatible receiver",
+            "Map Iterator.prototype.next receiver does not have [[Map]]",
+            "Map Iterator.prototype.next receiver is not an object",
+            "Map.groupBy items cannot be null or undefined",
+            "Map.groupBy callback must be callable",
+            "Map.groupBy iterator method must be callable",
+            "Map.groupBy iterator method must return an object",
+            "Map.groupBy iterator next method must be callable",
+            "Map.groupBy iterator produced too many values",
+            "Map.groupBy iterator next result must be an object",
+            "Map.prototype.getOrInsertComputed callback must be callable",
+            "Map method receiver does not have [[MapData]]",
+            "Map method receiver is not an object",
+            "Object.groupBy items cannot be null or undefined",
+            "Object.groupBy callback must be callable",
+            "Object.groupBy iterator method must be callable",
+            "Object.groupBy iterator method must return an object",
+            "Object.groupBy iterator next method must be callable",
+            "Object.groupBy iterator produced too many values",
+            "Object.groupBy iterator next result must be an object",
+            "Set Iterator.prototype.next receiver does not have [[Set]]",
+            "Set Iterator.prototype.next receiver is not an object",
+            "Set method receiver does not have [[SetData]]",
+            "Set method receiver is not an object",
+            "Set method argument is not a set-like object",
+            "Set-like size is NaN",
+            "Set-like size is negative",
+            "Set-like has method is not callable",
+            "Set-like keys method is not callable",
+            "Set-like keys method must return an object",
+            "Set-like iterator next method is not callable",
+            "Set-like iterator next result must be an object",
             "RegExp String Iterator next called on incompatible receiver",
             "RegExp String Iterator exec returned non-object",
             "Iterator",
             "toArray",
             "forEach",
+            "groupBy",
             "every",
             "some",
             "find",
@@ -614,12 +670,22 @@ impl StringPool {
             "Array.from called on null or undefined",
             "Array.from index property is non-configurable",
             "Array.from target is not extensible",
+            "Array.fromAsync mapper is not callable",
+            "Array.fromAsync input is null or undefined",
+            "Array.fromAsync iterator method is not callable",
+            "Array.fromAsync iterator method must return object",
+            "Array.fromAsync iterator next is not callable",
+            "Array.fromAsync iterator next result must be object",
+            "Array.fromAsync iterator produced too many values",
             "Array.of index property is non-configurable",
             "Array.of target is not extensible",
             "TypedArray.from receiver is not a constructor",
             "TypedArray.from mapper is not callable",
+            "TypedArray.from iterator next must be callable",
+            "TypedArray.from iterator next result must be object",
             "TypedArray.from constructed target is not a typed array",
             "TypedArray.from constructed target is too small",
+            "TypedArray.of receiver is not a constructor",
             "TypedArray constructor requires new",
             "TypedArray byteOffset out of range",
             "TypedArray byteOffset must be aligned",
@@ -628,6 +694,43 @@ impl StringPool {
             "TypedArray backing buffer is detached",
             "TypedArray byteLength out of bounds",
             "TypedArray length out of range",
+            "TypedArray iterator method requires a TypedArray",
+            "TypedArray find method requires a TypedArray",
+            "TypedArray.prototype.includes requires a TypedArray",
+            "TypedArray.prototype.indexOf requires a TypedArray",
+            "TypedArray.prototype.lastIndexOf requires a TypedArray",
+            "TypedArray.prototype.slice requires a TypedArray",
+            "TypedArray.prototype.slice has unknown element type",
+            "TypedArray.prototype.slice constructor property is not an object",
+            "TypedArray.prototype.slice species is not a constructor",
+            "TypedArray.prototype.slice species content type differs",
+            "TypedArray.prototype.find predicate is not callable",
+            "TypedArray.prototype.findIndex predicate is not callable",
+            "TypedArray.prototype.findLast predicate is not callable",
+            "TypedArray.prototype.findLastIndex predicate is not callable",
+            "TypedArray every method requires a TypedArray",
+            "TypedArray some method requires a TypedArray",
+            "TypedArray.prototype.every callback is not callable",
+            "TypedArray.prototype.some callback is not callable",
+            "TypedArray.prototype.map requires a TypedArray",
+            "TypedArray.prototype.map callback is not callable",
+            "TypedArray.prototype.map has unknown element type",
+            "TypedArray.prototype.map constructor property is not an object",
+            "TypedArray.prototype.map species is not a constructor",
+            "TypedArray.prototype.map species content type differs",
+            "TypedArray.prototype.filter requires a TypedArray",
+            "TypedArray.prototype.filter callback is not callable",
+            "TypedArray.prototype.filter has unknown element type",
+            "TypedArray.prototype.filter constructor property is not an object",
+            "TypedArray.prototype.filter species is not a constructor",
+            "TypedArray.prototype.filter species content type differs",
+            "TypedArray.prototype.forEach requires a TypedArray",
+            "TypedArray.prototype.forEach callback is not callable",
+            "TypedArray.prototype.reduce requires a TypedArray",
+            "TypedArray.prototype.reduce callback is not callable",
+            "TypedArray.prototype.reduceRight requires a TypedArray",
+            "TypedArray.prototype.reduceRight callback is not callable",
+            "Reduce of empty typed array with no initial value",
             "TypedArray.prototype.toString requires TypedArray",
             "TypedArray.prototype.join requires a TypedArray",
             "TypedArray.prototype.toLocaleString requires TypedArray",
@@ -766,6 +869,18 @@ impl StringPool {
             "Symbol.search",
             "Symbol.split",
             "Symbol.toStringTag",
+            "GeneratorFunction",
+            "function GeneratorFunction() { [native code] }",
+            "AsyncFunction",
+            "function AsyncFunction() { [native code] }",
+            "AsyncGenerator",
+            "AsyncGeneratorFunction",
+            "function AsyncGeneratorFunction() { [native code] }",
+            "[Symbol.asyncIterator]",
+            "function [Symbol.asyncIterator]() { [native code] }",
+            "function next() { [native code] }",
+            "function return() { [native code] }",
+            "function throw() { [native code] }",
             "Symbol.toPrimitive",
             "Symbol is not a constructor",
             "Symbol.keyFor argument must be a symbol",
@@ -898,6 +1013,9 @@ impl StringPool {
             "DataView",
             "get",
             "set",
+            "clear",
+            "delete",
+            "size",
             "async",
             "value",
             "next",
@@ -942,6 +1060,31 @@ impl StringPool {
             "Proxy defineProperty trap cannot define non-configurable target property",
             "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
+            "Cannot define invalid TypedArray index",
+            "Cannot define incompatible TypedArray index descriptor",
+            "TypedArray.prototype.subarray requires TypedArray",
+            "TypedArray.prototype.subarray has unknown element type",
+            "TypedArray.prototype.subarray constructor property is not an object",
+            "TypedArray.prototype.subarray species is not a constructor",
+            "TypedArray.prototype.subarray species did not return a TypedArray",
+            "TypedArray.prototype.subarray species content type differs",
+            "Constructed target is not a typed array",
+            "Constructed typed array is too small",
+            "TypedArray.prototype.set requires TypedArray",
+            "TypedArray.prototype.set backing buffer is detached",
+            "TypedArray.prototype.set offset is out of range",
+            "TypedArray.prototype.set source buffer is detached",
+            "TypedArray.prototype.set source and target content types differ",
+            "TypedArray.prototype.set source is too large",
+            "TypedArray.prototype.reverse requires TypedArray",
+            "TypedArray.prototype.sort requires TypedArray",
+            "TypedArray.prototype.toReversed requires TypedArray",
+            "TypedArray.prototype.toReversed has unknown element type",
+            "TypedArray.prototype.toSorted requires TypedArray",
+            "TypedArray.prototype.toSorted has unknown element type",
+            "TypedArray.prototype.with requires TypedArray",
+            "TypedArray.prototype.with index out of range",
+            "TypedArray.prototype.with has unknown element type",
             "Reflect.defineProperty target must be object",
             "Reflect.getPrototypeOf target must be object",
             "Reflect.getOwnPropertyDescriptor target must be object",
@@ -1011,6 +1154,7 @@ impl StringPool {
             "Array.prototype.concat called on null or undefined",
             "Array.prototype.toLocaleString called on null or undefined",
             "Array.prototype.toLocaleString element method is not callable",
+            "TypedArray.prototype.toLocaleString element method is not callable",
             "Array.prototype.flat receiver is not array",
             "Array.prototype.flat called on null or undefined",
             "Array.prototype.flat constructor is not object",
@@ -1021,6 +1165,7 @@ impl StringPool {
             "Array.prototype.flatMap cannot add property to non-extensible target",
             "Array.prototype.flatMap cannot define non-configurable target property",
             "Array.prototype.at called on null or undefined",
+            "TypedArray.prototype.at called on incompatible receiver",
             "Array.prototype.includes receiver is not array",
             "Array.prototype.includes called on null or undefined",
             "Array.prototype.indexOf called on null or undefined",
@@ -1161,7 +1306,9 @@ impl StringPool {
             "SharedArrayBuffer getter requires SharedArrayBuffer",
             "SharedArrayBuffer grow receiver is not growable SharedArrayBuffer",
             "SharedArrayBuffer grow length is out of range",
+            "SharedArrayBuffer grow length is smaller than its current byte length",
             "detachArrayBuffer expects an ArrayBuffer",
+            "detachArrayBuffer key does not match the ArrayBuffer detach key",
             "DataView accessor requires DataView",
             "DataView backing buffer is detached",
             "DataView backing buffer is immutable",
@@ -1181,7 +1328,9 @@ impl StringPool {
             "DataView getFloat64 index out of bounds",
             "DataView setFloat64 index out of bounds",
             "DataView getBigInt64 index out of bounds",
+            "DataView getBigUint64 index out of bounds",
             "DataView setBigInt64 index out of bounds",
+            "DataView setBigUint64 index out of bounds",
             "cannot convert Number to BigInt",
             "cannot convert non-integer Number to BigInt",
             "cannot convert value to BigInt",
@@ -1245,6 +1394,7 @@ impl StringPool {
         }
         for meta in function_metas.values() {
             pool.intern_string(&meta.name);
+            pool.intern_string(meta.runtime_name());
             pool.intern_string(&meta.to_string_value);
         }
         for builtin in StandardBuiltinId::all_functions() {
@@ -1582,10 +1732,36 @@ impl StringPool {
                 self.intern_string(variable_storage_name);
             }
             StatementIr::Expression(init) => self.collect_expr(init),
+            StatementIr::GeneratorYield {
+                value,
+                delegate,
+                resume_mode,
+                ..
+            } => {
+                if *delegate {
+                    for key in [
+                        "Symbol.iterator",
+                        "next",
+                        "done",
+                        "value",
+                        "return",
+                        "throw",
+                    ] {
+                        self.intern_string(key);
+                    }
+                }
+                if let GeneratorResumeModeIr::AssignProperty { target, key } = resume_mode {
+                    self.collect_expr(target);
+                    self.collect_property_key(key);
+                }
+                self.collect_expr(value);
+            }
+            StatementIr::AsyncAwait { value, .. } => self.collect_expr(value),
             StatementIr::Return(value) => self.collect_expr(value),
             StatementIr::Throw(value) => self.collect_expr(value),
             StatementIr::Var(declarators) => self.collect_var_declarators(declarators),
-            StatementIr::LexicalBlock(statements) => {
+            StatementIr::LexicalBlock(statements)
+            | StatementIr::ParameterInitialization { statements, .. } => {
                 for statement in statements {
                     self.collect_statement(statement);
                 }
@@ -1606,6 +1782,7 @@ impl StringPool {
             StatementIr::TryFinally {
                 try_block,
                 finally_block,
+                ..
             } => {
                 self.collect_block(try_block);
                 self.collect_block(finally_block);
@@ -1660,6 +1837,54 @@ impl StringPool {
                     self.collect_expr(update);
                 }
                 self.collect_statement(body);
+            }
+            StatementIr::GeneratorLoop {
+                init,
+                test,
+                update,
+                before_yield,
+                yield_statement,
+                after_yield,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.collect_for_init(init);
+                }
+                if let Some(test) = test {
+                    self.collect_expr(test);
+                }
+                if let Some(update) = update {
+                    self.collect_expr(update);
+                }
+                for statement in before_yield {
+                    self.collect_statement(statement);
+                }
+                self.collect_statement(yield_statement);
+                for statement in after_yield {
+                    self.collect_statement(statement);
+                }
+            }
+            StatementIr::GeneratorIf {
+                condition,
+                then_before_yield,
+                then_yield_statement,
+                then_after_yield,
+                else_before_yield,
+                else_yield_statement,
+                else_after_yield,
+                ..
+            } => {
+                self.collect_expr(condition);
+                for statement in then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                {
+                    self.collect_statement(statement);
+                }
             }
             StatementIr::ForOfArray { iterable, body, .. }
             | StatementIr::ForOfString { iterable, body, .. }
@@ -1889,6 +2114,10 @@ impl StringPool {
                     self.intern_string("Cannot redefine non-configurable property");
                     self.intern_string("Cannot define property on non-extensible object");
                 }
+                if matches!(operation, SpecOperationIr::CopyDataProperties) {
+                    self.uses_heap = true;
+                    self.intern_string("enumerable");
+                }
                 if matches!(operation, SpecOperationIr::Set) {
                     self.uses_heap = true;
                     self.intern_string("Set symbol property keys are not supported");
@@ -2005,8 +2234,45 @@ impl StringPool {
                             DestructuringTargetIr::NestedArray(pattern) => {
                                 collect_static_keys(collector, pattern)
                             }
+                            DestructuringTargetIr::NestedObject(pattern) => {
+                                for property in &pattern.properties {
+                                    if let DestructuringPropertyKeyIr::Static(key) = &property.key {
+                                        collector.intern_string(key);
+                                    }
+                                    collect_target_static_keys(collector, &property.target);
+                                }
+                                if let Some(rest) = &pattern.rest {
+                                    collect_target_static_keys(collector, rest);
+                                }
+                            }
                             _ => {}
                         }
+                    }
+                }
+                fn collect_target_static_keys(
+                    collector: &mut StringPool,
+                    target: &DestructuringTargetIr,
+                ) {
+                    match target {
+                        DestructuringTargetIr::AssignmentProperty {
+                            key: DestructuringPropertyKeyIr::Static(key),
+                            ..
+                        } => collector.intern_string(key),
+                        DestructuringTargetIr::NestedArray(pattern) => {
+                            collect_static_keys(collector, pattern)
+                        }
+                        DestructuringTargetIr::NestedObject(pattern) => {
+                            for property in &pattern.properties {
+                                if let DestructuringPropertyKeyIr::Static(key) = &property.key {
+                                    collector.intern_string(key);
+                                }
+                                collect_target_static_keys(collector, &property.target);
+                            }
+                            if let Some(rest) = &pattern.rest {
+                                collect_target_static_keys(collector, rest);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 collect_static_keys(self, pattern);
@@ -2035,6 +2301,17 @@ impl StringPool {
                                         collect_target_static_keys(collector, target);
                                     }
                                 }
+                            }
+                        }
+                        DestructuringTargetIr::NestedObject(pattern) => {
+                            for property in &pattern.properties {
+                                if let DestructuringPropertyKeyIr::Static(key) = &property.key {
+                                    collector.intern_string(key);
+                                }
+                                collect_target_static_keys(collector, &property.target);
+                            }
+                            if let Some(rest) = &pattern.rest {
+                                collect_target_static_keys(collector, rest);
                             }
                         }
                         _ => {}

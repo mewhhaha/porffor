@@ -136,6 +136,8 @@ between emitted program Wasm and Wasmtime native modules. Each tier prunes to
 compiler options, architecture, and a build-time SHA-256 of the compiler inputs;
 Cranelift supplies its stencil/version/target/flags key for function entries.
 Writes are atomic and corrupt program/native entries are treated as misses.
+Concurrent pruning may remove an entry during a cache scan; that vanished entry
+is skipped without turning an otherwise valid cache write into a failure.
 Set `PORFFOR_CACHE_DIR` to relocate only Porffor's cache. The legacy global
 Wasmtime directory is reported by `porf cache status` and is never deleted
 implicitly.
@@ -159,6 +161,15 @@ cargo test -p porffor-cli --quiet
 ./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
 ./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
+
+For local Wasm-AOT Test262 iteration, use the default in-process case runner:
+execution remains exact-source, realm-isolated, and epoch-timeout bounded while
+reusing the process-wide engine and caches. Set
+`PORFFOR_TEST262_FORCE_CASE_RUNNER=1` only for crash reproduction or deliberate
+per-case process isolation. Ensure `PORFFOR_CACHE_DIR` is writable; on a
+representative 18.48 MiB TypedArray iterator module, a cold exact run took about
+50 seconds while an identical warm run completed in 2 seconds from the program
+and module caches.
 
 For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
 checkpoints one node at a time, isolates each case in a reclaimable process,
@@ -210,7 +221,531 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-07-13`:
+Recent focused progress through `2026-07-21`:
+
+- Promise construction now runs executors synchronously through the real
+  Wasm-AOT call path, creates branded pending promise records, supplies distinct
+  resolving functions, preserves first-settlement-wins behavior, and converts
+  executor throws into rejection. `Promise.prototype.then` queues FIFO reaction
+  jobs for pending, fulfilled, and rejected sources, while static
+  `Promise.resolve`/`Promise.reject` use generic constructor capabilities rather
+  than directly mutating promise records. The complete current-pin
+  `built-ins/Promise/reject` leaf reports `15/15` with every failure bucket at
+  zero (manifest `17161705280949401201`). The complete
+  `built-ins/Promise/resolve` leaf reports `30/30` after moving receiver
+  object-validation ahead of the same-constructor identity shortcut (manifest
+  `6454436055780916821`). `Promise.withResolvers` now exposes the generic
+  constructor capability as an ordinary ordered
+  `{ promise, resolve, reject }` record; its complete pinned leaf reports `6/6`
+  with every failure bucket at zero (manifest `8421357701156147894`).
+  `Promise.try` now invokes the callback with `undefined` and trailing
+  arguments, resolves normal results, rejects abrupt completion, and preserves
+  generic constructor capabilities; its complete pinned leaf reports `12/12`
+  with every failure bucket at zero (manifest `15089719507409975374`).
+  The direct `built-ins/Promise` matrix node reports all `57/57`
+  AOT-applicable roots green at the current pin; its 58th root,
+  `proto-from-ctor-realm.js`, invokes the cross-realm Function constructor and
+  remains an explicit dynamic-source exclusion (manifest
+  `2879933483929296098`). Refresh this non-recursive residual node with
+  `./target/release/porf --jobs 1 test262 run --matrix-node built-ins/Promise --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-direct-root-baseline-58-20260721`.
+  The general `--matrix-node` selector avoids recursively rerunning all Promise
+  subdirectories when measuring one residual matrix leaf.
+  Mechanically deduplicating authoritative current-pin Wasm-AOT snapshots, the
+  complete `built-ins/Promise` subtree has all `651/651` AOT-applicable roots
+  exact-green. The 652nd root is the cross-realm Function-constructor dynamic
+  source exclusion above; no AOT-applicable root is skipped or inferred green.
+  `Promise.allSettled` shares the generic iterable and constructor-capability
+  path with `Promise.all`, but uses paired resolve/reject element functions
+  with one already-called guard and ordered `{ status, value }` or
+  `{ status, reason }` records. Its complete pinned directory reports
+  `104/104` under Wasm-AOT on `2026-07-21`, with every failure bucket and
+  timeout count at zero (manifest `4524389048728247828`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/allSettled --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name allsettled-wasm-aot-release-20260721`.
+  `Promise.any` uses the same generic constructor capability, one-time
+  `resolve` lookup, and iterator-close behavior. It resolves on the first
+  fulfillment; paired per-element rejection state preserves input order and
+  rejects the empty or all-rejected case with an `AggregateError`. Its complete
+  pinned directory reports `94/94` under Wasm-AOT on `2026-07-21`, with every
+  failure bucket and timeout count at zero (manifest `7726540635021801166`).
+  Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/any --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-any-wasm-aot-release-20260721`.
+  The Stage 3 `Promise.allKeyed` and `Promise.allSettledKeyed` builtins collect
+  proxy-aware own enumerable string and symbol keys into ordered null-prototype
+  result objects, while retaining generic constructor capabilities, one-time
+  `resolve` lookup, abrupt rejection, and per-element already-called guards.
+  Their complete current-pin leaves each report `6/6` with every failure bucket
+  and timeout count at zero (manifests `14832762644447495093` and
+  `7332652697133906527`). Refresh them by replacing `<method>` with
+  `allKeyed` or `allSettledKeyed` in
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-<method>-wasm-aot-release-fixed-20260721`.
+  `Promise.all` now consumes generic
+  iterables through the receiver constructor's capability and `resolve`
+  function, preserves input order and a shared reject function, guards each
+  resolve element against repeated calls, closes iterators on the required
+  abrupt paths, and settles through the capability's observable functions.
+  The complete pinned `built-ins/Promise/all` directory reports `98/98` under
+  Wasm-AOT on `2026-07-21` at
+  Test262 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`: `length.js`,
+  `name.js`, `prop-desc.js`, `iter-arg-is-string-resolve.js`,
+  `invoke-resolve-get-once-multiple-calls.js`, `invoke-resolve-error-close.js`,
+  `invoke-then-error-close.js`, `iter-step-err-no-close.js`,
+  `resolve-thenable.js`, and `capability-resolve-throws-no-close.js` under
+  `built-ins/Promise/all/`. Twelve additional roots cover derived-constructor
+  context, shared rejection identity, resolve-element repeated calls and input
+  ordering, early resolution before loop exit, repeated thenables,
+  resolve-element function shape and non-constructability, and capability
+  resolve throws before rejection. Twenty constructor/capability and observable
+  resolve/then roots add invalid receiver and constructor cases, executor
+  misuse, per-iteration resolve calls, resolve-get/return/throw behavior, and
+  abrupt `then` access/invocation. Thirty-nine further unique roots cover
+  iterator result validation and close/no-close precedence, primitive iterable
+  rejection, deferred/immediate rejection, ignored late settlement,
+  resolve-element function descriptors, poisoned/noncallable/non-thenable
+  resolution, Array-setter isolation, legacy numbered cases, and species-get
+  failures. All 98 roots are AOT-applicable, the directory has no dynamic-source
+  exclusions, and every root is present in the full checkpoint (manifest
+  `2207607493869671962`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/all --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-all-complete-98`.
+  `Promise.race` now uses the same generic constructor capability, one-time
+  `resolve` lookup, iterable and IteratorClose machinery, and directly chains
+  every resolved value to the shared resolve/reject functions. Empty iterables
+  remain pending and first settlement wins. The complete pinned
+  `built-ins/Promise/race` directory reports `94/94` under Wasm-AOT on the same
+  date and Test262 pin, covering installation,
+  receiver/constructor validation, capability errors, observable resolve/then
+  calls, String iteration, immediate rejection, shared settlement functions,
+  species errors, iterator result validation, abrupt step/value completion,
+  iterator close/no-close precedence, malformed primitive iterables,
+  per-iteration resolve observability, thenables, and settlement ordering. The
+  directory contains no dynamic-source exclusions and every failure bucket and
+  timeout count is zero (manifest `2843367700383518511`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/race --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-race-complete-94-20260721`.
+  `Promise.prototype.finally` now performs generic receiver `then` invocation,
+  species construction, callable and noncallable forwarding, cleanup
+  assimilation, and original value/reason preservation or replacement. Its
+  complete pinned directory reports `29/29` under Wasm-AOT with every failure
+  bucket at zero (manifest `6304521883779310500`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/Promise/prototype/finally --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-finally-general`.
+  Resolution now
+  assimilates callable function and Proxy thenables asynchronously, rejects abrupt `then` access and
+  self-resolution, and preserves first-settlement-wins behavior across thenable
+  jobs; fresh pinned thenable and self-resolution clusters report `2/2` and
+  `1/1`. `Promise.prototype.catch` performs the generic observable `then`
+  invocation required by the spec; its complete current-pin leaf reports
+  `14/14` with every failure bucket at zero (manifest
+  `3320451833449117852`). The six direct `Promise.prototype` roots also report
+  `6/6`, including the standard getter-only `Symbol.toStringTag` descriptor.
+  The complete current-pin `Promise.prototype.then` leaf reports `75/75` with
+  receiver/brand, species/capability, reaction shape, thenable assimilation,
+  queue ordering, and realm cases all green (manifest
+  `9291152077727223222`).
+  Species construction performs the observable constructor and
+  `Symbol.species` lookups and chains through generic promise capabilities;
+  the complete current-pin `built-ins/Promise/Symbol.species` leaf reports
+  `5/5` with every failure bucket at zero (manifest
+  `10564167133939605890`). Older constructor and capability counts are not
+  current-pin Wasm evidence and are being remeasured. Async function declarations now return intrinsic promises
+  immediately and linear function bodies resume through the Promise job queue
+  after plain `await` statements, identifier assignments, and `return await`;
+  rejection resumes as a throw and lexical bindings survive suspension.
+  Named and anonymous async function expressions use the same real activation
+  path and are non-constructable; the pinned `expression-returns-promise.js`,
+  `name.js`, and `syntax-expression-is-PrimaryExpression.js` roots report
+  `3/3`. Async `try`/`catch`/`finally` preserves pending completions across
+  rejected and returned awaits, including finalizer overrides; the nine pinned
+  `try-{reject,return,throw}-finally-{reject,return,throw}.js` roots report
+  `9/9`. Ordinary async object methods preserve their receiver across `await`,
+  remain non-constructable, and apply ordered parameter TDZ semantics; their
+  initial pinned runtime checkpoint reports `8/8`. Instance and static async
+  class methods share that execution path; a declaration/expression checkpoint
+  reports `9/9`. Async arrows preserve lexical `this`/`arguments`/`new.target`,
+  parameter TDZ, and nested expression-body awaits; an initial AOT cohort
+  reports `10/10`, while adjacent actual `eval` and `new Function` roots remain
+  explicit dynamic-code exclusions. A first real `for await...of` /
+  AsyncFromSyncIterator checkpoint reports `9/9`, covering array values,
+  per-iteration bindings, nested IteratorClose, abrupt continuation, and
+  PromiseResolve timing. Awaited arrays now perform observable
+  `Symbol.asyncIterator` / `Symbol.iterator` acquisition instead of taking the
+  direct array-index fast path. Two focused engine regressions cover an
+  `Array.prototype[Symbol.iterator]` override with exact receiver, cached
+  `next`, awaited values, and close behavior, plus cached
+  `%ArrayIteratorPrototype%.next` lookup. The adjacent exact pinned cohort
+  reports `10/10` on `2026-07-20`, covering Promise timing and nested
+  synchronous-iterator close and abrupt-completion paths. Upstream has no
+  direct outer-array prototype-mutation or `next`-cache root, so those remain
+  focused engine evidence. A separate custom synchronous-iterator and
+  destructuring checkpoint reports `20/20`, covering cached `next`, awaited
+  values, `return`/close precedence, rejected and non-object iterator results,
+  and destructuring close/no-close behavior. Native async-iterator acquisition
+  now takes precedence over the synchronous fallback, awaits `next` and
+  `return` results, and applies AsyncIteratorClose GetMethod precedence; its
+  first exact close checkpoint reports `5/5`, and two constructor-lookup/job
+  ordering roots report `2/2`. Awaited String primitives now perform observable
+  `Symbol.asyncIterator` then `Symbol.iterator` lookup before using the same
+  AsyncFromSync state machine. Their focused checkpoint reports `3/3`, covering
+  Unicode code points and lone surrogates, awaited String-iterator close values,
+  and async-iterator preference with strict primitive receiver identity. The
+  adjacent pinned String-iterator, AsyncFromSync timing, and rejection-close
+  roots report `4/4` on `2026-07-19`.
+  Broader async iteration and
+  `Array.fromAsync` remain active conformance work; this is not a claim of
+  complete Promise or async-function support. The pinned
+  six-file declaration
+  and body baseline reports `6/6` on `2026-07-19`; refresh it by running the
+  exact `declaration-returns-promise.js`, `evaluation-body.js`,
+  `evaluation-body-that-returns.js`,
+  `evaluation-body-that-returns-after-await.js`,
+  `evaluation-body-that-throws.js`, and
+  `evaluation-body-that-throws-after-await.js` paths under
+  `language/statements/async-function/` with
+  `./target/debug/porf test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
+- Async-generator declarations and expressions now create suspended-start
+  generator objects whose terminal `next`, `throw`, and `return` requests settle
+  intrinsic promises with the required iterator-result or rejection outcome,
+  and the bounded linear no-Yield body path resumes from Await fulfillment or
+  rejection without replaying its prefix. The scoped exact checkpoint reports
+  `13/13` on `2026-07-20` at Test262 pin
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`. Only two of those roots exercise
+  body-Await or implicit async-return Await semantics:
+  `language/statements/async-generator/return-undefined-implicit-and-explicit.js`
+  and
+  `built-ins/AsyncGeneratorPrototype/return/return-state-completed-broken-promise.js`.
+  The other eleven cover immediate intrinsic-Promise results, iterator-result
+  shape, suspended-start boundaries, AwaitReturn assimilation, and completed
+  queue settlement:
+  `built-ins/AsyncGeneratorPrototype/next/return-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/return/return-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/next/iterator-result-prototype.js`,
+  `built-ins/AsyncGeneratorPrototype/return/iterator-result-prototype.js`,
+  `built-ins/AsyncGeneratorPrototype/return/return-suspendedStart.js`,
+  `built-ins/AsyncGeneratorPrototype/throw/throw-suspendedStart.js`,
+  `built-ins/AsyncGeneratorPrototype/throw/throw-suspendedStart-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-broken-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/return/return-state-completed.js`, and
+  `built-ins/AsyncGeneratorPrototype/throw/throw-state-completed.js`.
+  Refresh each listed path with
+  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name asyncgen-awaitonly-<case>-20260720`.
+  A separate non-overlapping intrinsic checkpoint reports `20/20` at the same
+  pin: the `Symbol.toStringTag` and `constructor` roots directly under
+  `built-ins/AsyncGeneratorPrototype`; the `length.js`, `name.js`, and
+  `prop-desc.js` roots under each of its `next`, `return`, and `throw`
+  directories; and
+  `built-ins/AsyncGeneratorFunction/{extensibility,length,name}.js` plus its
+  `prototype/{Symbol.toStringTag,constructor,extensibility,not-callable,prop-desc,prototype}.js`
+  roots. Refresh each of those exact paths with the same command and an
+  `asyncgen-meta-<case>-20260720` snapshot name. A third non-overlapping exact
+  checkpoint reports `7/7` on `2026-07-20` for
+  `language/expressions/async-generator/expression-yield-as-statement.js`,
+  `expression-yield-as-operand.js`, and `expression-yield-newline.js`, plus
+  `built-ins/AsyncGeneratorPrototype/return/return-suspendedYield.js`,
+  `return-suspendedYield-promise.js`,
+  `built-ins/AsyncGeneratorPrototype/throw/throw-suspendedYield.js`, and
+  `throw-suspendedYield-promise.js`. These exercise suspended-Yield request
+  settlement and the `next`, `return`, and `throw` resume boundaries. Refresh
+  each exact path with the same command and an
+  `asyncgen-yield-exact-<case>-20260720` snapshot name. A fourth checkpoint
+  reports `4/4` on `2026-07-21` for
+  `built-ins/AsyncGeneratorPrototype/next/request-queue-order.js`,
+  `next/request-queue-order-state-executing.js`,
+  `built-ins/AsyncGeneratorPrototype/return/request-queue-order-state-executing.js`,
+  and
+  `built-ins/AsyncGeneratorPrototype/throw/request-queue-order-state-executing.js`.
+  These cover Yield-driven FIFO settlement and queued `next`, `return`, and
+  `throw` requests while the generator is executing. Refresh each exact path
+  with the same command and an `asyncgen-promise-all-final-<case>-20260721`
+  snapshot name. The four checkpoints contain 44 unique exact roots.
+  A separate async-generator expression grammar/metadata checkpoint adds 41
+  non-overlapping exact roots: function/prototype metadata, all twelve reserved
+  `await` grammar roots, twenty-one early-error roots, and direct forbidden
+  `arguments`/`caller` properties. Binding an async-generator expression to the
+  name `eval` is no longer misclassified as dynamic evaluation, while actual
+  `eval(...)` remains excluded; parameter initialization also precedes the
+  per-call iterator prototype lookup. Ordinary nested `if` statements now run
+  in async-generator bodies when their branches contain no suspension, while
+  branch-contained Await/Yield remains explicit. Exact `yield await value`
+  staging and non-empty async `yield*` delegation now preserve awaited iterator
+  results and resume through `next`, `throw`, and `return`, using
+  `Symbol.asyncIterator` before the synchronous fallback. Rejected yielded
+  promises now route through direct requests, transparent `for await` over
+  async or synchronous iterators, and async/sync delegation while preserving
+  close and original-completion priority. Array and object spread operands also
+  retain iterable normalization and source order across Yield suspension.
+  Yielded thenables use intrinsic PromiseResolve and a shared already-resolved
+  guard, preserving the first resolve/reject call even when `then` calls both
+  and then throws. Core `yield*` delegation now covers named and unnamed
+  async-generator expressions over both async and synchronous delegates for
+  `next`, `return`, and `throw`, including thenable result ordering. The full
+  async-iterator acquisition/error matrix also validates GetMethod, call, and
+  result failures. Synchronous fallback acquisition also preserves null
+  `Symbol.asyncIterator`, getter/call abrupt completions, and iterator-result
+  validation. Delegated `next` is captured once, checked for callability, and
+  called with the forwarded value; its awaited result is object-validated
+  before observable `done` and `value` reads. The 24 named and unnamed
+  non-thenable `next` call/get/non-object/non-callable roots are exact-green;
+  another 18 roots cover abrupt `then` access/invocation and all seven
+  non-callable `then` values for both named and unnamed expressions. A missing
+  delegate `throw` now awaits and validates `return` cleanup before producing
+  the required TypeError. The
+  `language/expressions/async-generator` directory contains 623 roots: 618 are
+  AOT-applicable and five invoke actual `eval`. Current exact evidence is
+  `186/618`; the other 432 AOT-applicable roots remain unverified. Across the
+  four earlier checkpoints and this non-overlapping addition, 227 unique roots
+  are exact-green.
+  Queued `.return(value)` requests at an ordinary or delegated suspended Yield
+  now unwrap through their own Promise continuation without double-awaiting the
+  final completion; the four statement-form async/sync delegation,
+  missing-value, and then-getter tick-order roots are exact-green. The 18
+  `yield-star-{async-return,sync-return}.js` method-form mirrors are also
+  exact-green on `2026-07-22` at the same Test262 pin: object methods plus
+  public/private instance/static methods in class declarations and expressions.
+  Refresh each exact path with
+  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-method-mirror-<case>-20260722`.
+  A bounded 24-root scheduling and delegation checkpoint is exact-green on
+  `2026-07-22` at Test262 pin
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`. It covers request-queue ordering,
+  rejected direct Yield, transparent `for await` over async and synchronous
+  iterators, async/sync `yield*`, return and then-getter tick ordering, and
+  abrupt or non-callable delegated `then`. Synchronous iterator fallback now
+  awaits each iterator-result value without unwrapping values produced by a
+  real async iterator. Every failure bucket is zero in the exact snapshots
+  named `asyncgen-scheduling-final24-20260722-*.json`. Refresh each listed exact
+  root with
+  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-scheduling-final24-20260722`.
+  The adjacent 30 statement-form `yield*` acquisition roots are exact-green on
+  `2026-07-22` at the same pin. They cover abrupt operand evaluation, the
+  inaccessible AsyncFromSync wrapper boundary, async-iterator preference,
+  nullish async-method fallback, abrupt getter and method calls, non-callable
+  iterator methods, and primitive iterator results. Every failure bucket is
+  zero in `asyncgen-statement-acquisition-final30-20260722-*.json`. Refresh each
+  exact root with the same command and
+  `--snapshot-name asyncgen-statement-acquisition-final30-20260722`.
+  A further non-overlapping 24-root statement/class-declaration checkpoint is
+  exact-green on `2026-07-22` at the same pin. It covers delegated `next`
+  getter and call failures, awaited non-object results, abrupt `done` and
+  `value` access, and all seven non-callable `next` values for async-generator
+  declarations and class instance methods. Every failure bucket is zero in
+  `asyncgen-statement-next-validation-final24-20260722-*.json`. Refresh each
+  exact root with the same command and
+  `--snapshot-name asyncgen-statement-next-validation-final24-20260722`.
+  The matching 24 class static and private-instance method roots are also
+  exact-green on `2026-07-22` at the same pin. They cover delegated `next`
+  getter and call failures, awaited non-object results, abrupt `done` and
+  `value` access, and all seven non-callable `next` values. Every failure
+  bucket is zero in
+  `asyncgen-class-static-private-next-final24-20260722-*.json`. Refresh each
+  exact root with the same command and
+  `--snapshot-name asyncgen-class-static-private-next-final24-20260722`.
+  An adjacent 30-root class static/private-instance continuation checkpoint is
+  exact-green on `2026-07-22` at the same pin. It covers rejected Yield before
+  async/sync delegation, delegated async/sync `next` and `throw` ordering, and
+  `next` result assimilation with abrupt `then` access/invocation plus all
+  seven non-callable `then` values. Every failure bucket is zero in
+  `asyncgen-class-static-private-continuation-final30-20260722-*.json`. Refresh
+  each exact root with the same command and
+  `--snapshot-name asyncgen-class-static-private-continuation-final30-20260722`.
+  Async-generator try/catch/finally now shares the body's preplanned suspension
+  states and preserves pending abrupt completions across finalizer Yield. The
+  three `yield-star-{normal,return,throw}-notdone-iter-value-throws.js` statement
+  roots are exact-green on `2026-07-22` at Test262
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure bucket at zero
+  (manifests `8156554394922646296`, `17360652823301751254`, and
+  `14599242529674358692`). Refresh each exact path with
+  `./target/release/porf --jobs 1 test262 run language/statements/async-generator/yield-star-<normal|return|throw>-notdone-iter-value-throws.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-notdone-<case>-20260722`.
+  Arbitrary mixed Await/Yield sequences now share that collision-free state
+  plan. A bounded 20-root suspended try/catch/finally checkpoint is exact-green
+  on `2026-07-22` at the same pin, covering `.return()`/`.throw()` overrides,
+  rejected Yield caught in the body, and statement/named/unnamed expression
+  mirrors of async delegation through `next`, `return`, and `throw`. Every
+  failure bucket is zero; the manifests, in checkpoint order, are
+  `2254365628558528862`, `15627516562269089907`, `6464620846581743844`,
+  `3027586255731303108`, `11751139455940417830`, `5373195989092074489`,
+  `12019605220262227606`, `18424959393445981383`, `17496395210074582520`,
+  `8436591244830497459`, `3242868264558116722`, `18424960346985568620`,
+  `12410543517481961054`, `2765747284222495604`, `16701367308381327356`,
+  `6075337559788816786`, `15049589881886505538`, `8173557398602242706`,
+  `11207893843153698446`, and `679067303864347086`. Refresh an exact root with
+  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-cohort-<case>-20260722`.
+  Broader suspended-body control flow and request scheduling remain active
+  conformance work.
+  This checkpoint is not a claim of full async-generator support.
+- Wasmtime shared-memory exports now participate in result rendering,
+  exception-name reads, and host printing. The real Wasm atomic RMW path clears
+  the seven pinned `add`/`and`/`compareExchange`/`exchange`/`or`/`sub`/`xor`
+  leaves at `107/107`; the RMW SharedArrayBuffer gate is backed by exact-source
+  execution rather than metadata-only admission. The pinned `Atomics.load` and
+  `Atomics.store` leaves report `14/14` and `16/16`; store applies
+  `ToIntegerOrInfinity` before element conversion while returning the original
+  numeric value. `Atomics.isLockFree` reports `7/7`, and 35 of 36 bounded
+  no-waiter `Atomics.notify` cases pass. Real in-place growable
+  SharedArrayBuffer support, whose pinned `grow` leaf reports `15/15`, clears
+  the final bounded notify case for `36/36`; true multi-agent waiter tests
+  remain explicitly ungated. Integer TypedArray writes use ECMAScript
+  modulo/clamping conversions, and integer-indexed
+  `Object.defineProperty`/`Reflect.defineProperty` writes preserve descriptor,
+  bounds, conversion-order, and abrupt-completion semantics.
+- ArrayBuffer and SharedArrayBuffer backing state now lives in unforgeable
+  brand-selected header slots rather than ordinary `$ArrayBuffer...`
+  properties. The real keyed detach operation rejects forged and shared
+  buffers, supports repeat detachment, preserves resizable flags, and is shared
+  by the host hook and transfer path. Fifteen original upstream ArrayBuffer and
+  DataView detachment cases pass after removing their classifier catch-alls and
+  fake detached-source rewrites. TypedArray-owned backing buffers now initialize
+  the same private state; three original detached `toString`/`toLocaleString`
+  paths improved from `0/3` to `3/3` after replacing source-output rewrites with
+  a compact harness that still exercises every real constructor and assertion.
+  TypedArray buffer-argument construction now recognizes only privately branded
+  ArrayBuffer and SharedArrayBuffer instances, performs offset and length
+  coercions in specification order, rechecks detach/resize state afterward,
+  and distinguishes fixed from length-tracking views. Its focused mixed
+  numeric/BigInt regression passes. Constructor emission now closes the source
+  discriminator before one shared non-buffer allocation/copy path, so ordinary
+  array-like sources cannot inherit a zero backing pointer. Final Wasm local
+  declarations also use each function's observed temporary high-water mark.
+  A bounded six-file original numeric checkpoint, including detach-during-offset
+  and length conversion, aligned-offset failure, fixed length/offset, and two
+  resizable-buffer bounds cases, reports `6/6` as of `2026-07-19`; the largest
+  observed total system use was `26,502,610,944` bytes. A corresponding
+  six-file BigInt buffer-argument checkpoint reports `6/6`; it also exposed and fixed
+  TypedArray-source copying through ordinary property reads, which now uses the
+  required integer-indexed access path. Its largest observed total system use
+  was `30,777,458,688` bytes. The corresponding numeric source-copy checkpoint
+  reports `3/3`, including all 36 integer source/destination pairs over a
+  SharedArrayBuffer; its largest observed total system use was `32,985,120,768`
+  bytes. Together with the adjacent defined/negative/excessive length and
+  byte-offset, `ToIndex`, abrupt-coercion, prototype, detachment, and identity
+  checkpoints, the complete AOT-applicable buffer-argument cohort reports
+  `102/102` as of `2026-07-19`. Four additional cross-realm prototype files each
+  use `new other.Function()` and remain explicit dynamic-source exclusions. The
+  separate TypedArray-source constructor cohort reports `23/23` AOT-applicable
+  cases, covering same- and cross-kind copies, numeric/BigInt mismatch errors,
+  prototype selection, empty-source extensibility, and current resizable-buffer
+  bounds. Two adjacent cross-realm prototype files use dynamic Function
+  constructors and remain explicit exclusions. The adjacent object-argument
+  constructor cohort has 57 AOT-applicable roots plus two equivalent dynamic
+  cross-realm exclusions. The complete AOT-applicable cohort reports `57/57`
+  exact-green as of `2026-07-20`. The adjacent combined numeric and BigInt
+  length-argument cohort has 22 AOT-applicable roots plus two cross-realm
+  `new other.Function()` exclusions. The complete AOT-applicable cohort reports
+  `22/22` exact-green as of `2026-07-20`, covering zero initialization, length
+  coercion errors, ToIndex, newTarget/prototype selection, result identity, and
+  extensibility in both constructor families. Newly owned TypedArray backing
+  stores are explicitly zeroed, and failed or
+  memory32-unrepresentable backing allocations surface as catchable
+  RangeErrors instead of Wasm traps. The adjacent combined numeric and BigInt
+  no-argument cohort has 12 AOT-applicable roots plus two cross-realm
+  `new other.Function()` exclusions. The complete AOT-applicable cohort reports
+  `12/12` exact-green as of `2026-07-20`, covering abrupt prototype access,
+  newTarget/prototype selection, result identity, and extensibility in both
+  constructor families.
+- Heap-backed BigInts now represent unsigned 64-bit DataView results and
+  arbitrary-size literal magnitudes as canonical little-endian limbs. Runtime
+  tags survive bindings, and equality, `typeof`, and truthiness compare the
+  represented value rather than heap handles. BigInt typed-array element
+  conversion reduces arbitrary-size values modulo 2^64; other unsupported
+  multi-limb arithmetic and conversions still reject explicitly. The fresh pinned
+  `DataView.prototype.getBigUint64` leaf reports `21/21`.
+- Array iterators observe configurable mapped and unmapped `arguments.length`;
+  the pinned `ArrayIteratorPrototype` leaf reports `27/27`. Array search and
+  concatenation propagate indexed getter exceptions, search methods use the
+  observable Arguments length, Array/TypedArray `toString` rejects nullish
+  receivers, and the complete `Array.prototype.toLocaleString` leaf reports
+  `12/12` after preserving primitive receivers and resize-time length snapshots.
+- Real-suite execution checkpoints every ten completed cases even on a first
+  run, forced child snapshots live in private temporary directories, and the
+  low-RAM publisher leaves node validation and retry decisions to the Rust
+  harness. `test262 run` exits unsuccessfully whenever any requested case does
+  not pass, so shell batches can stop reliably instead of continuing after a
+  conformance failure. On this machine, two case workers improved throughput without
+  exceeding the task's 50% RAM ceiling; four workers added contention and were
+  not retained. Dormant `$262.createRealm` support no longer roots every
+  standard global: one representative non-realm case compiled 17.5% faster
+  with 6.2% lower peak RSS, while a noisier control still used 9.9% less RSS
+  and actual realm cases retained the full bootstrap. Low-RAM `--jobs 1` runs
+  also disable Wasmtime's otherwise idle parallel-module preparation. Emission
+  keeps its conservative temporary-local capacity while building a function,
+  then declares only the observed high-water locals in the final Wasm body; a
+  mixed ordinary/buffer/JSON/decimal/RegExp module validates with no function
+  retaining the old 2,048-local floor. Direct-call exact-context propagation
+  now memoizes completed function/context pairs within each fixed-point pass.
+  The 36-pair SharedArrayBuffer TypedArray constructor case fell from about
+  `1,196` seconds to about `57` seconds on the same release path while remaining
+  exact-green, with lowering reduced to about `48` seconds and Wasmtime module
+  compilation to about `8.5` seconds. Wasm-AOT
+  async cases must now report exactly one `$DONE`
+  completion after the Promise job queue drains; explicit failure, missing
+  completion, and repeated completion can no longer false-green.
+- `JSON.parse` now applies the strict JSON number grammar to values nested in
+  arrays and objects, including delimiter validation, without treating numeric
+  text inside strings as tokens. Five formerly failing pinned SpiderMonkey
+  numeric/trailing-comma files report `5/5` with every failure taxonomy at zero.
+  Dynamic composite input is materialized by an iterative growable-frame AOT
+  parser rather than falling through to numeric conversion; the pinned
+  2,097,153-element mega-array case passes in 4.6 seconds. Decimal source text
+  now uses one exact emitted conversion path for JSON, `parseFloat`, and
+  `StringToNumber`; ten focused pinned number cases report `10/10` after
+  removing an inexact compile-time JSON-number fold. Callable dynamic revivers
+  now use iterative post-order traversal with per-node primitive source text,
+  key/length snapshots, callable Proxy support, deletion and replacement; six
+  representative pinned reviver cases pass. Lowering now gives known ordinary
+  revivers the dynamic object-or-array holder shape, so forward holder mutation
+  is observed during later traversal; a seven-case pinned reviver tranche is
+  green. Indirect calls now preserve exact object and primitive throw identity
+  through catch and completion save/restore paths. Array `[[Get]]` now stops
+  before prototype fallback when an own accessor throws, clearing the final
+  pinned reviver accessor-identity case. `JSON.rawJSON` and `JSON.isRawJSON`
+  report `10/10` and `6/6` with strict primitive-text validation, an
+  unforgeable frozen wrapper brand, and raw-source stringify embedding.
+  `JSON.stringify` now snapshots replacer arrays into one spec PropertyList and
+  treats callable Proxies as replacers, `toJSON` methods, and omittable callable
+  values with the same ordering and abrupt-completion behavior as functions.
+  Space coercion observes boxed `@@toPrimitive`/ordinary hooks and callable
+  Proxies exactly once, uses defining-realm errors, and truncates indentation
+  to ten UTF-16 code units rather than encoded bytes; its exact leaf remains
+  `8/8` with focused non-ASCII and abrupt-order coverage. String quoting now
+  decodes UTF-8/WTF-8 scalars generically, escapes every unmatched surrogate,
+  canonicalizes valid pairs, and clears the exact string-value leaf at `3/3`.
+  Primitive and boxed heap-backed BigInts now preserve their tag through
+  `toJSON`, replacer, `valueOf`, and decimal/radix formatting paths, including
+  positive and negative multi-limb values. Synthetic-realm `Object(BigInt)`
+  wrappers inherit that realm's `BigInt.prototype`, while serialization errors
+  come from the `JSON.stringify` defining realm; the exact pinned
+  `value-bigint` cohort reports `6/6`.
+- The first heap-backed `Map` slice implements nullish construction plus
+  `clear`, `delete`, `get`, `has`, `set`, and the `size` accessor with ordered
+  tombstoned entries, SameValueZero keys, and `-0` normalization. Twelve pinned
+  non-iterator core cases report `12/12`. Iterable construction preserves
+  setter/iterator observation order and `IteratorClose`; fourteen exact
+  constructor cases report `14/14`. `Map.prototype.forEach` uses live ordered
+  traversal and its exact pinned directory reports `19/19`. The complete Map
+  iterator surface reports `43/43` across keys, values, entries, the default
+  iterator, and `MapIteratorPrototype`, including live mutation and permanent
+  exhaustion. `Map.groupBy` and `Object.groupBy` each report `14/14`; the
+  latter preserves symbol keys, safely defines `__proto__`, and returns the
+  required null-prototype object. `Map.prototype.getOrInsert` reports `14/14`,
+  while `getOrInsertComputed` reports `17/19`; its remaining cases require an
+  excluded dynamic `Function` constructor and a real WeakMap implementation.
+  Non-dynamic cross-realm
+  constructor-prototype selection passes focused direct, bound, proxy, and
+  revoked-proxy tests; the pinned realm file itself uses an excluded dynamic
+  `Function` constructor and remains classified accordingly.
+- The corresponding heap-backed `Set` core implements nullish construction,
+  `add`, `clear`, `delete`, `has`, and `size` with ordered tombstones,
+  SameValueZero values, distinct Map/Set brands, and defining-realm prototype
+  fallback. Fifteen representative pinned non-iterator cases report `15/15`.
+  Iterable construction captures `add` and `next`, preserves observable
+  ordering, supports arrays, strings, functions, and callable Proxies, and
+  performs `IteratorClose` only for abrupt adder calls; ten exact constructor
+  and close cases report `10/10`. `Set.prototype.forEach` implements the live
+  insertion-list semantics required for deletion, re-addition, clearing, and
+  additions during callbacks; its exact pinned directory reports `33/33`.
+  The corresponding Set iterator surface reports `49/49` with the required
+  values/keys/default-iterator aliases, pair entries, brands, realms, and live
+  traversal behavior. `difference`, `intersection`, `symmetricDifference`, and
+  `union` now report `113/113`. `isDisjointFrom`, `isSubsetOf`, and
+  `isSupersetOf` report `73/73`. Their fourteen former generator prerequisites
+  are green after lazy generator activations and linear yield continuations
+  replaced the eager static-generator path.
 
 - Derived class construction now uses a per-invocation activation for the
   active constructor, `new.target`, initialization status, and `this`.
@@ -294,9 +829,9 @@ Recent focused progress through `2026-07-13`:
   buffer, formats Number and BigInt elements, and preserves abrupt completion
   ordering. The complete pinned real-Test262
   `built-ins/TypedArray/prototype/join` leaf reports `32/32`, with no
-  unsupported cases, bugs, or crashes as of `2026-07-16`. Refresh under the
-  low-RAM settings with
-  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 ./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/join --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  unsupported cases, bugs, crashes, or timeouts as of `2026-07-21` (manifest
+  `11374343618813182054`). Refresh under the low-RAM settings with
+  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 ./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/join --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name typedarray-prototype-join-current-pin-32`.
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
   conversion ordering, comma separator assembly, primitive element string
@@ -316,12 +851,14 @@ Recent focused progress through `2026-07-13`:
   `./target/debug/porf test262 run built-ins/Array/prototype/toLocaleString --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `%TypedArray%.prototype.toLocaleString` is also installed as a distinct
   non-generic Wasm-AOT builtin for concrete typed-array method calls, including
-  initial detached/out-of-bounds validation and focused materializations for
-  metadata, receiver validation, element conversion, abrupt propagation, and
-  resizable-buffer cases. The exact real Test262
+  internal-brand and current-view validation, internal length snapshotting,
+  primitive-receiver element calls, callable Proxies, abrupt propagation, and
+  resizable-buffer cases. Forged internal-looking properties and own `length`
+  accessors do not affect typed-array semantics. The complete current-pin
   `built-ins/TypedArray/prototype/toLocaleString` leaf reports `39/39` as of
-  `2026-06-23` under
-  `./target/debug/porf test262 run built-ins/TypedArray/prototype/toLocaleString --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `2026-07-21`, with every failure bucket and timeout count at zero (manifest
+  `2525782695925974509`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toLocaleString --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 4 --snapshot-name typedarray-prototype-to-locale-string-current-pin-39`.
 - `%TypedArray%.prototype.toString` now uses the same Wasm-AOT function object
   as `Array.prototype.toString`, so the shared identity and descriptor checks
   are exposed on `%TypedArray%.prototype` while Array receivers still use comma
@@ -619,15 +1156,14 @@ Recent focused progress through `2026-07-13`:
   `LengthOfArrayLike` is captured before index `valueOf` resizes the backing
   ArrayBuffer. The `length`, `name`, and `prop-desc` metadata files now use the
   same static descriptor materializer as the other Array prototype methods.
-- The exact real Test262 `built-ins/TypedArray/prototype/at` leaf now reports
-  `15/15` passing as of `2026-06-18` under `--execution-backend wasm` with the
-  `60000` ms timeout and four threads (`0` unsupported, `0` runtime failures)
-  with
-  `./target/debug/porf test262 run built-ins/TypedArray/prototype/at --execution-backend wasm --timeout-ms 60000 --threads 4`.
-  Wasm-AOT now exposes `%TypedArray%.prototype.at`, routes direct `ta.at(...)`
-  calls through typed-array validation, and preserves `ValidateTypedArray`
-  out-of-bounds `TypeError` behavior for resizable fixed and offset views while
-  keeping generic `Array.prototype.at.call(typedArray, ...)` behavior separate.
+- The exact current-pin real Test262 `built-ins/TypedArray/prototype/at` leaf
+  reports `15/15` under Wasm-AOT as of `2026-07-21`, with every failure bucket
+  and timeout count at zero (manifest `13619138540264852855`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/at --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-at-current-pin-15`.
+  Wasm-AOT exposes a distinct `%TypedArray%.prototype.at` intrinsic, so both
+  direct `ta.at(...)` and dynamically selected typed intrinsic calls perform
+  full brand, detached-buffer, and out-of-bounds validation. Generic
+  `Array.prototype.at.call(typedArray, ...)` remains non-validating as required.
   `BigInt64Array` and `BigUint64Array` are now registered in the Rust IR and
   AOT typed-array constructor tables, the Wasm-AOT harness enumerates them for
   BigInt typed-array constructor helper calls, and typed-array element access
@@ -637,18 +1173,259 @@ Recent focused progress through `2026-07-13`:
   now passes through a static Wasm-AOT materialization that constructs real
   resizable `BigInt64Array` and `BigUint64Array` fixed views and checks the
   `.at(0)` out-of-bounds `TypeError` branch after shrink.
-- The exact real Test262 `built-ins/TypedArrayConstructors/BigInt64Array` and
-  `built-ins/TypedArrayConstructors/BigUint64Array` leaves now each report
-  `12/12` passing as of `2026-06-18` under `--execution-backend wasm` with the
-  `60000` ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/TypedArrayConstructors/BigInt64Array --execution-backend wasm --timeout-ms 60000 --threads 4`
+- The five `%TypedArray%.prototype` accessor leaves `buffer`, `byteLength`,
+  `byteOffset`, `length`, and `Symbol.toStringTag` report `12/12`, `18/18`,
+  `16/16`, `18/18`, and `18/18` under Wasm-AOT as of `2026-07-22`, with every
+  failure bucket and timeout count at zero (manifests `11070985033035019212`,
+  `10250546625084257154`, `17214440125282356686`, `6654572848190539168`, and
+  `8948270343658110990`). The numeric accessors distinguish detached and
+  resized-out-of-bounds views from valid fixed and length-tracking views, while
+  `@@toStringTag` reads the internal element kind without validating the
+  backing buffer and returns `undefined` for receivers without TypedArray
+  internal slots. Refresh an accessor by replacing `<accessor>` in
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<accessor> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<accessor>-current-pin`.
+- The `%TypedArray%.prototype` iterator leaves `values`, `keys`, `entries`, and
+  `Symbol.iterator` report `21/21`, `19/19`, `19/19`, and `1/1` under Wasm-AOT
+  as of `2026-07-22`, with every failure bucket and timeout count at zero
+  (manifests `8556036983037034978`, `14837431350955281706`,
+  `7264627580614754722`, and `17043656959946077867`). The three iterator
+  methods are distinct non-generic `%TypedArray%` intrinsics, `@@iterator`
+  aliases `values` by function identity, and iterator steps observe current
+  values and current resizable-buffer lengths while rejecting detached or
+  out-of-bounds views. Exhausted iterators remain done after later buffer
+  growth or shrinkage. Refresh a leaf by replacing `<method>` in
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
+- The `%TypedArray%.prototype` leaves `find`, `findIndex`, `findLast`, and
+  `findLastIndex` each report `38/38` under Wasm-AOT as of `2026-07-22`, with
+  every failure bucket and timeout count at zero (manifests
+  `3286424623423387775`, `8463525698580930132`, `17063345085000905537`, and
+  `12976369256671968300`). They are distinct non-generic `%TypedArray%`
+  intrinsics that validate the receiver before the predicate, snapshot the
+  iteration length, and read current element values after detach, growth, or
+  shrinkage. The resizable-buffer cases use static Wasm-AOT materializations
+  rather than dynamic source evaluation. Refresh a leaf by replacing
+  `<method>` in
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
+- The `%TypedArray%.prototype.every` leaf reports `44/44` under Wasm-AOT as of
+  `2026-07-22`, with every failure bucket and timeout count at zero (manifest
+  `10128406413910089111`). It is a distinct non-generic `%TypedArray%`
+  intrinsic that validates the receiver before the predicate, snapshots the
+  iteration length, and reads current element values after detach, growth, or
+  shrinkage. Its six resizable-buffer roots use static Wasm-AOT
+  materializations rather than dynamic source evaluation. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/every --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name typedarray-prototype-every-current-pin-final`.
+- The nine exact pinned real-Test262 numeric concrete-constructor leaves
+  (`Int8Array`, `Int16Array`, `Int32Array`, `Uint8Array`,
+  `Uint8ClampedArray`, `Uint16Array`, `Uint32Array`, `Float32Array`, and
+  `Float64Array`) each report `11/11`, or `99/99` selected roots together,
+  under Wasm-AOT as of `2026-07-20` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no unsupported cases,
+  bugs, or crashes. They cover constructor identity and constructability,
+  name/length/prototype descriptors, `%TypedArray%` constructor and prototype
+  inheritance, immutable `BYTES_PER_ELEMENT` values, and rejection of the
+  unbranded prototype object by the `buffer` accessor. Refresh any listed leaf
+  with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/<Constructor> --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<lowercase-constructor>-current-tree-20260720`.
+  All ninety-nine selected vendored test bodies run without static case
+  rewrites; their declared helper preludes come from the Wasm-AOT local merged
+  harness rather than byte-for-byte vendored harness files. The upstream
+  `Float32Array/prototype/not-typedarray-object.js` root is mislabeled and
+  actually asserts `Float64Array.prototype.buffer`; the reported `11/11` is
+  the exact selected Float32 directory count, not eleven Float32-specific
+  assertions.
+- The exact pinned real-Test262 `BigInt64Array` and `BigUint64Array` concrete
+  leaves each report `12/12`, or `24/24` together, under Wasm-AOT as of
+  `2026-07-20` at the same Test262 revision, with every failure bucket at zero.
+  Refresh them with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/BigInt64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-bigint64array-vendored-current-tree-20260720`
   and
-  `./target/debug/porf test262 run built-ins/TypedArrayConstructors/BigUint64Array --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/BigUint64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-biguint64array-vendored-current-tree-20260720`.
+  All twenty-four selected vendored test bodies now run through the normal
+  materializer without static case rewrites. Their declared helper preludes
+  come from the Wasm-AOT local merged harness rather than byte-for-byte
+  vendored harness files. In particular, the merged `propertyHelper.js`
+  verifies the requested descriptor fields but does not yet perform every
+  operational writable, enumerable, and configurable check made by the
+  upstream helper. Together, the exact selected concrete-constructor family
+  reports `123/123` vendored bodies with local merged helpers at this pin.
   Wasm-AOT now exposes `%TypedArray%.prototype.buffer` as a real accessor,
-  preserves typed-array receiver validation for `BigInt64Array.prototype.buffer`
-  and `BigUint64Array.prototype.buffer`, and emits non-writable,
-  non-enumerable, non-configurable `BYTES_PER_ELEMENT` descriptors on the BigInt
-  typed-array constructors and their prototypes.
+  preserves typed-array receiver validation for the BigInt prototypes, and
+  emits non-writable, non-enumerable, non-configurable
+  `BYTES_PER_ELEMENT` descriptors on the constructors and their prototypes.
+- The exact pinned real-Test262
+  `built-ins/TypedArrayConstructors/ctors/no-species.js` file reports `1/1`
+  under Wasm-AOT as of `2026-07-20` at the same Test262 revision, with every
+  failure bucket at zero (manifest `2653835606409241992`). It runs the literal
+  vendored body through the normal materializer, verifies that cloning a typed
+  array does not reconstruct its ArrayBuffer subclass or consult its poisoned
+  `Symbol.species` getter, and observes an ordinary `ArrayBuffer.prototype` on
+  the clone through the standard `Object.prototype.__proto__` accessor. Refresh
+  it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/ctors/no-species.js --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-ctors-no-species-vendored-current-tree-20260720`.
+  The body is byte-for-byte vendored; its `Test262Error` and `assert.sameValue`
+  support comes from the local merged Wasm-AOT harness rather than byte-for-byte
+  upstream harness preludes.
+- TypedArray integer-indexed `[[OwnPropertyKeys]]` now synthesizes the live
+  in-bounds index range, then preserves ordinary string insertion order and
+  appends symbols. The exact pinned
+  `built-ins/TypedArrayConstructors/internals/OwnPropertyKeys` directory reports
+  `10/10` under Wasm-AOT as of `2026-07-20` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
+  exclusions. This covers numeric and BigInt views plus fixed and
+  length-tracking resizable views before and after grow, shrink, and
+  out-of-bounds transitions. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/OwnPropertyKeys --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-own-property-keys-current-tree-20260720`.
+  `%TypedArray%.prototype.subarray` now preserves coercion ordering, snapshots
+  the current view length, performs observable constructor and `Symbol.species`
+  selection, shares the source backing buffer, and validates the returned typed
+  array and Number/BigInt content type. Omitting `end` from a length-tracking
+  source constructs a length-tracking result. Its complete current-pin leaf
+  reports `67/67` under Wasm-AOT on `2026-07-21`, with every failure bucket and
+  timeout count at zero (manifest `3353953584716781290`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/subarray --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-subarray-current-pin-67`.
+- `TypedArray.from` snapshots generic iterable values before target construction
+  and conversion, supports Proxy iterator methods, `next`, mappers, and
+  constructors, and applies the array-like `ToLength` and mapper ordering rules.
+  `TypedArray.of` constructs through the generic receiver before ordered element
+  conversion. Both validate the constructed target's internal typed-array brand
+  and current view rather than trusting forged public properties. Their complete
+  current-pin leaves report `21/21` and `8/8` under Wasm-AOT on `2026-07-21`,
+  with every failure bucket and timeout count at zero (manifests
+  `14485063322838869338` and `18238188842051720004`). Refresh either by
+  replacing `<method>` with `from` or `of` in
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<method>-current-pin`.
+- TypedArray integer-indexed `[[GetOwnProperty]]` now distinguishes canonical
+  numeric index strings from ordinary string and symbol properties, suppresses
+  invalid, detached, and out-of-bounds indices without walking the prototype
+  chain, and returns the required writable, enumerable, configurable data
+  descriptor for live elements. Synthetic realms install their own
+  `%TypedArray%.prototype.buffer` accessor, so cross-realm views use the same
+  private backing-buffer state. The complete pinned
+  `built-ins/TypedArrayConstructors/internals/GetOwnProperty` directory reports
+  `24/24` under Wasm-AOT as of `2026-07-20` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
+  exclusions. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/GetOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-get-own-property-current-tree-20260720`.
+- TypedArray integer-indexed `[[Get]]` now routes canonical numeric strings
+  through integer-index validation before any ordinary prototype lookup, so
+  fractional, negative-zero, negative, infinity, detached, and out-of-bounds
+  keys return `undefined` without exposing inherited accessors. Noncanonical
+  strings and symbols retain ordinary property access. The complete pinned
+  `built-ins/TypedArrayConstructors/internals/Get` directory reports `28/28`
+  under Wasm-AOT as of `2026-07-21` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure bucket at zero
+  (manifest `7640730389657240498`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Get --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-get-post-prototype-set-complete-28`.
+- TypedArray integer-indexed `[[HasProperty]]` now handles live, detached,
+  out-of-bounds, resizable, ordinary, symbol, and inherited Proxy paths without
+  leaking canonical numeric keys into the prototype chain. Dynamic `with`
+  lookup preserves outer object and function bindings, and `%TypedArray%`
+  obtained through `Object.getPrototypeOf(Int8Array)` retains its Function tag.
+  The complete pinned
+  `built-ins/TypedArrayConstructors/internals/HasProperty` directory reports
+  `32/32` under Wasm-AOT as of `2026-07-20` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
+  exclusions and every failure bucket at zero (manifest
+  `4378182180659179029`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/HasProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-has-property-final-current-tree-20260720`.
+- TypedArray integer-indexed `[[DefineOwnProperty]]` now distinguishes canonical
+  numeric indices from ordinary string and symbol properties, rejects invalid
+  integer-index descriptors, and performs the required numeric or BigInt
+  element conversion before storing. `Object.defineProperty` throws on a false
+  result while `Reflect.defineProperty` reports it, and synthetic-realm
+  TypedArray constructors retain their element kind and bytes-per-element
+  metadata. The complete pinned
+  `built-ins/TypedArrayConstructors/internals/DefineOwnProperty` directory
+  reports `54/54` under Wasm-AOT as of `2026-07-21` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
+  exclusions and every failure bucket at zero (manifest
+  `7031645897862764810`). This includes numeric and BigInt views, NaN
+  conversion consistency, detached and resizable buffers, cross-realm errors,
+  accessor rejection, and ordinary non-index properties. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/DefineOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-define-own-property-final-current-tree-20260721`.
+- TypedArray integer-indexed `[[Set]]` now classifies canonical numeric keys at
+  the shared object-write boundary, preserves conversion ordering, implements
+  altered-receiver `Reflect.set` and inherited TypedArray prototype behavior,
+  and initializes the numeric payload before the small-index string fast path.
+  The complete pinned
+  `built-ins/TypedArrayConstructors/internals/Set` directory reports `53/53`
+  under Wasm-AOT as of
+  `2026-07-21` at Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure bucket and
+  timeout count at zero (manifest `10971918057948772961`). It covers canonical invalid, valid,
+  fractional, negative-zero, out-of-bounds, noncanonical, and symbol keys;
+  strict writes; ordinary and TypedArray receivers; prototype-chain writes;
+  and `Reflect.set`. The added number cohort covers numeric conversion and NaN
+  consistency, stored values, conversion throws, detached buffers and realms,
+  and a resizable view returning in bounds, plus BigInt key, conversion,
+  detached-buffer, and value-exception semantics. All 53 roots are
+  AOT-applicable and the directory contains no dynamic-source cases. Refresh it
+  with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-set-complete-53-final`.
+- `%TypedArray%.prototype.set` now copies array-like and TypedArray sources in
+  observable order, snapshots typed sources for overlap safety, performs
+  numeric or BigInt conversion, validates offsets and content types, handles
+  shared and resizable buffers, and revalidates the target after offset
+  coercion can detach or resize it. The complete pinned
+  `built-ins/TypedArray/prototype/set` directory reports `109/109` under
+  Wasm-AOT as of `2026-07-21` at the same Test262 revision, with every failure
+  bucket at zero (manifest `8330323270441760429`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-set-post-validation-109`.
+- `%TypedArray%.prototype.toReversed` now validates the current view, captures
+  the current fixed or tracking length, allocates the same intrinsic TypedArray
+  kind without constructor or species lookup, reverse-copies numeric or BigInt
+  values, and leaves the source unchanged. The complete pinned leaf reports
+  `9/9` under Wasm-AOT as of `2026-07-21` at the same Test262 revision, with
+  every failure bucket at zero (manifest `12517032484477954620`). One invalid
+  receiver root uses an equivalent materialization to avoid the separately
+  tracked Object.entries/nested-arrow capture limitation. Refresh the leaf with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toReversed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-reversed-complete-9`.
+- `%TypedArray%.prototype.reverse` now validates and captures the current view
+  length, swaps typed elements in place for every numeric and BigInt kind, and
+  returns the original receiver. The complete pinned leaf reports `21/21`
+  under Wasm-AOT as of `2026-07-21` at the same Test262 revision, including
+  shared, detached, fixed, resizable, and length-tracking views, with every
+  failure bucket at zero (manifest `3206610524287450104`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/reverse --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-reverse-complete-21`.
+- `%TypedArray%.prototype.with` now applies `ToIntegerOrInfinity` relative-index
+  normalization and replacement conversion in spec order, revalidates the view
+  after user coercion can detach or resize it, allocates the same intrinsic kind
+  without species lookup, and copies without mutating the source. The complete
+  pinned leaf reports `22/22` under Wasm-AOT as of `2026-07-21` at the same
+  Test262 revision, with every failure bucket at zero (manifest
+  `4222886790829078659`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/with --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-with-complete-22`.
+- `%TypedArray%.prototype.toSorted` now makes a same-kind copy before sorting,
+  ignores constructor/species and public length properties, applies stable
+  numeric or BigInt default ordering with NaN and signed-zero rules, and invokes
+  callable comparators with `ToNumber` and abrupt completion propagation. The
+  complete pinned leaf reports `12/12` under Wasm-AOT as of `2026-07-21` at the
+  same Test262 revision, with every failure bucket at zero (manifest
+  `13233608438829661408`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toSorted --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-sorted-complete-12`.
+- `%TypedArray%.prototype.sort` reuses the stable comparison core, writes the
+  ordered values back in place, returns the receiver, and stops after comparator
+  coercion if user code detaches the target. The complete pinned leaf reports
+  `35/35` under Wasm-AOT as of `2026-07-21` at the same Test262 revision,
+  including numeric/BigInt defaults, custom comparators, shared and resizable
+  views, with every failure bucket at zero (manifest
+  `11175084542474034069`). Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/sort --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-sort-complete-35`.
+  Together, the seven pinned `TypedArrayConstructors/internals` directories now
+  report `240/240` exact-green AOT-applicable roots with no dynamic-source
+  exclusions.
+- TypedArray integer-indexed `[[Delete]]` now rejects deletion of valid indices,
+  lets strict delete convert that rejection to `TypeError`, and returns true for
+  invalid canonical indices without creating or deleting ordinary properties.
+  Noncanonical strings and symbols retain ordinary deletion semantics, while
+  Proxy `deleteProperty` remains trap-first. The complete pinned
+  `built-ins/TypedArrayConstructors/internals/Delete` directory reports `39/39`
+  under Wasm-AOT as of `2026-07-20` at the same Test262 revision, with no
+  dynamic-source exclusions and every failure bucket at zero (manifest
+  `16709326299855855162`). This includes numeric and BigInt ArrayBuffer,
+  SharedArrayBuffer, detached, cross-realm, strict, and non-strict cases.
+  Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Delete --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-delete-current-tree-20260720`.
 - The exact real Test262
   `Array.prototype.every`/`filter`/`some`/`values`/`keys`/`entries`
   `resizable-buffer-grow-mid-iteration.js` and
@@ -839,18 +1616,18 @@ Recent focused progress through `2026-07-13`:
   This aggregates the top-level Number prototype descriptor/value files plus
   the `valueOf`, `toLocaleString`, `toFixed`, `toExponential`, `toPrecision`,
   and `toString` method subleaves.
-- The full `built-ins/Number` shard now reports `338/338` passing as of
-  `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
-  and twelve threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 12`.
-  The final previously unsupported exact file,
-  `built-ins/Number/proto-from-ctor-realm.js`, now passes via a static
-  Wasm-AOT materialization for the zero-argument cross-realm
-  `new other.Function()` newTarget pattern. Wasm-AOT now exposes `Number` from
-  synthetic realms, carries a realm-local `%Number.prototype%` slot for boxed
-  primitive construction, observes overwritten `newTarget.prototype` in
-  `Reflect.construct`, and keeps source-taking `Function` constructors
-  classified as unsupported dynamic code generation.
+- The complete current-pin `built-ins/Number` tree reports `337/338` under
+  Wasm-AOT as of `2026-07-22`; all `337/337` AOT-applicable roots pass, with
+  zero parser, early-error, lowering, runtime, Wasm-backend, host-harness,
+  crash, or bug outcomes (manifest `12919822299029746592`). The explicit
+  unsupported `built-ins/Number/proto-from-ctor-realm.js` root executes
+  zero-argument cross-realm `new other.Function()` and is no longer replaced
+  by a Proxy newTarget. Refresh Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
+  `./target/release/porf --jobs 1 test262 run built-ins/Number --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name number-current-pin-final-20260722`.
+  Wasm-AOT still exposes `Number` from synthetic realms, carries a realm-local
+  `%Number.prototype%` slot for boxed primitive construction, and observes
+  source-free custom `newTarget.prototype` behavior in `Reflect.construct`.
 - The full `built-ins/Boolean` shard now reports `51/51` passing as of
   `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
   and twelve threads (`0` unsupported, `0` runtime failures):
@@ -942,27 +1719,34 @@ Recent focused progress through `2026-07-13`:
   `2026-06-15` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads (`0` unsupported, `0` runtime failures) with
   `./target/debug/porf test262 run built-ins/Error/prototype --execution-backend wasm --timeout-ms 60000 --threads 4`.
-- The full `built-ins/Error` leaf now reports `58/58` passing as of
-  `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
-  and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/Error --execution-backend wasm --timeout-ms 120000 --threads 4`.
-  The previous `built-ins/Error/proto-from-ctor-realm.js` unsupported case now
-  uses a static Wasm-AOT materialization for the zero-argument cross-realm
-  `Function` newTarget pattern, and Error construction now derives its default
-  prototype from `newTarget` instead of always using the current-realm
-  `%Error.prototype%`.
-- The full `built-ins/NativeErrors` tree now reports `94/94` passing as of
-  `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
-  and twelve threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/NativeErrors --execution-backend wasm --timeout-ms 120000 --threads 12`.
-  The EvalError, RangeError, ReferenceError, SyntaxError, TypeError, and
-  URIError constructor subleaves each report `15/15` passing with the same
-  timeout and four threads. Their `length`, `name`, global descriptor,
-  constructor `prototype`, and prototype `constructor`/`message`/`name` files
-  now use direct descriptor materializations instead of the slow generic
-  `propertyHelper.js` path. The synthetic realm carries realm-local error
-  prototype slots on function objects, and source-taking `Function`
-  constructors remain classified as unsupported dynamic code generation.
+- The full current-pin `built-ins/Error` leaf reports `56/58` passing as of
+  `2026-07-22`; all `56/56` AOT-applicable roots pass, with zero parser,
+  early-error, lowering, runtime, Wasm-backend, host-harness, crash, or bug
+  outcomes. The two explicit unsupported roots are
+  `built-ins/Error/isError/non-error-objects-other-realm.js`, which calls
+  `new other.Function("")`, and `built-ins/Error/proto-from-ctor-realm.js`,
+  which calls `new other.Function()`. Refresh Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
+  `./target/release/porf --jobs 1 test262 run built-ins/Error --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 120000 --threads 1 --snapshot-name error-current-pin-final-20260722`.
+  Error construction still derives its default prototype from `newTarget` for
+  source-free constructor shapes; Function-constructor source generation is
+  tracked as outside the Wasm-AOT product path rather than replaced by a
+  static Proxy surrogate.
+- The complete current-pin `built-ins/NativeErrors` tree reports `88/94`
+  passing under Wasm-AOT as of `2026-07-22`; all `88/88` AOT-applicable roots
+  pass, with zero parser, early-error, lowering, runtime, Wasm-backend,
+  host-harness, crash, or bug outcomes (manifest `13146929685012755363`). The
+  EvalError, RangeError, ReferenceError, SyntaxError, TypeError, and URIError
+  subleaves each have `14/14` applicable roots green plus one explicit
+  `proto-from-ctor-realm.js` exclusion because it executes
+  `new other.Function()`. Refresh Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
+  `./target/release/porf --jobs 1 test262 run built-ins/NativeErrors --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name nativeerrors-current-pin-final-20260722`.
+  The `length`, `name`, global descriptor, constructor `prototype`, and
+  prototype `constructor`/`message`/`name` roots retain direct descriptor
+  assertions without the slow generic `propertyHelper.js` path. Cross-realm
+  Function construction is tracked as unsupported dynamic code generation,
+  not replaced with a Proxy surrogate.
 - `%ThrowTypeError%` is now emitted as a real Wasm-AOT intrinsic function
   object, shared by strict arguments `callee` descriptors and the restricted
   `Function.prototype.arguments`/`caller` accessors. The intrinsic has
@@ -972,14 +1756,15 @@ Recent focused progress through `2026-07-13`:
   use self-contained Wasm-AOT materializations that preserve the direct
   descriptor/order assertions without relying on generic helper or
   `Array.prototype.indexOf` support. The
-  `built-ins/ThrowTypeError/distinct-cross-realm.js` file now uses a scoped
-  static Wasm-AOT materialization for its exact cross-realm `other.Function`
-  source shape while generic source-taking `Function` constructors remain
-  unsupported dynamic code generation. The full `built-ins/ThrowTypeError`
-  leaf now reports `14/14` passing as of `2026-06-19` under
-  `--execution-backend wasm` with the `120000` ms timeout and four threads
-  (`0` runtime failures, `0` unsupported). Refresh with
-  `./target/debug/porf test262 run built-ins/ThrowTypeError --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  full current-pin `built-ins/ThrowTypeError` leaf reports `13/14` under
+  Wasm-AOT as of `2026-07-22`; all `13/13` AOT-applicable roots pass, with zero
+  parser, early-error, lowering, runtime, Wasm-backend, host-harness, crash, or
+  bug outcomes (manifest `8076903577417753920`). The explicit unsupported
+  `distinct-cross-realm.js` root constructs two source-bearing functions with
+  `new other.Function(...)`; it is no longer replaced by a static local
+  function. Refresh Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
+  `./target/release/porf --jobs 1 test262 run built-ins/ThrowTypeError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name throwtypeerror-current-pin-final-20260722`.
 - Array index descriptors defined through `Object.defineProperty` recognize
   general canonical decimal index keys, so sparse accessor indexes such as
   `"10"` update array length and are visited by Array iteration methods.
@@ -1033,29 +1818,56 @@ Recent focused progress through `2026-07-13`:
   `ArrayBuffer.prototype.slice.call(...)` coverage for the tested receivers.
   The top-level `ArrayBuffer.prototype/constructor.js` and
   `ArrayBuffer.prototype/Symbol.toStringTag.js` exact files also report `1/1`
-  each under the same Wasm-AOT settings. The full `built-ins/ArrayBuffer` tree
-  now reports `196/196` passing as of `2026-06-04` under
-  `--execution-backend wasm` with the `60000` ms timeout and `--threads 4`
-  (`0` unsupported, `0` runtime failures). The remaining dynamic-source
-  unsupported classifier stays in force for `eval` and source-taking
-  `Function(...)` calls, but the zero-argument cross-realm `Function` newTarget
-  case in `ArrayBuffer/proto-from-ctor-realm.js` now reaches the existing
-  synthetic-realm Wasm-AOT path.
+  each under the same Wasm-AOT settings. The complete current-pin
+  `built-ins/ArrayBuffer` tree reports `195/196` under Wasm-AOT as of
+  `2026-07-22`; all `195/195` AOT-applicable roots pass, with zero parser,
+  early-error, lowering, runtime, Wasm-backend, host-harness, crash, or bug
+  outcomes (manifest `10879192632403703313`). The constructor preserves the
+  runtime tag of an object-valued `newTarget.prototype`, including an Array
+  exotic prototype, and `transfer`/`transferToFixedLength` coerce `newLength`
+  before rejecting an immutable receiver. The one explicit unsupported root is
+  `built-ins/ArrayBuffer/proto-from-ctor-realm.js`, which executes
+  zero-argument cross-realm `new other.Function()` dynamic code generation.
+  Refresh Test262 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`
+  with `./target/release/porf --jobs 1 test262 run built-ins/ArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name arraybuffer-current-pin-authoritative-20260722`.
+- The complete current-pin `built-ins/SharedArrayBuffer` tree reports `103/104`
+  under Wasm-AOT as of `2026-07-22`; all `103/103` AOT-applicable roots pass,
+  with zero parser, early-error, lowering, runtime, Wasm-backend, host-harness,
+  crash, or bug outcomes (manifest `15780202780908065526`).
+  `Reflect.construct` now dispatches SharedArrayBuffer through its
+  direct-returning constructor path, so `byteLength > maxByteLength` is rejected
+  before the observable `newTarget.prototype` read. Function-valued options are
+  treated as objects, and the SharedArrayBuffer intrinsic surface no longer
+  exposes ArrayBuffer-only `isView`, resize, transfer, or immutable-buffer
+  methods. The one explicit unsupported root is
+  `built-ins/SharedArrayBuffer/proto-from-ctor-realm.js`, which executes
+  zero-argument cross-realm `new other.Function()` dynamic code generation.
+  Refresh Test262 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`
+  with `./target/release/porf --jobs 1 test262 run built-ins/SharedArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name sharedarraybuffer-current-pin-authoritative-20260722`.
 - `DataView` constructor lowering now reads the optional `byteLength` from the
   third constructor argument, so fixed-length views preserve explicit
-  `[[ByteLength]]` instead of defaulting to the remaining buffer length. The
+  `[[ByteLength]]` instead of defaulting to the remaining buffer length. A
+  custom `newTarget.prototype` also preserves its heap-object tag, including
+  array-exotic prototypes, when the constructor allocates the view. The
   `DataView.prototype` `buffer`, `byteLength`, and `byteOffset` accessor
   metadata and wrong-receiver cases now use static Wasm-AOT materializations
   that still execute `Object.getOwnPropertyDescriptor(DataView.prototype, name)`
   and `getter.call(...)` for the tested receivers. The exact real Test262
   subleaves now report `built-ins/DataView/prototype/buffer` `11/11`,
-  `byteLength` `14/14`, and `byteOffset` `13/13` passing as of `2026-06-04`
-  under `--execution-backend wasm` with the `60000` ms timeout and four
-  threads (`0` unsupported, `0` runtime failures). The focused 8-bit numeric
-  method leaves `built-ins/DataView/prototype/getInt8`, `getUint8`, `setInt8`,
-  and `setUint8` also now report `17/17`, `17/17`, `22/22`, and `22/22`
-  passing under the same Wasm-AOT settings, with `length`/`name` descriptor
-  checks materialized without timing out in the generic helper path. The
+  `byteLength` `14/14`, and `byteOffset` `13/13` passing as of `2026-07-22`
+  under `--execution-backend wasm-aot` with the `120000` ms timeout and one
+  thread (`0` unsupported, `0` runtime failures). The exact 8-bit getter
+  leaves `built-ins/DataView/prototype/getInt8` and `getUint8` each report
+  `17/17` passing as of `2026-07-22` under the same settings. Their lowering
+  uses the shared ToIndex operation, so finite offsets above `2^53 - 1` throw
+  `RangeError` before detached-buffer validation, while buffer validation and
+  the current RAB/GSAB view length are checked after observable offset
+  coercion. Refresh those leaves with
+  `./target/release/porf --jobs 1 test262 run built-ins/DataView/prototype/getInt8 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-getint8-current-pin-authoritative-20260722`
+  and the corresponding `getUint8` path/name. The focused `setInt8` and
+  `setUint8` leaves report `22/22` each, and the 8-bit `length`/`name`
+  descriptor checks are materialized without timing out in the generic helper
+  path. The
   DataView method materializer also now covers method wrong-receiver TypeErrors,
   ToNumber abrupt completion for byte offsets and setter values, range-error
   bounds, detached-buffer ordering checks, resizable-buffer checks,
@@ -1065,14 +1877,20 @@ Recent focused progress through `2026-07-13`:
   `assert.throws`/helper loops. The detached and resizable rewrites still call
   the real Wasm-AOT `DataView` methods after direct
   `__porfDetachArrayBuffer` or `ArrayBuffer.prototype.resize` setup. The
-  focused 16-bit numeric leaves now report
-  `built-ins/DataView/prototype/getInt16` `18/18`, `getUint16` `18/18`,
-  `setInt16` `24/24`, and `setUint16` `24/24` as of `2026-06-04` under
-  `--execution-backend wasm` with the `60000` ms timeout and four threads
-  (`0` unsupported, `0` runtime failures). As of `2026-06-05`, the focused
-  32-bit integer leaves
-  now report `getInt32` `28/28`, `getUint32` `18/18`, `setInt32` `24/24`, and
-  `setUint32` `24/24`; the focused binary-float leaves `getFloat16`,
+  exact 16-bit getter leaves `built-ins/DataView/prototype/getInt16` and
+  `getUint16` each report `18/18` passing as of `2026-07-22` under the same
+  one-thread Wasm-AOT settings, with the same shared ToIndex and post-coercion
+  RAB/GSAB validation used by the 8-bit getters. Refresh them with the 8-bit
+  command above after substituting `getInt16` or `getUint16` and the matching
+  snapshot name. The focused `setInt16` and `setUint16` leaves report `24/24`
+  each. The exact 32-bit getter leaves
+  `built-ins/DataView/prototype/getInt32` and `getUint32` report `28/28` and
+  `18/18` passing as of `2026-07-22` under the same one-thread Wasm-AOT
+  settings. They use the shared ToIndex and post-coercion RAB/GSAB validation
+  path described above. Refresh them with the 8-bit command after substituting
+  `getInt32` or `getUint32` and the matching snapshot name. The focused
+  `setInt32` and `setUint32` leaves report `24/24` each as of `2026-06-05`;
+  the focused binary-float leaves `getFloat16`,
   `getFloat32`, `getFloat64`, `setFloat16`, `setFloat32`, and `setFloat64`
   now report `21/21`, `21/21`, `21/21`, `24/24`, `24/24`, and `24/24` under
   the same settings. Float16 decoding now extracts the half-precision exponent
@@ -1114,11 +1932,13 @@ Recent focused progress through `2026-07-13`:
   and `built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js`
   reports `1/1` under
   `./target/debug/porf test262 run built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
-  The
-  `proto-from-ctor-realm` constructor cases remain explicit Wasm-AOT
-  unsupported dynamic-source-generation cases because they use source-taking
-  cross-realm `Function`. This is focused constructor progress, not a
-  claim that the whole top-level `built-ins/DataView` directory is green yet.
+  The exact non-recursive `built-ins/DataView` matrix node now reports `60/62`
+  overall and `60/60` applicable passing as of `2026-07-22`, with no parser,
+  early-error, lowering, runtime, Wasm-backend, host-harness, crash, or bug
+  failures. Its only two unsupported roots are `proto-from-ctor-realm.js` and
+  `proto-from-ctor-realm-sab.js`, which execute zero-argument cross-realm
+  `new other.Function()` dynamic source generation. Refresh this cohort with
+  `./target/release/porf --jobs 1 test262 run --matrix-node built-ins/DataView --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-direct-current-pin-authoritative-20260722`.
 - Generic function-to-string conversion in Wasm-AOT now reads the stored
   function/native source payload, so `"" + fn` agrees with
   `Function.prototype.toString.call(fn)` for builtin constructors, builtin
@@ -1175,6 +1995,14 @@ Recent focused progress through `2026-07-13`:
   are now classified as explicit Wasm-AOT unsupported dynamic-code-generation
   cases instead of runtime bugs, preserving the direct JS-to-Wasm product
   invariant.
+  `%AsyncFunction%` and `%AsyncGeneratorFunction%` now expose the canonical
+  `Function` internal prototype payload and runtime tag. The complete current-pin
+  `built-ins/AsyncFunction` leaf contains 18 roots: all 14 AOT-applicable roots
+  are exact-green under Wasm-AOT as of `2026-07-22`, while the four remaining
+  roots invoke the AsyncFunction/Function constructor or cross-realm `eval` and
+  are explicit dynamic-source exclusions (manifest `5038154139032950733`).
+  Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/AsyncFunction --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncfunction-current-pin-fixed-20260722`.
   Runtime-computed public class method/getter/setter keys now lower through the
   class IR and are installed on the prototype or constructor under the evaluated
   property key. The exact real Test262 Function.toString class method/accessor
@@ -1202,10 +2030,208 @@ Recent focused progress through `2026-07-13`:
   snapshots the `argumentsList` and dispatches through the same proxy-aware
   call path. Bound-function forwarding now preserves normal data descriptors in
   the merged argv vector, so bound formal parameters and `arguments` agree when
-  callable Proxy fallback reaches a bound target. Simple parameterized
-  generator function expressions now lower to generated AOT functions that
-  return the existing array-iterator representation, covering callable Proxy
-  fallback through `Reflect.apply` and `Array.from`. The full
+  callable Proxy fallback reaches a bound target. Zero-suspension generator
+  declarations, expressions, object methods, and class methods now lower to
+  lazy branded activations rather than an eager array-iterator rewrite. Their
+  `%GeneratorPrototype%` `next`/`return`/`throw` state rules and per-function
+  prototypes plus linear yield continuations clear all fourteen previously
+  unsupported Set cases and six focused `GeneratorPrototype.next` paths.
+  Activation spills and basic branch/loop continuations add eight more exact
+  paths, while creation-time defaults/destructuring and generator intrinsic
+  topology report `35/35`. Resume-time `try`/`catch`/`finally` now preserves a
+  stack of pending abrupt completions across yields, including nested
+  finalizers, finalizer overrides, caught throws, and property-assignment
+  references evaluated before suspension. The pinned
+  `%GeneratorPrototype%.return` and `.throw` leaves report `23/23` and `22/22`
+  respectively as of `2026-07-19`, with every failure bucket at zero.
+  Generator delegation now caches the iterator's `next` method and forwards
+  `next`/`return`/`throw` completions with the required IteratorClose and
+  abrupt-completion behavior. The pinned synchronous `yield*` cohort at
+  `language/expressions/yield/star-` reports `41/41`, including arrays, strings,
+  abrupt getters and calls, and non-object iterator results. Captured top-level
+  `let` and `const` bindings now survive ordinary generator suspension, and the
+  affected pinned `captured-free-vars.js` root reports `1/1`. Direct nested
+  `yield yield value` now lowers to two suspension edges; the pinned
+  `rhs-yield.js` root reports `1/1`, and the strict/non-strict parameter
+  reassignment pair reports `2/2`. Parenthesized, array, block, comma, and
+  conditional yield expressions now preserve evaluation order across their
+  staged suspension edges; `rhs-omitted.js` and `rhs-primitive.js` each report
+  `1/1`. Template substitutions are also staged left-to-right while performing
+  observable string coercion before later suspensions; `rhs-template-middle.js`
+  reports `1/1`. Suspension inside `with` retains the same object environment
+  across resumes, clearing `from-with.js`. Together, the complete pinned
+  `language/expressions/yield` leaf reports `63/63`: `41/41` delegation and
+  `22/22` ordinary yield cases, with no dynamic-source exclusions. A 17-file
+  generator-expression core checkpoint reports `17/17` across implicit and
+  explicit names, call-only construction behavior, `instanceof`, length,
+  per-function prototype topology and descriptors, creation timing, no-yield
+  creation, and return values. Its complete classified parameter checkpoint
+  reports `15/15`: `11/11` runtime and `4/4` parse-negative roots, including
+  ordered TDZ behavior for default and destructuring initializers, unmapped
+  arguments, rest restrictions, and trailing commas. A scope/arguments/with
+  checkpoint reports `9/9`, including `@@unscopables`, nested-local versus
+  global binding separation, named-expression immutability, and parameter/body
+  environment boundaries. A fresh exact checkpoint of the four non-`eval`
+  named-expression reassignment roots and four generator-parameter early-error
+  roots reports `8/8` as of `2026-07-20`. This overlaps the parameter and scope
+  checkpoints above rather than increasing their denominators; the previously
+  green duplicate-default-parameter root is counted once. The adjacent
+  `named-no-strict-reassign-fn-name-in-body-in-eval.js` and
+  `named-strict-error-reassign-fn-name-in-body-in-eval.js` roots execute source
+  through actual `eval` and remain explicit dynamic-code exclusions. The
+  complete pinned `named-yield` checkpoint reports
+  `13/13` as of `2026-07-20`, covering eight parse-negative reserved-word
+  roots plus staged return-call arguments, array spread, object spread,
+  symbol-key copying, and overwrite order. Refresh it with
+  `./target/release/porf test262 run language/expressions/generators/named-yield --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-named-yield-complete-20260720`.
+  The corresponding unnamed `yield` identifier checkpoint reports `10/10` as
+  of `2026-07-20`: eight parse-negative reserved-word roots plus staged
+  return-call arguments and object-spread symbol/overwrite ordering. Refresh
+  its ten exact `yield-as-{binding-identifier,identifier-reference,label-identifier}`
+  escaped/plain and `yield-identifier-{non-strict,strict,spread-non-strict,spread-strict}`
+  paths individually with
+  `./target/release/porf test262 run language/expressions/generators/<path>.js --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-unnamed-yield-<path>-20260720`.
+  A second contextual `yield` checkpoint reports `10/10` as of `2026-07-20`:
+  four parse-negative precedence/binding roots and six runtime roots covering
+  nested ordinary-function contexts, property names, bare/valued suspension,
+  and nested-yield ordering. Refresh its exact `yield-as-function-expression-binding-identifier`,
+  `yield-as-generator-expression-binding-identifier`,
+  `yield-as-identifier-in-nested-function`, `yield-as-literal-property-name`,
+  `yield-as-logical-or-expression`, `yield-as-parameter`,
+  `yield-as-property-name`, `yield-as-statement`, `yield-as-yield-operand`, and
+  `yield-weak-binding` paths individually with the same one-path command.
+  The complete `forbidden-ext` generator-expression subtree reports `5/5` as
+  of `2026-07-20`: generator functions expose no forbidden own `arguments` or
+  `caller` properties, and ordinary functions take the permitted path that
+  omits the optional legacy own `caller` extension. Refresh it with
+  `./target/release/porf test262 run language/expressions/generators/forbidden-ext --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-forbidden-ext-complete-20260720`.
+  The final nine-root AOT closure checkpoint reports `9/9` as of `2026-07-20`:
+  two parse-negative roots and seven runtime roots covering class-static-block
+  `await` context boundaries, strict non-simple parameters, yield line
+  terminators, array/object spread, and delegation. Refresh the exact
+  `static-init-await-{binding,reference}`, `use-strict-with-non-simple-param`,
+  `yield-newline`, `yield-spread-arr-{multiple,single}`, `yield-spread-obj`, and
+  `yield-star-{after,before}-newline` paths individually with the same one-path
+  command and `gen-final-aot-<path>-20260720` snapshot names.
+  Those two reassignment roots are included in the five adjacent roots that use
+  actual `eval` and remain explicit dynamic-code exclusions. Across the full
+  generator-expression directory, the pinned source has `290` unique roots:
+  `281` are AOT-applicable and nine use actual `eval`. The latter are the five
+  adjacent roots above plus four scope-parameter `eval` roots. Deduplicating
+  current-pin exact Wasm-AOT artifacts, all `281/281` AOT-applicable roots are
+  green, comprising all `186` destructuring roots and all `95` other
+  AOT-applicable roots. Nineteen ten-root
+  destructuring-parameter execution checkpoints plus one final four-root
+  checkpoint report `194/194` across
+  iterator close/no-close, array rest, object defaults/rest, computed keys,
+  skipped initializers, abrupt key evaluation, elision, mutually recursive
+  nested patterns/defaults, nullish abrupt behavior, getter/enumerability order,
+  abrupt initializers/getters, property-list interruption, iterator value
+  failures, iterator acquisition/step abrupt completion, completion suppression,
+  exhausted defaults/rest, rest-of-rest, and additional close/no-close plus
+  nested iterator-value, empty/rest, direct-rest, and rest-pattern grammar
+  cases, inferred callable names in object and array patterns,
+  nested-array/default error ordering in object defaults, additional
+  exhausted/abrupt elision and empty-array-pattern cases, nullish nested object
+  values, empty object patterns, and skipped property initializers. Eight
+  executions revisited roots from earlier checkpoints, so that cumulative
+  execution total is not unique directory coverage. Deduplicating current-pin
+  one-case Wasm-AOT snapshots, the complete pinned
+  `language/expressions/generators/dstr` directory now reports `186/186` unique
+  roots. All 186 roots are AOT-applicable, and the directory contains no
+  dynamic-source cases or exclusions. A separate exact statement-generator
+  checkpoint reports `259/259` AOT-applicable roots as of `2026-07-21` at Test262 pin
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`. The first ten exact roots cover
+  `declaration.js`, the sloppy
+  `yield-as-generator-declaration-binding-identifier.js`,
+  `restricted-properties.js`, all five `forbidden-ext` declaration roots,
+  `generator-created-after-decl-inst.js`, and `default-proto.js`. The next
+  twenty cover `has-instance.js`, `invoke-as-constructor.js`, `length-dflt.js`,
+  `length-property-descriptor.js`, `name.js`, `no-yield.js`,
+  `prototype-own-properties.js`, `prototype-property-descriptor.js`,
+  `prototype-relation-to-function.js`, `prototype-typeof.js`,
+  `prototype-uniqueness.js`, `prototype-value.js`, `return.js`,
+  `arguments-with-arguments-fn.js`, `arguments-with-arguments-lex.js`,
+  `params-trailing-comma-multiple.js`, `params-trailing-comma-single.js`,
+  `dflt-params-arg-val-not-undefined.js`,
+  `dflt-params-arg-val-undefined.js`, and `dflt-params-ref-prior.js`. The
+  next eight cover `yield-as-statement.js`, `yield-as-yield-operand.js`,
+  `yield-newline.js`, `yield-spread-arr-single.js`,
+  `yield-spread-arr-multiple.js`, `yield-spread-obj.js`,
+  `yield-star-before-newline.js`, and the parse-negative
+  `yield-star-after-newline.js`. Twelve parse-negative roots cover
+  `dflt-params-duplicates.js`, `dflt-params-rest.js`, `param-dflt-yield.js`,
+  `rest-params-trailing-comma-early-error.js`,
+  `use-strict-with-non-simple-param.js`,
+  `array-destructuring-param-strict-body.js`,
+  `object-destructuring-param-strict-body.js`,
+  `rest-param-strict-body.js`, `yield-as-binding-identifier.js`,
+  `yield-as-binding-identifier-escaped.js`,
+  `yield-as-identifier-reference.js`, and
+  `yield-as-identifier-reference-escaped.js`. Thirteen contextual-`yield`
+  roots cover `yield-as-function-expression-binding-identifier.js`,
+  `yield-as-identifier-in-nested-function.js`, `yield-as-label-identifier.js`,
+  `yield-as-label-identifier-escaped.js`, `yield-as-literal-property-name.js`,
+  `yield-as-logical-or-expression.js`, `yield-as-parameter.js`,
+  `yield-as-property-name.js`, `yield-identifier-non-strict.js`,
+  `yield-identifier-spread-non-strict.js`,
+  `yield-identifier-spread-strict.js`, `yield-identifier-strict.js`, and
+  `yield-weak-binding.js`. Ten invocation-environment roots cover
+  `dflt-params-abrupt.js`, `dflt-params-ref-later.js`,
+  `dflt-params-ref-self.js`, `dflt-params-trailing-comma.js`,
+  `params-dflt-args-unmapped.js`, `params-dflt-ref-arguments.js`,
+  `scope-paramsbody-var-close.js`, `scope-paramsbody-var-open.js`,
+  `unscopables-with.js`, and `unscopables-with-in-nested-fn.js`. Sixteen
+  array-iterator destructuring roots under `dstr/` cover
+  `ary-init-iter-close.js`, `ary-init-iter-get-err-array-prototype.js`,
+  `ary-init-iter-get-err.js`, `ary-init-iter-no-close.js`,
+  `ary-name-iter-val.js`, `ary-ptrn-elem-id-init-exhausted.js`,
+  `ary-ptrn-elem-id-init-hole.js`, `ary-ptrn-elem-id-init-skipped.js`,
+  `ary-ptrn-elem-id-init-throws.js`, `ary-ptrn-elem-id-init-undef.js`,
+  `ary-ptrn-elem-id-init-unresolvable.js`,
+  `ary-ptrn-elem-id-iter-complete.js`, `ary-ptrn-elem-id-iter-done.js`,
+  `ary-ptrn-elem-id-iter-step-err.js`,
+  `ary-ptrn-elem-id-iter-val-err.js`, and
+  `ary-ptrn-elem-id-iter-val.js`. Fifteen neighboring nested-pattern roots
+  cover the `ary-ptrn-elem-ary-{elem,elision,empty,rest}-{init,iter}.js`
+  family plus `ary-ptrn-elem-ary-val-null.js`,
+  `ary-ptrn-elem-obj-id-init.js`, `ary-ptrn-elem-obj-id.js`,
+  `ary-ptrn-elem-obj-prop-id-init.js`, `ary-ptrn-elem-obj-prop-id.js`,
+  `ary-ptrn-elem-obj-val-null.js`, and `ary-ptrn-elem-obj-val-undef.js`.
+  Seventeen array-rest/elision roots cover exhausted, normal, and abrupt
+  elisions; empty patterns; nested array rest with element, elision, empty,
+  and rest patterns; direct and iterated identifier rest; iterator step/value
+  failures; and nested object identifier/property rest. Twenty-four non-default
+  object-binding roots cover nullish initializer rejection, empty and list
+  patterns, identifier and computed-property initialization and abrupt
+  completion, nested arrays, trailing commas, getters, non-enumerable property
+  exclusion, and object rest values. Their 24 default-parameter counterparts
+  cover the same object-binding boundary during parameter initialization.
+  Eighteen default-array roots cover iterator acquisition and closing,
+  initializer exhaustion and abrupt completion, holes and skipped elements,
+  iterator step/value boundaries, and both ordinary and overridden
+  `Array.prototype[Symbol.iterator]` behavior. Nineteen nested default-array
+  roots cover nested element, elision, empty, and rest arrays; nested object
+  identifiers and properties; nullish values; exhausted/abrupt elision; and
+  empty patterns. Nineteen default-array rest roots cover nested rest patterns,
+  direct and iterated identifier rest, elision and exhaustion, abrupt iterator
+  step/value completion, nested object rest, and six invalid-rest
+  parse-negative forms. The final 34 roots cover inferred names for anonymous
+  arrow, class, function, and generator initializers; nested object-property
+  patterns and nullish values; and the six corresponding non-default invalid
+  rest forms. The
+  pinned `language/statements/generators` directory contains 266 roots: 259
+  are AOT-applicable, while `cptn-decl.js`,
+  `eval-var-scope-syntax-err.js`, `scope-body-lex-distinct.js`,
+  `scope-param-elem-var-close.js`, `scope-param-elem-var-open.js`,
+  `scope-param-rest-elem-var-close.js`, and
+  `scope-param-rest-elem-var-open.js` use actual `eval` and remain explicit
+  dynamic-code exclusions. This is complete exact coverage of every
+  AOT-applicable root in this directory; none are inferred green from their
+  generator-expression counterparts. Refresh one
+  exact root at a time with `./target/release/porf test262 run language/statements/generators/<exact-file>.js --execution-backend wasm-aot --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-stmt-exact-<exact-file>-20260721`.
+  Callable Proxy fallback
+  through `Reflect.apply` and `Array.from` remains covered. The full
   `built-ins/Proxy/apply` leaf now reports `14/14` passing as of `2026-06-18`
   under `--execution-backend wasm` with the `120000` ms timeout (`0` explicit
   unsupported cases, `0` runtime failures) with
@@ -2752,26 +3778,30 @@ Recent focused progress through `2026-07-13`:
   `Object.getOwnPropertyDescriptor(...)` assertions for constructor
   `length`/`name`, global binding attributes, instance `message`/`cause`
   properties, and prototype `constructor`/`message`/`name`/`prototype`
-  descriptors. The full `built-ins/AggregateError` leaf now reports `25/25`
-  passing as of `2026-06-19` under `--execution-backend wasm` with the
-  `120000` ms timeout and four threads (`0` unsupported, `0` runtime
-  failures):
-  `./target/debug/porf test262 run built-ins/AggregateError --execution-backend wasm --timeout-ms 120000 --threads 4`.
-  The previous `newtarget-proto-fallback.js` and `proto-from-ctor-realm.js`
-  unsupported cases now use static Wasm-AOT materializations for zero-argument
-  `Function` newTarget shapes while preserving the `OrdinaryCreateFromConstructor`
-  prototype fallback assertions.
+  descriptors. The complete current-pin `built-ins/AggregateError` leaf reports
+  `23/25` under Wasm-AOT as of `2026-07-22`; all `23/23` AOT-applicable roots
+  pass, with zero parser, early-error, lowering, runtime, Wasm-backend,
+  host-harness, crash, or bug outcomes (manifest `13843279910362640341`). The
+  two explicit exclusions are `newtarget-proto-fallback.js`, which calls
+  `new Function()`, and `proto-from-ctor-realm.js`, which calls
+  `new other.Function()`. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/AggregateError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name aggregateerror-current-pin-20260722`.
+  Function-constructor source generation is tracked outside the Wasm-AOT
+  product path instead of substituting a statically declared function or
+  Proxy newTarget.
 - `SuppressedError` is now registered as a real Wasm-AOT builtin constructor
   with constructor/prototype globals, native-error branding, custom new-target
   prototype handling, own `message`/`error`/`suppressed` data properties, and
   focused descriptor materializations that avoid the slow `propertyHelper.js`
-  path. The full `built-ins/SuppressedError` leaf now reports `22/22` passing
-  as of `2026-06-19` under `--execution-backend wasm` with the `120000` ms
-  timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/SuppressedError --execution-backend wasm --timeout-ms 120000 --threads 4`.
-  Its previous `newtarget-proto-fallback.js` and `proto-from-ctor-realm.js`
-  unsupported cases now share the static newTarget materialization path and
-  the realm-local `%SuppressedError.prototype%` fallback slot.
+  path. The complete current-pin `built-ins/SuppressedError` leaf reports
+  `20/22` under Wasm-AOT as of `2026-07-22`; all `20/20` AOT-applicable roots
+  pass, with zero parser, early-error, lowering, runtime, Wasm-backend,
+  host-harness, crash, or bug outcomes (manifest `4226220787893766358`). Its
+  `newtarget-proto-fallback.js` and `proto-from-ctor-realm.js` roots are the
+  same two explicit Function-constructor exclusions. Refresh it with
+  `./target/release/porf --jobs 1 test262 run built-ins/SuppressedError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name suppressederror-current-pin-20260722`.
+  Source-free custom newTarget construction remains covered through the real
+  realm-local `%SuppressedError.prototype%` fallback slot.
 - Current Wasm-AOT spot checks show several other stale cached reds are now
   green, including `Array.isArray/15.4.3.2-0-5.js`, selected Annex B
   `String.prototype` helper cases, selected `ArrayBuffer` option-allocation
@@ -2828,7 +3858,8 @@ Currently covered areas include:
 - Harness/host-oriented helpers used by tests, such as `print` and selected host hooks.
 
 Expected weak or missing areas include full real Test262 coverage, modules,
-async/generators, broad iterator semantics, Proxy internal methods beyond the
+async functions/generators and structured suspended-generator control, broad
+iterator semantics, Proxy internal methods beyond the
 focused constructor/revocable and
 `apply`/`construct`/`get`/`getPrototypeOf`/`setPrototypeOf`/`deleteProperty`/`has`/`isExtensible`/`preventExtensions`/`defineProperty`/`getOwnPropertyDescriptor`
 paths above, RegExp-heavy behavior, Intl, full descriptor/species semantics,

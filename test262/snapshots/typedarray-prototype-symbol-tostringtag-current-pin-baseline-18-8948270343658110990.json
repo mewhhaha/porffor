@@ -1,0 +1,267 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8948270343658110990,
+  "run_kind": "full",
+  "total": 18,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 14,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 18,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/detached-buffer.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-accessor.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-func.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/length.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/name.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/prop-desc.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/return-typedarrayname.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-has-no-typedarrayname-internal.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-is-not-object.js",
+      "duration_ms": 60000
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/Symbol.toStringTag/detached-buffer.js",
+      "duration_ms": 60000
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/detached-buffer.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/detached-buffer.js without writing snapshot /tmp/porffor-test262-child-3-1784704278713783126-17/-case-15679513109309778906-16619208744901295994.json",
+      "detail_hash": 11338286380054340533,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-accessor.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-accessor.js without writing snapshot /tmp/porffor-test262-child-3-1784704278604028488-16/-case-15955482075736950869-2951709149631127210.json",
+      "detail_hash": 8941952491934693120,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-func.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-func.js without writing snapshot /tmp/porffor-test262-child-3-1784704246137001732-15/-case-9165529969657277381-15892347163732326025.json",
+      "detail_hash": 5994330015767414640,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/length.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/length.js without writing snapshot /tmp/porffor-test262-child-3-1784704228372514493-14/-case-10285321404152882865-13690156160559187122.json",
+      "detail_hash": 11696444526224959152,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/name.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/name.js without writing snapshot /tmp/porffor-test262-child-3-1784704224087710903-13/-case-1449021716347009803-1730496802268077084.json",
+      "detail_hash": 1917572148443838421,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/prop-desc.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/prop-desc.js without writing snapshot /tmp/porffor-test262-child-3-1784704223005000597-12/-case-9695047151879599376-4015054654195831761.json",
+      "detail_hash": 17100162614808324440,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/return-typedarrayname.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/return-typedarrayname.js without writing snapshot /tmp/porffor-test262-child-3-1784704183528560093-11/-case-11480619187790318473-4068757997248271954.json",
+      "detail_hash": 13405374808374801253,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-has-no-typedarrayname-internal.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-has-no-typedarrayname-internal.js without writing snapshot /tmp/porffor-test262-child-3-1784704183256748569-10/-case-14515305061151834693-14927390786544137524.json",
+      "detail_hash": 6720995949530021317,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-is-not-object.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-is-not-object.js without writing snapshot /tmp/porffor-test262-child-3-1784704182371414041-9/-case-16765091275621570951-14651774483343906993.json",
+      "detail_hash": 11852009730691804496,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/detached-buffer.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/detached-buffer.js without writing snapshot /tmp/porffor-test262-child-3-1784704181916274568-8/-case-18389041967242157469-4624331433131705469.json",
+      "detail_hash": 12463079313015750621,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-accessor.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-accessor.js without writing snapshot /tmp/porffor-test262-child-3-1784704144415379376-7/-case-11957063932549612424-15616997401210049857.json",
+      "detail_hash": 2347742036842955158,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-func.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-func.js without writing snapshot /tmp/porffor-test262-child-3-1784704143374672288-6/-case-7395264299854894349-3821737148155323638.json",
+      "detail_hash": 17787990649052950538,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/length.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/length.js without writing snapshot /tmp/porffor-test262-child-3-1784704130232214660-5/-case-9272912240365378294-14300628356521672213.json",
+      "detail_hash": 10353376946154297613,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/name.js",
+      "kind": "HostHarness",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] child case runner exited for built-ins/TypedArray/prototype/Symbol.toStringTag/name.js without writing snapshot /tmp/porffor-test262-child-3-1784704129700504298-4/-case-723842501561486779-10031471102997767879.json",
+      "detail_hash": 11711842812246594268,
+      "duration_ms": 60000
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1534472)",
+      "detail_hash": 4728712049689695853,
+      "duration_ms": 54389
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/return-typedarrayname.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1515088)",
+      "detail_hash": 7098330964204776165,
+      "duration_ms": 55430
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/this-has-no-typedarrayname-internal.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1523376)",
+      "detail_hash": 4461005654429838947,
+      "duration_ms": 41247
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/Symbol.toStringTag/this-is-not-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1505872)",
+      "detail_hash": 9364264962684277080,
+      "duration_ms": 40715
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-accessor.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/length.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/name.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/prop-desc.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/return-typedarrayname.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-has-no-typedarrayname-internal.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/BigInt/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/detached-buffer.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-accessor.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/length.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/name.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/prop-desc.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/return-typedarrayname.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/this-has-no-typedarrayname-internal.js",
+    "built-ins/TypedArray/prototype/Symbol.toStringTag/this-is-not-object.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

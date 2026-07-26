@@ -1,0 +1,386 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8463525698580930132,
+  "run_kind": "full",
+  "total": 38,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 23,
+    "Unsupported": 6,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 23,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/predicate-call-this-non-strict.js",
+      "duration_ms": 74551
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/predicate-may-detach-buffer.js",
+      "duration_ms": 69738
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/return-negative-one-if-predicate-returns-false-value.js",
+      "duration_ms": 67698
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/return-abrupt-from-predicate-call.js",
+      "duration_ms": 66598
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/predicate-is-not-callable-throws.js",
+      "duration_ms": 65751
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/predicate-call-changes-value.js",
+      "duration_ms": 60654
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/return-index-predicate-result-is-true.js",
+      "duration_ms": 60107
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/predicate-not-called-on-empty-array.js",
+      "duration_ms": 57751
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/detached-buffer.js",
+      "duration_ms": 56931
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findIndex/prop-desc.js",
+      "duration_ms": 53534
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/get-length-ignores-length-prop.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1531672)",
+      "detail_hash": 7070657405585541290,
+      "duration_ms": 40932
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-changes-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1517016)",
+      "detail_hash": 5321542948057756619,
+      "duration_ms": 48046
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-parameters.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519704)",
+      "detail_hash": 6300731347167489096,
+      "duration_ms": 39274
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-this-non-strict.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1638496)",
+      "detail_hash": 15645757039787602669,
+      "duration_ms": 46991
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-this-strict.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1515416)",
+      "detail_hash": 5984307188521980887,
+      "duration_ms": 34073
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-may-detach-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1554656)",
+      "detail_hash": 8424765187384057848,
+      "duration_ms": 41082
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-not-called-on-empty-array.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1515232)",
+      "detail_hash": 6702941273939462094,
+      "duration_ms": 37463
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/return-abrupt-from-this-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/return-index-predicate-result-is-true.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519240)",
+      "detail_hash": 268745223773291776,
+      "duration_ms": 39017
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/BigInt/return-negative-one-if-predicate-returns-false-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519056)",
+      "detail_hash": 16901390675344198773,
+      "duration_ms": 41243
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/callbackfn-resize.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/get-length-ignores-length-prop.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1533944)",
+      "detail_hash": 4425091874214231250,
+      "duration_ms": 51389
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/invoked-as-func.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1505512)",
+      "detail_hash": 2148269141663971286,
+      "duration_ms": 37020
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/invoked-as-method.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1505552)",
+      "detail_hash": 48589702818499624,
+      "duration_ms": 37609
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1536328)",
+      "detail_hash": 8725013605570226441,
+      "duration_ms": 51260
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1536328)",
+      "detail_hash": 8725013605570226441,
+      "duration_ms": 52346
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-call-changes-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519256)",
+      "detail_hash": 8680517858512185839,
+      "duration_ms": 60654
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-call-parameters.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1521952)",
+      "detail_hash": 11014542495962882250,
+      "duration_ms": 53179
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-call-this-non-strict.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1640752)",
+      "detail_hash": 405057867219615187,
+      "duration_ms": 74551
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-call-this-strict.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1517672)",
+      "detail_hash": 1975898837360153078,
+      "duration_ms": 43536
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-may-detach-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1556928)",
+      "detail_hash": 2348086824519038266,
+      "duration_ms": 69738
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/predicate-not-called-on-empty-array.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1517504)",
+      "detail_hash": 11071024444769862683,
+      "duration_ms": 57751
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
+      "detail_hash": 4157586038938152846,
+      "duration_ms": 53534
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/resizable-buffer-grow-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/resizable-buffer-shrink-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/return-abrupt-from-this-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/return-index-predicate-result-is-true.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1521496)",
+      "detail_hash": 15931418267644787638,
+      "duration_ms": 60107
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/findIndex/return-negative-one-if-predicate-returns-false-value.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1521312)",
+      "detail_hash": 576748643448551284,
+      "duration_ms": 67698
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/findIndex/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-changes-value.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-parameters.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-this-non-strict.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-call-this-strict.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-may-detach-buffer.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/predicate-not-called-on-empty-array.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/return-abrupt-from-predicate-call.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/return-index-predicate-result-is-true.js",
+    "built-ins/TypedArray/prototype/findIndex/BigInt/return-negative-one-if-predicate-returns-false-value.js",
+    "built-ins/TypedArray/prototype/findIndex/callbackfn-resize.js",
+    "built-ins/TypedArray/prototype/findIndex/detached-buffer.js",
+    "built-ins/TypedArray/prototype/findIndex/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/findIndex/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/findIndex/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/findIndex/length.js",
+    "built-ins/TypedArray/prototype/findIndex/name.js",
+    "built-ins/TypedArray/prototype/findIndex/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-call-changes-value.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-call-parameters.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-call-this-non-strict.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-call-this-strict.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-may-detach-buffer.js",
+    "built-ins/TypedArray/prototype/findIndex/predicate-not-called-on-empty-array.js",
+    "built-ins/TypedArray/prototype/findIndex/prop-desc.js",
+    "built-ins/TypedArray/prototype/findIndex/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/findIndex/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/findIndex/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/findIndex/return-abrupt-from-predicate-call.js",
+    "built-ins/TypedArray/prototype/findIndex/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/findIndex/return-index-predicate-result-is-true.js",
+    "built-ins/TypedArray/prototype/findIndex/return-negative-one-if-predicate-returns-false-value.js",
+    "built-ins/TypedArray/prototype/findIndex/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/findIndex/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

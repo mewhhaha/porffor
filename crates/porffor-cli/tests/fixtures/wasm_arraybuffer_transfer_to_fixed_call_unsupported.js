@@ -76,4 +76,20 @@ try {
 if (!detachedDuringCoercionThrew) throw "detached during coercion";
 if (coercions !== 1) throw "fixed coercion before detach";
 
+let immutable = new ArrayBuffer(1).transferToImmutable();
+let immutableCoercions = 0;
+let immutableThrew = false;
+try {
+  immutable.transferToFixedLength({
+    valueOf: function() {
+      immutableCoercions += 1;
+      return 1;
+    }
+  });
+} catch (error) {
+  immutableThrew = true;
+}
+if (!immutableThrew) throw "immutable receiver";
+if (immutableCoercions !== 1) throw "immutable coercion order";
+
 123;

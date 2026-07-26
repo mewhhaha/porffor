@@ -1,6 +1,13 @@
 use super::*;
 use porffor_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
+fn expression_is_heap_bigint_literal(expr: &TypedExpr) -> bool {
+    matches!(
+        &expr.expr,
+        ExprIr::BigInt(value) if value.requires_arbitrary_precision_storage
+    )
+}
+
 impl<'a> FunctionBuilder<'a> {
     /// Evaluate a super property's key expression without applying
     /// ToPropertyKey yet. SuperProperty evaluation needs this raw value before
@@ -71,9 +78,9 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::BigInt(value) => {
                 if value.requires_arbitrary_precision_storage {
-                    return Err(EmitError::unsupported(
-                        "BigInt literal requires heap-backed arbitrary precision storage",
-                    ));
+                    let (sign, limbs) = value.signed_magnitude_limbs();
+                    self.emit_alloc_bigint_literal(sign, &limbs, function)?;
+                    return Ok(());
                 }
                 function.instruction(&Instruction::I64Const(value.wrapping_payload() as i64));
             }
@@ -762,6 +769,13 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::BinaryNumber { op, lhs, rhs } => {
                 if expr.kind == ValueKind::BigInt {
+                    if expression_is_heap_bigint_literal(lhs)
+                        || expression_is_heap_bigint_literal(rhs)
+                    {
+                        return Err(EmitError::unsupported(
+                            "arithmetic with a heap-backed BigInt literal is not implemented",
+                        ));
+                    }
                     self.compile_expr_payload(lhs, function)?;
                     self.compile_expr_payload(rhs, function)?;
                     match op {
@@ -830,7 +844,8 @@ impl<'a> FunctionBuilder<'a> {
                 if matches!(op, ArithmeticBinaryOp::Exp)
                     && expr.possible_kinds.contains(ValueKind::BigInt)
                 {
-                    self.compile_coercive_exponentiation_to_locals(
+                    self.compile_coercive_binary_number_to_locals(
+                        *op,
                         lhs,
                         rhs,
                         self.scratch_local,
@@ -841,6 +856,13 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 if expr.kind == ValueKind::BigInt {
+                    if expression_is_heap_bigint_literal(lhs)
+                        || expression_is_heap_bigint_literal(rhs)
+                    {
+                        return Err(EmitError::unsupported(
+                            "arithmetic with a heap-backed BigInt literal is not implemented",
+                        ));
+                    }
                     let lhs_payload = self.reserve_temp_local();
                     let lhs_tag = self.reserve_temp_local();
                     let rhs_payload = self.reserve_temp_local();
@@ -1050,6 +1072,12 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             ExprIr::BitwiseNumber { op, lhs, rhs } => {
+                if expression_is_heap_bigint_literal(lhs) || expression_is_heap_bigint_literal(rhs)
+                {
+                    return Err(EmitError::unsupported(
+                        "bitwise operations with a heap-backed BigInt literal are not implemented",
+                    ));
+                }
                 self.compile_bitwise_number_payload(*op, lhs, rhs, function)?;
             }
             ExprIr::StringFromCharCode { code } => {
@@ -2519,6 +2547,16 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let ExprIr::BigInt(value) = &expr.expr {
+            if value.requires_arbitrary_precision_storage {
+                self.compile_expr_payload(expr, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                return Ok(());
+            }
+        }
+
         if matches!(&expr.expr, ExprIr::This)
             || matches!(&expr.expr, ExprIr::Identifier(name) if name == LEXICAL_THIS_NAME)
         {
@@ -2958,11 +2996,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::LocalSet(tag_local));
             }
-            ExprIr::CoerciveBinaryNumber { op, lhs, rhs }
-                if matches!(op, ArithmeticBinaryOp::Exp)
-                    && expr.possible_kinds.contains(ValueKind::BigInt) =>
-            {
-                self.compile_coercive_exponentiation_to_locals(
+            ExprIr::CoerciveBinaryNumber { op, lhs, rhs } => {
+                self.compile_coercive_binary_number_to_locals(
+                    *op,
                     lhs,
                     rhs,
                     payload_local,

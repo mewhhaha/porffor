@@ -1,0 +1,124 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17063345085000905537,
+  "run_kind": "full",
+  "total": 38,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/predicate-call-this-non-strict.js",
+      "duration_ms": 76322
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/predicate-is-not-callable-throws.js",
+      "duration_ms": 71928
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-changes-value.js",
+      "duration_ms": 70022
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/predicate-call-changes-value.js",
+      "duration_ms": 67354
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/predicate-may-detach-buffer.js",
+      "duration_ms": 66681
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/detached-buffer.js",
+      "duration_ms": 66349
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/predicate-not-called-on-empty-array.js",
+      "duration_ms": 65430
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-this-non-strict.js",
+      "duration_ms": 64731
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/BigInt/detached-buffer.js",
+      "duration_ms": 63478
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/findLast/return-abrupt-from-predicate-call.js",
+      "duration_ms": 62377
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/findLast/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-changes-value.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-parameters.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-this-non-strict.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-call-this-strict.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-may-detach-buffer.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/predicate-not-called-on-empty-array.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/return-abrupt-from-predicate-call.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/return-found-value-predicate-result-is-true.js",
+    "built-ins/TypedArray/prototype/findLast/BigInt/return-undefined-if-predicate-returns-false-value.js",
+    "built-ins/TypedArray/prototype/findLast/callbackfn-resize.js",
+    "built-ins/TypedArray/prototype/findLast/detached-buffer.js",
+    "built-ins/TypedArray/prototype/findLast/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/findLast/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/findLast/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/findLast/length.js",
+    "built-ins/TypedArray/prototype/findLast/name.js",
+    "built-ins/TypedArray/prototype/findLast/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-call-changes-value.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-call-parameters.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-call-this-non-strict.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-call-this-strict.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-may-detach-buffer.js",
+    "built-ins/TypedArray/prototype/findLast/predicate-not-called-on-empty-array.js",
+    "built-ins/TypedArray/prototype/findLast/prop-desc.js",
+    "built-ins/TypedArray/prototype/findLast/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/findLast/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/findLast/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/findLast/return-abrupt-from-predicate-call.js",
+    "built-ins/TypedArray/prototype/findLast/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/findLast/return-found-value-predicate-result-is-true.js",
+    "built-ins/TypedArray/prototype/findLast/return-undefined-if-predicate-returns-false-value.js",
+    "built-ins/TypedArray/prototype/findLast/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/findLast/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,100 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3320451833449117852,
+  "run_kind": "full",
+  "total": 14,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 14
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/prototype/catch/length.js",
+      "duration_ms": 21267
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/prop-desc.js",
+      "duration_ms": 20903
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/name.js",
+      "duration_ms": 20770
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/this-value-then-not-callable.js",
+      "duration_ms": 13950
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/this-value-then-throws.js",
+      "duration_ms": 13228
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/this-value-non-object.js",
+      "duration_ms": 13121
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/this-value-then-poisoned.js",
+      "duration_ms": 13086
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/S25.4.5.1_A1.1_T1.js",
+      "duration_ms": 12802
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/S25.4.5.1_A2.1_T1.js",
+      "duration_ms": 12689
+    },
+    {
+      "path": "built-ins/Promise/prototype/catch/not-a-constructor.js",
+      "duration_ms": 12581
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Promise/prototype/catch/S25.4.5.1_A1.1_T1.js",
+    "built-ins/Promise/prototype/catch/S25.4.5.1_A2.1_T1.js",
+    "built-ins/Promise/prototype/catch/S25.4.5.1_A3.1_T1.js",
+    "built-ins/Promise/prototype/catch/S25.4.5.1_A3.1_T2.js",
+    "built-ins/Promise/prototype/catch/invokes-then.js",
+    "built-ins/Promise/prototype/catch/length.js",
+    "built-ins/Promise/prototype/catch/name.js",
+    "built-ins/Promise/prototype/catch/not-a-constructor.js",
+    "built-ins/Promise/prototype/catch/prop-desc.js",
+    "built-ins/Promise/prototype/catch/this-value-non-object.js",
+    "built-ins/Promise/prototype/catch/this-value-obj-coercible.js",
+    "built-ins/Promise/prototype/catch/this-value-then-not-callable.js",
+    "built-ins/Promise/prototype/catch/this-value-then-poisoned.js",
+    "built-ins/Promise/prototype/catch/this-value-then-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

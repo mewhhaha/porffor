@@ -1,0 +1,187 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7640730389657240498,
+  "run_kind": "full",
+  "total": 28,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 20
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-realm.js",
+      "duration_ms": 58230
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer-realm.js",
+      "duration_ms": 57673
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/key-is-not-canonical-index.js",
+      "duration_ms": 55243
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-canonical-index.js",
+      "duration_ms": 54787
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-key-is-symbol.js",
+      "duration_ms": 51416
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/infinity-detached-buffer.js",
+      "duration_ms": 51059
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/detached-buffer.js",
+      "duration_ms": 50992
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer-key-is-symbol.js",
+      "duration_ms": 50850
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/infinity-detached-buffer.js",
+      "duration_ms": 50649
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-key-is-not-numeric-index.js",
+      "duration_ms": 50477
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-integer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1448336)",
+      "detail_hash": 14848238559799901711,
+      "duration_ms": 47527
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-minus-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1448336)",
+      "detail_hash": 14848238559799901711,
+      "duration_ms": 47253
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-out-of-bounds.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1452064)",
+      "detail_hash": 2864653874768995656,
+      "duration_ms": 46266
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/key-is-not-integer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1448336)",
+      "detail_hash": 14848238559799901711,
+      "duration_ms": 47494
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/key-is-not-minus-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1448328)",
+      "detail_hash": 912576522494080612,
+      "duration_ms": 47502
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Get/key-is-out-of-bounds.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1452064)",
+      "detail_hash": 2864653874768995656,
+      "duration_ms": 46571
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer-key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/infinity-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index-get-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-out-of-bounds.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Get/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/Get/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js",
+    "built-ins/TypedArrayConstructors/internals/Get/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/Get/infinity-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-not-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-not-numeric-index-get-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-out-of-bounds.js",
+    "built-ins/TypedArrayConstructors/internals/Get/key-is-symbol.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

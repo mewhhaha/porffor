@@ -1,0 +1,837 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9291152077727223222,
+  "run_kind": "full",
+  "total": 75,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 75,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 75,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.3_T1.js",
+      "duration_ms": 6547
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.1_T1.js",
+      "duration_ms": 6258
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T1.js",
+      "duration_ms": 6242
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.2_T1.js",
+      "duration_ms": 6124
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A1.1_T1.js",
+      "duration_ms": 6094
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T3.js",
+      "duration_ms": 6004
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T2.js",
+      "duration_ms": 5993
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-self.js",
+      "duration_ms": 4769
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-thenable.js",
+      "duration_ms": 4766
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-nonstrict.js",
+      "duration_ms": 4756
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.4_A1.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6094
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6242
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T2.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 5993
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T3.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6004
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2866
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T2.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2845
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2887
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T2.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3238
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3029
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T2.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3439
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2966
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T2.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3461
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.1_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6258
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.2_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6124
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.3_T1.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 6547
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/capability-executor-called-twice.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3720
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/capability-executor-not-callable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4344
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/context-check-on-entry.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3238
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-access-count.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4374
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-custom.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3519
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-null.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2775
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-poisoned.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3992
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-throws.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3278
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/ctor-undef.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2775
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/deferred-is-resolved-value.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3553
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4549
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4404
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/not-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 2939
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/prfm-fulfilled.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4394
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/prfm-pending-fulfulled.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/prfm-pending-rejected.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4284
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/prfm-rejected.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4364
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4324
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/reject-pending-fulfilled.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/reject-pending-rejected.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4294
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/reject-settled-fulfilled.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/reject-settled-rejected.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-obj.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4294
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-poisoned-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4333
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-prms-cstm-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4313
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-self.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4333
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-fulfilled-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4293
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-non-obj.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4344
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-non-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-poisoned-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-prms-cstm-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-self.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4355
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-pending-rejected-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4284
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-obj.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-poisoned-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4408
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-prms-cstm-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4669
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-self.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4769
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-fulfilled-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4766
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-non-obj.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4324
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-non-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4354
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-poisoned-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4419
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-prms-cstm-then.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4386
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-self.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/resolve-settled-rejected-thenable.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4354
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-nonstrict.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4756
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-strict.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4273
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next-abrupt.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4365
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4343
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-abrupt.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4333
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-normal.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4353
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-identity.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4344
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-nonstrict.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4716
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-strict.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 3590
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-next-abrupt.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-next.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-return-abrupt.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4304
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-rejected-return-normal.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4314
+    },
+    {
+      "test_path": "built-ins/Promise/prototype/then/rxn-handler-thrower.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: assertion `left == right` failed\n  left: 41\n right: 42",
+      "detail_hash": 750485377554814516,
+      "duration_ms": 4294
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Promise/prototype/then/S25.4.4_A1.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T3.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.2_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.3_T1.js",
+    "built-ins/Promise/prototype/then/capability-executor-called-twice.js",
+    "built-ins/Promise/prototype/then/capability-executor-not-callable.js",
+    "built-ins/Promise/prototype/then/context-check-on-entry.js",
+    "built-ins/Promise/prototype/then/ctor-access-count.js",
+    "built-ins/Promise/prototype/then/ctor-custom.js",
+    "built-ins/Promise/prototype/then/ctor-null.js",
+    "built-ins/Promise/prototype/then/ctor-poisoned.js",
+    "built-ins/Promise/prototype/then/ctor-throws.js",
+    "built-ins/Promise/prototype/then/ctor-undef.js",
+    "built-ins/Promise/prototype/then/deferred-is-resolved-value.js",
+    "built-ins/Promise/prototype/then/length.js",
+    "built-ins/Promise/prototype/then/name.js",
+    "built-ins/Promise/prototype/then/not-a-constructor.js",
+    "built-ins/Promise/prototype/then/prfm-fulfilled.js",
+    "built-ins/Promise/prototype/then/prfm-pending-fulfulled.js",
+    "built-ins/Promise/prototype/then/prfm-pending-rejected.js",
+    "built-ins/Promise/prototype/then/prfm-rejected.js",
+    "built-ins/Promise/prototype/then/prop-desc.js",
+    "built-ins/Promise/prototype/then/reject-pending-fulfilled.js",
+    "built-ins/Promise/prototype/then/reject-pending-rejected.js",
+    "built-ins/Promise/prototype/then/reject-settled-fulfilled.js",
+    "built-ins/Promise/prototype/then/reject-settled-rejected.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-self.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-self.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-self.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-self.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-thenable.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-nonstrict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-strict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-normal.js",
+    "built-ins/Promise/prototype/then/rxn-handler-identity.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-nonstrict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-strict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-next-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-next.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-return-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-return-normal.js",
+    "built-ins/Promise/prototype/then/rxn-handler-thrower.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

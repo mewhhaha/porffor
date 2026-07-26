@@ -1,8 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::ControlFlow;
 use std::panic::{self, AssertUnwindSafe};
 
-use boa_ast::operations::{annex_b_function_declarations, lexically_declared_names};
+use boa_ast::operations::{
+    annex_b_function_declarations, contains, lexically_declared_names, ContainsSymbol,
+};
 use boa_ast::property::{MethodDefinitionKind, PropertyName};
+use boa_ast::visitor::{VisitWith, Visitor};
 use boa_ast::{
     declaration::{Binding, ExportDeclaration, LexicalDeclaration, VarDeclaration, Variable},
     expression::access::{
@@ -23,9 +27,11 @@ use boa_ast::{
         Call, Expression, Optional, OptionalOperationKind, RegExpLiteral, SuperCall, TaggedTemplate,
     },
     function::{
-        ArrowFunction, ClassDeclaration, ClassElement, ClassElementName, ClassExpression,
-        ClassMethodDefinition, FormalParameter, FormalParameterList, FunctionBody,
-        FunctionDeclaration, FunctionExpression, PrivateName, StaticBlockBody,
+        ArrowFunction, AsyncArrowFunction, AsyncFunctionDeclaration, AsyncFunctionExpression,
+        AsyncGeneratorDeclaration, AsyncGeneratorExpression, ClassDeclaration, ClassElement,
+        ClassElementName, ClassExpression, ClassMethodDefinition, FormalParameter,
+        FormalParameterList, FunctionBody, FunctionDeclaration, FunctionExpression, PrivateName,
+        StaticBlockBody,
     },
     function::{GeneratorDeclaration, GeneratorExpression},
     pattern::{ArrayPatternElement, ObjectPatternElement, Pattern},
@@ -112,6 +118,27 @@ mod tests {
         lower(&source)
     }
 
+    fn assert_zero_suspension_generator(function: &FunctionIr) {
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Generator);
+        assert!(!function.constructable);
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr::without_suspensions())
+        );
+    }
+
+    fn indirect_call_body(expression: &TypedExpr) -> Option<&TypedExpr> {
+        match &expression.expr {
+            ExprIr::CallIndirect { .. } => Some(expression),
+            ExprIr::MaterializeBinding { body, .. }
+                if matches!(body.expr, ExprIr::CallIndirect { .. }) =>
+            {
+                Some(body)
+            }
+            _ => None,
+        }
+    }
+
     fn collect_annex_b_copies(block: &BlockIr) -> Vec<(String, String, String)> {
         fn collect(statement: &StatementIr, copies: &mut Vec<(String, String, String)>) {
             match statement {
@@ -124,7 +151,8 @@ mod tests {
                     block_storage_name.clone(),
                     variable_storage_name.clone(),
                 )),
-                StatementIr::LexicalBlock(statements) => {
+                StatementIr::LexicalBlock(statements)
+                | StatementIr::ParameterInitialization { statements, .. } => {
                     for statement in statements {
                         collect(statement, copies);
                     }
@@ -185,6 +213,7 @@ mod tests {
                 StatementIr::TryFinally {
                     try_block,
                     finally_block,
+                    ..
                 } => {
                     for statement in &try_block.statements {
                         collect(statement, copies);
@@ -225,7 +254,8 @@ mod tests {
                 StatementIr::Var(declarators) => {
                     names.extend(declarators.iter().map(|declarator| declarator.name.clone()));
                 }
-                StatementIr::LexicalBlock(statements) => {
+                StatementIr::LexicalBlock(statements)
+                | StatementIr::ParameterInitialization { statements, .. } => {
                     for statement in statements {
                         collect(statement, names);
                     }
@@ -269,6 +299,57 @@ mod tests {
                     }
                     collect(body, names);
                 }
+                StatementIr::GeneratorLoop {
+                    init,
+                    before_yield,
+                    yield_statement,
+                    after_yield,
+                    ..
+                } => {
+                    if let Some(init) = init {
+                        match init {
+                            ForInitIr::Lexical { name, .. } => {
+                                names.insert(name.clone());
+                            }
+                            ForInitIr::LexicalBlock(bindings) => {
+                                names.extend(bindings.iter().map(|binding| binding.name.clone()));
+                            }
+                            ForInitIr::Var(declarators) => {
+                                names.extend(
+                                    declarators.iter().map(|declarator| declarator.name.clone()),
+                                );
+                            }
+                            ForInitIr::Expression(_) => {}
+                        }
+                    }
+                    for statement in before_yield
+                        .iter()
+                        .chain(std::iter::once(yield_statement.as_ref()))
+                        .chain(after_yield)
+                    {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::GeneratorIf {
+                    then_before_yield,
+                    then_yield_statement,
+                    then_after_yield,
+                    else_before_yield,
+                    else_yield_statement,
+                    else_after_yield,
+                    ..
+                } => {
+                    for statement in then_before_yield
+                        .iter()
+                        .chain(then_yield_statement.as_deref())
+                        .chain(then_after_yield)
+                        .chain(else_before_yield)
+                        .chain(else_yield_statement.as_deref())
+                        .chain(else_after_yield)
+                    {
+                        collect(statement, names);
+                    }
+                }
                 StatementIr::ForOfArray { name, body, .. }
                 | StatementIr::ForOfString { name, body, .. }
                 | StatementIr::ForOfIterator { name, body, .. }
@@ -308,6 +389,7 @@ mod tests {
                 StatementIr::TryFinally {
                     try_block,
                     finally_block,
+                    ..
                 } => {
                     for block in [try_block, finally_block] {
                         for statement in &block.statements {
@@ -342,9 +424,19 @@ mod tests {
                         names.insert(name.to_string());
                     });
                 }
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::ObjectDestructure { pattern, .. },
+                    ..
+                }) => {
+                    pattern.visit_bindings(&mut |_, name| {
+                        names.insert(name.to_string());
+                    });
+                }
                 StatementIr::Empty
                 | StatementIr::AnnexBFunctionCopy { .. }
                 | StatementIr::Expression(_)
+                | StatementIr::GeneratorYield { .. }
+                | StatementIr::AsyncAwait { .. }
                 | StatementIr::Debugger
                 | StatementIr::Throw(_)
                 | StatementIr::Return(_)
@@ -477,6 +569,7 @@ mod tests {
                 StatementIr::TryFinally {
                     try_block,
                     finally_block,
+                    ..
                 } => {
                     block_environment_owns_binding(try_block, name, slot)
                         || block_environment_owns_binding(finally_block, name, slot)
@@ -1052,12 +1145,12 @@ mod tests {
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(script.body.statements.iter().any(|statement| {
+            let StatementIr::Expression(expression) = statement else {
+                return false;
+            };
             matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::CallIndirect { callee, .. },
-                    ..
-                }) if matches!(
+                indirect_call_body(expression).map(|call| &call.expr),
+                Some(ExprIr::CallIndirect { callee, .. }) if matches!(
                     &callee.expr,
                     ExprIr::SpecOperation {
                         operation: SpecOperationIr::GetV,
@@ -1077,12 +1170,12 @@ mod tests {
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(script.body.statements.iter().any(|statement| {
+            let StatementIr::Expression(expression) = statement else {
+                return false;
+            };
             matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::CallIndirect { callee, .. },
-                    ..
-                }) if matches!(
+                indirect_call_body(expression).map(|call| &call.expr),
+                Some(ExprIr::CallIndirect { callee, .. }) if matches!(
                     &callee.expr,
                     ExprIr::SpecOperation {
                         operation: SpecOperationIr::GetV,
@@ -1100,14 +1193,11 @@ mod tests {
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(script.body.statements.iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::CallIndirect { .. },
-                    possible_kinds,
-                    ..
-                }) if *possible_kinds == KindSet::all_runtime_tags()
-            )
+            let StatementIr::Expression(expression) = statement else {
+                return false;
+            };
+            indirect_call_body(expression)
+                .is_some_and(|call| call.possible_kinds == KindSet::all_runtime_tags())
         }));
     }
 
@@ -1151,7 +1241,8 @@ mod tests {
         let Some(StatementIr::Expression(final_expr)) = script.body.statements.last() else {
             panic!("expected final expression statement");
         };
-        let ExprIr::CallIndirect { callee, .. } = &final_expr.expr else {
+        let call = indirect_call_body(final_expr).expect("expected materialized indirect call");
+        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
             panic!("expected indirect call, got {:?}", final_expr.expr);
         };
         let ExprIr::SpecOperation {
@@ -1621,6 +1712,26 @@ mod tests {
     }
 
     #[test]
+    fn arithmetic_with_a_bigint_operand_preserves_its_only_normal_result_kind() {
+        let program = lower_script(
+            "function decrement(value) { return value - 1n; } decrement(globalThis.value);",
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let decrement = script
+            .functions
+            .iter()
+            .find(|function| function.name == "decrement")
+            .expect("decrement function");
+        let StatementIr::Return(expr) = &decrement.body.statements[0] else {
+            panic!("expected return statement");
+        };
+
+        assert_eq!(expr.kind, ValueKind::BigInt);
+        assert_eq!(expr.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
+        assert!(matches!(expr.expr, ExprIr::CoerciveBinaryNumber { .. }));
+    }
+
+    #[test]
     fn bigint_literal_ir_preserves_arbitrary_precision_decimal() {
         let program = lower_script("184467440737095516161234567890n;");
         let script = program.script.as_ref().expect("script ir should exist");
@@ -1637,6 +1748,22 @@ mod tests {
             value.wrapping_payload(),
             184467440737095516161234567890_u128 as u64
         );
+    }
+
+    #[test]
+    fn bigint_literal_ir_keeps_signed_minimum_in_immediate_storage() {
+        let program = lower_script("-0x8000000000000000n;");
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expr) = &script.body.statements[0] else {
+            panic!("expected expression statement");
+        };
+        let ExprIr::BigInt(value) = &expr.expr else {
+            panic!("expected BigInt literal");
+        };
+
+        assert_eq!(value.decimal, i64::MIN.to_string());
+        assert!(!value.requires_arbitrary_precision_storage);
+        assert_eq!(value.wrapping_payload(), i64::MIN as u64);
     }
 
     #[test]
@@ -2711,7 +2838,7 @@ mod tests {
         let StatementIr::Expression(expr) = &script.body.statements[0] else {
             panic!("expected expression statement");
         };
-        assert!(matches!(expr.expr, ExprIr::CallIndirect { .. }));
+        assert!(indirect_call_body(expr).is_some());
         assert!(expr.possible_kinds.contains(ValueKind::String));
         assert!(expr.possible_kinds.contains(ValueKind::Undefined));
     }
@@ -2786,6 +2913,13 @@ mod tests {
             .find(|function| function.name == "dstr")
             .expect("dstr should be lowered");
         assert_eq!(function.params[1].name, "$destructured.param.1");
+        let StatementIr::ParameterInitialization {
+            parameter_index: 1,
+            statements,
+        } = &function.body.statements[0]
+        else {
+            panic!("expected parameter initialization marker");
+        };
         let StatementIr::Expression(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
@@ -2794,9 +2928,9 @@ mod tests {
                     ..
                 },
             ..
-        }) = &function.body.statements[0]
+        }) = &statements[0]
         else {
-            panic!("expected parameter array destructuring");
+            panic!("expected parameter array destructuring inside the initialization marker");
         };
         assert!(matches!(
             pattern.elements.as_slice(),
@@ -2804,6 +2938,132 @@ mod tests {
                 target: DestructuringTargetIr::Binding { name, .. },
                 ..
             }] if name == "b"
+        ));
+    }
+
+    #[test]
+    fn lowers_object_rest_binding_in_generator_parameters() {
+        let program =
+            lower_script("var f = function* ({ a, ...rest } = { a: 1, b: 2 }) {}; f().next();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .expect("generator expression should be lowered");
+        assert!(function.params[0].default_init.is_some());
+        let StatementIr::ParameterInitialization { statements, .. } = &function.body.statements[0]
+        else {
+            panic!("expected parameter initialization marker");
+        };
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure { pattern, .. },
+            ..
+        }) = &statements[0]
+        else {
+            panic!("expected object destructuring parameter initialization");
+        };
+        assert_eq!(pattern.properties.len(), 1);
+        assert!(matches!(
+            pattern.rest,
+            Some(DestructuringTargetIr::Binding { ref name, .. }) if name == "rest"
+        ));
+    }
+
+    #[test]
+    fn lowers_computed_object_keys_in_generator_parameters() {
+        let program = lower_script(
+            "var key = 'value'; var f = function* ({ [key]: value = 9 }) {}; f({}).next();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .expect("generator expression should be lowered");
+        let StatementIr::ParameterInitialization { statements, .. } = &function.body.statements[0]
+        else {
+            panic!("expected parameter initialization marker");
+        };
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure { pattern, .. },
+            ..
+        }) = &statements[0]
+        else {
+            panic!("expected object destructuring parameter initialization");
+        };
+        assert!(matches!(
+            pattern.properties.as_slice(),
+            [ObjectDestructuringPropertyIr {
+                key: DestructuringPropertyKeyIr::Computed(_),
+                default: Some(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn lowers_nested_object_and_array_generator_parameters() {
+        let program = lower_script(
+            "var f = function* ([{ x }], { values: [y] }) {}; f([{ x: 1 }], { values: [2] }).next();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .expect("generator expression should be lowered");
+        let StatementIr::ParameterInitialization {
+            statements: first, ..
+        } = &function.body.statements[0]
+        else {
+            panic!("expected first parameter initialization marker");
+        };
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ArrayDestructure { pattern: first, .. },
+            ..
+        }) = &first[0]
+        else {
+            panic!("expected nested object in array destructuring");
+        };
+        assert!(matches!(
+            first.elements.as_slice(),
+            [ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::NestedObject(_),
+                ..
+            }]
+        ));
+
+        let StatementIr::ParameterInitialization {
+            statements: second, ..
+        } = &function.body.statements[1]
+        else {
+            panic!("expected second parameter initialization marker");
+        };
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure {
+                pattern: second, ..
+            },
+            ..
+        }) = &second[0]
+        else {
+            panic!("expected nested array in object destructuring");
+        };
+        assert!(matches!(
+            second.properties.as_slice(),
+            [ObjectDestructuringPropertyIr {
+                target: DestructuringTargetIr::NestedArray(_),
+                ..
+            }]
         ));
     }
 
@@ -3701,16 +3961,19 @@ mod tests {
             .rev()
             .zip(["push", "join"])
         {
-            let StatementIr::Expression(TypedExpr {
+            let StatementIr::Expression(expression) = statement else {
+                panic!("expected runtime indirect call for {expected_key}: {statement:?}");
+            };
+            assert_eq!(expression.kind, ValueKind::String);
+            let Some(TypedExpr {
                 expr:
                     ExprIr::CallIndirect {
                         callee,
                         this_arg: Some(this_arg),
                         ..
                     },
-                kind: ValueKind::String,
                 ..
-            }) = statement
+            }) = indirect_call_body(expression)
             else {
                 panic!("expected runtime indirect call for {expected_key}: {statement:?}");
             };
@@ -3774,6 +4037,96 @@ mod tests {
         assert!(matches!(
             &this_arg.expr,
             ExprIr::Identifier(this_name) if this_name == name
+        ));
+    }
+
+    #[test]
+    fn ordinary_method_call_materializes_compound_receiver_before_property_read() {
+        let program = lower_script(
+            "function make() { return { method() { return this; } }; } make().method();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::MaterializeBinding { name, value, body },
+            ..
+        }) = script
+            .body
+            .statements
+            .last()
+            .expect("method call statement should exist")
+        else {
+            panic!("expected materialized ordinary method call");
+        };
+        assert!(matches!(
+            value.expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
+        ));
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(this_arg),
+            ..
+        } = &body.expr
+        else {
+            panic!("expected indirect method call body: {body:?}");
+        };
+        let ExprIr::PropertyRead { target, .. } = &callee.expr else {
+            panic!("expected property read callee: {callee:?}");
+        };
+        assert!(matches!(
+            &target.expr,
+            ExprIr::Identifier(target_name) if target_name == name
+        ));
+        assert!(matches!(
+            &this_arg.expr,
+            ExprIr::Identifier(this_name) if this_name == name
+        ));
+    }
+
+    #[test]
+    fn computed_method_call_materializes_base_before_key_evaluation() {
+        let program = lower_script(
+            "function make() { return { method() { return this; } }; } function key() { return 'method'; } make()[key()]();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::MaterializeBinding { name, body, .. },
+            ..
+        }) = script
+            .body
+            .statements
+            .last()
+            .expect("computed method call statement should exist")
+        else {
+            panic!("expected materialized computed method call");
+        };
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(this_arg),
+            ..
+        } = &body.expr
+        else {
+            panic!("expected indirect computed method call body: {body:?}");
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } = &callee.expr
+        else {
+            panic!("expected GetV callee: {callee:?}");
+        };
+        assert!(matches!(
+            &operands[0].expr,
+            ExprIr::Identifier(target_name) if target_name == name
+        ));
+        assert!(matches!(
+            &this_arg.expr,
+            ExprIr::Identifier(this_name) if this_name == name
+        ));
+        assert!(matches!(
+            operands[1].expr,
+            ExprIr::CallNamed { .. } | ExprIr::CallIndirect { .. }
         ));
     }
 
@@ -4025,7 +4378,7 @@ mod tests {
                 _ => None,
             })
             .expect("result lexical should be present");
-        assert!(matches!(result_init.expr, ExprIr::CallIndirect { .. }));
+        assert!(indirect_call_body(result_init).is_some());
     }
 
     #[test]
@@ -4099,6 +4452,2187 @@ mod tests {
     }
 
     #[test]
+    fn registers_zero_suspension_generator_declarations() {
+        let program = lower_script(
+            "function* empty() {}
+             function* returns() { return 1; }
+             function* throws() { throw 2; }",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let generators = script
+            .functions
+            .iter()
+            .filter(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .collect::<Vec<_>>();
+        assert_eq!(generators.len(), 3);
+        assert_eq!(
+            generators
+                .iter()
+                .map(|function| function.name.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["empty", "returns", "throws"])
+        );
+        for function in generators {
+            assert_zero_suspension_generator(function);
+        }
+    }
+
+    #[test]
+    fn lowers_zero_suspension_generator_expressions_as_function_values() {
+        let program = lower_script(
+            "let returns = function* named() { return 1; };
+             let throws = function* () { throw 2; };",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let generator_ids = script
+            .functions
+            .iter()
+            .filter(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .map(|function| {
+                assert_zero_suspension_generator(function);
+                function.id.clone()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(generator_ids.len(), 2);
+        let lexical_targets = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Lexical { init, .. } => match &init.expr {
+                    ExprIr::FunctionValue(function_id) => Some(function_id.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(lexical_targets, generator_ids);
+    }
+
+    #[test]
+    fn records_explicit_inferred_and_anonymous_generator_expression_names() {
+        let program = lower_script(
+            "let inferred = function* () {};
+             let values = [function* explicit() {}, function* () {}];",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let names = script
+            .functions
+            .iter()
+            .filter(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .map(|function| function.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(names, BTreeSet::from(["", "explicit", "inferred"]));
+    }
+
+    #[test]
+    fn lowers_arrow_function_from_generator_object_parameter_default() {
+        let program = lower_script("let f = function* ({ arrow = () => 1 }) {};");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script
+            .functions
+            .iter()
+            .any(|function| function.flavor == FunctionFlavor::Arrow && function.name == "arrow"));
+    }
+
+    #[test]
+    fn lowers_function_expression_from_nested_generator_object_parameter_default() {
+        let program = lower_script(
+            "let f = function* ({ nested: { ordinary = function () { return 1; } } }) {};",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.functions.iter().any(|function| {
+            function.execution_kind == FunctionExecutionKind::Ordinary
+                && function.flavor == FunctionFlavor::Ordinary
+                && function.is_expression
+                && function.name == "ordinary"
+        }));
+    }
+
+    #[test]
+    fn lowers_generator_function_instanceof_without_requiring_constructability() {
+        let program =
+            lower_script("let generator = function* () {}; generator() instanceof generator;");
+        assert!(program.is_wasm_supported());
+        assert!(program.ir_summary().contains("instanceofs=1"));
+    }
+
+    #[test]
+    fn records_generator_default_parameter_tdz_and_prior_binding_reads() {
+        let program = lower_script(
+            "let selfRead = function* (value = value) {};
+             let laterRead = function* (value = later, later) {};
+             let priorRead = function* (value = 1, later = value) {};",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        for function_name in ["selfRead", "laterRead"] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("missing `{function_name}`"));
+            assert!(matches!(
+                function.params[0]
+                    .default_init
+                    .as_ref()
+                    .map(|init| &init.expr),
+                Some(ExprIr::RuntimeThrow {
+                    name: REFERENCE_ERROR_NAME,
+                    ..
+                })
+            ));
+        }
+
+        let prior_read = script
+            .functions
+            .iter()
+            .find(|function| function.name == "priorRead")
+            .expect("missing `priorRead`");
+        assert!(matches!(
+            prior_read.params[1]
+                .default_init
+                .as_ref()
+                .map(|init| &init.expr),
+            Some(ExprIr::Identifier(name)) if name == "value"
+        ));
+    }
+
+    #[test]
+    fn records_zero_suspension_object_and_class_generator_methods() {
+        let program = lower_script(
+            "const object = {
+                 *returns() { return 1; },
+                 *throws() { throw 2; }
+             };
+             class Example {
+                 *empty() {}
+                 static *returns() { return 1; }
+             }",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let generators = script
+            .functions
+            .iter()
+            .filter(|function| function.execution_kind == FunctionExecutionKind::Generator)
+            .collect::<Vec<_>>();
+        assert_eq!(generators.len(), 4);
+        for function in generators {
+            assert_zero_suspension_generator(function);
+        }
+    }
+
+    #[test]
+    fn records_linear_generator_suspension_edges() {
+        let program = lower_script("function* sequence() { yield 1; yield 2; return yield 3; }");
+        assert!(program.is_wasm_supported());
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Generator);
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr {
+                entry_state: 0,
+                state_count: 4,
+                suspension_points: vec![
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 2,
+                        resume_state: 3,
+                    },
+                ],
+            })
+        );
+        assert_eq!(
+            function
+                .body
+                .statements
+                .iter()
+                .filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. }))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn rejects_generator_loops_with_unmodelled_loop_control() {
+        for source in [
+            "function* sequence() { for (let i = 0; i < 1; i++) { yield i; break; } }",
+            "function* sequence() { while (true) { yield 1; continue; } }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                !program.is_wasm_supported(),
+                "loop control must not enter the linear generator plan: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_generator_loops_with_captured_per_iteration_bindings() {
+        let uncaptured =
+            lower_script("function* sequence() { for (let i = 0; i < 2; i++) { yield i; } }");
+        assert!(
+            uncaptured.is_wasm_supported(),
+            "{:?}",
+            uncaptured.diagnostics
+        );
+
+        let program = lower_script(
+            "function* sequence() {
+                 for (let i = 0; i < 2; i++) {
+                     yield function () { return i; };
+                 }
+             }",
+        );
+
+        assert!(
+            !program.is_wasm_supported(),
+            "captured for-let bindings require a resumable per-iteration environment"
+        );
+    }
+
+    #[test]
+    fn records_nested_yield_as_two_linear_suspensions() {
+        let program = lower_script("function* sequence() { yield yield 1; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr {
+                entry_state: 0,
+                state_count: 3,
+                suspension_points: vec![
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                ],
+            })
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield { .. },
+                        StatementIr::GeneratorYield { .. }
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn records_regexp_yield_assignment_resume_mode() {
+        let program = lower_script(
+            "let received;
+             function* sequence() { received = yield/abc/i; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::GeneratorYield {
+                value: TypedExpr { expr: ExprIr::RegExpLiteral { .. }, .. },
+                resume_mode: GeneratorResumeModeIr::AssignIdentifier(name),
+                ..
+            }] if name == "received"
+        ));
+    }
+
+    #[test]
+    fn records_discarded_generator_expression_suspensions() {
+        let program = lower_script(
+            "function* grouping() { (yield 1); }
+             function* array() { [yield 1]; }
+             function* block() { { yield 1; } }
+             function* comma() { yield 1, yield 2; }
+             function* add() { (yield 1) + (yield 2); }
+             function* conditional() { (yield 1) ? yield 2 : yield 3; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        for (name, state_count, suspension_count) in [
+            ("grouping", 2, 1),
+            ("array", 2, 1),
+            ("block", 2, 1),
+            ("comma", 3, 2),
+            ("add", 3, 2),
+            ("conditional", 5, 3),
+        ] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap_or_else(|| panic!("generator `{name}` should be registered"));
+            let plan = function
+                .generator_plan
+                .as_ref()
+                .unwrap_or_else(|| panic!("generator `{name}` should have a suspension plan"));
+            assert_eq!(plan.state_count, state_count, "generator `{name}`");
+            assert_eq!(
+                plan.suspension_points.len(),
+                suspension_count,
+                "generator `{name}`"
+            );
+        }
+        let conditional = script
+            .functions
+            .iter()
+            .find(|function| function.name == "conditional")
+            .expect("conditional generator should be registered");
+        assert!(matches!(
+            conditional.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield { .. },
+                        StatementIr::GeneratorIf { .. }
+                    ]
+                )
+        ));
+        let add = script
+            .functions
+            .iter()
+            .find(|function| function.name == "add")
+            .expect("add generator should be registered");
+        assert!(matches!(
+            add.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield { .. },
+                        StatementIr::Lexical { .. },
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield { .. },
+                        StatementIr::Expression(TypedExpr {
+                            expr: ExprIr::CoerciveAdd { .. },
+                            ..
+                        })
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn records_generator_template_interpolation_suspensions() {
+        let program = lower_script(
+            "let output;
+             function before() { return 2; }
+             function* sequence() {
+                 output = `1${before()}3${yield 4}5${yield 6}7`;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr {
+                entry_state: 0,
+                state_count: 3,
+                suspension_points: vec![
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                ],
+            })
+        );
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$generator.template.")));
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if statements.iter().filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. })).count() == 2
+        ));
+    }
+
+    #[test]
+    fn records_generator_suspensions_inside_with() {
+        let program = lower_script(
+            "function* sequence() {
+                 let x = 1;
+                 yield x;
+                 with ({ x: 2 }) {
+                     yield x;
+                     x = 3;
+                     yield x;
+                 }
+                 yield x;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+        let plan = function
+            .generator_plan
+            .as_ref()
+            .expect("generator should have a suspension plan");
+        assert_eq!(plan.state_count, 5);
+        assert_eq!(plan.suspension_points.len(), 4);
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$generator.with.")));
+    }
+
+    #[test]
+    fn records_linear_async_await_resume_state() {
+        let program = lower_script(
+            "async function resume() {
+                 let retained = 40;
+                 let received;
+                 received = await 2;
+                 return retained + received;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "resume")
+            .expect("async function should be registered");
+
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Async);
+        assert!(!function.constructable);
+        assert!(function.body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                StatementIr::AsyncAwait {
+                    suspend_state: 0,
+                    resume_state: 1,
+                    resume_mode: AsyncResumeModeIr::AssignIdentifier(name),
+                    ..
+                } if name == "received"
+            )
+        }));
+    }
+
+    #[test]
+    fn lowers_async_await_call_in_lexical_initializer() {
+        let program = lower_script(
+            "async function collect(Constructor) {
+                 let result = await Array.fromAsync.call(Constructor, [1, 2]);
+                 return result;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "collect")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "awaited lexical initializer should lower through a lexical block: {:?}",
+                function.body.statements
+            );
+        };
+        let [StatementIr::Lexical {
+            name: received_name,
+            ..
+        }, StatementIr::AsyncAwait {
+            resume_mode: AsyncResumeModeIr::AssignIdentifier(resume_name),
+            ..
+        }, StatementIr::Lexical {
+            name: result_name,
+            init:
+                TypedExpr {
+                    expr: ExprIr::Identifier(init_name),
+                    ..
+                },
+            ..
+        }] = statements.as_slice()
+        else {
+            panic!(
+                "awaited lexical initializer should stage its resumed value: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert_eq!(received_name, resume_name);
+        assert_eq!(received_name, init_name);
+        assert_eq!(result_name, "result");
+    }
+
+    #[test]
+    fn lowers_nested_async_await_in_expression_statement() {
+        let program = lower_script(
+            "async function inspect(promise) {
+                 assert.sameValue((await promise).value, 1);
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "nested await should lower through a lexical block: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert!(statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                ..
+            }
+        )));
+        assert!(matches!(
+            statements.last(),
+            Some(StatementIr::Expression(_))
+        ));
+    }
+
+    #[test]
+    fn collects_nested_async_generator_declarations_with_exact_source() {
+        let declaration = "async function* stream(source) { yield await source; }";
+        let program = lower_script(&format!(
+            "function outer() {{ {declaration} return stream; }}"
+        ));
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("nested async generator declaration should be collected");
+
+        assert_eq!(
+            function.execution_kind,
+            FunctionExecutionKind::AsyncGenerator
+        );
+        assert!(!function.constructable);
+        assert_eq!(
+            function.to_string_representation,
+            CallableToStringRepresentation::ExactSource(declaration.to_string())
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::AsyncAwait {
+                            suspend_state: 0,
+                            resume_state: 1,
+                            ..
+                        },
+                        StatementIr::GeneratorYield {
+                            suspend_state: 1,
+                            resume_state: 2,
+                            ..
+                        }
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_yield_await_stages_the_awaited_binding_into_yield() {
+        let program = lower_script("async function* stream(source) { yield await source; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { name: binding, .. },
+                        StatementIr::AsyncAwait {
+                            resume_mode: AsyncResumeModeIr::AssignIdentifier(await_binding),
+                            ..
+                        },
+                        StatementIr::GeneratorYield {
+                            value: TypedExpr {
+                                expr: ExprIr::Identifier(yield_binding),
+                                ..
+                            },
+                            delegate: false,
+                            ..
+                        }
+                    ] if binding == await_binding
+                        && await_binding == yield_binding
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_yield_star_preserves_the_delegation_boundary() {
+        let program = lower_script("async function* outer(source) { yield* source; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "outer")
+            .expect("async generator declaration should be collected");
+
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::GeneratorYield {
+                value: TypedExpr {
+                    expr: ExprIr::Identifier(source),
+                    ..
+                },
+                delegate: true,
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            }] if source == "source"
+        ));
+    }
+
+    #[test]
+    fn async_generator_yield_star_assigns_its_completion_to_var() {
+        let program = lower_script(
+            "async function* outer(source) { var completion = yield* source; return completion; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "outer")
+            .expect("async generator declaration should be collected");
+
+        assert!(
+            matches!(
+                function.body.statements.as_slice(),
+                [
+                    StatementIr::LexicalBlock(statements),
+                    StatementIr::AsyncAwait {
+                        value: TypedExpr {
+                            expr: ExprIr::Identifier(completion),
+                            ..
+                        },
+                        resume_mode: AsyncResumeModeIr::Return,
+                        ..
+                    }
+                ] if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Var(declarations),
+                        StatementIr::GeneratorYield {
+                            delegate: true,
+                            resume_mode: GeneratorResumeModeIr::AssignIdentifier(binding),
+                            ..
+                        }
+                    ] if matches!(declarations.as_slice(), [VarDeclaratorIr { name, init: None }] if name == binding)
+                        && binding == completion
+                )
+            ),
+            "{:#?}",
+            function.body.statements
+        );
+    }
+
+    #[test]
+    fn async_generator_yield_star_initializes_lexical_binding_after_delegation() {
+        let program = lower_script(
+            "async function* outer(source) { const completion = yield* source; return completion; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "outer")
+            .expect("async generator declaration should be collected");
+
+        assert!(
+            matches!(
+                function.body.statements.as_slice(),
+                [
+                    StatementIr::LexicalBlock(statements),
+                    StatementIr::AsyncAwait {
+                        value: TypedExpr {
+                            expr: ExprIr::Identifier(returned_completion),
+                            ..
+                        },
+                        resume_mode: AsyncResumeModeIr::Return,
+                        ..
+                    }
+                ] if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical {
+                            mode: BindingMode::Let,
+                            name: staged_completion,
+                            init: TypedExpr {
+                                expr: ExprIr::Undefined,
+                                ..
+                            },
+                        },
+                        StatementIr::GeneratorYield {
+                            delegate: true,
+                            resume_mode: GeneratorResumeModeIr::AssignIdentifier(received_completion),
+                            ..
+                        },
+                        StatementIr::Lexical {
+                            mode: BindingMode::Const,
+                            name: lexical_completion,
+                            init: TypedExpr {
+                                expr: ExprIr::Identifier(initializer_completion),
+                                ..
+                            },
+                        }
+                    ] if staged_completion == received_completion
+                        && received_completion == initializer_completion
+                        && lexical_completion == returned_completion
+                )
+            ),
+            "{:#?}",
+            function.body.statements
+        );
+    }
+
+    #[test]
+    fn nested_async_generator_yields_consume_resumable_states_in_execution_order() {
+        let program = lower_script("async function* stream() { yield yield 1; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 3,
+                suspension_points: vec![
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                ],
+            })
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield {
+                            suspend_state: 0,
+                            resume_state: 1,
+                            resume_mode: GeneratorResumeModeIr::AssignIdentifier(_),
+                            ..
+                        },
+                        StatementIr::GeneratorYield {
+                            suspend_state: 1,
+                            resume_state: 2,
+                            resume_mode: GeneratorResumeModeIr::Ignore,
+                            ..
+                        }
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_loop_exits_into_the_next_preplanned_suspension() {
+        let program = lower_script(
+            "async function* stream() { for (let i = 0; i < 3; i++) { yield i; } yield 9; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        let [StatementIr::GeneratorLoop {
+            entry_state: 0,
+            resume_state: 1,
+            exit_state: 1,
+            yield_statement,
+            ..
+        }, StatementIr::GeneratorYield {
+            suspend_state: 1,
+            resume_state: 2,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected resumable loop followed by the next yield: {:#?}",
+                function.body.statements
+            );
+        };
+        assert!(matches!(
+            yield_statement.as_ref(),
+            StatementIr::GeneratorYield {
+                suspend_state: 0,
+                resume_state: 1,
+                delegate: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn stages_async_generator_array_spread_yields_in_source_order() {
+        let program = lower_script("async function* stream() { yield [0, ...yield, 3]; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator should be registered");
+
+        assert_eq!(
+            function
+                .resumable_plan
+                .as_ref()
+                .expect("async generator should have a resumable plan")
+                .state_count,
+            3
+        );
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$generator.array.spread.")));
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if statements.iter().filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. })).count() == 2
+                    && statements.iter().any(|statement| matches!(
+                        statement,
+                        StatementIr::Lexical {
+                            init: TypedExpr {
+                                expr: ExprIr::CallIndirect { .. },
+                                ..
+                            },
+                            ..
+                        }
+                    ))
+        ));
+    }
+
+    #[test]
+    fn stages_async_generator_object_spread_yields_in_source_order() {
+        let program = lower_script(
+            "async function* stream() { yield { ...yield, fixed: 1, ...yield yield }; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator should be registered");
+
+        assert_eq!(
+            function
+                .resumable_plan
+                .as_ref()
+                .expect("async generator should have a resumable plan")
+                .state_count,
+            5
+        );
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$generator.object.spread.")));
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if statements.iter().filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. })).count() == 4
+        ));
+    }
+
+    #[test]
+    fn rejects_async_generator_spread_with_conditional_yield() {
+        let program =
+            lower_script("async function* stream(flag) { yield [...(flag ? yield [] : [])]; }");
+
+        assert!(!program.is_wasm_supported());
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("generator expression suspension")
+        }));
+    }
+
+    #[test]
+    fn first_async_generator_request_preserves_linear_body_start_states() {
+        let program = lower_script(
+            "let started = false;
+             async function* stream(source) {
+                 started = true;
+                 await source;
+                 yield source;
+             }
+             const iterator = stream(1);
+             iterator.next();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 3,
+                suspension_points: vec![
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Await,
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                ],
+            })
+        );
+        assert!(function.body.statements.iter().any(|statement| {
+            matches!(statement, StatementIr::Expression(_))
+                || matches!(
+                    statement,
+                    StatementIr::LexicalBlock(statements)
+                        if statements
+                            .iter()
+                            .any(|statement| matches!(statement, StatementIr::Expression(_)))
+                )
+        }));
+    }
+
+    #[test]
+    fn allocates_mixed_async_generator_suspension_states_without_collisions() {
+        let program = lower_script(
+            "async function* stream(source) {
+                 await source.ready;
+                 yield 1;
+                 for await (const value of source) { yield value; }
+                 await source.done;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 7,
+                suspension_points: vec![
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Await,
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::ForAwaitNext,
+                        suspend_state: 2,
+                        resume_state: 3,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 3,
+                        resume_state: 4,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::ForAwaitClose,
+                        suspend_state: 4,
+                        resume_state: 5,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Await,
+                        suspend_state: 5,
+                        resume_state: 6,
+                    },
+                ],
+            })
+        );
+        let [StatementIr::AsyncAwait {
+            suspend_state: 0,
+            resume_state: 1,
+            ..
+        }, StatementIr::GeneratorYield {
+            suspend_state: 1,
+            resume_state: 2,
+            ..
+        }, StatementIr::ForOfIterator {
+            body,
+            async_plan: Some(async_plan),
+            ..
+        }, StatementIr::AsyncAwait {
+            suspend_state: 5,
+            resume_state: 6,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "async-generator body should preserve await, yield, for-await, await: {:?}",
+                function.body.statements
+            );
+        };
+        assert_eq!(async_plan.entry_state, 2);
+        assert_eq!(async_plan.value_resume_state, 3);
+        assert_eq!(async_plan.close_resume_state, 4);
+        assert_eq!(async_plan.exit_state, 5);
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(block)
+                if matches!(
+                    block.statements.as_slice(),
+                    [StatementIr::GeneratorYield {
+                        suspend_state: 3,
+                        resume_state: 4,
+                        ..
+                    }]
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_return_without_value_completes_without_implicit_await() {
+        let program = lower_script("async function* stream() { return; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 1,
+                suspension_points: Vec::new(),
+            })
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::Return(TypedExpr {
+                kind: ValueKind::Undefined,
+                ..
+            })]
+        ));
+    }
+
+    #[test]
+    fn async_generator_return_value_ends_with_implicit_await() {
+        let program = lower_script("async function* stream(value) { return value; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 2,
+                suspension_points: vec![ResumableSuspensionPointIr {
+                    kind: ResumableSuspensionKindIr::Await,
+                    suspend_state: 0,
+                    resume_state: 1,
+                }],
+            })
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::Return,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn async_generator_return_await_yield_orders_yield_before_both_awaits() {
+        let program = lower_script("async function* stream(value) { return await (yield value); }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+        let plan = function
+            .resumable_plan
+            .as_ref()
+            .expect("async generator should have a resumable plan");
+
+        assert_eq!(plan.state_count, 4);
+        assert_eq!(
+            plan.suspension_points
+                .iter()
+                .map(|suspension| suspension.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ResumableSuspensionKindIr::Yield,
+                ResumableSuspensionKindIr::Await,
+                ResumableSuspensionKindIr::Await,
+            ]
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield {
+                            suspend_state: 0,
+                            resume_state: 1,
+                            resume_mode: GeneratorResumeModeIr::AssignIdentifier(_),
+                            ..
+                        },
+                        StatementIr::Lexical { .. },
+                        StatementIr::AsyncAwait {
+                            suspend_state: 1,
+                            resume_state: 2,
+                            resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                            ..
+                        },
+                        StatementIr::AsyncAwait {
+                            suspend_state: 2,
+                            resume_state: 3,
+                            resume_mode: AsyncResumeModeIr::Return,
+                            ..
+                        }
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_return_yield_await_orders_await_before_yield_and_return_await() {
+        let program = lower_script("async function* stream(value) { return yield (await value); }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+        let plan = function
+            .resumable_plan
+            .as_ref()
+            .expect("async generator should have a resumable plan");
+
+        assert_eq!(plan.state_count, 4);
+        assert_eq!(
+            plan.suspension_points
+                .iter()
+                .map(|suspension| suspension.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ResumableSuspensionKindIr::Await,
+                ResumableSuspensionKindIr::Yield,
+                ResumableSuspensionKindIr::Await,
+            ]
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(statements)]
+                if matches!(
+                    statements.as_slice(),
+                    [
+                        StatementIr::Lexical { .. },
+                        StatementIr::AsyncAwait {
+                            suspend_state: 0,
+                            resume_state: 1,
+                            resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                            ..
+                        },
+                        StatementIr::Lexical { .. },
+                        StatementIr::GeneratorYield {
+                            suspend_state: 1,
+                            resume_state: 2,
+                            resume_mode: GeneratorResumeModeIr::AssignIdentifier(_),
+                            ..
+                        },
+                        StatementIr::AsyncAwait {
+                            suspend_state: 2,
+                            resume_state: 3,
+                            resume_mode: AsyncResumeModeIr::Return,
+                            ..
+                        }
+                    ]
+                )
+        ));
+    }
+
+    #[test]
+    fn async_generator_return_rejects_composite_suspension_boundaries() {
+        let program =
+            lower_script("async function* stream(left, right) { return (await left) + right; }");
+
+        assert!(!program.is_wasm_supported());
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("async-generator return expression has a composite suspension boundary")
+        }));
+    }
+
+    #[test]
+    fn records_named_async_function_expression() {
+        let program = lower_script(
+            "const resume = async function inner(value) {
+                 await Promise.resolve();
+                 return value;
+             };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inner")
+            .expect("async function expression should be registered");
+
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Async);
+        assert!(!function.constructable);
+        assert!(function.is_named_expression);
+        assert!(function
+            .body
+            .statements
+            .iter()
+            .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. })));
+    }
+
+    #[test]
+    fn records_async_object_method_as_non_constructable_async_function() {
+        let program = lower_script(
+            "const holder = {
+                 marker: 40,
+                 async method(delta) {
+                     await Promise.resolve();
+                     return this.marker + delta;
+                 }
+             };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "method")
+            .expect("async object method should be registered");
+
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Async);
+        assert!(!function.constructable);
+        assert!(function.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            }
+        )));
+
+        let StatementIr::Lexical { init, .. } = &script.body.statements[0] else {
+            panic!("expected object binding");
+        };
+        let ExprIr::ObjectLiteral(properties) = &init.expr else {
+            panic!("expected object literal");
+        };
+        assert!(properties.iter().any(|property| matches!(
+            property,
+            ObjectPropertyIr::Method {
+                key,
+                function: TypedExpr {
+                    expr: ExprIr::FunctionValue(function_id),
+                    ..
+                },
+            } if key == "method" && function_id == &function.id
+        )));
+    }
+
+    #[test]
+    fn lowers_async_object_method_later_parameter_read_as_tdz_throw() {
+        let program = lower_script("const holder = { async method(value = later, later) {} };");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "method")
+            .expect("async object method should be registered");
+        let default_init = function.params[0]
+            .default_init
+            .as_ref()
+            .expect("first parameter should have a default initializer");
+
+        assert!(matches!(
+            default_init.expr,
+            ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn records_instance_and_static_async_class_methods_with_resume_state() {
+        let program = lower_script(
+            "class Base {
+                 method() { return this.marker; }
+                 static staticMethod() { return this.marker; }
+             }
+             class Derived extends Base {
+                 async method(delta = later, later) {
+                     await Promise.resolve();
+                     return super.method() + delta;
+                 }
+                 static async staticMethod(delta) {
+                     await Promise.resolve();
+                     return super.staticMethod() + delta;
+                 }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let async_methods = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .filter(|function| function.execution_kind == FunctionExecutionKind::Async)
+            .collect::<Vec<_>>();
+
+        assert_eq!(async_methods.len(), 2);
+        assert!(async_methods.iter().all(|function| !function.constructable));
+        assert!(async_methods.iter().all(|function| {
+            function.body.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::AsyncAwait {
+                        suspend_state: 0,
+                        resume_state: 1,
+                        ..
+                    }
+                )
+            })
+        }));
+        let instance_method = async_methods
+            .iter()
+            .find(|function| !function.is_static_class_member)
+            .expect("instance async method should be registered");
+        assert!(matches!(
+            instance_method.params[0]
+                .default_init
+                .as_ref()
+                .map(|init| &init.expr),
+            Some(ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn records_async_arrows_with_lexical_captures_and_parameter_tdz() {
+        let program = lower_script(
+            "function make(marker) {
+                 const expression = async delta =>
+                     this.value + arguments[0] + delta + (new.target === undefined ? 1 : 0);
+                 const block = async (value = later, later) => {
+                     await Promise.resolve();
+                     return this.value + arguments[0] + value
+                         + (new.target === undefined ? 1 : 0);
+                 };
+                 return [expression, block];
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let async_arrows = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .filter(|function| {
+                function.flavor == FunctionFlavor::Arrow
+                    && function.execution_kind == FunctionExecutionKind::Async
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(async_arrows.len(), 2);
+        assert!(async_arrows.iter().all(|function| !function.constructable));
+        assert!(async_arrows
+            .iter()
+            .all(|function| function.captures_lexical_this));
+        assert!(async_arrows
+            .iter()
+            .all(|function| function.captures_lexical_arguments));
+        assert!(async_arrows.iter().all(|function| {
+            function
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.name == LEXICAL_NEW_TARGET_NAME)
+        }));
+        assert!(async_arrows.iter().any(|function| {
+            function
+                .body
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, StatementIr::Return(_)))
+        }));
+        let block = async_arrows
+            .iter()
+            .find(|function| {
+                function
+                    .body
+                    .statements
+                    .iter()
+                    .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
+            })
+            .expect("block-bodied async arrow should suspend");
+        assert!(matches!(
+            block.params[0].default_init.as_ref().map(|init| &init.expr),
+            Some(ExprIr::RuntimeThrow {
+                name: REFERENCE_ERROR_NAME,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn lowers_expression_bodied_async_arrow_awaits_in_source_order() {
+        let program = lower_script("const add = async () => await 1 + await 2;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.flavor == FunctionFlavor::Arrow
+                    && function.execution_kind == FunctionExecutionKind::Async
+            })
+            .expect("async arrow should be lowered");
+        let StatementIr::Block(block) = &function.body.statements[0] else {
+            panic!("expression-bodied async arrow should contain a linear await block");
+        };
+
+        assert!(matches!(
+            &block.statements[1],
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &block.statements[3],
+            StatementIr::AsyncAwait {
+                suspend_state: 1,
+                resume_state: 2,
+                resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                ..
+            }
+        ));
+        assert!(matches!(&block.statements[4], StatementIr::Return(_)));
+    }
+
+    #[test]
+    fn records_async_try_catch_finally_resume_boundaries() {
+        let program = lower_script(
+            "const settle = async function() {
+                 try { await Promise.reject(\"early\"); }
+                 catch (error) { await Promise.resolve(error); }
+                 finally { return await Promise.resolve(\"override\"); }
+             };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.execution_kind == FunctionExecutionKind::Async)
+            .expect("async function expression should be registered");
+        let StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            async_plan,
+            ..
+        } = &function.body.statements[0]
+        else {
+            panic!("expected async try/catch/finally statement");
+        };
+
+        assert_eq!(
+            *async_plan,
+            Some(AsyncTryPlanIr {
+                entry_state: 0,
+                try_exit_state: 2,
+                catch_entry_state: Some(2),
+                catch_exit_state: Some(4),
+                finally_entry_state: Some(4),
+                finally_exit_state: Some(6),
+                exit_state: 6,
+            })
+        );
+        assert!(matches!(
+            try_block.statements[0],
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::Ignore,
+                ..
+            }
+        ));
+        assert!(matches!(
+            catch_block.statements[0],
+            StatementIr::AsyncAwait {
+                suspend_state: 2,
+                resume_state: 3,
+                resume_mode: AsyncResumeModeIr::Ignore,
+                ..
+            }
+        ));
+        assert!(matches!(
+            finally_block.statements[0],
+            StatementIr::AsyncAwait {
+                suspend_state: 4,
+                resume_state: 5,
+                resume_mode: AsyncResumeModeIr::Return,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn async_generator_try_catch_shares_preplanned_clause_boundaries() {
+        let program = lower_script(
+            "async function* outer(source) {
+                 let caught;
+                 try { yield* source; }
+                 catch (error) { caught = error; }
+                 return caught;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "outer")
+            .expect("async generator should be registered");
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 3,
+                suspension_points: vec![
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Await,
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                ],
+            })
+        );
+        let [StatementIr::Lexical { .. }, StatementIr::TryCatch {
+            generator_plan: Some(generator_plan),
+            async_plan: Some(async_plan),
+            ..
+        }, StatementIr::AsyncAwait {
+            suspend_state: 1,
+            resume_state: 2,
+            resume_mode: AsyncResumeModeIr::Return,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected planned async-generator try/catch followed by terminal Await: {:#?}",
+                function.body.statements
+            );
+        };
+        let expected_try_plan = AsyncTryPlanIr {
+            entry_state: 0,
+            try_exit_state: 1,
+            catch_entry_state: Some(1),
+            catch_exit_state: Some(1),
+            finally_entry_state: None,
+            finally_exit_state: None,
+            exit_state: 1,
+        };
+        assert_eq!(*async_plan, expected_try_plan);
+        assert_eq!(
+            *generator_plan,
+            GeneratorTryPlanIr {
+                entry_state: expected_try_plan.entry_state,
+                try_exit_state: expected_try_plan.try_exit_state,
+                catch_entry_state: expected_try_plan.catch_entry_state,
+                catch_exit_state: expected_try_plan.catch_exit_state,
+                finally_entry_state: expected_try_plan.finally_entry_state,
+                finally_exit_state: expected_try_plan.finally_exit_state,
+                exit_state: expected_try_plan.exit_state,
+            }
+        );
+    }
+
+    #[test]
+    fn records_for_await_array_iterator_resume_boundaries_and_owned_state() {
+        let program = lower_script(
+            "async function collect() {
+                 let total = 0;
+                 for await (const value of [Promise.resolve(1), 2]) {
+                     total += value;
+                 }
+                 return total;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.name == "collect"
+                    && function.execution_kind == FunctionExecutionKind::Async
+            })
+            .expect("async function should be registered");
+        let StatementIr::ForOfIterator {
+            async_plan: Some(plan),
+            ..
+        } = &function.body.statements[1]
+        else {
+            panic!("expected planned iterator-backed for-await-of statement");
+        };
+
+        assert_eq!(plan.entry_state, 0);
+        assert_eq!(plan.value_resume_state, 1);
+        assert_eq!(plan.close_resume_state, 2);
+        assert_eq!(plan.exit_state, 3);
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.iterator_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.next_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.done_binding));
+    }
+
+    #[test]
+    fn records_for_await_sync_iterator_resume_boundaries_and_owned_state() {
+        let program = lower_script(
+            "async function collect(iterable) {
+                 for await (const value of iterable) return value;
+             }
+             let iterable = {};
+             iterable[Symbol.iterator] = function () { return this; };
+             collect(iterable);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.name == "collect"
+                    && function.execution_kind == FunctionExecutionKind::Async
+            })
+            .expect("async function should be registered");
+        let StatementIr::ForOfIterator {
+            async_plan: Some(plan),
+            ..
+        } = &function.body.statements[0]
+        else {
+            panic!("expected planned sync-iterator for-await-of statement");
+        };
+
+        assert_eq!(plan.entry_state, 0);
+        assert_eq!(plan.value_resume_state, 1);
+        assert_eq!(plan.close_resume_state, 2);
+        assert_eq!(plan.exit_state, 3);
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.iterator_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.next_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.async_iterator_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.done_binding));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.close_on_rejection_binding));
+    }
+
+    #[test]
+    fn records_for_await_async_iterator_mode_as_owned_state() {
+        let program = lower_script(
+            "async function collect(iterable) {
+                 for await (const value of iterable) return value;
+             }
+             let iterable = {};
+             iterable[Symbol.asyncIterator] = function () { return this; };
+             collect(iterable);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.name == "collect"
+                    && function.execution_kind == FunctionExecutionKind::Async
+            })
+            .expect("async function should be registered");
+        let StatementIr::ForOfIterator {
+            async_plan: Some(plan),
+            ..
+        } = &function.body.statements[0]
+        else {
+            panic!("expected planned async-iterator for-await-of statement");
+        };
+
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == plan.async_iterator_binding));
+    }
+
+    #[test]
+    fn for_await_iterator_method_specializes_strict_primitive_this() {
+        let program = lower_script(
+            "String.prototype[Symbol.asyncIterator] = function strictAsyncIterator() {
+                 'use strict';
+                 return this;
+             };
+             async function collect() {
+                 for await (const value of 'source') return value;
+             }
+             collect();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "strictAsyncIterator")
+            .expect("strict async iterator method should be registered");
+        let return_value = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(return_value) => Some(return_value),
+                _ => None,
+            })
+            .expect("strict async iterator method should return this");
+
+        assert!(matches!(return_value.expr, ExprIr::This));
+        assert_eq!(return_value.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn records_generator_try_catch_finally_resume_state_boundaries() {
+        let program = lower_script(
+            "function* sequence() {
+                 try { yield 1; }
+                 catch (error) { yield error; }
+                 finally { yield 3; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .expect("generator should be registered");
+
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr {
+                entry_state: 0,
+                state_count: 7,
+                suspension_points: vec![
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 2,
+                        resume_state: 3,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 4,
+                        resume_state: 5,
+                    },
+                ],
+            })
+        );
+        let StatementIr::TryCatchFinally { generator_plan, .. } = &function.body.statements[0]
+        else {
+            panic!("expected generator try/catch/finally statement");
+        };
+        assert_eq!(
+            *generator_plan,
+            Some(GeneratorTryPlanIr {
+                entry_state: 0,
+                try_exit_state: 2,
+                catch_entry_state: Some(2),
+                catch_exit_state: Some(4),
+                finally_entry_state: Some(4),
+                finally_exit_state: Some(6),
+                exit_state: 6,
+            })
+        );
+    }
+
+    #[test]
+    fn records_nested_generator_try_finally_resume_state_boundaries() {
+        let program = lower_script(
+            "function* nested() {
+                 try {
+                     try { yield 1; }
+                     finally { yield 2; }
+                 } finally { yield 3; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "nested")
+            .expect("generator should be registered");
+
+        assert_eq!(
+            function.generator_plan,
+            Some(GeneratorPlanIr {
+                entry_state: 0,
+                state_count: 8,
+                suspension_points: vec![
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 2,
+                        resume_state: 3,
+                    },
+                    GeneratorSuspensionPointIr {
+                        suspend_state: 5,
+                        resume_state: 6,
+                    },
+                ],
+            })
+        );
+        let StatementIr::TryFinally {
+            try_block,
+            generator_plan,
+            ..
+        } = &function.body.statements[0]
+        else {
+            panic!("expected outer generator try/finally statement");
+        };
+        assert_eq!(
+            *generator_plan,
+            Some(GeneratorTryPlanIr {
+                entry_state: 0,
+                try_exit_state: 5,
+                catch_entry_state: None,
+                catch_exit_state: None,
+                finally_entry_state: Some(5),
+                finally_exit_state: Some(7),
+                exit_state: 7,
+            })
+        );
+        let StatementIr::TryFinally { generator_plan, .. } = &try_block.statements[0] else {
+            panic!("expected nested generator try/finally statement");
+        };
+        assert_eq!(
+            *generator_plan,
+            Some(GeneratorTryPlanIr {
+                entry_state: 0,
+                try_exit_state: 2,
+                catch_entry_state: None,
+                catch_exit_state: None,
+                finally_entry_state: Some(2),
+                finally_exit_state: Some(4),
+                exit_state: 4,
+            })
+        );
+    }
+
+    #[test]
+    fn generator_activation_owns_bindings_that_survive_a_yield() {
+        let program = lower_script(
+            "function* activation(parameter) { let local = parameter; if (local) { yield local; local += arguments[0]; } }",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "activation")
+            .expect("generator should be registered");
+        let owned_names = function
+            .owned_env_bindings
+            .iter()
+            .map(|binding| binding.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(owned_names.contains("parameter"));
+        assert!(owned_names.contains("local"));
+        assert!(matches!(
+            function.body.statements[1],
+            StatementIr::GeneratorIf { .. }
+        ));
+    }
+
+    #[test]
+    fn stages_generator_return_calls_across_argument_yields() {
+        let program = lower_script(
+            "const generator = function* g() { return (function(value) { return value + 1; }(yield)); };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "g")
+            .expect("generator should be registered");
+        assert_eq!(function.generator_plan.as_ref().unwrap().state_count, 2);
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(_)]
+        ));
+    }
+
+    #[test]
+    fn stages_generator_object_spreads_in_source_order() {
+        let program = lower_script(
+            "const generator = function* g() { yield { ...yield yield, ...(function(value) { return {...value}; }(yield)), ...yield }; };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "g")
+            .expect("generator should be registered");
+        assert_eq!(function.generator_plan.as_ref().unwrap().state_count, 6);
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [StatementIr::LexicalBlock(_)]
+        ));
+    }
+
+    #[test]
+    fn rejects_generator_suspensions_without_a_structured_resume_plan() {
+        for source in [
+            "function* nestedOperand() { return 1 + (yield 2); }",
+            "function* scopedBranch(flag) { if (flag) { let value = 1; yield value; } }",
+            "function* scopedLoop() { while (true) { let value = 1; yield value; } }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                !program.is_wasm_supported(),
+                "source should be rejected: {source}"
+            );
+        }
+    }
+
+    #[test]
     fn allows_subclassing_iterator_constructor() {
         let program = lower_script("class SubIterator extends Iterator {}");
         assert!(program.is_wasm_supported());
@@ -4107,6 +6641,22 @@ mod tests {
             panic!("expected class lexical declaration");
         };
         assert!(matches!(init.kind, ValueKind::Function));
+    }
+
+    #[test]
+    fn typed_array_constructor_prototype_is_inferred_as_a_function() {
+        let program = lower_script("var TypedArray = Object.getPrototypeOf(Int8Array);");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Var(declarators) = &script.body.statements[0] else {
+            panic!("expected variable declaration");
+        };
+        let init = declarators[0]
+            .init
+            .as_ref()
+            .expect("TypedArray should have an initializer");
+        assert_eq!(init.kind, ValueKind::Function);
+        assert_eq!(init.possible_kinds, KindSet::from_kind(ValueKind::Function));
     }
 
     #[test]
@@ -4184,6 +6734,25 @@ mod tests {
             script.owned_env_bindings[0].slot
         );
         assert_eq!(script.functions[0].captured_bindings[0].hops, 0);
+    }
+
+    #[test]
+    fn with_body_captures_outer_binding_for_property_fallback() {
+        let program = lower_script(
+            "const fallback = { value: 17 }; function observe(view) { with (view) { return fallback.value; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let observe = script
+            .functions
+            .iter()
+            .find(|function| function.name == "observe")
+            .expect("observe function should be lowered");
+
+        assert!(observe
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.name == "fallback"));
     }
 
     #[test]
@@ -5210,10 +7779,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(arrows.len(), 3);
-        assert!(arrows.iter().all(|arrow| arrow
-            .captured_bindings
-            .iter()
-            .any(|binding| binding.source_name == LEXICAL_HOME_OBJECT_NAME)));
+        assert!(arrows.iter().all(|arrow| {
+            arrow
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.source_name == LEXICAL_HOME_OBJECT_NAME)
+        }));
     }
 
     #[test]
@@ -5331,13 +7902,49 @@ mod tests {
     }
 
     #[test]
-    fn rejects_assignment_to_const() {
+    fn lowers_assignment_to_const_as_runtime_type_error_after_rhs_evaluation() {
         let program = lower_script("const x = 1; x = 2;");
-        assert!(!program.is_wasm_supported());
-        assert!(program
-            .diagnostics
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[1] else {
+            panic!("expected assignment expression");
+        };
+        let ExprIr::Comma { lhs, rhs } = &expression.expr else {
+            panic!("expected evaluated RHS before immutable-binding throw");
+        };
+        assert!(matches!(lhs.expr, ExprIr::Number(_)));
+        assert!(matches!(
+            rhs.expr,
+            ExprIr::RuntimeThrow {
+                name: TYPE_ERROR_NAME,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn preserves_sloppy_named_function_binding_assignment_through_a_capture() {
+        let program = lower_script(
+            "const outer = function named() {
+                 return function write() { named = 2; };
+             };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let write = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("assignment to const binding")));
+            .find(|function| function.name == "write")
+            .expect("capturing function should be lowered");
+        assert!(write.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::Number(_),
+                ..
+            })
+        )));
     }
 
     #[test]
@@ -5617,6 +8224,33 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_json_parse_observes_reviver_holder_kinds() {
+        let program = lower_script(
+            "function parse(text) { return JSON.parse(text, function reviver(key, value) { this[1] = value; return value; }); } parse('[1, 2]');",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let reviver = script
+            .functions
+            .iter()
+            .find(|function| function.name == "reviver")
+            .expect("reviver should be lowered");
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::PropertyWrite { target, key, .. },
+            ..
+        }) = &reviver.body.statements[0]
+        else {
+            panic!("expected reviver holder write");
+        };
+        assert_eq!(target.kind, ValueKind::Dynamic);
+        assert_eq!(
+            target.possible_kinds,
+            KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Array))
+        );
+        assert!(matches!(key, PropertyKeyIr::ArrayIndex(_)));
+    }
+
+    #[test]
     fn does_not_fold_static_regexp_literal_exec() {
         let program = lower_script("/]/.exec(' ]{}')[0]; /\\c0/.exec('\\x0f\\x10\\x11');");
         assert!(program.is_wasm_supported());
@@ -5819,7 +8453,15 @@ mod tests {
         let program =
             lower_script(r#"let subject = /original/; subject.compile("[\ud834\udf06]", "u");"#);
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::Expression(expression) = script
+            .body
+            .statements
+            .last()
+            .expect("expected compile call")
+        else {
+            panic!("expected compile expression");
+        };
+        let Some(TypedExpr {
             expr:
                 ExprIr::CallIndirect {
                     static_regexp_compilation:
@@ -5827,11 +8469,7 @@ mod tests {
                     ..
                 },
             ..
-        }) = script
-            .body
-            .statements
-            .last()
-            .expect("expected compile call")
+        }) = indirect_call_body(expression)
         else {
             panic!(
                 "expected annotated indirect RegExp.prototype.compile call, got {:#?}",
@@ -5848,7 +8486,15 @@ mod tests {
     fn annotates_invalid_constant_regexp_prototype_compile_calls() {
         let program = lower_script(r#"let subject = /original/; subject.compile(".{2,1}");"#);
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::Expression(expression) = script
+            .body
+            .statements
+            .last()
+            .expect("expected compile call")
+        else {
+            panic!("expected compile expression");
+        };
+        let Some(TypedExpr {
             expr:
                 ExprIr::CallIndirect {
                     static_regexp_compilation:
@@ -5856,11 +8502,7 @@ mod tests {
                     ..
                 },
             ..
-        }) = script
-            .body
-            .statements
-            .last()
-            .expect("expected compile call")
+        }) = indirect_call_body(expression)
         else {
             panic!("expected invalid static RegExp compilation annotation");
         };
@@ -6412,6 +9054,118 @@ mod tests {
                 .message
                 .contains("dynamic eval through optional call")
         }));
+    }
+
+    #[test]
+    fn map_iterable_construction_preserves_the_map_instance_shape() {
+        for source in [
+            "new Map([]);",
+            "function makeMap(iterable) { return new Map(iterable); } makeMap([]);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+                panic!("expected constructed Map instance for {source}");
+            };
+            let Some(HeapShape::Object(instance_shape)) = instance.heap_shape.as_deref() else {
+                panic!("expected Map instance shape for {source}");
+            };
+            let Some(HeapShape::Object(prototype_shape)) = instance_shape.prototype.as_deref()
+            else {
+                panic!("expected Map prototype shape for {source}");
+            };
+            assert!(prototype_shape.properties.contains_key("set"), "{source}");
+            assert!(
+                prototype_shape.properties.contains_key("forEach"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_iterable_construction_preserves_the_set_instance_shape() {
+        for source in [
+            "new Set([]);",
+            "function makeSet(iterable) { return new Set(iterable); } makeSet([]);",
+            "new Set('ab');",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+                panic!("expected constructed Set instance for {source}");
+            };
+            let Some(HeapShape::Object(instance_shape)) = instance.heap_shape.as_deref() else {
+                panic!("expected Set instance shape for {source}");
+            };
+            let Some(HeapShape::Object(prototype_shape)) = instance_shape.prototype.as_deref()
+            else {
+                panic!("expected Set prototype shape for {source}");
+            };
+            assert!(prototype_shape.properties.contains_key("add"), "{source}");
+            assert!(
+                prototype_shape.properties.contains_key("forEach"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_algebra_preserves_the_set_instance_shape() {
+        for method in ["difference", "intersection", "symmetricDifference", "union"] {
+            let source = format!("new Set().{method}(new Set());");
+            let program = lower_script(&source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+                panic!("expected Set algebra result for {source}");
+            };
+            let Some(HeapShape::Object(instance_shape)) = instance.heap_shape.as_deref() else {
+                panic!("expected Set instance shape for {source}");
+            };
+            let Some(HeapShape::Object(prototype_shape)) = instance_shape.prototype.as_deref()
+            else {
+                panic!("expected Set prototype shape for {source}");
+            };
+            assert!(prototype_shape.properties.contains_key("add"), "{source}");
+            assert!(prototype_shape.properties.contains_key("union"), "{source}");
+        }
+    }
+
+    #[test]
+    fn set_predicates_have_boolean_result_kind() {
+        for method in ["isDisjointFrom", "isSubsetOf", "isSupersetOf"] {
+            let source = format!("new Set().{method}(new Set());");
+            let program = lower_script(&source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+                panic!("expected Set predicate result for {source}");
+            };
+            assert_eq!(result.kind, ValueKind::Boolean, "{source}");
+            assert_eq!(
+                result.possible_kinds,
+                KindSet::from_kind(ValueKind::Boolean),
+                "{source}"
+            );
+        }
     }
 
     #[test]

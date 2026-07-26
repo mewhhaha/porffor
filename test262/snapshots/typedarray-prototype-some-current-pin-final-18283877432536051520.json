@@ -1,0 +1,106 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 18283877432536051520,
+  "run_kind": "resume-case-checkpoint",
+  "total": 20,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 20
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/some/callbackfn-this.js",
+      "duration_ms": 82861
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/values-are-not-cached.js",
+      "duration_ms": 76989
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/returns-false-if-every-cb-returns-false.js",
+      "duration_ms": 76230
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/detached-buffer.js",
+      "duration_ms": 74336
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/returns-true-if-any-cb-returns-true.js",
+      "duration_ms": 70190
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/get-length-uses-internal-arraylength.js",
+      "duration_ms": 68871
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/name.js",
+      "duration_ms": 66740
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/callbackfn-returns-abrupt.js",
+      "duration_ms": 65086
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/callbackfn-set-value-during-interaction.js",
+      "duration_ms": 64592
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/length.js",
+      "duration_ms": 61902
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/some/callbackfn-returns-abrupt.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-set-value-during-interaction.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-this.js",
+    "built-ins/TypedArray/prototype/some/detached-buffer.js",
+    "built-ins/TypedArray/prototype/some/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/some/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/some/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/some/length.js",
+    "built-ins/TypedArray/prototype/some/name.js",
+    "built-ins/TypedArray/prototype/some/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/some/prop-desc.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/some/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/some/returns-false-if-every-cb-returns-false.js",
+    "built-ins/TypedArray/prototype/some/returns-true-if-any-cb-returns-true.js",
+    "built-ins/TypedArray/prototype/some/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/some/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/some/values-are-not-cached.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

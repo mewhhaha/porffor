@@ -114,8 +114,18 @@ impl FunctionCache {
         )
     }
 
+    pub(crate) fn contains(&self, key: &[u8]) -> bool {
+        self.entry_path(key).is_file()
+    }
+
     pub(crate) fn read(&self, key: &[u8]) -> Option<Vec<u8>> {
-        <Self as CacheStore>::get(self, key).map(Cow::into_owned)
+        let bytes = <Self as CacheStore>::get(self, key).map(Cow::into_owned)?;
+        // The program cache can live on a noatime mount, so a read alone
+        // cannot make a frequently reused artifact survive LRU pruning.
+        if let Ok(file) = fs::File::options().write(true).open(self.entry_path(key)) {
+            let _ = file.set_modified(SystemTime::now());
+        }
+        Some(bytes)
     }
 
     pub(crate) fn write(&self, key: &[u8], value: Vec<u8>) -> bool {
@@ -183,14 +193,23 @@ pub(crate) fn program_cache_directory() -> PathBuf {
 }
 
 pub(crate) fn module_cache() -> io::Result<Cache> {
+    module_cache_at(module_cache_directory(), HALF_CACHE_LIMIT_BYTES)
+}
+
+fn module_cache_at(directory: PathBuf, limit_bytes: u64) -> io::Result<Cache> {
+    fs::create_dir_all(&directory)?;
+    // Wasmtime prunes on a background worker. A short-lived Test262 case
+    // process can exit before that worker handles its update, so enforce the
+    // same bound synchronously whenever a process opens Porffor's cache.
+    prune_directory_to_limit(&directory, limit_bytes)?;
+
     let mut config = CacheConfig::new();
     config
-        .with_directory(module_cache_directory())
-        .with_files_total_size_soft_limit(HALF_CACHE_LIMIT_BYTES)
+        .with_directory(directory)
+        .with_files_total_size_soft_limit(limit_bytes)
         .with_files_total_size_limit_percent_if_deleting(CACHE_PRUNE_PERCENT as u8)
         .with_file_count_limit_percent_if_deleting(CACHE_PRUNE_PERCENT as u8)
-        // Check the limit after each newly compiled module instead of allowing
-        // an hour of unbounded growth between Wasmtime worker cleanups.
+        // Ask the long-lived process worker to check after every update too.
         .with_cleanup_interval(std::time::Duration::ZERO);
     Cache::new(config).map_err(io::Error::other)
 }
@@ -279,7 +298,9 @@ fn directory_usage(path: &Path) -> io::Result<(u64, u64)> {
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
-            let metadata = entry.metadata()?;
+            let Some(metadata) = existing_entry_metadata(&entry)? else {
+                continue;
+            };
             if metadata.is_dir() {
                 pending.push(entry.path());
             } else if metadata.is_file() {
@@ -324,19 +345,28 @@ fn cache_files(path: &Path) -> io::Result<Vec<(PathBuf, u64, SystemTime)>> {
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
-            let metadata = entry.metadata()?;
+            let Some(metadata) = existing_entry_metadata(&entry)? else {
+                continue;
+            };
             if metadata.is_dir() {
                 pending.push(entry.path());
             } else if metadata.is_file() {
-                let used = metadata
-                    .accessed()
-                    .or_else(|_| metadata.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH);
+                let accessed = metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH);
+                let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                let used = accessed.max(modified);
                 files.push((entry.path(), metadata.len(), used));
             }
         }
     }
     Ok(files)
+}
+
+fn existing_entry_metadata(entry: &fs::DirEntry) -> io::Result<Option<fs::Metadata>> {
+    match entry.metadata() {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
 }
 
 fn remove_directory_contents(path: &Path) -> io::Result<(u64, u64)> {
@@ -374,6 +404,58 @@ mod tests {
     }
 
     #[test]
+    fn program_cache_reads_refresh_recency_when_access_times_do_not_change() {
+        let root = temp_cache("read-recency");
+        let _ = fs::remove_dir_all(&root);
+        let cache = FunctionCache::new(root.clone(), 100).expect("cache should initialize");
+        assert!(cache.insert(b"reused", vec![1; 30]));
+        assert!(cache.insert(b"unused", vec![2; 40]));
+        let old = fs::FileTimes::new()
+            .set_accessed(SystemTime::UNIX_EPOCH)
+            .set_modified(SystemTime::UNIX_EPOCH);
+        fs::File::options()
+            .write(true)
+            .open(cache.entry_path(b"reused"))
+            .unwrap()
+            .set_times(old)
+            .unwrap();
+        fs::File::options()
+            .write(true)
+            .open(cache.entry_path(b"unused"))
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_accessed(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1))
+                    .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1)),
+            )
+            .unwrap();
+
+        assert_eq!(cache.read(b"reused").as_deref(), Some(&[1; 30][..]));
+        assert!(cache.insert(b"new", vec![3; 31]));
+
+        assert!(cache.contains(b"reused"));
+        assert!(!cache.contains(b"unused"));
+        assert!(cache.contains(b"new"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn function_cache_contains_checks_entry_metadata_without_counting_a_read() {
+        let root = temp_cache("contains");
+        let _ = fs::remove_dir_all(&root);
+        let cache = FunctionCache::new(root.clone(), 1024).expect("cache should initialize");
+
+        assert!(!cache.contains(b"key"));
+        assert!(cache.insert(b"key", vec![1, 2, 3]));
+        assert!(cache.contains(b"key"));
+        assert_eq!(cache.counters(), (0, 0));
+
+        cache.remove(b"key");
+        assert!(!cache.contains(b"key"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn function_cache_is_safe_under_concurrent_atomic_writes() {
         let root = temp_cache("concurrent");
         let _ = fs::remove_dir_all(&root);
@@ -402,6 +484,37 @@ mod tests {
         assert!(cache.insert(b"two", vec![2; 60]));
         let (bytes, _) = directory_usage(&root).unwrap();
         assert!(bytes <= 70, "cache retained {bytes} bytes");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn module_cache_prunes_short_lived_process_growth_on_startup() {
+        let root = temp_cache("module-startup-prune");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("older"), [1; 60]).unwrap();
+        fs::write(root.join("newer"), [2; 60]).unwrap();
+
+        let _cache = module_cache_at(root.clone(), 100).unwrap();
+        let (bytes, _) = directory_usage(&root).unwrap();
+        assert!(bytes <= 70, "cache retained {bytes} bytes");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_scan_skips_an_entry_removed_before_metadata_lookup() {
+        let root = temp_cache("removed-entry");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("vanished"), [1]).unwrap();
+        let entry = fs::read_dir(&root)
+            .unwrap()
+            .next()
+            .expect("cache entry should exist")
+            .unwrap();
+        fs::remove_file(entry.path()).unwrap();
+
+        assert!(existing_entry_metadata(&entry).unwrap().is_none());
         let _ = fs::remove_dir_all(root);
     }
 }

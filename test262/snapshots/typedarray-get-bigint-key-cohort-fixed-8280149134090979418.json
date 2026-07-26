@@ -1,0 +1,81 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8280149134090979418,
+  "run_kind": "full",
+  "total": 7,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-canonical-index.js",
+      "duration_ms": 54455
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-symbol.js",
+      "duration_ms": 49931
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index-get-throws.js",
+      "duration_ms": 48711
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-out-of-bounds.js",
+      "duration_ms": 48160
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index.js",
+      "duration_ms": 48030
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-minus-zero.js",
+      "duration_ms": 47621
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-integer.js",
+      "duration_ms": 47606
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index-get-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-out-of-bounds.js",
+    "built-ins/TypedArrayConstructors/internals/Get/BigInt/key-is-symbol.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

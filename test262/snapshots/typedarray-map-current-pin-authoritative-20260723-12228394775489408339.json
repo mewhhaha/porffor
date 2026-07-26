@@ -1,0 +1,134 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12228394775489408339,
+  "run_kind": "resume-case-checkpoint",
+  "total": 20,
+  "passed": 17,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 3,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 17
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-returns-another-instance.js",
+      "duration_ms": 76613
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-returns-throws.js",
+      "duration_ms": 72815
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-throws.js",
+      "duration_ms": 72390
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species.js",
+      "duration_ms": 68146
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-abrupt.js",
+      "duration_ms": 66810
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws.js",
+      "duration_ms": 65378
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-returns-throws.js",
+      "duration_ms": 65326
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length.js",
+      "duration_ms": 64200
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor.js",
+      "duration_ms": 63611
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-inherited.js",
+      "duration_ms": 63528
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-grow.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-shrink.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-abrupt.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-inherited.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-ctor-returns-throws.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-ctor.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-abrupt.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-invocation.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-returns-another-instance.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-throws.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-returns-throws.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species-use-default-ctor.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-get-species.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-grow.js",
+    "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-shrink.js",
+    "built-ins/TypedArray/prototype/map/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/map/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/map/values-are-not-cached.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

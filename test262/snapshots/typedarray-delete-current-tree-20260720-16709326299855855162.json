@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16709326299855855162,
+  "run_kind": "full",
+  "total": 39,
+  "passed": 39,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 39
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-ab-non-strict.js",
+      "duration_ms": 54624
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/key-is-symbol.js",
+      "duration_ms": 54531
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/key-is-out-of-bounds-non-strict.js",
+      "duration_ms": 53946
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-ab-strict.js",
+      "duration_ms": 46235
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-out-of-bounds-non-strict.js",
+      "duration_ms": 44680
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-symbol.js",
+      "duration_ms": 43911
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/key-is-out-of-bounds-strict.js",
+      "duration_ms": 43907
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-ab-non-strict.js",
+      "duration_ms": 43051
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-ab-strict.js",
+      "duration_ms": 40758
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-out-of-bounds-strict.js",
+      "duration_ms": 40299
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/detached-buffer-key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-ab-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-ab-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/infinity-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-canonical-index-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-canonical-index-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-minus-zero-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-minus-zero-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-numeric-index-get-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-numeric-index-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-not-numeric-index-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-out-of-bounds-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-out-of-bounds-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/detached-buffer-key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-ab-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-ab-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/infinity-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-canonical-index-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-canonical-index-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-minus-zero-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-minus-zero-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-numeric-index-get-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-numeric-index-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-not-numeric-index-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-out-of-bounds-non-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-out-of-bounds-strict.js",
+    "built-ins/TypedArrayConstructors/internals/Delete/key-is-symbol.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -21,6 +21,7 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) length_name_configurable: bool,
     pub(crate) wasm_index: u32,
     pub(crate) table_index: u32,
+    pub(crate) execution_kind: FunctionExecutionKind,
     pub(crate) constructable: bool,
     pub(crate) strict: bool,
     pub(crate) is_named_expression: bool,
@@ -39,6 +40,15 @@ pub(crate) struct WasmFunctionMeta {
 }
 
 impl WasmFunctionMeta {
+    pub(crate) fn runtime_name(&self) -> &str {
+        if self.class_kind != ClassFunctionKind::Method {
+            return self.name.as_str();
+        }
+        self.name
+            .split_once('.')
+            .map_or(self.name.as_str(), |(_, method_name)| method_name)
+    }
+
     pub(crate) const fn has_class_execution_context(&self) -> bool {
         !matches!(self.class_kind, ClassFunctionKind::None)
             || !matches!(
@@ -58,11 +68,48 @@ impl WasmFunctionMeta {
 mod tests {
     use super::*;
     use porffor_front::{parse, ParseOptions};
-    use porffor_ir::lower;
+    use porffor_ir::{lower, BigIntLiteralIr};
 
     fn lower_script(source: &str) -> ScriptIr {
         let parsed = parse(source, ParseOptions::script()).expect("script should parse");
         lower(&parsed).script.expect("script should lower")
+    }
+
+    #[test]
+    fn heap_bigint_literals_require_the_emitted_result_tag() {
+        let literal = ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(1_u64 << 63));
+
+        assert!(expr_result_tag_is_runtime_dynamic(&literal));
+    }
+
+    #[test]
+    fn to_bigint_operations_require_the_emitted_result_tag() {
+        let conversion = ExprIr::SpecOperation {
+            operation: SpecOperationIr::ToBigInt,
+            operands: vec![TypedExpr::undefined()],
+        };
+
+        assert!(expr_result_tag_is_runtime_dynamic(&conversion));
+    }
+
+    #[test]
+    fn materialized_bindings_preserve_dynamic_body_tags() {
+        let body = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::BigInt),
+            ExprIr::CallIndirect {
+                callee: Box::new(TypedExpr::undefined()),
+                this_arg: None,
+                args: Vec::new(),
+                static_regexp_compilation: None,
+            },
+        );
+        let materialized = ExprIr::MaterializeBinding {
+            name: "__materialized".to_string(),
+            value: Box::new(TypedExpr::undefined()),
+            body: Box::new(body),
+        };
+
+        assert!(expr_result_tag_is_runtime_dynamic(&materialized));
     }
 
     #[test]
@@ -272,16 +319,177 @@ mod tests {
     }
 
     #[test]
-    fn object_constructor_roots_symbol_to_primitive_bootstrap() {
+    fn map_prototype_members_root_the_map_constructor_bootstrap() {
+        for builtin in [
+            StandardBuiltinId::MapGroupBy,
+            StandardBuiltinId::MapPrototypeClear,
+            StandardBuiltinId::MapPrototypeDelete,
+            StandardBuiltinId::MapPrototypeForEach,
+            StandardBuiltinId::MapPrototypeKeys,
+            StandardBuiltinId::MapPrototypeValues,
+            StandardBuiltinId::MapPrototypeEntries,
+            StandardBuiltinId::MapIteratorNext,
+            StandardBuiltinId::MapPrototypeGet,
+            StandardBuiltinId::MapPrototypeGetOrInsert,
+            StandardBuiltinId::MapPrototypeGetOrInsertComputed,
+            StandardBuiltinId::MapPrototypeHas,
+            StandardBuiltinId::MapPrototypeSet,
+            StandardBuiltinId::MapPrototypeSizeGetter,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::MapConstructor));
+        }
+    }
+
+    #[test]
+    fn set_prototype_members_root_the_set_constructor_bootstrap() {
+        for builtin in [
+            StandardBuiltinId::SetPrototypeAdd,
+            StandardBuiltinId::SetPrototypeClear,
+            StandardBuiltinId::SetPrototypeDelete,
+            StandardBuiltinId::SetPrototypeDifference,
+            StandardBuiltinId::SetPrototypeForEach,
+            StandardBuiltinId::SetPrototypeIntersection,
+            StandardBuiltinId::SetPrototypeIsDisjointFrom,
+            StandardBuiltinId::SetPrototypeIsSubsetOf,
+            StandardBuiltinId::SetPrototypeIsSupersetOf,
+            StandardBuiltinId::SetPrototypeSymmetricDifference,
+            StandardBuiltinId::SetPrototypeUnion,
+            StandardBuiltinId::SetPrototypeValues,
+            StandardBuiltinId::SetPrototypeEntries,
+            StandardBuiltinId::SetIteratorNext,
+            StandardBuiltinId::SetPrototypeHas,
+            StandardBuiltinId::SetPrototypeSizeGetter,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::SetConstructor));
+        }
+    }
+
+    #[test]
+    fn set_constructor_roots_sync_iterator_machinery() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::SetConstructor);
+
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::ArrayIteratorNext,
+            StandardBuiltinId::ArrayIteratorIdentity,
+            StandardBuiltinId::StringPrototypeIterator,
+            StandardBuiltinId::StringIteratorNext,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn map_constructor_roots_sync_iterator_machinery() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::MapConstructor);
+
+        assert!(plan.standard_roots.contains(&StandardBuiltinId::MapGroupBy));
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::ArrayIteratorNext,
+            StandardBuiltinId::ArrayIteratorIdentity,
+            StandardBuiltinId::StringPrototypeIterator,
+            StandardBuiltinId::StringIteratorNext,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn typed_array_constructors_root_array_iterator_machinery() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::Uint8ArrayConstructor);
+
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::TypedArrayPrototypeIncludes,
+            StandardBuiltinId::TypedArrayPrototypeIndexOf,
+            StandardBuiltinId::TypedArrayPrototypeLastIndexOf,
+            StandardBuiltinId::TypedArrayPrototypeFind,
+            StandardBuiltinId::TypedArrayPrototypeFindIndex,
+            StandardBuiltinId::TypedArrayPrototypeFindLast,
+            StandardBuiltinId::TypedArrayPrototypeFindLastIndex,
+            StandardBuiltinId::TypedArrayPrototypeEvery,
+            StandardBuiltinId::TypedArrayPrototypeSome,
+            StandardBuiltinId::TypedArrayPrototypeMap,
+            StandardBuiltinId::TypedArrayPrototypeFilter,
+            StandardBuiltinId::TypedArrayPrototypeForEach,
+            StandardBuiltinId::TypedArrayPrototypeReduce,
+            StandardBuiltinId::TypedArrayPrototypeReduceRight,
+            StandardBuiltinId::TypedArrayPrototypeValues,
+            StandardBuiltinId::TypedArrayPrototypeKeys,
+            StandardBuiltinId::TypedArrayPrototypeEntries,
+            StandardBuiltinId::ArrayIteratorNext,
+            StandardBuiltinId::ArrayIteratorIdentity,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn object_constructor_roots_group_by_and_property_key_bootstrap() {
         let mut plan = RuntimeBootstrapPlan::default();
         plan.require_standard_builtin(StandardBuiltinId::ObjectConstructor);
 
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ObjectGroupBy));
         assert!(plan
             .standard_roots
             .contains(&StandardBuiltinId::SymbolPrototypeToPrimitive));
         assert!(plan
             .standard_roots
             .contains(&StandardBuiltinId::SymbolConstructor));
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::ArrayIteratorNext,
+            StandardBuiltinId::ArrayIteratorIdentity,
+            StandardBuiltinId::StringPrototypeIterator,
+            StandardBuiltinId::StringIteratorNext,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn object_constructor_roots_proto_accessor_pair() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ObjectConstructor);
+
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ObjectPrototypeProtoGetter));
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::ObjectPrototypeProtoSetter));
+    }
+
+    #[test]
+    fn object_locale_string_roots_primitive_to_string_methods() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ObjectPrototypeToLocaleString);
+
+        for builtin in [
+            StandardBuiltinId::StringPrototypeToString,
+            StandardBuiltinId::NumberPrototypeToString,
+            StandardBuiltinId::BooleanPrototypeToString,
+            StandardBuiltinId::SymbolPrototypeToString,
+            StandardBuiltinId::BigIntPrototypeToString,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
     }
 
     #[test]
@@ -322,6 +530,36 @@ mod tests {
         assert!(!expr_uses_calls(literal));
         assert!(!expr_uses_function_table(literal));
     }
+
+    #[test]
+    fn wasm_aot_harness_realm_fields_are_the_full_global_bootstrap_roots() {
+        let create_realm = lower_script(
+            "var $262 = { createRealm: function () { return __porfCreateRealm(); } };",
+        );
+        assert!(script_uses_create_realm(&create_realm));
+        assert!(!script_exposes_global_object(&create_realm));
+        assert!(RuntimeBootstrapPlan::from_script(&create_realm, &[]).full_standard_globals);
+
+        let exposed_global = lower_script("var $262 = { global: globalThis };");
+        assert!(!script_uses_create_realm(&exposed_global));
+        assert!(script_exposes_global_object(&exposed_global));
+        assert!(RuntimeBootstrapPlan::from_script(&exposed_global, &[]).full_standard_globals);
+
+        let inactive_realm = lower_script(
+            "var $262 = { global: undefined, createRealm: function () { throw 'inactive'; } };",
+        );
+        assert!(!script_uses_create_realm(&inactive_realm));
+        assert!(!script_exposes_global_object(&inactive_realm));
+        assert!(!RuntimeBootstrapPlan::from_script(&inactive_realm, &[]).full_standard_globals);
+    }
+
+    #[test]
+    fn top_level_this_requires_the_full_global_bootstrap() {
+        let script = lower_script(r#"Object.getOwnPropertyDescriptor(this, "BigInt64Array");"#);
+
+        assert_eq!(script.top_level_this_uses, 1);
+        assert!(RuntimeBootstrapPlan::from_script(&script, &[]).full_standard_globals);
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -340,8 +578,11 @@ impl RuntimeBootstrapPlan {
         compiled_standard_builtins: &[StandardBuiltinId],
     ) -> Self {
         let mut plan = Self::default();
-        plan.full_standard_globals =
-            script_uses_create_realm(script) || script_exposes_global_object(script);
+        // Script-level `this` is the global object and can flow through calls
+        // whose reflected property names are not visible to static planning.
+        plan.full_standard_globals = script.top_level_this_uses > 0
+            || script_uses_create_realm(script)
+            || script_exposes_global_object(script);
         for builtin in compiled_standard_builtins {
             plan.require_standard_builtin(*builtin);
         }
@@ -353,6 +594,13 @@ impl RuntimeBootstrapPlan {
             {
                 plan.require_script_global_binding(binding.kind);
             }
+        }
+        if script
+            .functions
+            .iter()
+            .any(|function| function.execution_kind == FunctionExecutionKind::Async)
+        {
+            plan.require_standard_builtin(StandardBuiltinId::PromiseConstructor);
         }
         plan.require_foundational_roots();
         plan
@@ -435,6 +683,65 @@ impl RuntimeBootstrapPlan {
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
+        if builtin == StandardBuiltinId::ArrayFromAsync {
+            self.standard_roots
+                .insert(StandardBuiltinId::ArrayConstructor);
+            for dependency in [
+                StandardBuiltinId::ArrayFromAsyncFulfilled,
+                StandardBuiltinId::ArrayFromAsyncRejected,
+                StandardBuiltinId::PromiseResolve,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
+        }
+        if is_typed_array_constructor(builtin) {
+            for iterator_builtin in [
+                StandardBuiltinId::ArrayPrototypeValues,
+                StandardBuiltinId::TypedArrayPrototypeIncludes,
+                StandardBuiltinId::TypedArrayPrototypeIndexOf,
+                StandardBuiltinId::TypedArrayPrototypeLastIndexOf,
+                StandardBuiltinId::TypedArrayPrototypeFind,
+                StandardBuiltinId::TypedArrayPrototypeFindIndex,
+                StandardBuiltinId::TypedArrayPrototypeFindLast,
+                StandardBuiltinId::TypedArrayPrototypeFindLastIndex,
+                StandardBuiltinId::TypedArrayPrototypeEvery,
+                StandardBuiltinId::TypedArrayPrototypeSome,
+                StandardBuiltinId::TypedArrayPrototypeMap,
+                StandardBuiltinId::TypedArrayPrototypeFilter,
+                StandardBuiltinId::TypedArrayPrototypeForEach,
+                StandardBuiltinId::TypedArrayPrototypeReduce,
+                StandardBuiltinId::TypedArrayPrototypeReduceRight,
+                StandardBuiltinId::TypedArrayPrototypeValues,
+                StandardBuiltinId::TypedArrayPrototypeKeys,
+                StandardBuiltinId::TypedArrayPrototypeEntries,
+                StandardBuiltinId::ArrayIteratorNext,
+                StandardBuiltinId::ArrayIteratorIdentity,
+            ] {
+                self.require_standard_builtin(iterator_builtin);
+            }
+        }
+        if builtin == StandardBuiltinId::ObjectConstructor {
+            self.require_standard_builtin(StandardBuiltinId::ObjectGroupBy);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::MapConstructor
+                | StandardBuiltinId::SetConstructor
+                | StandardBuiltinId::ObjectGroupBy
+        ) {
+            if builtin == StandardBuiltinId::MapConstructor {
+                self.require_standard_builtin(StandardBuiltinId::MapGroupBy);
+            }
+            for iterator_builtin in [
+                StandardBuiltinId::ArrayPrototypeValues,
+                StandardBuiltinId::ArrayIteratorNext,
+                StandardBuiltinId::ArrayIteratorIdentity,
+                StandardBuiltinId::StringPrototypeIterator,
+                StandardBuiltinId::StringIteratorNext,
+            ] {
+                self.require_standard_builtin(iterator_builtin);
+            }
+        }
         if builtin.string_prototype_method_name().is_some()
             || matches!(
                 builtin,
@@ -462,6 +769,24 @@ impl RuntimeBootstrapPlan {
                 | StandardBuiltinId::ArrayPrototypeFlat
                 | StandardBuiltinId::ArrayPrototypeFlatMap
                 | StandardBuiltinId::ArrayPrototypeAt
+                | StandardBuiltinId::TypedArrayPrototypeAt
+                | StandardBuiltinId::TypedArrayPrototypeIncludes
+                | StandardBuiltinId::TypedArrayPrototypeIndexOf
+                | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
+                | StandardBuiltinId::TypedArrayPrototypeFind
+                | StandardBuiltinId::TypedArrayPrototypeFindIndex
+                | StandardBuiltinId::TypedArrayPrototypeFindLast
+                | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
+                | StandardBuiltinId::TypedArrayPrototypeEvery
+                | StandardBuiltinId::TypedArrayPrototypeSome
+                | StandardBuiltinId::TypedArrayPrototypeMap
+                | StandardBuiltinId::TypedArrayPrototypeFilter
+                | StandardBuiltinId::TypedArrayPrototypeForEach
+                | StandardBuiltinId::TypedArrayPrototypeReduce
+                | StandardBuiltinId::TypedArrayPrototypeReduceRight
+                | StandardBuiltinId::TypedArrayPrototypeValues
+                | StandardBuiltinId::TypedArrayPrototypeKeys
+                | StandardBuiltinId::TypedArrayPrototypeEntries
                 | StandardBuiltinId::ArrayPrototypeToReversed
                 | StandardBuiltinId::ArrayPrototypeToSpliced
                 | StandardBuiltinId::ArrayPrototypeToSorted
@@ -519,12 +844,31 @@ impl RuntimeBootstrapPlan {
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
         }
         match builtin {
+            StandardBuiltinId::ObjectGroupBy => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::ObjectConstructor);
+            }
             StandardBuiltinId::ObjectConstructor => {
                 // Object boxing can expose a Symbol wrapper to ToPrimitive.
                 // Keep the real Symbol.prototype @@toPrimitive installed so
                 // the default hook (and any own-property override) remains
                 // observable through dynamic lookup.
                 self.require_standard_builtin(StandardBuiltinId::SymbolPrototypeToPrimitive);
+                self.require_standard_builtin(StandardBuiltinId::ObjectPrototypeProtoGetter);
+                self.require_standard_builtin(StandardBuiltinId::ObjectPrototypeProtoSetter);
+            }
+            StandardBuiltinId::ObjectPrototypeToLocaleString => {
+                // Invoke(this, "toString") can resolve through any primitive
+                // prototype without a statically visible method call.
+                for builtin in [
+                    StandardBuiltinId::StringPrototypeToString,
+                    StandardBuiltinId::NumberPrototypeToString,
+                    StandardBuiltinId::BooleanPrototypeToString,
+                    StandardBuiltinId::SymbolPrototypeToString,
+                    StandardBuiltinId::BigIntPrototypeToString,
+                ] {
+                    self.require_standard_builtin(builtin);
+                }
             }
             StandardBuiltinId::ReflectConstruct
             | StandardBuiltinId::ReflectApply
@@ -632,6 +976,145 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::BooleanPrototypeValueOf => {
                 self.standard_roots
                     .insert(StandardBuiltinId::BooleanConstructor);
+            }
+            StandardBuiltinId::PromiseConstructor
+            | StandardBuiltinId::PromisePrototypeThen
+            | StandardBuiltinId::PromisePrototypeCatch
+            | StandardBuiltinId::PromisePrototypeFinally
+            | StandardBuiltinId::PromiseThenFinally
+            | StandardBuiltinId::PromiseCatchFinally
+            | StandardBuiltinId::PromiseValueThunk
+            | StandardBuiltinId::PromiseThrower
+            | StandardBuiltinId::PromiseSpeciesGetter
+            | StandardBuiltinId::PromiseResolve
+            | StandardBuiltinId::PromiseWithResolvers
+            | StandardBuiltinId::PromiseTry
+            | StandardBuiltinId::PromiseReject
+            | StandardBuiltinId::PromiseAll
+            | StandardBuiltinId::PromiseAllSettled
+            | StandardBuiltinId::PromiseAllKeyed
+            | StandardBuiltinId::PromiseAllSettledKeyed
+            | StandardBuiltinId::PromiseAny
+            | StandardBuiltinId::PromiseRace
+            | StandardBuiltinId::ArrayFromAsync
+            | StandardBuiltinId::AsyncGeneratorPrototypeNext
+            | StandardBuiltinId::AsyncGeneratorPrototypeReturn
+            | StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::PromiseConstructor);
+                self.standard_roots
+                    .insert(StandardBuiltinId::PromiseSpeciesGetter);
+                if matches!(
+                    builtin,
+                    StandardBuiltinId::PromisePrototypeThen
+                        | StandardBuiltinId::PromisePrototypeFinally
+                        | StandardBuiltinId::PromiseThenFinally
+                        | StandardBuiltinId::PromiseCatchFinally
+                        | StandardBuiltinId::PromiseResolve
+                        | StandardBuiltinId::PromiseWithResolvers
+                        | StandardBuiltinId::PromiseTry
+                        | StandardBuiltinId::PromiseReject
+                        | StandardBuiltinId::PromiseAll
+                        | StandardBuiltinId::PromiseAllSettled
+                        | StandardBuiltinId::PromiseAllKeyed
+                        | StandardBuiltinId::PromiseAllSettledKeyed
+                        | StandardBuiltinId::PromiseAny
+                        | StandardBuiltinId::PromiseRace
+                        | StandardBuiltinId::ArrayFromAsync
+                        | StandardBuiltinId::AsyncGeneratorPrototypeNext
+                        | StandardBuiltinId::AsyncGeneratorPrototypeReturn
+                        | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+                ) {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseCapabilityExecutor);
+                }
+                if builtin == StandardBuiltinId::PromiseAll {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllResolveElement);
+                }
+                if builtin == StandardBuiltinId::PromiseAllSettled {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllSettledResolveElement);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllSettledRejectElement);
+                }
+                if builtin == StandardBuiltinId::PromiseAny {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAnyRejectElement);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AggregateErrorConstructor);
+                }
+                if builtin == StandardBuiltinId::PromiseAllKeyed {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllKeyedResolveElement);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::ReflectOwnKeys);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+                }
+                if builtin == StandardBuiltinId::PromiseAllSettledKeyed {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllSettledKeyedResolveElement);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseAllSettledKeyedRejectElement);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::ReflectOwnKeys);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+                }
+                if matches!(
+                    builtin,
+                    StandardBuiltinId::PromisePrototypeFinally
+                        | StandardBuiltinId::PromiseThenFinally
+                        | StandardBuiltinId::PromiseCatchFinally
+                ) {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseThenFinally);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseCatchFinally);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseValueThunk);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseThrower);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseResolve);
+                }
+            }
+            StandardBuiltinId::MapGroupBy
+            | StandardBuiltinId::MapPrototypeClear
+            | StandardBuiltinId::MapPrototypeDelete
+            | StandardBuiltinId::MapPrototypeForEach
+            | StandardBuiltinId::MapPrototypeKeys
+            | StandardBuiltinId::MapPrototypeValues
+            | StandardBuiltinId::MapPrototypeEntries
+            | StandardBuiltinId::MapIteratorNext
+            | StandardBuiltinId::MapPrototypeGet
+            | StandardBuiltinId::MapPrototypeGetOrInsert
+            | StandardBuiltinId::MapPrototypeGetOrInsertComputed
+            | StandardBuiltinId::MapPrototypeHas
+            | StandardBuiltinId::MapPrototypeSet
+            | StandardBuiltinId::MapPrototypeSizeGetter => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::MapConstructor);
+            }
+            StandardBuiltinId::SetPrototypeAdd
+            | StandardBuiltinId::SetPrototypeClear
+            | StandardBuiltinId::SetPrototypeDelete
+            | StandardBuiltinId::SetPrototypeDifference
+            | StandardBuiltinId::SetPrototypeForEach
+            | StandardBuiltinId::SetPrototypeIntersection
+            | StandardBuiltinId::SetPrototypeIsDisjointFrom
+            | StandardBuiltinId::SetPrototypeIsSubsetOf
+            | StandardBuiltinId::SetPrototypeIsSupersetOf
+            | StandardBuiltinId::SetPrototypeSymmetricDifference
+            | StandardBuiltinId::SetPrototypeUnion
+            | StandardBuiltinId::SetPrototypeValues
+            | StandardBuiltinId::SetPrototypeEntries
+            | StandardBuiltinId::SetIteratorNext
+            | StandardBuiltinId::SetPrototypeHas
+            | StandardBuiltinId::SetPrototypeSizeGetter => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::SetConstructor);
             }
             StandardBuiltinId::SymbolFor
             | StandardBuiltinId::SymbolKeyFor
@@ -792,8 +1275,17 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
             | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
             | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+            | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
             | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayPrototypeSubarray
+            | StandardBuiltinId::TypedArrayPrototypeSlice
+            | StandardBuiltinId::TypedArrayPrototypeSet
+            | StandardBuiltinId::TypedArrayPrototypeReverse
+            | StandardBuiltinId::TypedArrayPrototypeSort
+            | StandardBuiltinId::TypedArrayPrototypeToReversed
+            | StandardBuiltinId::TypedArrayPrototypeToSorted
+            | StandardBuiltinId::TypedArrayPrototypeWith
             | StandardBuiltinId::TypedArrayFrom
             | StandardBuiltinId::TypedArrayOf => {
                 self.standard_roots
@@ -845,7 +1337,26 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => expr_exposes_global_object(init),
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            expr_exposes_global_object(value)
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty { target, .. }
+                        if expr_exposes_global_object(target)
+                )
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty {
+                        key: PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr),
+                        ..
+                    } if expr_exposes_global_object(expr)
+                )
+        }
+        StatementIr::AsyncAwait { value, .. } => expr_exposes_global_object(value),
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_exposes_global_object)
         }
         StatementIr::Var(declarators) => declarators.iter().any(|declarator| {
@@ -880,6 +1391,42 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 || test.as_ref().is_some_and(expr_exposes_global_object)
                 || update.as_ref().is_some_and(expr_exposes_global_object)
                 || statement_exposes_global_object(body)
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            init.as_ref().is_some_and(for_init_exposes_global_object)
+                || test.as_ref().is_some_and(expr_exposes_global_object)
+                || update.as_ref().is_some_and(expr_exposes_global_object)
+                || before_yield.iter().any(statement_exposes_global_object)
+                || statement_exposes_global_object(yield_statement)
+                || after_yield.iter().any(statement_exposes_global_object)
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            expr_exposes_global_object(condition)
+                || then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                    .any(statement_exposes_global_object)
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
@@ -927,6 +1474,7 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => block_exposes_global_object(try_block) || block_exposes_global_object(finally_block),
         StatementIr::TryCatchFinally {
             try_block,
@@ -1196,7 +1744,18 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => collect_expr_global_property_names(init, names),
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            if let GeneratorResumeModeIr::AssignProperty { target, key } = resume_mode {
+                collect_expr_global_property_names(target, names);
+                collect_property_key_global_property_names(key, names);
+            }
+            collect_expr_global_property_names(value, names)
+        }
+        StatementIr::AsyncAwait { value, .. } => collect_expr_global_property_names(value, names),
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             for statement in statements {
                 collect_statement_global_property_names(statement, names);
             }
@@ -1241,6 +1800,54 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
                 collect_expr_global_property_names(update, names);
             }
             collect_statement_global_property_names(body, names);
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            if let Some(init) = init {
+                collect_for_init_global_property_names(init, names);
+            }
+            if let Some(test) = test {
+                collect_expr_global_property_names(test, names);
+            }
+            if let Some(update) = update {
+                collect_expr_global_property_names(update, names);
+            }
+            for statement in before_yield {
+                collect_statement_global_property_names(statement, names);
+            }
+            collect_statement_global_property_names(yield_statement, names);
+            for statement in after_yield {
+                collect_statement_global_property_names(statement, names);
+            }
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            collect_expr_global_property_names(condition, names);
+            for statement in then_before_yield
+                .iter()
+                .chain(then_yield_statement.as_deref())
+                .chain(then_after_yield)
+                .chain(else_before_yield)
+                .chain(else_yield_statement.as_deref())
+                .chain(else_after_yield)
+            {
+                collect_statement_global_property_names(statement, names);
+            }
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
@@ -1297,6 +1904,7 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => {
             collect_block_global_property_names(try_block, names);
             collect_block_global_property_names(finally_block, names);
@@ -1497,8 +2105,40 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                         DestructuringTargetIr::NestedArray(pattern) => {
                             collect_assignment_globals(pattern, names)
                         }
+                        DestructuringTargetIr::NestedObject(pattern) => {
+                            for property in &pattern.properties {
+                                collect_target_globals(&property.target, names);
+                            }
+                            if let Some(rest) = &pattern.rest {
+                                collect_target_globals(rest, names);
+                            }
+                        }
                         _ => {}
                     }
+                }
+            }
+            fn collect_target_globals(
+                target: &DestructuringTargetIr,
+                names: &mut BTreeSet<String>,
+            ) {
+                match target {
+                    DestructuringTargetIr::AssignmentIdentifier {
+                        name, global: true, ..
+                    } => {
+                        names.insert(name.clone());
+                    }
+                    DestructuringTargetIr::NestedArray(pattern) => {
+                        collect_assignment_globals(pattern, names)
+                    }
+                    DestructuringTargetIr::NestedObject(pattern) => {
+                        for property in &pattern.properties {
+                            collect_target_globals(&property.target, names);
+                        }
+                        if let Some(rest) = &pattern.rest {
+                            collect_target_globals(rest, names);
+                        }
+                    }
+                    _ => {}
                 }
             }
             collect_assignment_globals(pattern, names);
@@ -1525,6 +2165,14 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                                     collect_target_globals(target, names);
                                 }
                             }
+                        }
+                    }
+                    DestructuringTargetIr::NestedObject(pattern) => {
+                        for property in &pattern.properties {
+                            collect_target_globals(&property.target, names);
+                        }
+                        if let Some(rest) = &pattern.rest {
+                            collect_target_globals(rest, names);
                         }
                     }
                     _ => {}
@@ -1677,6 +2325,17 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if script_references_standard_builtin(script, builtin) {
         return false;
     }
+    if matches!(
+        builtin,
+        StandardBuiltinId::GeneratorPrototypeNext
+            | StandardBuiltinId::GeneratorPrototypeReturn
+            | StandardBuiltinId::GeneratorPrototypeThrow
+            | StandardBuiltinId::AsyncGeneratorPrototypeNext
+            | StandardBuiltinId::AsyncGeneratorPrototypeReturn
+            | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+    ) {
+        return false;
+    }
     if builtin == StandardBuiltinId::StringPrototypeIndexOf
         && script_references_standard_builtin(script, StandardBuiltinId::StringPrototypeMatch)
     {
@@ -1718,10 +2377,25 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
         || builtin == StandardBuiltinId::ArrayIteratorIdentity)
         && [
             StandardBuiltinId::ArrayFrom,
+            StandardBuiltinId::ArrayFromAsync,
             StandardBuiltinId::TypedArrayFrom,
             StandardBuiltinId::ArrayPrototypeKeys,
             StandardBuiltinId::ArrayPrototypeEntries,
             StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::TypedArrayPrototypeFind,
+            StandardBuiltinId::TypedArrayPrototypeFindIndex,
+            StandardBuiltinId::TypedArrayPrototypeFindLast,
+            StandardBuiltinId::TypedArrayPrototypeFindLastIndex,
+            StandardBuiltinId::TypedArrayPrototypeEvery,
+            StandardBuiltinId::TypedArrayPrototypeSome,
+            StandardBuiltinId::TypedArrayPrototypeMap,
+            StandardBuiltinId::TypedArrayPrototypeFilter,
+            StandardBuiltinId::TypedArrayPrototypeForEach,
+            StandardBuiltinId::TypedArrayPrototypeReduce,
+            StandardBuiltinId::TypedArrayPrototypeReduceRight,
+            StandardBuiltinId::TypedArrayPrototypeKeys,
+            StandardBuiltinId::TypedArrayPrototypeEntries,
+            StandardBuiltinId::TypedArrayPrototypeValues,
             StandardBuiltinId::IteratorFrom,
             StandardBuiltinId::IteratorZip,
             StandardBuiltinId::IteratorPrototypeToArray,
@@ -1749,6 +2423,7 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
     if builtin == StandardBuiltinId::ArrayPrototypeValues
         && [
             StandardBuiltinId::ArrayFrom,
+            StandardBuiltinId::ArrayFromAsync,
             StandardBuiltinId::TypedArrayFrom,
             StandardBuiltinId::IteratorFrom,
             StandardBuiltinId::IteratorZip,
@@ -1832,6 +2507,7 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::AtomicsXor
                 | StandardBuiltinId::AtomicsIsLockFree
                 | StandardBuiltinId::ArrayFrom
+                | StandardBuiltinId::ArrayFromAsync
                 | StandardBuiltinId::ArrayOf
                 | StandardBuiltinId::ArrayPrototypeConcat
                 | StandardBuiltinId::ArrayPrototypeJoin
@@ -1856,6 +2532,23 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::ArrayPrototypeKeys
                 | StandardBuiltinId::ArrayPrototypeEntries
                 | StandardBuiltinId::ArrayPrototypeValues
+                | StandardBuiltinId::TypedArrayPrototypeIncludes
+                | StandardBuiltinId::TypedArrayPrototypeIndexOf
+                | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
+                | StandardBuiltinId::TypedArrayPrototypeFind
+                | StandardBuiltinId::TypedArrayPrototypeFindIndex
+                | StandardBuiltinId::TypedArrayPrototypeFindLast
+                | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
+                | StandardBuiltinId::TypedArrayPrototypeEvery
+                | StandardBuiltinId::TypedArrayPrototypeSome
+                | StandardBuiltinId::TypedArrayPrototypeMap
+                | StandardBuiltinId::TypedArrayPrototypeFilter
+                | StandardBuiltinId::TypedArrayPrototypeForEach
+                | StandardBuiltinId::TypedArrayPrototypeReduce
+                | StandardBuiltinId::TypedArrayPrototypeReduceRight
+                | StandardBuiltinId::TypedArrayPrototypeKeys
+                | StandardBuiltinId::TypedArrayPrototypeEntries
+                | StandardBuiltinId::TypedArrayPrototypeValues
                 | StandardBuiltinId::ArrayIteratorNext
                 | StandardBuiltinId::ArrayIteratorIdentity
                 | StandardBuiltinId::ArrayBufferConstructor
@@ -1883,8 +2576,17 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
                 | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
                 | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+                | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
                 | StandardBuiltinId::TypedArrayPrototypeToString
                 | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+                | StandardBuiltinId::TypedArrayPrototypeSubarray
+                | StandardBuiltinId::TypedArrayPrototypeSlice
+                | StandardBuiltinId::TypedArrayPrototypeSet
+                | StandardBuiltinId::TypedArrayPrototypeReverse
+                | StandardBuiltinId::TypedArrayPrototypeSort
+                | StandardBuiltinId::TypedArrayPrototypeToReversed
+                | StandardBuiltinId::TypedArrayPrototypeToSorted
+                | StandardBuiltinId::TypedArrayPrototypeWith
                 | StandardBuiltinId::TypedArrayFrom
                 | StandardBuiltinId::TypedArrayOf
                 | StandardBuiltinId::DataViewPrototypeGetUint8
@@ -2077,7 +2779,39 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => expr_references_function(init, target),
-        StatementIr::LexicalBlock(statements) => statements
+        StatementIr::GeneratorYield {
+            value,
+            delegate,
+            resume_mode,
+            ..
+        } => {
+            expr_references_function(value, target)
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty {
+                        target: assignment_target,
+                        ..
+                    } if expr_references_function(assignment_target, target)
+                )
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty { key, .. }
+                        if property_key_references_function(key, target)
+                )
+                || (*delegate
+                    && [
+                        StandardBuiltinId::ArrayPrototypeValues,
+                        StandardBuiltinId::ArrayIteratorNext,
+                        StandardBuiltinId::ArrayIteratorIdentity,
+                        StandardBuiltinId::StringPrototypeIterator,
+                        StandardBuiltinId::StringIteratorNext,
+                    ]
+                    .into_iter()
+                    .any(|builtin| builtin.function_id() == target.as_str()))
+        }
+        StatementIr::AsyncAwait { value, .. } => expr_references_function(value, target),
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => statements
             .iter()
             .any(|statement| statement_references_function(statement, target)),
         StatementIr::Var(declarators) => declarators.iter().any(|declarator| {
@@ -2118,6 +2852,51 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .as_ref()
                     .is_some_and(|update| expr_references_function(update, target))
                 || statement_references_function(body, target)
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            init.as_ref()
+                .is_some_and(|init| for_init_references_function(init, target))
+                || test
+                    .as_ref()
+                    .is_some_and(|test| expr_references_function(test, target))
+                || update
+                    .as_ref()
+                    .is_some_and(|update| expr_references_function(update, target))
+                || before_yield
+                    .iter()
+                    .any(|statement| statement_references_function(statement, target))
+                || statement_references_function(yield_statement, target)
+                || after_yield
+                    .iter()
+                    .any(|statement| statement_references_function(statement, target))
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            expr_references_function(condition, target)
+                || then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                    .any(|statement| statement_references_function(statement, target))
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
@@ -2172,6 +2951,7 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => {
             block_references_function(try_block, target)
                 || block_references_function(finally_block, target)
@@ -2342,33 +3122,41 @@ pub(crate) fn optimized_call_method_references_function(
     }
     if name == "includes" {
         return StandardBuiltinId::ArrayPrototypeIncludes.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target;
     }
     if name == "indexOf" {
         return StandardBuiltinId::ArrayPrototypeIndexOf.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeIndexOf.function_id() == *target
             || StandardBuiltinId::StringPrototypeIndexOf.function_id() == *target;
     }
     if name == "lastIndexOf" {
         return StandardBuiltinId::ArrayPrototypeLastIndexOf.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeLastIndexOf.function_id() == *target
             || StandardBuiltinId::StringPrototypeLastIndexOf.function_id() == *target;
     }
     if name == "find" {
         return StandardBuiltinId::ArrayPrototypeFind.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFind.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeFind.function_id() == *target;
     }
     if name == "reduce" {
         return StandardBuiltinId::ArrayPrototypeReduce.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeReduce.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeReduce.function_id() == *target;
     }
     if name == "reduceRight" {
-        return StandardBuiltinId::ArrayPrototypeReduceRight.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeReduceRight.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeReduceRight.function_id() == *target;
     }
     if name == "map" {
         return StandardBuiltinId::ArrayPrototypeMap.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeMap.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeMap.function_id() == *target;
     }
     if name == "filter" {
         return StandardBuiltinId::ArrayPrototypeFilter.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFilter.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeFilter.function_id() == *target;
     }
     if name == "flatMap" {
@@ -2385,28 +3173,35 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::IteratorZip.function_id() == *target;
     }
     if name == "findIndex" {
-        return StandardBuiltinId::ArrayPrototypeFindIndex.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFindIndex.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFindIndex.function_id() == *target;
     }
     if name == "findLast" {
-        return StandardBuiltinId::ArrayPrototypeFindLast.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFindLast.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFindLast.function_id() == *target;
     }
     if name == "findLastIndex" {
-        return StandardBuiltinId::ArrayPrototypeFindLastIndex.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFindLastIndex.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFindLastIndex.function_id() == *target;
     }
     if name == "every" {
         return StandardBuiltinId::ArrayPrototypeEvery.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeEvery.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeEvery.function_id() == *target;
     }
     if name == "some" {
         return StandardBuiltinId::ArrayPrototypeSome.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeSome.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeSome.function_id() == *target;
     }
     if name == "forEach" {
         return StandardBuiltinId::ArrayPrototypeForEach.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeForEach.function_id() == *target
             || StandardBuiltinId::IteratorPrototypeForEach.function_id() == *target;
     }
     if name == "at" {
         return StandardBuiltinId::ArrayPrototypeAt.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeAt.function_id() == *target
             || StandardBuiltinId::StringPrototypeAt.function_id() == *target;
     }
     if name == "toReversed" {
@@ -2442,7 +3237,20 @@ pub(crate) fn optimized_call_method_references_function(
     }
     if name == "Symbol.iterator" {
         return StandardBuiltinId::ArrayPrototypeValues.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeValues.function_id() == *target
             || StandardBuiltinId::StringPrototypeIterator.function_id() == *target;
+    }
+    if name == "values" {
+        return StandardBuiltinId::ArrayPrototypeValues.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeValues.function_id() == *target;
+    }
+    if name == "keys" {
+        return StandardBuiltinId::ArrayPrototypeKeys.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeKeys.function_id() == *target;
+    }
+    if name == "entries" {
+        return StandardBuiltinId::ArrayPrototypeEntries.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeEntries.function_id() == *target;
     }
     if name == "next" {
         return StandardBuiltinId::ArrayIteratorNext.function_id() == *target
@@ -2463,6 +3271,7 @@ pub(crate) fn optimized_call_method_references_function(
         "shift" => StandardBuiltinId::ArrayPrototypeShift,
         "unshift" => StandardBuiltinId::ArrayPrototypeUnshift,
         "from" => StandardBuiltinId::ArrayFrom,
+        "fromAsync" => StandardBuiltinId::ArrayFromAsync,
         "of" => StandardBuiltinId::ArrayOf,
         "at" => StandardBuiltinId::ArrayPrototypeAt,
         "toReversed" => StandardBuiltinId::ArrayPrototypeToReversed,
@@ -2549,6 +3358,10 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             operands
                 .iter()
                 .any(|operand| expr_references_function(operand, target))
+                || matches!(operation, SpecOperationIr::CopyDataProperties)
+                    && (*target == StandardBuiltinId::ReflectOwnKeys.function_id()
+                        || *target
+                            == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id())
                 || matches!(
                     operation,
                     SpecOperationIr::Get | SpecOperationIr::GetV | SpecOperationIr::GetMethod
@@ -2913,6 +3726,7 @@ pub(crate) fn build_function_metas(
                 length_name_configurable: true,
                 wasm_index: imported_function_count + 1 + callable_index,
                 table_index: callable_index,
+                execution_kind: function.execution_kind,
                 constructable: function.constructable,
                 strict: function.strict,
                 is_named_expression: function.is_named_expression,
@@ -2959,6 +3773,7 @@ pub(crate) fn build_function_metas(
             length_name_configurable: !matches!(builtin, StandardBuiltinId::ThrowTypeError),
             wasm_index: imported_function_count + 1 + callable_index,
             table_index: callable_index,
+            execution_kind: FunctionExecutionKind::Ordinary,
             constructable: builtin.constructable(),
             strict: true,
             is_named_expression: false,
@@ -2985,6 +3800,7 @@ pub(crate) fn build_function_metas(
         length_name_configurable: true,
         wasm_index: imported_function_count + 1 + callable_index,
         table_index: callable_index,
+        execution_kind: FunctionExecutionKind::Ordinary,
         constructable: false,
         strict: true,
         is_named_expression: false,
@@ -3076,8 +3892,66 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
     match builtin {
         StandardBuiltinId::FunctionConstructor => 1,
         StandardBuiltinId::PromiseConstructor
+        | StandardBuiltinId::PromiseResolve
+        | StandardBuiltinId::PromiseTry
+        | StandardBuiltinId::PromiseReject
+        | StandardBuiltinId::PromiseAll
+        | StandardBuiltinId::PromiseAllSettled
+        | StandardBuiltinId::PromiseAllKeyed
+        | StandardBuiltinId::PromiseAllSettledKeyed
+        | StandardBuiltinId::PromiseAny
+        | StandardBuiltinId::PromiseRace
+        | StandardBuiltinId::PromiseAllResolveElement
+        | StandardBuiltinId::PromiseAllSettledResolveElement
+        | StandardBuiltinId::PromiseAllSettledRejectElement
+        | StandardBuiltinId::PromiseAnyRejectElement
+        | StandardBuiltinId::PromiseAllKeyedResolveElement
+        | StandardBuiltinId::PromiseAllSettledKeyedResolveElement
+        | StandardBuiltinId::PromiseAllSettledKeyedRejectElement
         | StandardBuiltinId::PromiseResolveFunction
-        | StandardBuiltinId::PromiseRejectFunction => 1,
+        | StandardBuiltinId::PromiseRejectFunction
+        | StandardBuiltinId::PromisePrototypeCatch
+        | StandardBuiltinId::PromisePrototypeFinally
+        | StandardBuiltinId::PromiseThenFinally
+        | StandardBuiltinId::PromiseCatchFinally => 1,
+        StandardBuiltinId::PromiseWithResolvers
+        | StandardBuiltinId::PromiseValueThunk
+        | StandardBuiltinId::PromiseThrower => 0,
+        StandardBuiltinId::PromisePrototypeThen => 2,
+        StandardBuiltinId::PromiseCapabilityExecutor => 2,
+        StandardBuiltinId::MapConstructor
+        | StandardBuiltinId::MapPrototypeClear
+        | StandardBuiltinId::MapPrototypeKeys
+        | StandardBuiltinId::MapPrototypeValues
+        | StandardBuiltinId::MapPrototypeEntries
+        | StandardBuiltinId::MapIteratorNext
+        | StandardBuiltinId::MapPrototypeSizeGetter => 0,
+        StandardBuiltinId::MapPrototypeDelete
+        | StandardBuiltinId::MapPrototypeForEach
+        | StandardBuiltinId::MapPrototypeGet
+        | StandardBuiltinId::MapPrototypeHas => 1,
+        StandardBuiltinId::MapGroupBy
+        | StandardBuiltinId::ObjectGroupBy
+        | StandardBuiltinId::MapPrototypeGetOrInsert
+        | StandardBuiltinId::MapPrototypeGetOrInsertComputed
+        | StandardBuiltinId::MapPrototypeSet => 2,
+        StandardBuiltinId::SetConstructor
+        | StandardBuiltinId::SetPrototypeClear
+        | StandardBuiltinId::SetPrototypeValues
+        | StandardBuiltinId::SetPrototypeEntries
+        | StandardBuiltinId::SetIteratorNext
+        | StandardBuiltinId::SetPrototypeSizeGetter => 0,
+        StandardBuiltinId::SetPrototypeAdd
+        | StandardBuiltinId::SetPrototypeDelete
+        | StandardBuiltinId::SetPrototypeDifference
+        | StandardBuiltinId::SetPrototypeForEach
+        | StandardBuiltinId::SetPrototypeHas
+        | StandardBuiltinId::SetPrototypeIntersection
+        | StandardBuiltinId::SetPrototypeIsDisjointFrom
+        | StandardBuiltinId::SetPrototypeIsSubsetOf
+        | StandardBuiltinId::SetPrototypeIsSupersetOf
+        | StandardBuiltinId::SetPrototypeSymmetricDifference
+        | StandardBuiltinId::SetPrototypeUnion => 1,
         StandardBuiltinId::EvalFunction => 1,
         StandardBuiltinId::FunctionPrototypeCall => 1,
         StandardBuiltinId::FunctionPrototypeApply => 2,
@@ -3103,6 +3977,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
         StandardBuiltinId::ObjectPrototypeLookupGetter => 1,
         StandardBuiltinId::ObjectPrototypeLookupSetter => 1,
+        StandardBuiltinId::ObjectPrototypeProtoGetter => 0,
+        StandardBuiltinId::ObjectPrototypeProtoSetter => 1,
         StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => 1,
         StandardBuiltinId::ObjectPrototypeIsPrototypeOf => 1,
         StandardBuiltinId::SymbolConstructor => 0,
@@ -3133,6 +4009,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ReflectOwnKeys => 1,
         StandardBuiltinId::ArrayConstructor => 1,
         StandardBuiltinId::ArrayFrom => 1,
+        StandardBuiltinId::ArrayFromAsync
+        | StandardBuiltinId::ArrayFromAsyncFulfilled
+        | StandardBuiltinId::ArrayFromAsyncRejected => 1,
         StandardBuiltinId::ArrayOf => 0,
         StandardBuiltinId::TypedArrayFrom => 1,
         StandardBuiltinId::TypedArrayOf => 0,
@@ -3140,32 +4019,52 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeToLocaleString => 0,
         StandardBuiltinId::ArrayPrototypeFlat => 0,
         StandardBuiltinId::ArrayPrototypeFlatMap => 1,
-        StandardBuiltinId::ArrayPrototypeAt => 1,
+        StandardBuiltinId::ArrayPrototypeAt | StandardBuiltinId::TypedArrayPrototypeAt => 1,
+        StandardBuiltinId::TypedArrayPrototypeFind
+        | StandardBuiltinId::TypedArrayPrototypeFindIndex
+        | StandardBuiltinId::TypedArrayPrototypeFindLast
+        | StandardBuiltinId::TypedArrayPrototypeFindLastIndex => 1,
+        StandardBuiltinId::TypedArrayPrototypeValues
+        | StandardBuiltinId::TypedArrayPrototypeKeys
+        | StandardBuiltinId::TypedArrayPrototypeEntries => 0,
         StandardBuiltinId::ArrayPrototypeToReversed => 0,
         StandardBuiltinId::ArrayPrototypeToSpliced => 2,
         StandardBuiltinId::ArrayPrototypeToSorted => 1,
         StandardBuiltinId::ArrayPrototypeWith => 2,
         StandardBuiltinId::ArrayPrototypeReverse => 0,
         StandardBuiltinId::ArrayPrototypeCopyWithin => 2,
-        StandardBuiltinId::ArrayPrototypeIncludes => 1,
-        StandardBuiltinId::ArrayPrototypeIndexOf => 1,
-        StandardBuiltinId::ArrayPrototypeLastIndexOf => 1,
+        StandardBuiltinId::ArrayPrototypeIncludes
+        | StandardBuiltinId::TypedArrayPrototypeIncludes => 1,
+        StandardBuiltinId::ArrayPrototypeIndexOf
+        | StandardBuiltinId::TypedArrayPrototypeIndexOf => 1,
+        StandardBuiltinId::ArrayPrototypeLastIndexOf
+        | StandardBuiltinId::TypedArrayPrototypeLastIndexOf => 1,
         StandardBuiltinId::ArrayPrototypeFind => 1,
         StandardBuiltinId::ArrayPrototypeFindIndex => 1,
         StandardBuiltinId::ArrayPrototypeFindLast => 1,
         StandardBuiltinId::ArrayPrototypeFindLastIndex => 1,
-        StandardBuiltinId::ArrayPrototypeEvery => 1,
-        StandardBuiltinId::ArrayPrototypeSome => 1,
-        StandardBuiltinId::ArrayPrototypeForEach => 1,
-        StandardBuiltinId::ArrayPrototypeFilter => 1,
-        StandardBuiltinId::ArrayPrototypeMap => 1,
-        StandardBuiltinId::ArrayPrototypeReduce => 1,
-        StandardBuiltinId::ArrayPrototypeReduceRight => 1,
+        StandardBuiltinId::ArrayPrototypeEvery | StandardBuiltinId::TypedArrayPrototypeEvery => 1,
+        StandardBuiltinId::ArrayPrototypeSome | StandardBuiltinId::TypedArrayPrototypeSome => 1,
+        StandardBuiltinId::ArrayPrototypeForEach
+        | StandardBuiltinId::TypedArrayPrototypeForEach => 1,
+        StandardBuiltinId::ArrayPrototypeFilter | StandardBuiltinId::TypedArrayPrototypeFilter => 1,
+        StandardBuiltinId::ArrayPrototypeMap | StandardBuiltinId::TypedArrayPrototypeMap => 1,
+        StandardBuiltinId::ArrayPrototypeReduce | StandardBuiltinId::TypedArrayPrototypeReduce => 1,
+        StandardBuiltinId::ArrayPrototypeReduceRight
+        | StandardBuiltinId::TypedArrayPrototypeReduceRight => 1,
         StandardBuiltinId::ArrayPrototypeConcat => 1,
         StandardBuiltinId::StringPrototypeConcat => 1,
         StandardBuiltinId::StringPrototypeLocaleCompare => 1,
         StandardBuiltinId::ArrayPrototypeJoin | StandardBuiltinId::TypedArrayPrototypeJoin => 1,
         StandardBuiltinId::ArrayPrototypeSlice => 2,
+        StandardBuiltinId::TypedArrayPrototypeSubarray => 2,
+        StandardBuiltinId::TypedArrayPrototypeSlice => 2,
+        StandardBuiltinId::TypedArrayPrototypeSet => 1,
+        StandardBuiltinId::TypedArrayPrototypeReverse => 0,
+        StandardBuiltinId::TypedArrayPrototypeSort => 1,
+        StandardBuiltinId::TypedArrayPrototypeToReversed => 0,
+        StandardBuiltinId::TypedArrayPrototypeToSorted => 1,
+        StandardBuiltinId::TypedArrayPrototypeWith => 2,
         StandardBuiltinId::ArrayPrototypeSplice => 2,
         StandardBuiltinId::ArrayPrototypeFill => 1,
         StandardBuiltinId::ArrayPrototypeSort => 1,
@@ -3179,6 +4078,12 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayIteratorNext => 0,
         StandardBuiltinId::ArrayIteratorIdentity => 0,
         StandardBuiltinId::StringIteratorNext => 0,
+        StandardBuiltinId::GeneratorPrototypeNext
+        | StandardBuiltinId::GeneratorPrototypeReturn
+        | StandardBuiltinId::GeneratorPrototypeThrow
+        | StandardBuiltinId::AsyncGeneratorPrototypeNext
+        | StandardBuiltinId::AsyncGeneratorPrototypeReturn
+        | StandardBuiltinId::AsyncGeneratorPrototypeThrow => 1,
         StandardBuiltinId::StringPrototypeIterator => 0,
         StandardBuiltinId::IteratorConstructor => 0,
         StandardBuiltinId::IteratorFrom => 1,
@@ -3320,6 +4225,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
         | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
         | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+        | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
         | StandardBuiltinId::TypedArrayPrototypeToString
         | StandardBuiltinId::TypedArrayPrototypeToLocaleString => 0,
         StandardBuiltinId::DataViewPrototypeGetUint8
@@ -3474,8 +4380,10 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::URIErrorConstructor
         | StandardBuiltinId::ReferenceErrorConstructor => 1,
         StandardBuiltinId::ArraySpeciesGetter
+        | StandardBuiltinId::TypedArraySpeciesGetter
         | StandardBuiltinId::ArrayBufferSpeciesGetter
         | StandardBuiltinId::RegExpSpeciesGetter
+        | StandardBuiltinId::PromiseSpeciesGetter
         | StandardBuiltinId::FunctionPrototypeToString
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::ThrowTypeError
@@ -3501,44 +4409,73 @@ pub(crate) fn function_param_types() -> Vec<ValType> {
     std::iter::repeat_n(ValType::I64, JS_FUNCTION_PARAM_COUNT).collect()
 }
 
+/// Returns true when payload-only emission cannot reconstruct the tag from the inferred value kind.
 pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
-    if matches!(
-        expr,
+    match expr {
+        ExprIr::BigInt(value) => value.requires_arbitrary_precision_storage,
         ExprIr::UpdateIdentifier {
             value_kind: ValueKind::Dynamic,
             ..
-        } | ExprIr::GlobalPropertyUpdate {
+        }
+        | ExprIr::GlobalPropertyUpdate {
             value_kind: ValueKind::Dynamic,
             ..
         }
-    ) {
-        return true;
+        | ExprIr::This
+        | ExprIr::Identifier(_)
+        | ExprIr::PropertyRead { .. }
+        | ExprIr::OptionalPropertyChain { .. }
+        | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::CallNamed { .. }
+        | ExprIr::SpreadArgument(_)
+        | ExprIr::RuntimeThrow { .. }
+        | ExprIr::CallIndirect { .. }
+        | ExprIr::JsonParseStaticReviver { .. }
+        | ExprIr::CallMethod { .. }
+        | ExprIr::Construct { .. }
+        | ExprIr::SuperConstruct { .. }
+        | ExprIr::SuperPropertyRead { .. }
+        | ExprIr::PrivateRead { .. }
+        | ExprIr::SpecOperation {
+            operation:
+                SpecOperationIr::Get
+                | SpecOperationIr::GetV
+                | SpecOperationIr::GetMethod
+                | SpecOperationIr::HasProperty
+                | SpecOperationIr::Call
+                | SpecOperationIr::Construct
+                | SpecOperationIr::ToBigInt,
+            ..
+        } => true,
+        ExprIr::AssignIdentifier { value, .. }
+        | ExprIr::GlobalPropertyWrite { value, .. }
+        | ExprIr::PropertyWrite { value, .. }
+        | ExprIr::SuperPropertyWrite { value, .. }
+        | ExprIr::PrivateWrite { value, .. }
+        | ExprIr::Comma { rhs: value, .. }
+        | ExprIr::MaterializeBinding { body: value, .. }
+        | ExprIr::ObjectDestructure { value, .. } => {
+            expr_result_tag_is_runtime_dynamic(&value.expr)
+        }
+        ExprIr::ArrayDestructure {
+            value,
+            assignment: true,
+            ..
+        } => expr_result_tag_is_runtime_dynamic(&value.expr),
+        ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
+            expr_result_tag_is_runtime_dynamic(&lhs.expr)
+                || expr_result_tag_is_runtime_dynamic(&rhs.expr)
+        }
+        ExprIr::Conditional {
+            then_expr,
+            else_expr,
+            ..
+        } => {
+            expr_result_tag_is_runtime_dynamic(&then_expr.expr)
+                || expr_result_tag_is_runtime_dynamic(&else_expr.expr)
+        }
+        _ => false,
     }
-
-    matches!(
-        expr,
-        ExprIr::Identifier(_)
-            | ExprIr::PropertyRead { .. }
-            | ExprIr::OptionalPropertyChain { .. }
-            | ExprIr::GlobalPropertyRead { .. }
-            | ExprIr::CallNamed { .. }
-            | ExprIr::SpreadArgument(_)
-            | ExprIr::RuntimeThrow { .. }
-            | ExprIr::CallIndirect { .. }
-            | ExprIr::JsonParseStaticReviver { .. }
-            | ExprIr::CallMethod { .. }
-            | ExprIr::Construct { .. }
-            | ExprIr::SuperConstruct { .. }
-            | ExprIr::SpecOperation {
-                operation: SpecOperationIr::Get
-                    | SpecOperationIr::GetV
-                    | SpecOperationIr::GetMethod
-                    | SpecOperationIr::HasProperty
-                    | SpecOperationIr::Call
-                    | SpecOperationIr::Construct,
-                ..
-            }
-    )
 }
 
 pub(crate) fn count_param_locals(return_abi: ReturnAbi) -> usize {
@@ -3612,7 +4549,28 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
         StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => expr_uses_calls(init),
-        StatementIr::LexicalBlock(statements) => statements.iter().any(statement_uses_calls),
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            expr_uses_calls(value)
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty { target, .. }
+                        if expr_uses_calls(target)
+                )
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty {
+                        key: PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr),
+                        ..
+                    } if expr_uses_calls(expr)
+                )
+        }
+        StatementIr::AsyncAwait { .. } => true,
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
+            statements.iter().any(statement_uses_calls)
+        }
         StatementIr::Return(value) | StatementIr::Throw(value) => expr_uses_calls(value),
         StatementIr::Var(declarators) => declarators
             .iter()
@@ -3627,6 +4585,7 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => block_uses_calls(try_block) || block_uses_calls(finally_block),
         StatementIr::TryCatchFinally {
             try_block,
@@ -3667,6 +4626,42 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
                 || test.as_ref().map(expr_uses_calls).unwrap_or(false)
                 || update.as_ref().map(expr_uses_calls).unwrap_or(false)
                 || statement_uses_calls(body)
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            init.as_ref().is_some_and(for_init_uses_calls)
+                || test.as_ref().is_some_and(expr_uses_calls)
+                || update.as_ref().is_some_and(expr_uses_calls)
+                || before_yield.iter().any(statement_uses_calls)
+                || statement_uses_calls(yield_statement)
+                || after_yield.iter().any(statement_uses_calls)
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            expr_uses_calls(condition)
+                || then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                    .any(statement_uses_calls)
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
@@ -3730,7 +4725,26 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         | StatementIr::Expression(init)
         | StatementIr::Return(init)
         | StatementIr::Throw(init) => expr_uses_function_table(init),
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            expr_uses_function_table(value)
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty { target, .. }
+                        if expr_uses_function_table(target)
+                )
+                || matches!(
+                    resume_mode,
+                    GeneratorResumeModeIr::AssignProperty {
+                        key: PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr),
+                        ..
+                    } if expr_uses_function_table(expr)
+                )
+        }
+        StatementIr::AsyncAwait { .. } => true,
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_uses_function_table)
         }
         StatementIr::Var(declarators) => declarators
@@ -3746,6 +4760,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => block_uses_function_table(try_block) || block_uses_function_table(finally_block),
         StatementIr::TryCatchFinally {
             try_block,
@@ -3791,6 +4806,42 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
                     .map(expr_uses_function_table)
                     .unwrap_or(false)
                 || statement_uses_function_table(body)
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            init.as_ref().is_some_and(for_init_uses_function_table)
+                || test.as_ref().is_some_and(expr_uses_function_table)
+                || update.as_ref().is_some_and(expr_uses_function_table)
+                || before_yield.iter().any(statement_uses_function_table)
+                || statement_uses_function_table(yield_statement)
+                || after_yield.iter().any(statement_uses_function_table)
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            expr_uses_function_table(condition)
+                || then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                    .any(statement_uses_function_table)
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
@@ -4252,17 +5303,29 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .visit_bindings(&mut |mode, _| count += usize::from(mode != BindingMode::Var) * 2);
             count
         }
+        StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure { pattern, .. },
+            ..
+        }) => {
+            let mut count = 0;
+            pattern
+                .visit_bindings(&mut |mode, _| count += usize::from(mode != BindingMode::Var) * 2);
+            count
+        }
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Var(_)
         | StatementIr::Expression(_)
+        | StatementIr::GeneratorYield { .. }
+        | StatementIr::AsyncAwait { .. }
         | StatementIr::Debugger
         | StatementIr::Return(_)
         | StatementIr::Throw(_)
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => 0,
         StatementIr::Lexical { .. } => 2,
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().map(count_statement_lexicals).sum()
         }
         StatementIr::Block(block) => count_block_lexicals(block),
@@ -4279,6 +5342,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => count_block_lexicals(try_block) + count_block_lexicals(finally_block),
         StatementIr::TryCatchFinally {
             try_block,
@@ -4317,6 +5381,47 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
         }
+        StatementIr::GeneratorLoop {
+            init,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            init.as_ref()
+                .map(|init| match init {
+                    ForInitIr::Lexical { .. } => 2,
+                    ForInitIr::LexicalBlock(bindings) => 2 * bindings.len(),
+                    ForInitIr::Var(_) | ForInitIr::Expression(_) => 0,
+                })
+                .unwrap_or(0)
+                + before_yield
+                    .iter()
+                    .map(count_statement_lexicals)
+                    .sum::<usize>()
+                + count_statement_lexicals(yield_statement)
+                + after_yield
+                    .iter()
+                    .map(count_statement_lexicals)
+                    .sum::<usize>()
+        }
+        StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => then_before_yield
+            .iter()
+            .chain(then_yield_statement.as_deref())
+            .chain(then_after_yield)
+            .chain(else_before_yield)
+            .chain(else_yield_statement.as_deref())
+            .chain(else_after_yield)
+            .map(count_statement_lexicals)
+            .sum(),
         StatementIr::ForOfArray {
             mode,
             name,
@@ -4424,6 +5529,26 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => 0,
         StatementIr::Return(value) | StatementIr::Throw(value) => count_expr_temp_locals(value),
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            let assignment_target_locals = match resume_mode {
+                GeneratorResumeModeIr::AssignProperty { target, key } => {
+                    let key_locals = match key {
+                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                            count_expr_temp_locals(expr)
+                        }
+                    };
+                    count_expr_temp_locals(target).max(key_locals) + 4
+                }
+                GeneratorResumeModeIr::Ignore
+                | GeneratorResumeModeIr::Return
+                | GeneratorResumeModeIr::AssignIdentifier(_) => 0,
+            };
+            count_expr_temp_locals(value).max(assignment_target_locals)
+        }
+        StatementIr::AsyncAwait { value, .. } => count_expr_temp_locals(value) + 16,
         StatementIr::Var(declarators) => declarators
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
@@ -4433,7 +5558,8 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
         StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => {
             count_expr_temp_locals(init)
         }
-        StatementIr::LexicalBlock(statements) => statements
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => statements
             .iter()
             .map(count_statement_temp_locals)
             .max()
@@ -4449,6 +5575,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => count_block_temp_locals(try_block).max(count_block_temp_locals(finally_block)),
         StatementIr::TryCatchFinally {
             try_block,
@@ -4490,6 +5617,53 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .max(test.as_ref().map(count_expr_temp_locals).unwrap_or(0))
             .max(update.as_ref().map(count_expr_temp_locals).unwrap_or(0))
             .max(count_statement_temp_locals(body)),
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => init
+            .as_ref()
+            .map(count_for_init_temp_locals)
+            .unwrap_or(0)
+            .max(test.as_ref().map(count_expr_temp_locals).unwrap_or(0))
+            .max(update.as_ref().map(count_expr_temp_locals).unwrap_or(0))
+            .max(
+                before_yield
+                    .iter()
+                    .chain(std::iter::once(yield_statement.as_ref()))
+                    .chain(after_yield)
+                    .map(count_statement_temp_locals)
+                    .max()
+                    .unwrap_or(0),
+            )
+            .max(1),
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => count_expr_temp_locals(condition)
+            .max(
+                then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                    .map(count_statement_temp_locals)
+                    .max()
+                    .unwrap_or(0),
+            )
+            .max(1),
         StatementIr::ForOfArray { iterable, body, .. } => 7
             .max(count_expr_temp_locals(iterable))
             .max(count_statement_temp_locals(body)),
@@ -4955,6 +6129,15 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max()
             .unwrap_or(0)
             .max(24),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::CopyDataProperties,
+            operands,
+        } => operands
+            .iter()
+            .map(count_expr_temp_locals)
+            .max()
+            .unwrap_or(0)
+            .max(40),
         ExprIr::TypeOf { expr: value } => count_expr_temp_locals(value).max(5),
         ExprIr::StringCharCodeAt { target, index } => {
             16 + count_expr_temp_locals(target).max(count_expr_temp_locals(index))
@@ -5013,6 +6196,13 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                             }
                             DestructuringTargetIr::NestedArray(pattern) => {
                                 32 + pattern_temp_locals(pattern)
+                            }
+                            DestructuringTargetIr::NestedObject(pattern) => {
+                                let mut child_locals = 0;
+                                pattern.visit_expressions(&mut |expr| {
+                                    child_locals = child_locals.max(count_expr_temp_locals(expr));
+                                });
+                                128 + pattern.properties.len() * 2 + child_locals
                             }
                             DestructuringTargetIr::Binding { .. }
                             | DestructuringTargetIr::AssignmentIdentifier { .. } => 0,
@@ -5180,7 +6370,8 @@ pub(crate) fn collect_hoisted_vars_statement(
                 names.insert(declarator.name.clone());
             }
         }
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             for statement in statements {
                 collect_hoisted_vars_statement(statement, names);
             }
@@ -5208,6 +6399,46 @@ pub(crate) fn collect_hoisted_vars_statement(
                 }
             }
             collect_hoisted_vars_statement(body, names);
+        }
+        StatementIr::GeneratorLoop {
+            init,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            if let Some(ForInitIr::Var(declarators)) = init {
+                for declarator in declarators {
+                    names.insert(declarator.name.clone());
+                }
+            }
+            for statement in before_yield {
+                collect_hoisted_vars_statement(statement, names);
+            }
+            collect_hoisted_vars_statement(yield_statement, names);
+            for statement in after_yield {
+                collect_hoisted_vars_statement(statement, names);
+            }
+        }
+        StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            for statement in then_before_yield
+                .iter()
+                .chain(then_yield_statement.as_deref())
+                .chain(then_after_yield)
+                .chain(else_before_yield)
+                .chain(else_yield_statement.as_deref())
+                .chain(else_after_yield)
+            {
+                collect_hoisted_vars_statement(statement, names);
+            }
         }
         StatementIr::ForOfArray {
             mode, name, body, ..
@@ -5253,6 +6484,7 @@ pub(crate) fn collect_hoisted_vars_statement(
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => {
             collect_hoisted_vars_block(try_block, names);
             collect_hoisted_vars_block(finally_block, names);
@@ -5282,9 +6514,21 @@ pub(crate) fn collect_hoisted_vars_statement(
                 }
             });
         }
+        StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure { pattern, .. },
+            ..
+        }) => {
+            pattern.visit_bindings(&mut |mode, name| {
+                if mode == BindingMode::Var {
+                    names.insert(name.to_string());
+                }
+            });
+        }
         StatementIr::Empty
         | StatementIr::Lexical { .. }
         | StatementIr::Expression(_)
+        | StatementIr::GeneratorYield { .. }
+        | StatementIr::AsyncAwait { .. }
         | StatementIr::Debugger
         | StatementIr::Return(_)
         | StatementIr::Throw(_)

@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2525782695925974509,
+  "run_kind": "full",
+  "total": 39,
+  "passed": 39,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 39
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/BigInt/detached-buffer.js",
+      "duration_ms": 52786
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
+      "duration_ms": 31923
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js",
+      "duration_ms": 20623
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/this-is-not-object.js",
+      "duration_ms": 19666
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/this-is-not-typedarray-instance.js",
+      "duration_ms": 15392
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/invoked-as-func.js",
+      "duration_ms": 11659
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-valueof.js",
+      "duration_ms": 11603
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
+      "duration_ms": 11313
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
+      "duration_ms": 11293
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js",
+      "duration_ms": 11264
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/calls-tolocalestring-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/calls-tostring-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/calls-valueof-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/empty-instance-returns-empty-string.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-firstelement-tolocalestring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-firstelement-tostring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-firstelement-valueof.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-nextelement-tolocalestring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-nextelement-tostring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-nextelement-valueof.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-result.js",
+    "built-ins/TypedArray/prototype/toLocaleString/calls-tolocalestring-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/calls-tostring-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/calls-valueof-from-each-value.js",
+    "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
+    "built-ins/TypedArray/prototype/toLocaleString/empty-instance-returns-empty-string.js",
+    "built-ins/TypedArray/prototype/toLocaleString/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/toLocaleString/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/toLocaleString/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/toLocaleString/length.js",
+    "built-ins/TypedArray/prototype/toLocaleString/name.js",
+    "built-ins/TypedArray/prototype/toLocaleString/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/toLocaleString/prop-desc.js",
+    "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tolocalestring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tostring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-valueof.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tolocalestring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tostring.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-valueof.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/toLocaleString/return-result.js",
+    "built-ins/TypedArray/prototype/toLocaleString/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/toLocaleString/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
+    "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-shrink.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -66,6 +66,8 @@ pub const STRING_NAME: &str = "String";
 pub const BOOLEAN_NAME: &str = "Boolean";
 pub const SYMBOL_NAME: &str = "Symbol";
 pub const PROMISE_NAME: &str = "Promise";
+pub const MAP_NAME: &str = "Map";
+pub const SET_NAME: &str = "Set";
 pub const ERROR_NAME: &str = "Error";
 pub const EVAL_ERROR_NAME: &str = "EvalError";
 pub const AGGREGATE_ERROR_NAME: &str = "AggregateError";
@@ -83,6 +85,7 @@ pub const BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.Function.prototype.toString";
 pub const BUILTIN_EVAL_FUNCTION_ID: &str = "$builtin.eval";
 pub const BUILTIN_OBJECT_FUNCTION_ID: &str = "$builtin.Object";
+pub const BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID: &str = "$builtin.Object.groupBy";
 pub const BUILTIN_OBJECT_CREATE_FUNCTION_ID: &str = "$builtin.Object.create";
 pub const BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Object.getPrototypeOf";
 pub const BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Object.setPrototypeOf";
@@ -109,6 +112,10 @@ pub const BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID: &str =
     "$builtin.Object.prototype.__lookupGetter__";
 pub const BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID: &str =
     "$builtin.Object.prototype.__lookupSetter__";
+pub const BUILTIN_OBJECT_PROTOTYPE_PROTO_GETTER_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.__proto__.get";
+pub const BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID: &str =
+    "$builtin.Object.prototype.__proto__.set";
 pub const BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID: &str =
     "$builtin.Object.prototype.propertyIsEnumerable";
 pub const BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID: &str =
@@ -138,6 +145,9 @@ pub const BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Reflect
 pub const BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID: &str = "$builtin.Reflect.ownKeys";
 pub const BUILTIN_ARRAY_FUNCTION_ID: &str = "$builtin.Array";
 pub const BUILTIN_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.Array.from";
+pub const BUILTIN_ARRAY_FROM_ASYNC_FUNCTION_ID: &str = "$builtin.Array.fromAsync";
+pub const BUILTIN_ARRAY_FROM_ASYNC_FULFILLED_FUNCTION_ID: &str = "$builtin.ArrayFromAsyncFulfilled";
+pub const BUILTIN_ARRAY_FROM_ASYNC_REJECTED_FUNCTION_ID: &str = "$builtin.ArrayFromAsyncRejected";
 pub const BUILTIN_ARRAY_OF_FUNCTION_ID: &str = "$builtin.Array.of";
 pub const BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID: &str = "$builtin.Array.isArray";
 pub const BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Array[Symbol.species].get";
@@ -189,6 +199,17 @@ pub const BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID: &str = "$builtin.Array.pro
 pub const BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.ArrayIterator.next";
 pub const BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID: &str = "$builtin.ArrayIterator.identity";
 pub const BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.StringIterator.next";
+pub const BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID: &str = "$builtin.Generator.prototype.next";
+pub const BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID: &str =
+    "$builtin.Generator.prototype.return";
+pub const BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID: &str =
+    "$builtin.Generator.prototype.throw";
+pub const BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID: &str =
+    "$builtin.AsyncGenerator.prototype.next";
+pub const BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID: &str =
+    "$builtin.AsyncGenerator.prototype.return";
+pub const BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID: &str =
+    "$builtin.AsyncGenerator.prototype.throw";
 pub const BUILTIN_ITERATOR_FUNCTION_ID: &str = "$builtin.Iterator";
 pub const BUILTIN_ITERATOR_FROM_FUNCTION_ID: &str = "$builtin.Iterator.from";
 pub const BUILTIN_ITERATOR_ZIP_FUNCTION_ID: &str = "$builtin.Iterator.zip";
@@ -278,6 +299,8 @@ pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.byteLength.get";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.byteOffset.get";
+pub const BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str =
+    "$builtin.TypedArray[Symbol.species].get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.byteLength.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
@@ -286,12 +309,63 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.length.get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.buffer.get";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype[Symbol.toStringTag].get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.toString";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.TypedArray.prototype.at";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.includes";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.indexOf";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.lastIndexOf";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.find";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.findIndex";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.findLast";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.findLastIndex";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.every";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_SOME_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.some";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_MAP_FUNCTION_ID: &str = "$builtin.TypedArray.prototype.map";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.filter";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.forEach";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.reduce";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.reduceRight";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.values";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.keys";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.entries";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.join";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.toLocaleString";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_SUBARRAY_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.subarray";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.slice";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_SET_FUNCTION_ID: &str = "$builtin.TypedArray.prototype.set";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.reverse";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_SORT_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.sort";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.toReversed";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.toSorted";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.with";
 pub const BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID: &str = "$builtin.TypedArray.from";
 pub const BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID: &str = "$builtin.TypedArray.of";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID: &str =
@@ -565,8 +639,83 @@ pub const BUILTIN_STRING_PROTOTYPE_TO_WELL_FORMED_FUNCTION_ID: &str =
     "$builtin.String.prototype.toWellFormed";
 pub const BUILTIN_BOOLEAN_FUNCTION_ID: &str = "$builtin.Boolean";
 pub const BUILTIN_PROMISE_FUNCTION_ID: &str = "$builtin.Promise";
+pub const BUILTIN_PROMISE_PROTOTYPE_THEN_FUNCTION_ID: &str = "$builtin.Promise.prototype.then";
+pub const BUILTIN_PROMISE_PROTOTYPE_CATCH_FUNCTION_ID: &str = "$builtin.Promise.prototype.catch";
+pub const BUILTIN_PROMISE_PROTOTYPE_FINALLY_FUNCTION_ID: &str =
+    "$builtin.Promise.prototype.finally";
+pub const BUILTIN_PROMISE_THEN_FINALLY_FUNCTION_ID: &str = "$builtin.PromiseThenFinally";
+pub const BUILTIN_PROMISE_CATCH_FINALLY_FUNCTION_ID: &str = "$builtin.PromiseCatchFinally";
+pub const BUILTIN_PROMISE_VALUE_THUNK_FUNCTION_ID: &str = "$builtin.PromiseValueThunk";
+pub const BUILTIN_PROMISE_THROWER_FUNCTION_ID: &str = "$builtin.PromiseThrower";
+pub const BUILTIN_PROMISE_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Promise[Symbol.species].get";
+pub const BUILTIN_PROMISE_STATIC_RESOLVE_FUNCTION_ID: &str = "$builtin.Promise.resolve";
+pub const BUILTIN_PROMISE_STATIC_WITH_RESOLVERS_FUNCTION_ID: &str =
+    "$builtin.Promise.withResolvers";
+pub const BUILTIN_PROMISE_STATIC_TRY_FUNCTION_ID: &str = "$builtin.Promise.try";
+pub const BUILTIN_PROMISE_STATIC_REJECT_FUNCTION_ID: &str = "$builtin.Promise.reject";
+pub const BUILTIN_PROMISE_STATIC_ALL_FUNCTION_ID: &str = "$builtin.Promise.all";
+pub const BUILTIN_PROMISE_STATIC_ALL_SETTLED_FUNCTION_ID: &str = "$builtin.Promise.allSettled";
+pub const BUILTIN_PROMISE_STATIC_ALL_KEYED_FUNCTION_ID: &str = "$builtin.Promise.allKeyed";
+pub const BUILTIN_PROMISE_STATIC_ALL_SETTLED_KEYED_FUNCTION_ID: &str =
+    "$builtin.Promise.allSettledKeyed";
+pub const BUILTIN_PROMISE_STATIC_ANY_FUNCTION_ID: &str = "$builtin.Promise.any";
+pub const BUILTIN_PROMISE_STATIC_RACE_FUNCTION_ID: &str = "$builtin.Promise.race";
+pub const BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllResolveElement";
+pub const BUILTIN_PROMISE_ALL_SETTLED_RESOLVE_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllSettledResolveElement";
+pub const BUILTIN_PROMISE_ALL_SETTLED_REJECT_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllSettledRejectElement";
+pub const BUILTIN_PROMISE_ANY_REJECT_ELEMENT_FUNCTION_ID: &str = "$builtin.PromiseAnyRejectElement";
+pub const BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllKeyedResolveElement";
+pub const BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllSettledKeyedResolveElement";
+pub const BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID: &str =
+    "$builtin.PromiseAllSettledKeyedRejectElement";
+pub const BUILTIN_PROMISE_CAPABILITY_EXECUTOR_FUNCTION_ID: &str =
+    "$builtin.PromiseCapabilityExecutor";
 pub const BUILTIN_PROMISE_RESOLVE_FUNCTION_ID: &str = "$builtin.PromiseResolveFunction";
 pub const BUILTIN_PROMISE_REJECT_FUNCTION_ID: &str = "$builtin.PromiseRejectFunction";
+pub const BUILTIN_MAP_FUNCTION_ID: &str = "$builtin.Map";
+pub const BUILTIN_MAP_GROUP_BY_FUNCTION_ID: &str = "$builtin.Map.groupBy";
+pub const BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID: &str = "$builtin.Map.prototype.clear";
+pub const BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.Map.prototype.delete";
+pub const BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str = "$builtin.Map.prototype.forEach";
+pub const BUILTIN_MAP_PROTOTYPE_KEYS_FUNCTION_ID: &str = "$builtin.Map.prototype.keys";
+pub const BUILTIN_MAP_PROTOTYPE_VALUES_FUNCTION_ID: &str = "$builtin.Map.prototype.values";
+pub const BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID: &str = "$builtin.Map.prototype.entries";
+pub const BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.MapIterator.next";
+pub const BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID: &str = "$builtin.Map.prototype.get";
+pub const BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID: &str =
+    "$builtin.Map.prototype.getOrInsert";
+pub const BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID: &str =
+    "$builtin.Map.prototype.getOrInsertComputed";
+pub const BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID: &str = "$builtin.Map.prototype.has";
+pub const BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID: &str = "$builtin.Map.prototype.set";
+pub const BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID: &str = "$builtin.Map.prototype.size";
+pub const BUILTIN_SET_FUNCTION_ID: &str = "$builtin.Set";
+pub const BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.Set.prototype.add";
+pub const BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID: &str = "$builtin.Set.prototype.clear";
+pub const BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.Set.prototype.delete";
+pub const BUILTIN_SET_PROTOTYPE_DIFFERENCE_FUNCTION_ID: &str = "$builtin.Set.prototype.difference";
+pub const BUILTIN_SET_PROTOTYPE_FOR_EACH_FUNCTION_ID: &str = "$builtin.Set.prototype.forEach";
+pub const BUILTIN_SET_PROTOTYPE_INTERSECTION_FUNCTION_ID: &str =
+    "$builtin.Set.prototype.intersection";
+pub const BUILTIN_SET_PROTOTYPE_IS_DISJOINT_FROM_FUNCTION_ID: &str =
+    "$builtin.Set.prototype.isDisjointFrom";
+pub const BUILTIN_SET_PROTOTYPE_IS_SUBSET_OF_FUNCTION_ID: &str =
+    "$builtin.Set.prototype.isSubsetOf";
+pub const BUILTIN_SET_PROTOTYPE_IS_SUPERSET_OF_FUNCTION_ID: &str =
+    "$builtin.Set.prototype.isSupersetOf";
+pub const BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID: &str =
+    "$builtin.Set.prototype.symmetricDifference";
+pub const BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID: &str = "$builtin.Set.prototype.union";
+pub const BUILTIN_SET_PROTOTYPE_VALUES_FUNCTION_ID: &str = "$builtin.Set.prototype.values";
+pub const BUILTIN_SET_PROTOTYPE_ENTRIES_FUNCTION_ID: &str = "$builtin.Set.prototype.entries";
+pub const BUILTIN_SET_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.SetIterator.next";
+pub const BUILTIN_SET_PROTOTYPE_HAS_FUNCTION_ID: &str = "$builtin.Set.prototype.has";
+pub const BUILTIN_SET_PROTOTYPE_SIZE_GETTER_FUNCTION_ID: &str = "$builtin.Set.prototype.size";
 pub const BUILTIN_ERROR_FUNCTION_ID: &str = "$builtin.Error";
 pub const BUILTIN_ERROR_IS_ERROR_FUNCTION_ID: &str = "$builtin.Error.isError";
 pub const BUILTIN_EVAL_ERROR_FUNCTION_ID: &str = "$builtin.EvalError";

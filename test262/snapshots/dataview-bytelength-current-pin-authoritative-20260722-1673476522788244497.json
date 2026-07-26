@@ -1,0 +1,100 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1673476522788244497,
+  "run_kind": "full",
+  "total": 14,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 14
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/DataView/prototype/byteLength/detached-buffer.js",
+      "duration_ms": 22543
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/resizable-array-buffer-fixed.js",
+      "duration_ms": 21937
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/instance-has-detached-buffer.js",
+      "duration_ms": 21930
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/resizable-array-buffer-auto.js",
+      "duration_ms": 21518
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/invoked-as-func.js",
+      "duration_ms": 20698
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/invoked-as-accessor.js",
+      "duration_ms": 19570
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/return-bytelength-sab.js",
+      "duration_ms": 8767
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/return-bytelength.js",
+      "duration_ms": 8350
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/this-has-no-dataview-internal.js",
+      "duration_ms": 7979
+    },
+    {
+      "path": "built-ins/DataView/prototype/byteLength/prop-desc.js",
+      "duration_ms": 7918
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/DataView/prototype/byteLength/detached-buffer.js",
+    "built-ins/DataView/prototype/byteLength/instance-has-detached-buffer.js",
+    "built-ins/DataView/prototype/byteLength/invoked-as-accessor.js",
+    "built-ins/DataView/prototype/byteLength/invoked-as-func.js",
+    "built-ins/DataView/prototype/byteLength/length.js",
+    "built-ins/DataView/prototype/byteLength/name.js",
+    "built-ins/DataView/prototype/byteLength/prop-desc.js",
+    "built-ins/DataView/prototype/byteLength/resizable-array-buffer-auto.js",
+    "built-ins/DataView/prototype/byteLength/resizable-array-buffer-fixed.js",
+    "built-ins/DataView/prototype/byteLength/return-bytelength-sab.js",
+    "built-ins/DataView/prototype/byteLength/return-bytelength.js",
+    "built-ins/DataView/prototype/byteLength/this-has-no-dataview-internal-sab.js",
+    "built-ins/DataView/prototype/byteLength/this-has-no-dataview-internal.js",
+    "built-ins/DataView/prototype/byteLength/this-is-not-object.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

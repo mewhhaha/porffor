@@ -166,6 +166,33 @@ pub(crate) fn function_declaration_key(function: &FunctionDeclaration) -> String
     )
 }
 
+pub(crate) fn generator_declaration_key(function: &GeneratorDeclaration) -> String {
+    let span = function.linear_span();
+    format!(
+        "generator-declaration:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn async_function_declaration_key(function: &AsyncFunctionDeclaration) -> String {
+    let span = function.linear_span();
+    format!(
+        "async-function-declaration:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn async_generator_declaration_key(function: &AsyncGeneratorDeclaration) -> String {
+    let span = function.linear_span();
+    format!(
+        "async-generator-declaration:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
 pub(crate) fn statement_list_item_function_declaration(
     item: &StatementListItem,
 ) -> Option<&FunctionDeclaration> {
@@ -224,163 +251,31 @@ pub(crate) fn is_class_name_binding_storage_name(storage_name: &str) -> bool {
 }
 
 pub(crate) fn is_supported_parameter_binding(binding: &Binding) -> bool {
+    fn is_supported_pattern(pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::Object(pattern) => pattern.bindings().iter().all(|element| match element {
+                ObjectPatternElement::SingleName { .. }
+                | ObjectPatternElement::RestProperty { .. } => true,
+                ObjectPatternElement::Pattern { pattern, .. } => is_supported_pattern(pattern),
+                ObjectPatternElement::AssignmentPropertyAccess { .. }
+                | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => false,
+            }),
+            Pattern::Array(pattern) => pattern.bindings().iter().all(|element| match element {
+                ArrayPatternElement::Elision
+                | ArrayPatternElement::SingleName { .. }
+                | ArrayPatternElement::SingleNameRest { .. } => true,
+                ArrayPatternElement::Pattern { pattern, .. }
+                | ArrayPatternElement::PatternRest { pattern } => is_supported_pattern(pattern),
+                ArrayPatternElement::PropertyAccess { .. }
+                | ArrayPatternElement::PropertyAccessRest { .. } => false,
+            }),
+        }
+    }
+
     match binding {
         Binding::Identifier(_) => true,
-        Binding::Pattern(Pattern::Object(pattern)) => pattern.bindings().iter().all(|element| {
-            matches!(
-                element,
-                ObjectPatternElement::SingleName {
-                    name: PropertyName::Literal(_),
-                    ..
-                }
-            )
-        }),
-        Binding::Pattern(Pattern::Array(pattern)) => {
-            fn is_supported_array_pattern(pattern: &boa_ast::pattern::ArrayPattern) -> bool {
-                pattern.bindings().iter().all(|element| match element {
-                    ArrayPatternElement::Elision
-                    | ArrayPatternElement::SingleName { .. }
-                    | ArrayPatternElement::SingleNameRest { .. } => true,
-                    ArrayPatternElement::Pattern { pattern, .. }
-                    | ArrayPatternElement::PatternRest { pattern } => {
-                        let Pattern::Array(pattern) = pattern else {
-                            return false;
-                        };
-                        is_supported_array_pattern(pattern)
-                    }
-                    ArrayPatternElement::PropertyAccess { .. }
-                    | ArrayPatternElement::PropertyAccessRest { .. } => false,
-                })
-            }
-
-            is_supported_array_pattern(pattern)
-        }
+        Binding::Pattern(pattern) => is_supported_pattern(pattern),
     }
-}
-
-pub(crate) fn default_param_uses_current_or_later_name(
-    expression: &Expression,
-    blocked: &[String],
-    interner: &Interner,
-) -> bool {
-    match expression {
-        Expression::Identifier(identifier) => {
-            let ident = interner.resolve_expect(identifier.sym()).to_string();
-            blocked.iter().any(|name| name == &ident)
-        }
-        Expression::Parenthesized(expression) => {
-            default_param_uses_current_or_later_name(expression.expression(), blocked, interner)
-        }
-        Expression::ArrayLiteral(array) => array
-            .as_ref()
-            .iter()
-            .flatten()
-            .any(|expr| default_param_uses_current_or_later_name(expr, blocked, interner)),
-        Expression::ObjectLiteral(object) => {
-            object.properties().iter().any(|property| match property {
-                PropertyDefinition::Property(_, value)
-                | PropertyDefinition::SpreadObject(value)
-                | PropertyDefinition::CoverInitializedName(_, value) => {
-                    default_param_uses_current_or_later_name(value, blocked, interner)
-                }
-                PropertyDefinition::MethodDefinition(_)
-                | PropertyDefinition::IdentifierReference(_) => false,
-            })
-        }
-        Expression::Unary(unary) => {
-            default_param_uses_current_or_later_name(unary.target(), blocked, interner)
-        }
-        Expression::Binary(binary) => {
-            default_param_uses_current_or_later_name(binary.lhs(), blocked, interner)
-                || default_param_uses_current_or_later_name(binary.rhs(), blocked, interner)
-        }
-        Expression::Assign(assign) => {
-            default_param_uses_current_or_later_name(assign.rhs(), blocked, interner)
-                || match assign.lhs() {
-                    AssignTarget::Identifier(identifier) => blocked
-                        .iter()
-                        .any(|name| name == &interner.resolve_expect(identifier.sym()).to_string()),
-                    AssignTarget::Access(access) => {
-                        default_param_property_access_uses_blocked(access, blocked, interner)
-                    }
-                    _ => false,
-                }
-        }
-        Expression::Update(update) => match update.target() {
-            UpdateTarget::Identifier(identifier) => blocked
-                .iter()
-                .any(|name| name == &interner.resolve_expect(identifier.sym()).to_string()),
-            _ => false,
-        },
-        Expression::Call(call) => {
-            default_param_uses_current_or_later_name(call.function(), blocked, interner)
-                || call
-                    .args()
-                    .iter()
-                    .any(|arg| default_param_uses_current_or_later_name(arg, blocked, interner))
-        }
-        Expression::PropertyAccess(access) => {
-            default_param_property_access_uses_blocked(access, blocked, interner)
-        }
-        Expression::Optional(optional) => {
-            default_param_uses_current_or_later_name(optional.target(), blocked, interner)
-                || optional
-                    .chain()
-                    .iter()
-                    .any(|operation| match operation.kind() {
-                        OptionalOperationKind::SimplePropertyAccess {
-                            field: PropertyAccessField::Expr(expr),
-                        } => default_param_uses_current_or_later_name(expr, blocked, interner),
-                        OptionalOperationKind::Call { args } => args.iter().any(|arg| {
-                            default_param_uses_current_or_later_name(arg, blocked, interner)
-                        }),
-                        OptionalOperationKind::SimplePropertyAccess {
-                            field: PropertyAccessField::Const(_),
-                        }
-                        | OptionalOperationKind::PrivatePropertyAccess { .. } => false,
-                    })
-        }
-        Expression::FunctionExpression(_)
-        | Expression::ArrowFunction(_)
-        | Expression::AsyncArrowFunction(_)
-        | Expression::Literal(_)
-        | Expression::RegExpLiteral(_)
-        | Expression::Spread(_)
-        | Expression::GeneratorExpression(_)
-        | Expression::AsyncFunctionExpression(_)
-        | Expression::AsyncGeneratorExpression(_)
-        | Expression::ClassExpression(_)
-        | Expression::TemplateLiteral(_)
-        | Expression::New(_)
-        | Expression::SuperCall(_)
-        | Expression::ImportCall(_)
-        | Expression::TaggedTemplate(_)
-        | Expression::NewTarget(_)
-        | Expression::ImportMeta(_)
-        | Expression::BinaryInPrivate(_)
-        | Expression::Conditional(_)
-        | Expression::Await(_)
-        | Expression::Yield(_)
-        | Expression::FormalParameterList(_)
-        | Expression::This(_)
-        | Expression::Debugger => false,
-    }
-}
-
-pub(crate) fn default_param_property_access_uses_blocked(
-    access: &PropertyAccess,
-    blocked: &[String],
-    interner: &Interner,
-) -> bool {
-    let PropertyAccess::Simple(access) = access else {
-        return false;
-    };
-    default_param_uses_current_or_later_name(access.target(), blocked, interner)
-        || matches!(
-            access.field(),
-            PropertyAccessField::Expr(expr)
-                if default_param_uses_current_or_later_name(expr, blocked, interner)
-        )
 }
 
 pub(crate) fn function_expression_key(function: &FunctionExpression) -> String {
@@ -397,6 +292,988 @@ pub(crate) fn function_expression_key(function: &FunctionExpression) -> String {
     )
 }
 
+pub(crate) fn generator_expression_key(function: &GeneratorExpression) -> String {
+    let span = function.linear_span();
+    format!(
+        "generator-expression:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn async_function_expression_key(function: &AsyncFunctionExpression) -> String {
+    let span = function.linear_span();
+    format!(
+        "async-function-expression:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn async_generator_expression_key(function: &AsyncGeneratorExpression) -> String {
+    let span = function.linear_span();
+    format!(
+        "async-generator-expression:{}:{}",
+        span.start().pos(),
+        span.end().pos()
+    )
+}
+
+pub(crate) fn generator_body_has_no_suspension(body: &FunctionBody) -> bool {
+    !contains(body, ContainsSymbol::YieldExpression)
+}
+
+#[derive(Default)]
+struct ResumableStateAllocator {
+    current_state: u32,
+    suspension_points: Vec<ResumableSuspensionPointIr>,
+}
+
+impl ResumableStateAllocator {
+    fn suspend(&mut self, kind: ResumableSuspensionKindIr) {
+        let suspend_state = self.current_state;
+        self.current_state += 1;
+        self.suspension_points.push(ResumableSuspensionPointIr {
+            kind,
+            suspend_state,
+            resume_state: self.current_state,
+        });
+    }
+
+    fn finish(self) -> ResumablePlanIr {
+        ResumablePlanIr {
+            entry_state: 0,
+            state_count: self.current_state + 1,
+            suspension_points: self.suspension_points,
+        }
+    }
+}
+
+#[derive(Default)]
+struct AsyncGeneratorSuspensionCollector {
+    states: ResumableStateAllocator,
+}
+
+impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector {
+    type BreakTy = ();
+
+    fn visit_return(&mut self, return_statement: &'ast AstReturn) -> ControlFlow<Self::BreakTy> {
+        let Some(target) = return_statement.target() else {
+            return ControlFlow::Continue(());
+        };
+        let _ = target.visit_with(self);
+        self.states.suspend(ResumableSuspensionKindIr::Await);
+        ControlFlow::Continue(())
+    }
+
+    fn visit_await(
+        &mut self,
+        await_expression: &'ast boa_ast::expression::Await,
+    ) -> ControlFlow<Self::BreakTy> {
+        let _ = await_expression.visit_with(self);
+        self.states.suspend(ResumableSuspensionKindIr::Await);
+        ControlFlow::Continue(())
+    }
+
+    fn visit_yield(
+        &mut self,
+        yield_expression: &'ast boa_ast::expression::Yield,
+    ) -> ControlFlow<Self::BreakTy> {
+        let _ = yield_expression.visit_with(self);
+        self.states.suspend(ResumableSuspensionKindIr::Yield);
+        ControlFlow::Continue(())
+    }
+
+    fn visit_for_of_loop(&mut self, for_of: &'ast ForOfLoop) -> ControlFlow<Self::BreakTy> {
+        let _ = for_of.initializer().visit_with(self);
+        let _ = for_of.iterable().visit_with(self);
+        if for_of.r#await() {
+            self.states.suspend(ResumableSuspensionKindIr::ForAwaitNext);
+        }
+        let _ = for_of.body().visit_with(self);
+        if for_of.r#await() {
+            self.states
+                .suspend(ResumableSuspensionKindIr::ForAwaitClose);
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn visit_function_declaration(
+        &mut self,
+        _function: &'ast FunctionDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_generator_declaration(
+        &mut self,
+        _function: &'ast GeneratorDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_async_function_declaration(
+        &mut self,
+        _function: &'ast AsyncFunctionDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_async_generator_declaration(
+        &mut self,
+        _function: &'ast AsyncGeneratorDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_function_expression(
+        &mut self,
+        _function: &'ast FunctionExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_generator_expression(
+        &mut self,
+        _function: &'ast GeneratorExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_async_function_expression(
+        &mut self,
+        _function: &'ast AsyncFunctionExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_async_generator_expression(
+        &mut self,
+        _function: &'ast AsyncGeneratorExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_arrow_function(
+        &mut self,
+        _function: &'ast ArrowFunction,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_async_arrow_function(
+        &mut self,
+        _function: &'ast AsyncArrowFunction,
+    ) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Continue(())
+    }
+
+    fn visit_class_declaration(
+        &mut self,
+        class: &'ast ClassDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        if let Some(heritage) = class.super_ref() {
+            let _ = heritage.visit_with(self);
+        }
+        for element in class.elements() {
+            let _ = self.visit_class_element(element);
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn visit_class_expression(
+        &mut self,
+        class: &'ast ClassExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        if let Some(heritage) = class.super_ref() {
+            let _ = heritage.visit_with(self);
+        }
+        for element in class.elements() {
+            let _ = self.visit_class_element(element);
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn visit_class_element(&mut self, element: &'ast ClassElement) -> ControlFlow<Self::BreakTy> {
+        if let ClassElement::MethodDefinition(method) = element {
+            if let ClassElementName::PropertyName(name) = method.name() {
+                let _ = name.visit_with(self);
+            }
+            return ControlFlow::Continue(());
+        }
+        let _ = element.visit_with(self);
+        ControlFlow::Continue(())
+    }
+
+    fn visit_object_method_definition(
+        &mut self,
+        method: &'ast ObjectMethodDefinition,
+    ) -> ControlFlow<Self::BreakTy> {
+        let _ = method.name().visit_with(self);
+        ControlFlow::Continue(())
+    }
+}
+
+pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePlanIr {
+    let mut collector = AsyncGeneratorSuspensionCollector::default();
+    let _ = body.visit_with(&mut collector);
+    collector.states.finish()
+}
+
+pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlanIr> {
+    let mut suspension_points = Vec::new();
+    let mut current_state = 0u32;
+    for item in body.statements() {
+        let StatementListItem::Statement(statement) = item else {
+            if contains(item, ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            continue;
+        };
+        let yield_expression = match statement.as_ref() {
+            Statement::Expression(Expression::Yield(expression)) => Some((expression, true)),
+            Statement::Expression(Expression::Assign(assignment))
+                if assignment.op() == AssignOp::Assign
+                    && matches!(
+                        assignment.lhs(),
+                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
+                    ) =>
+            {
+                match assignment.rhs() {
+                    Expression::Yield(expression) => Some((expression, false)),
+                    _ => None,
+                }
+            }
+            Statement::Return(statement) => match statement.target() {
+                Some(Expression::Yield(expression)) => Some((expression, true)),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
+            let yield_count =
+                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)?;
+            for _ in 0..yield_count {
+                let suspend_state = current_state;
+                current_state += 1;
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state,
+                    resume_state: current_state,
+                });
+            }
+            continue;
+        }
+        if let Statement::Return(statement) = statement.as_ref() {
+            if let Some(target) = statement
+                .target()
+                .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
+            {
+                let yield_count = staged_generator_expression_yield_count(target)?;
+                for _ in 0..yield_count {
+                    let suspend_state = current_state;
+                    current_state += 1;
+                    suspension_points.push(GeneratorSuspensionPointIr {
+                        suspend_state,
+                        resume_state: current_state,
+                    });
+                }
+                continue;
+            }
+        }
+        if let Statement::Expression(expression) = statement.as_ref() {
+            if contains(expression, ContainsSymbol::YieldExpression) {
+                append_discarded_generator_expression_suspensions(
+                    expression,
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                continue;
+            }
+        }
+        if let Statement::Block(block) = statement.as_ref() {
+            if contains(block, ContainsSymbol::YieldExpression) {
+                append_discarded_generator_block_suspensions(
+                    block.statement_list().statements(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                continue;
+            }
+        }
+        if let Statement::With(with) = statement.as_ref() {
+            if contains(with.expression(), ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            match with.statement() {
+                Statement::Block(block) => append_discarded_generator_block_suspensions(
+                    block.statement_list().statements(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?,
+                Statement::Expression(expression) => {
+                    append_discarded_generator_expression_suspensions(
+                        expression,
+                        &mut current_state,
+                        &mut suspension_points,
+                    )?;
+                }
+                statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
+                _ => {}
+            }
+            continue;
+        }
+        let loop_shape = match statement.as_ref() {
+            Statement::ForLoop(loop_statement) => Some((
+                loop_statement.body(),
+                matches!(loop_statement.init(), Some(ForLoopInitializer::Lexical(_))),
+                loop_statement,
+            )),
+            _ => None,
+        };
+        if let Some((loop_body, reject_nested_functions, loop_statement)) = loop_shape {
+            if !simple_generator_loop_body_is_supported(loop_body)
+                || generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions)
+            {
+                return None;
+            }
+            let resume_state = current_state + 1;
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state: current_state,
+                resume_state,
+            });
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state: resume_state,
+                resume_state,
+            });
+            current_state += 2;
+            continue;
+        }
+        if let Statement::WhileLoop(loop_statement) = statement.as_ref() {
+            if !simple_generator_loop_body_is_supported(loop_statement.body())
+                || generator_loop_has_unsupported_construct(loop_statement, false)
+            {
+                return None;
+            }
+            let resume_state = current_state + 1;
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state: current_state,
+                resume_state,
+            });
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state: resume_state,
+                resume_state,
+            });
+            current_state += 2;
+            continue;
+        }
+        if let Statement::If(if_statement) = statement.as_ref() {
+            if contains(if_statement.cond(), ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            let then_yields = simple_generator_if_branch_yield_count(if_statement.body())?;
+            let else_yields = match if_statement.else_node() {
+                Some(branch) => simple_generator_if_branch_yield_count(branch)?,
+                None => 0,
+            };
+            let yield_count = then_yields + else_yields;
+            if yield_count == 0 {
+                continue;
+            }
+            for resume_offset in 1..=yield_count {
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state: current_state,
+                    resume_state: current_state + resume_offset as u32,
+                });
+            }
+            current_state += yield_count as u32 + 1;
+            continue;
+        }
+        if let Statement::Try(try_statement) = statement.as_ref() {
+            append_structured_generator_suspensions(
+                try_statement.block().statement_list().statements(),
+                &mut current_state,
+                &mut suspension_points,
+            )?;
+            current_state += 1;
+            if let Some(catch) = try_statement.catch() {
+                append_structured_generator_suspensions(
+                    catch.block().statement_list().statements(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                current_state += 1;
+            }
+            if let Some(finally) = try_statement.finally() {
+                append_structured_generator_suspensions(
+                    finally.block().statement_list().statements(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                current_state += 1;
+            }
+            continue;
+        }
+        if contains(statement.as_ref(), ContainsSymbol::YieldExpression) {
+            return None;
+        }
+    }
+    Some(GeneratorPlanIr {
+        entry_state: 0,
+        state_count: current_state + 1,
+        suspension_points,
+    })
+}
+
+fn append_structured_generator_suspensions(
+    statements: &[StatementListItem],
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Option<()> {
+    for item in statements {
+        let StatementListItem::Statement(statement) = item else {
+            if contains(item, ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            continue;
+        };
+        let yield_expression = match statement.as_ref() {
+            Statement::Expression(Expression::Yield(expression)) => Some((expression, true)),
+            Statement::Expression(Expression::Assign(assignment))
+                if assignment.op() == AssignOp::Assign
+                    && matches!(
+                        assignment.lhs(),
+                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
+                    ) =>
+            {
+                match assignment.rhs() {
+                    Expression::Yield(expression) => Some((expression, false)),
+                    _ => None,
+                }
+            }
+            Statement::Return(statement) => match statement.target() {
+                Some(Expression::Yield(expression)) => Some((expression, true)),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
+            let yield_count =
+                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)?;
+            for _ in 0..yield_count {
+                let suspend_state = *current_state;
+                *current_state += 1;
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state,
+                    resume_state: *current_state,
+                });
+            }
+            continue;
+        }
+        if let Statement::Return(statement) = statement.as_ref() {
+            if let Some(target) = statement
+                .target()
+                .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
+            {
+                let yield_count = staged_generator_expression_yield_count(target)?;
+                for _ in 0..yield_count {
+                    let suspend_state = *current_state;
+                    *current_state += 1;
+                    suspension_points.push(GeneratorSuspensionPointIr {
+                        suspend_state,
+                        resume_state: *current_state,
+                    });
+                }
+                continue;
+            }
+        }
+        if let Statement::Expression(expression) = statement.as_ref() {
+            if contains(expression, ContainsSymbol::YieldExpression) {
+                append_discarded_generator_expression_suspensions(
+                    expression,
+                    current_state,
+                    suspension_points,
+                )?;
+                continue;
+            }
+        }
+        if let Statement::Block(block) = statement.as_ref() {
+            if contains(block, ContainsSymbol::YieldExpression) {
+                append_discarded_generator_block_suspensions(
+                    block.statement_list().statements(),
+                    current_state,
+                    suspension_points,
+                )?;
+                continue;
+            }
+        }
+        if let Statement::Try(try_statement) = statement.as_ref() {
+            append_structured_generator_suspensions(
+                try_statement.block().statement_list().statements(),
+                current_state,
+                suspension_points,
+            )?;
+            *current_state += 1;
+            if let Some(catch) = try_statement.catch() {
+                append_structured_generator_suspensions(
+                    catch.block().statement_list().statements(),
+                    current_state,
+                    suspension_points,
+                )?;
+                *current_state += 1;
+            }
+            if let Some(finally) = try_statement.finally() {
+                append_structured_generator_suspensions(
+                    finally.block().statement_list().statements(),
+                    current_state,
+                    suspension_points,
+                )?;
+                *current_state += 1;
+            }
+            continue;
+        }
+        if contains(statement.as_ref(), ContainsSymbol::YieldExpression) {
+            return None;
+        }
+    }
+    Some(())
+}
+
+fn direct_generator_yield_count(
+    target: Option<&Expression>,
+    nested_yield_allowed: bool,
+) -> Option<u32> {
+    let Some(target) = target else {
+        return Some(1);
+    };
+    if !contains(target, ContainsSymbol::YieldExpression) {
+        return Some(1);
+    }
+    if !nested_yield_allowed {
+        return None;
+    }
+    staged_generator_expression_yield_count(target)?.checked_add(1)
+}
+
+fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u32> {
+    match expression {
+        Expression::Parenthesized(parenthesized) => {
+            staged_generator_expression_yield_count(parenthesized.expression())
+        }
+        Expression::Yield(yield_expression) => {
+            let nested_count = match yield_expression.target() {
+                Some(target) => staged_generator_expression_yield_count(target)?,
+                None => 0,
+            };
+            nested_count.checked_add(1)
+        }
+        Expression::Call(call) => {
+            if contains(call.function(), ContainsSymbol::YieldExpression)
+                || call
+                    .args()
+                    .iter()
+                    .any(|arg| matches!(arg, Expression::Spread(_)))
+            {
+                return None;
+            }
+            call.args().iter().try_fold(0u32, |count, argument| {
+                count.checked_add(staged_generator_expression_yield_count(argument)?)
+            })
+        }
+        Expression::ArrayLiteral(array) => {
+            array
+                .as_ref()
+                .iter()
+                .try_fold(0u32, |count, element| match element {
+                    Some(Expression::Spread(spread)) => {
+                        count.checked_add(staged_generator_expression_yield_count(spread.target())?)
+                    }
+                    Some(element) => {
+                        count.checked_add(staged_generator_expression_yield_count(element)?)
+                    }
+                    None => Some(count),
+                })
+        }
+        Expression::ObjectLiteral(object) => {
+            object
+                .properties()
+                .iter()
+                .try_fold(0u32, |count, property| match property {
+                    PropertyDefinition::SpreadObject(source) => {
+                        count.checked_add(staged_generator_expression_yield_count(source)?)
+                    }
+                    PropertyDefinition::Property(PropertyName::Literal(_), value) => {
+                        count.checked_add(staged_generator_expression_yield_count(value)?)
+                    }
+                    _ => None,
+                })
+        }
+        expression if contains(expression, ContainsSymbol::YieldExpression) => None,
+        _ => Some(0),
+    }
+}
+
+fn append_discarded_generator_block_suspensions(
+    statements: &[StatementListItem],
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Option<()> {
+    for item in statements {
+        let StatementListItem::Statement(statement) = item else {
+            return None;
+        };
+        match statement.as_ref() {
+            Statement::Expression(expression) => {
+                append_discarded_generator_expression_suspensions(
+                    expression,
+                    current_state,
+                    suspension_points,
+                )?;
+            }
+            Statement::Block(block) => append_discarded_generator_block_suspensions(
+                block.statement_list().statements(),
+                current_state,
+                suspension_points,
+            )?,
+            statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
+            _ => {}
+        }
+    }
+    Some(())
+}
+
+fn append_discarded_generator_expression_suspensions(
+    expression: &Expression,
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Option<()> {
+    match expression {
+        Expression::Parenthesized(parenthesized) => {
+            append_discarded_generator_expression_suspensions(
+                parenthesized.expression(),
+                current_state,
+                suspension_points,
+            )
+        }
+        Expression::Yield(yield_expression) => {
+            if direct_generator_yield_count(yield_expression.target(), true)? != 1 {
+                return None;
+            }
+            let suspend_state = *current_state;
+            *current_state += 1;
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state,
+                resume_state: *current_state,
+            });
+            Some(())
+        }
+        Expression::ArrayLiteral(array) => {
+            for element in array.as_ref().iter().flatten() {
+                if matches!(element, Expression::Spread(_)) {
+                    return None;
+                }
+                append_discarded_generator_expression_suspensions(
+                    element,
+                    current_state,
+                    suspension_points,
+                )?;
+            }
+            Some(())
+        }
+        Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
+            append_discarded_generator_expression_suspensions(
+                binary.lhs(),
+                current_state,
+                suspension_points,
+            )?;
+            append_discarded_generator_expression_suspensions(
+                binary.rhs(),
+                current_state,
+                suspension_points,
+            )
+        }
+        Expression::Binary(binary) if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) => {
+            append_discarded_generator_expression_suspensions(
+                binary.lhs(),
+                current_state,
+                suspension_points,
+            )?;
+            append_discarded_generator_expression_suspensions(
+                binary.rhs(),
+                current_state,
+                suspension_points,
+            )
+        }
+        Expression::Conditional(conditional) => {
+            let mut condition = conditional.condition();
+            while let Expression::Parenthesized(parenthesized) = condition {
+                condition = parenthesized.expression();
+            }
+            let Expression::Yield(condition_yield) = condition else {
+                return None;
+            };
+            if direct_generator_yield_count(condition_yield.target(), true)? != 1 {
+                return None;
+            }
+            let condition_suspend_state = *current_state;
+            *current_state += 1;
+            suspension_points.push(GeneratorSuspensionPointIr {
+                suspend_state: condition_suspend_state,
+                resume_state: *current_state,
+            });
+
+            let branch_entry_state = *current_state;
+            for (resume_offset, branch) in [conditional.if_true(), conditional.if_false()]
+                .into_iter()
+                .enumerate()
+            {
+                let mut branch = branch;
+                while let Expression::Parenthesized(parenthesized) = branch {
+                    branch = parenthesized.expression();
+                }
+                let Expression::Yield(branch_yield) = branch else {
+                    return None;
+                };
+                if direct_generator_yield_count(branch_yield.target(), true)? != 1 {
+                    return None;
+                }
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state: branch_entry_state,
+                    resume_state: branch_entry_state + resume_offset as u32 + 1,
+                });
+            }
+            *current_state = branch_entry_state + 3;
+            Some(())
+        }
+        Expression::Assign(assignment)
+            if assignment.op() == AssignOp::Assign
+                && matches!(assignment.lhs(), AssignTarget::Identifier(_))
+                && matches!(assignment.rhs(), Expression::TemplateLiteral(template) if contains(template, ContainsSymbol::YieldExpression)) =>
+        {
+            let Expression::TemplateLiteral(template) = assignment.rhs() else {
+                return None;
+            };
+            for element in template.elements() {
+                let TemplateElement::Expr(expression) = element else {
+                    continue;
+                };
+                if !contains(expression, ContainsSymbol::YieldExpression) {
+                    continue;
+                }
+                let mut expression = expression;
+                while let Expression::Parenthesized(parenthesized) = expression {
+                    expression = parenthesized.expression();
+                }
+                let Expression::Yield(yield_expression) = expression else {
+                    return None;
+                };
+                if direct_generator_yield_count(yield_expression.target(), true)? != 1 {
+                    return None;
+                }
+                let suspend_state = *current_state;
+                *current_state += 1;
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state,
+                    resume_state: *current_state,
+                });
+            }
+            Some(())
+        }
+        expression if contains(expression, ContainsSymbol::YieldExpression) => None,
+        _ => Some(()),
+    }
+}
+
+fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
+    let statements = match branch {
+        Statement::Block(block) => block.statement_list().statements(),
+        _ => {
+            return match branch {
+                Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
+                    Some(1)
+                }
+                statement if contains(statement, ContainsSymbol::YieldExpression) => None,
+                _ => Some(0),
+            };
+        }
+    };
+    let mut yield_count = 0usize;
+    let mut has_declaration = false;
+    for item in statements {
+        let StatementListItem::Statement(statement) = item else {
+            if contains(item, ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            has_declaration = true;
+            continue;
+        };
+        match statement.as_ref() {
+            Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
+                yield_count += 1;
+            }
+            statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
+            _ => {}
+        }
+    }
+    (yield_count <= 1 && !(has_declaration && yield_count == 1)).then_some(yield_count)
+}
+
+pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool {
+    let statements = match body {
+        Statement::Block(block) => block.statement_list().statements(),
+        _ => {
+            return matches!(body, Statement::Expression(Expression::Yield(expression)) if !expression.delegate());
+        }
+    };
+    let mut yield_count = 0usize;
+    for item in statements {
+        let StatementListItem::Statement(statement) = item else {
+            return false;
+        };
+        match statement.as_ref() {
+            Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
+                yield_count += 1;
+            }
+            statement if contains(statement, ContainsSymbol::YieldExpression) => return false,
+            _ => {}
+        }
+    }
+    yield_count == 1
+}
+
+struct GeneratorLoopShapeVisitor {
+    reject_nested_functions: bool,
+}
+
+impl GeneratorLoopShapeVisitor {
+    fn visit_nested_function(&self) -> ControlFlow<()> {
+        if self.reject_nested_functions {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+impl<'ast> Visitor<'ast> for GeneratorLoopShapeVisitor {
+    type BreakTy = ();
+
+    fn visit_break(&mut self, _statement: &'ast AstBreak) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Break(())
+    }
+
+    fn visit_continue(&mut self, _statement: &'ast AstContinue) -> ControlFlow<Self::BreakTy> {
+        ControlFlow::Break(())
+    }
+
+    fn visit_function_declaration(
+        &mut self,
+        _function: &'ast FunctionDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_generator_declaration(
+        &mut self,
+        _function: &'ast GeneratorDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_async_function_declaration(
+        &mut self,
+        _function: &'ast AsyncFunctionDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_async_generator_declaration(
+        &mut self,
+        _function: &'ast AsyncGeneratorDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_function_expression(
+        &mut self,
+        _function: &'ast FunctionExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_generator_expression(
+        &mut self,
+        _function: &'ast GeneratorExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_async_function_expression(
+        &mut self,
+        _function: &'ast AsyncFunctionExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_async_generator_expression(
+        &mut self,
+        _function: &'ast AsyncGeneratorExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_arrow_function(
+        &mut self,
+        _function: &'ast ArrowFunction,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_async_arrow_function(
+        &mut self,
+        _function: &'ast AsyncArrowFunction,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_class_declaration(
+        &mut self,
+        _class: &'ast ClassDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_class_expression(
+        &mut self,
+        _class: &'ast ClassExpression,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+
+    fn visit_object_method_definition(
+        &mut self,
+        _method: &'ast ObjectMethodDefinition,
+    ) -> ControlFlow<Self::BreakTy> {
+        self.visit_nested_function()
+    }
+}
+
+fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
+    loop_statement: &N,
+    reject_nested_functions: bool,
+) -> bool {
+    let mut visitor = GeneratorLoopShapeVisitor {
+        reject_nested_functions,
+    };
+    loop_statement.visit_with(&mut visitor).is_break()
+}
+
+pub(crate) fn generator_function_is_aot_supported(
+    body: &FunctionBody,
+    _parameters: &FormalParameterList,
+) -> bool {
+    linear_generator_plan(body).is_some()
+}
+
 pub(crate) fn generator_expression_callee(expression: &Expression) -> Option<&GeneratorExpression> {
     match expression {
         Expression::GeneratorExpression(generator) => Some(generator),
@@ -410,6 +1287,11 @@ pub(crate) fn generator_expression_callee(expression: &Expression) -> Option<&Ge
 pub(crate) fn arrow_function_key(function: &ArrowFunction) -> String {
     let span = function.linear_span();
     format!("linear:{}:{}", span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_arrow_function_key(function: &AsyncArrowFunction) -> String {
+    let span = function.linear_span();
+    format!("async-arrow:{}:{}", span.start().pos(), span.end().pos())
 }
 
 pub(crate) fn object_method_key(method: &ObjectMethodDefinition) -> String {
@@ -524,6 +1406,46 @@ pub(crate) fn function_source_slice(function: &FunctionDeclaration, source_text:
     source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
 }
 
+pub(crate) fn generator_declaration_source_slice(
+    function: &GeneratorDeclaration,
+    source_text: &str,
+) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_function_declaration_source_slice(
+    function: &AsyncFunctionDeclaration,
+    source_text: &str,
+) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_generator_declaration_source_slice(
+    function: &AsyncGeneratorDeclaration,
+    source_text: &str,
+) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_function_expression_source_slice(
+    function: &AsyncFunctionExpression,
+    source_text: &str,
+) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_generator_expression_source_slice(
+    function: &AsyncGeneratorExpression,
+    source_text: &str,
+) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
 pub(crate) fn function_expression_source_slice(
     function: &FunctionExpression,
     source_text: &str,
@@ -543,6 +1465,14 @@ pub(crate) fn generator_expression_source_slice(
 }
 
 pub(crate) fn arrow_function_source_slice(function: &ArrowFunction, source_text: &str) -> String {
+    let span = function.linear_span();
+    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+}
+
+pub(crate) fn async_arrow_function_source_slice(
+    function: &AsyncArrowFunction,
+    source_text: &str,
+) -> String {
     let span = function.linear_span();
     source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
 }

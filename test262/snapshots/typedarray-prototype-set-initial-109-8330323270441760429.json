@@ -1,0 +1,394 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8330323270441760429,
+  "run_kind": "full",
+  "total": 109,
+  "passed": 87,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 18,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 18,
+    "Success": 87
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-other-type.js",
+      "duration_ms": 174685
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/typedarray-arg-offset-tointeger.js",
+      "duration_ms": 143210
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-offset-tointeger.js",
+      "duration_ms": 141124
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-set-values.js",
+      "duration_ms": 139800
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-tonumber-value.js",
+      "duration_ms": 137512
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-set-values-in-order.js",
+      "duration_ms": 136855
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-get-value.js",
+      "duration_ms": 136831
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-tonumber-value-symbol.js",
+      "duration_ms": 136197
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type.js",
+      "duration_ms": 135862
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/set/array-arg-src-values-are-not-cached.js",
+      "duration_ms": 135655
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/array-arg-targetbuffer-detached-on-tointeger-offset-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1547416)",
+      "detail_hash": 176428144252436956,
+      "duration_ms": 102333
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-targetbuffer-detached-during-tointeger-offset-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1549144)",
+      "detail_hash": 13675211969783038147,
+      "duration_ms": 102591
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/array-arg-targetbuffer-detached-on-tointeger-offset-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1549688)",
+      "detail_hash": 3727505766881766525,
+      "duration_ms": 124075
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/set/typedarray-arg-targetbuffer-detached-during-tointeger-offset-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1551416)",
+      "detail_hash": 7361901519010574440,
+      "duration_ms": 123441
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-negative-integer-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-offset-tointeger.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-primitive-toobject.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-get-length.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-get-value.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-length-symbol.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-length.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-tonumber-value-symbol.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-src-tonumber-value.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-tointeger-offset-symbol.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-tointeger-offset.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-return-abrupt-from-toobject-offset.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-set-values-in-order.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-set-values.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-src-tonumber-value-type-conversions.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-src-values-are-not-cached.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-target-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-targetbuffer-detached-on-tointeger-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/array-arg-targetbuffer-detached-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/bigint-tobigint64.js",
+    "built-ins/TypedArray/prototype/set/BigInt/bigint-tobiguint64.js",
+    "built-ins/TypedArray/prototype/set/BigInt/boolean-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/null-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/number-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/src-typedarray-big.js",
+    "built-ins/TypedArray/prototype/set/BigInt/src-typedarray-not-big-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/string-nan-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/string-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/symbol-tobigint.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-negative-integer-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-offset-tointeger.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-return-abrupt-from-tointeger-offset-symbol.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-return-abrupt-from-tointeger-offset.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-src-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-src-byteoffset-internal.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-src-range-greather-than-target-throws-rangeerror.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-srcbuffer-detached-during-tointeger-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-byteoffset-internal.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-targetbuffer-detached-during-tointeger-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/BigInt/undefined-tobigint.js",
+    "built-ins/TypedArray/prototype/set/array-arg-negative-integer-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/array-arg-offset-tointeger.js",
+    "built-ins/TypedArray/prototype/set/array-arg-primitive-toobject.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-get-length.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-get-value.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-length-symbol.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-length.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-tonumber-value-symbol.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-src-tonumber-value.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-tointeger-offset-symbol.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-tointeger-offset.js",
+    "built-ins/TypedArray/prototype/set/array-arg-return-abrupt-from-toobject-offset.js",
+    "built-ins/TypedArray/prototype/set/array-arg-set-values-in-order.js",
+    "built-ins/TypedArray/prototype/set/array-arg-set-values.js",
+    "built-ins/TypedArray/prototype/set/array-arg-src-tonumber-value-conversions.js",
+    "built-ins/TypedArray/prototype/set/array-arg-src-tonumber-value-type-conversions.js",
+    "built-ins/TypedArray/prototype/set/array-arg-src-values-are-not-cached.js",
+    "built-ins/TypedArray/prototype/set/array-arg-target-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/array-arg-targetbuffer-detached-on-get-src-value-no-throw.js",
+    "built-ins/TypedArray/prototype/set/array-arg-targetbuffer-detached-on-tointeger-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/array-arg-targetbuffer-detached-throws.js",
+    "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js",
+    "built-ins/TypedArray/prototype/set/bit-precision.js",
+    "built-ins/TypedArray/prototype/set/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/set/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/set/length.js",
+    "built-ins/TypedArray/prototype/set/name.js",
+    "built-ins/TypedArray/prototype/set/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/set/prop-desc.js",
+    "built-ins/TypedArray/prototype/set/src-typedarray-big-throws.js",
+    "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js",
+    "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js",
+    "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js",
+    "built-ins/TypedArray/prototype/set/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/set/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-negative-integer-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-offset-tointeger.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-return-abrupt-from-tointeger-offset-symbol.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-return-abrupt-from-tointeger-offset.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-other-type.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-src-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-src-byteoffset-internal.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-src-range-greather-than-target-throws-rangeerror.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-srcbuffer-detached-during-tointeger-offset-throws.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-target-arraylength-internal.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-target-byteoffset-internal.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/set/typedarray-arg-targetbuffer-detached-during-tointeger-offset-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

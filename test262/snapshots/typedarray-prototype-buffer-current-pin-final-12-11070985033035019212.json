@@ -1,0 +1,98 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11070985033035019212,
+  "run_kind": "full",
+  "total": 12,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/return-buffer.js",
+      "duration_ms": 57957
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/detached-buffer.js",
+      "duration_ms": 57551
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/this-inherits-typedarray.js",
+      "duration_ms": 56599
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/prop-desc.js",
+      "duration_ms": 49355
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/name.js",
+      "duration_ms": 48427
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/length.js",
+      "duration_ms": 48315
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/BigInt/detached-buffer.js",
+      "duration_ms": 47605
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/this-is-not-object.js",
+      "duration_ms": 46050
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/this-has-no-typedarrayname-internal.js",
+      "duration_ms": 45839
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/buffer/BigInt/return-buffer.js",
+      "duration_ms": 43223
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/buffer/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/buffer/BigInt/return-buffer.js",
+    "built-ins/TypedArray/prototype/buffer/detached-buffer.js",
+    "built-ins/TypedArray/prototype/buffer/invoked-as-accessor.js",
+    "built-ins/TypedArray/prototype/buffer/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/buffer/length.js",
+    "built-ins/TypedArray/prototype/buffer/name.js",
+    "built-ins/TypedArray/prototype/buffer/prop-desc.js",
+    "built-ins/TypedArray/prototype/buffer/return-buffer.js",
+    "built-ins/TypedArray/prototype/buffer/this-has-no-typedarrayname-internal.js",
+    "built-ins/TypedArray/prototype/buffer/this-inherits-typedarray.js",
+    "built-ins/TypedArray/prototype/buffer/this-is-not-object.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

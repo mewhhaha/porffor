@@ -92,7 +92,7 @@ impl BigIntLiteralIr {
     pub fn from_bigint(value: BigInt) -> Self {
         let decimal = value.to_string();
         let low_bits = Self::low_bits(&value);
-        let requires_arbitrary_precision_storage = value.bits() > 63;
+        let requires_arbitrary_precision_storage = value.to_i64().is_none();
         Self {
             decimal,
             low_bits,
@@ -120,6 +120,33 @@ impl BigIntLiteralIr {
 
     pub fn wrapping_payload(&self) -> u64 {
         self.low_bits
+    }
+
+    pub fn signed_magnitude_u64(&self) -> Option<(i64, u64)> {
+        let (sign, limbs) = self.signed_magnitude_limbs();
+        if limbs.len() > 1 {
+            return None;
+        }
+        Some((sign, limbs.first().copied().unwrap_or(0)))
+    }
+
+    pub fn signed_magnitude_limbs(&self) -> (i64, Vec<u64>) {
+        let value = self.to_bigint();
+        let (sign, magnitude_bytes) = value.to_bytes_le();
+        let sign = match sign {
+            Sign::Minus => -1,
+            Sign::NoSign => 0,
+            Sign::Plus => 1,
+        };
+        let limbs = magnitude_bytes
+            .chunks(8)
+            .map(|chunk| {
+                let mut bytes = [0; 8];
+                bytes[..chunk.len()].copy_from_slice(chunk);
+                u64::from_le_bytes(bytes)
+            })
+            .collect();
+        (sign, limbs)
     }
 
     pub fn negated(&self) -> Self {
@@ -419,6 +446,100 @@ pub enum FunctionFlavor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionExecutionKind {
+    Ordinary,
+    Generator,
+    Async,
+    AsyncGenerator,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumableSuspensionKindIr {
+    Await,
+    Yield,
+    ForAwaitNext,
+    ForAwaitClose,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumableSuspensionPointIr {
+    pub kind: ResumableSuspensionKindIr,
+    pub suspend_state: u32,
+    pub resume_state: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumablePlanIr {
+    pub entry_state: u32,
+    pub state_count: u32,
+    pub suspension_points: Vec<ResumableSuspensionPointIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorSuspensionPointIr {
+    pub suspend_state: u32,
+    pub resume_state: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GeneratorResumeModeIr {
+    Ignore,
+    Return,
+    AssignIdentifier(String),
+    AssignProperty {
+        target: Box<TypedExpr>,
+        key: PropertyKeyIr,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncResumeModeIr {
+    Ignore,
+    Return,
+    AssignIdentifier(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorPlanIr {
+    pub entry_state: u32,
+    pub state_count: u32,
+    pub suspension_points: Vec<GeneratorSuspensionPointIr>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeneratorTryPlanIr {
+    pub entry_state: u32,
+    pub try_exit_state: u32,
+    pub catch_entry_state: Option<u32>,
+    pub catch_exit_state: Option<u32>,
+    pub finally_entry_state: Option<u32>,
+    pub finally_exit_state: Option<u32>,
+    pub exit_state: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AsyncTryPlanIr {
+    pub entry_state: u32,
+    pub try_exit_state: u32,
+    pub catch_entry_state: Option<u32>,
+    pub catch_exit_state: Option<u32>,
+    pub finally_entry_state: Option<u32>,
+    pub finally_exit_state: Option<u32>,
+    pub exit_state: u32,
+}
+
+impl GeneratorPlanIr {
+    #[must_use]
+    pub const fn without_suspensions() -> Self {
+        Self {
+            entry_state: 0,
+            state_count: 1,
+            suspension_points: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassFunctionKind {
     None,
     Constructor,
@@ -626,6 +747,7 @@ pub enum DestructuringTargetIr {
         private_name_id: PrivateNameId,
     },
     NestedArray(Box<ArrayDestructuringPatternIr>),
+    NestedObject(Box<ObjectDestructuringPatternIr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -688,6 +810,7 @@ fn visit_destructuring_target_expressions(
         }
         DestructuringTargetIr::AssignmentPrivate { target, .. } => visit(target),
         DestructuringTargetIr::NestedArray(pattern) => pattern.visit_expressions(visit),
+        DestructuringTargetIr::NestedObject(pattern) => pattern.visit_expressions(visit),
         DestructuringTargetIr::Binding { .. }
         | DestructuringTargetIr::AssignmentIdentifier { .. } => {}
     }
@@ -717,16 +840,33 @@ impl ArrayDestructuringPatternIr {
                 ArrayDestructuringElementIr::Target { target, .. }
                 | ArrayDestructuringElementIr::Rest { target } => target,
             };
-            match target {
-                DestructuringTargetIr::Binding { mode, name } => visit(*mode, name),
-                DestructuringTargetIr::NestedArray(pattern) => {
-                    pattern.visit_bindings(visit);
-                }
-                DestructuringTargetIr::AssignmentIdentifier { .. }
-                | DestructuringTargetIr::AssignmentProperty { .. }
-                | DestructuringTargetIr::AssignmentPrivate { .. } => {}
-            }
+            visit_destructuring_target_bindings(target, visit);
         }
+    }
+}
+
+impl ObjectDestructuringPatternIr {
+    pub fn visit_bindings(&self, visit: &mut impl FnMut(BindingMode, &str)) {
+        for property in &self.properties {
+            visit_destructuring_target_bindings(&property.target, visit);
+        }
+        if let Some(rest) = &self.rest {
+            visit_destructuring_target_bindings(rest, visit);
+        }
+    }
+}
+
+fn visit_destructuring_target_bindings(
+    target: &DestructuringTargetIr,
+    visit: &mut impl FnMut(BindingMode, &str),
+) {
+    match target {
+        DestructuringTargetIr::Binding { mode, name } => visit(*mode, name),
+        DestructuringTargetIr::NestedArray(pattern) => pattern.visit_bindings(visit),
+        DestructuringTargetIr::NestedObject(pattern) => pattern.visit_bindings(visit),
+        DestructuringTargetIr::AssignmentIdentifier { .. }
+        | DestructuringTargetIr::AssignmentProperty { .. }
+        | DestructuringTargetIr::AssignmentPrivate { .. } => {}
     }
 }
 
@@ -1144,6 +1284,16 @@ impl TypedExpr {
             },
         )
     }
+
+    pub fn spec_copy_data_properties(target: TypedExpr, source: TypedExpr) -> Self {
+        Self::from_info(
+            ValueInfo::new(ValueKind::Undefined),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::CopyDataProperties,
+                operands: vec![target, source],
+            },
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1553,6 +1703,30 @@ pub struct ForInOfEnvironmentIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncForOfPlanIr {
+    pub entry_state: u32,
+    pub continuation_resume_state: u32,
+    pub value_resume_state: u32,
+    pub exit_state: u32,
+    pub iterable_binding: String,
+    pub index_binding: String,
+    pub done_binding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncForOfIteratorPlanIr {
+    pub entry_state: u32,
+    pub value_resume_state: u32,
+    pub close_resume_state: u32,
+    pub exit_state: u32,
+    pub iterator_binding: String,
+    pub next_binding: String,
+    pub async_iterator_binding: String,
+    pub done_binding: String,
+    pub close_on_rejection_binding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedBindingIr {
     pub name: String,
     pub source_name: String,
@@ -1577,6 +1751,9 @@ pub struct FunctionIr {
     pub name: String,
     pub to_string_representation: CallableToStringRepresentation,
     pub flavor: FunctionFlavor,
+    pub execution_kind: FunctionExecutionKind,
+    pub generator_plan: Option<GeneratorPlanIr>,
+    pub resumable_plan: Option<ResumablePlanIr>,
     pub strict: bool,
     pub callable: bool,
     pub constructable: bool,
@@ -1624,8 +1801,49 @@ pub enum StatementIr {
         variable_storage_name: String,
     },
     LexicalBlock(Vec<StatementIr>),
+    ParameterInitialization {
+        parameter_index: usize,
+        statements: Vec<StatementIr>,
+    },
     Var(Vec<VarDeclaratorIr>),
     Expression(TypedExpr),
+    GeneratorYield {
+        value: TypedExpr,
+        delegate: bool,
+        suspend_state: u32,
+        resume_state: u32,
+        resume_mode: GeneratorResumeModeIr,
+    },
+    AsyncAwait {
+        value: TypedExpr,
+        suspend_state: u32,
+        resume_state: u32,
+        resume_mode: AsyncResumeModeIr,
+    },
+    GeneratorLoop {
+        init: Option<ForInitIr>,
+        test: Option<TypedExpr>,
+        update: Option<TypedExpr>,
+        before_yield: Vec<StatementIr>,
+        yield_statement: Box<StatementIr>,
+        after_yield: Vec<StatementIr>,
+        entry_state: u32,
+        resume_state: u32,
+        exit_state: u32,
+    },
+    GeneratorIf {
+        condition: TypedExpr,
+        then_before_yield: Vec<StatementIr>,
+        then_yield_statement: Option<Box<StatementIr>>,
+        then_after_yield: Vec<StatementIr>,
+        else_before_yield: Vec<StatementIr>,
+        else_yield_statement: Option<Box<StatementIr>>,
+        else_after_yield: Vec<StatementIr>,
+        entry_state: u32,
+        then_resume_state: Option<u32>,
+        else_resume_state: Option<u32>,
+        exit_state: u32,
+    },
     Block(BlockIr),
     If {
         condition: TypedExpr,
@@ -1653,6 +1871,7 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        async_plan: Option<AsyncForOfPlanIr>,
     },
     ForOfString {
         mode: BindingMode,
@@ -1667,6 +1886,7 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        async_plan: Option<AsyncForOfIteratorPlanIr>,
     },
     ForInArray {
         mode: BindingMode,
@@ -1707,10 +1927,14 @@ pub enum StatementIr {
         catch_source_name: String,
         catch_parameter_environment: Option<LexicalEnvironmentIr>,
         catch_block: BlockIr,
+        generator_plan: Option<GeneratorTryPlanIr>,
+        async_plan: Option<AsyncTryPlanIr>,
     },
     TryFinally {
         try_block: BlockIr,
         finally_block: BlockIr,
+        generator_plan: Option<GeneratorTryPlanIr>,
+        async_plan: Option<AsyncTryPlanIr>,
     },
     TryCatchFinally {
         try_block: BlockIr,
@@ -1719,6 +1943,8 @@ pub enum StatementIr {
         catch_parameter_environment: Option<LexicalEnvironmentIr>,
         catch_block: BlockIr,
         finally_block: BlockIr,
+        generator_plan: Option<GeneratorTryPlanIr>,
+        async_plan: Option<AsyncTryPlanIr>,
     },
     Return(TypedExpr),
     Break {
@@ -2139,7 +2365,8 @@ impl IrSummaryCounts {
                 }
                 self.visit_expr(init);
             }
-            StatementIr::LexicalBlock(statements) => {
+            StatementIr::LexicalBlock(statements)
+            | StatementIr::ParameterInitialization { statements, .. } => {
                 for statement in statements {
                     self.visit_statement(statement);
                 }
@@ -2153,6 +2380,21 @@ impl IrSummaryCounts {
                 }
             }
             StatementIr::Expression(expr) => self.visit_expr(expr),
+            StatementIr::GeneratorYield {
+                value, resume_mode, ..
+            } => {
+                if let GeneratorResumeModeIr::AssignProperty { target, key } = resume_mode {
+                    self.visit_expr(target);
+                    match key {
+                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                            self.visit_expr(expr);
+                        }
+                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+                    }
+                }
+                self.visit_expr(value);
+            }
+            StatementIr::AsyncAwait { value, .. } => self.visit_expr(value),
             StatementIr::Block(block) => {
                 self.blocks += 1;
                 self.visit_block(block);
@@ -2197,6 +2439,56 @@ impl IrSummaryCounts {
                     self.visit_expr(update);
                 }
                 self.visit_statement(body);
+            }
+            StatementIr::GeneratorLoop {
+                init,
+                test,
+                update,
+                before_yield,
+                yield_statement,
+                after_yield,
+                ..
+            } => {
+                self.fors += 1;
+                if let Some(init) = init {
+                    self.visit_for_init(init);
+                }
+                if let Some(test) = test {
+                    self.visit_expr(test);
+                }
+                if let Some(update) = update {
+                    self.visit_expr(update);
+                }
+                for statement in before_yield {
+                    self.visit_statement(statement);
+                }
+                self.visit_statement(yield_statement);
+                for statement in after_yield {
+                    self.visit_statement(statement);
+                }
+            }
+            StatementIr::GeneratorIf {
+                condition,
+                then_before_yield,
+                then_yield_statement,
+                then_after_yield,
+                else_before_yield,
+                else_yield_statement,
+                else_after_yield,
+                ..
+            } => {
+                self.ifs += 1;
+                self.visit_expr(condition);
+                for statement in then_before_yield
+                    .iter()
+                    .chain(then_yield_statement.as_deref())
+                    .chain(then_after_yield)
+                    .chain(else_before_yield)
+                    .chain(else_yield_statement.as_deref())
+                    .chain(else_after_yield)
+                {
+                    self.visit_statement(statement);
+                }
             }
             StatementIr::ForOfArray { iterable, body, .. }
             | StatementIr::ForOfString { iterable, body, .. }
@@ -2259,6 +2551,7 @@ impl IrSummaryCounts {
             StatementIr::TryFinally {
                 try_block,
                 finally_block,
+                ..
             } => {
                 self.try_finallys += 1;
                 self.visit_block(try_block);
@@ -2537,6 +2830,10 @@ impl IrSummaryCounts {
                             self.property_reads += 1;
                         }
                         SpecOperationIr::CreateDataPropertyOrThrow => {
+                            self.property_writes += 1;
+                        }
+                        SpecOperationIr::CopyDataProperties => {
+                            self.property_reads += 1;
                             self.property_writes += 1;
                         }
                         SpecOperationIr::Set => {
@@ -2884,6 +3181,24 @@ pub(crate) fn read_heap_shape_property(
 mod tests {
     use super::*;
     use crate::CompletionKindIr;
+
+    #[test]
+    fn bigint_literal_reports_one_limb_signed_magnitude() {
+        let maximum =
+            BigIntLiteralIr::from_bigint("18446744073709551615".parse().expect("valid BigInt"));
+        let negative_maximum =
+            BigIntLiteralIr::from_bigint("-18446744073709551615".parse().expect("valid BigInt"));
+        let two_limbs =
+            BigIntLiteralIr::from_bigint("18446744073709551616".parse().expect("valid BigInt"));
+
+        assert_eq!(maximum.signed_magnitude_u64(), Some((1, u64::MAX)));
+        assert_eq!(
+            negative_maximum.signed_magnitude_u64(),
+            Some((-1, u64::MAX))
+        );
+        assert_eq!(two_limbs.signed_magnitude_u64(), None);
+        assert_eq!(two_limbs.signed_magnitude_limbs(), (1, vec![0, 1]));
+    }
 
     #[test]
     fn value_tags_round_trip_for_runtime_tags() {

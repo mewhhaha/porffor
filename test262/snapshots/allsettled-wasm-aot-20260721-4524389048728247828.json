@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4524389048728247828,
+  "run_kind": "resume-case-checkpoint",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/allSettled/resolved-immed.js",
+      "duration_ms": 66541
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolved-sequence-with-rejections.js",
+      "duration_ms": 65657
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolved-sequence.js",
+      "duration_ms": 65585
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolved-sequence-mixed.js",
+      "duration_ms": 65543
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolved-sequence-extra-ticks.js",
+      "duration_ms": 65392
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolves-empty-array.js",
+      "duration_ms": 61999
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolved-then-catch-finally.js",
+      "duration_ms": 61989
+    },
+    {
+      "path": "built-ins/Promise/allSettled/resolves-to-array.js",
+      "duration_ms": 57741
+    },
+    {
+      "path": "built-ins/Promise/allSettled/returns-promise.js",
+      "duration_ms": 51664
+    },
+    {
+      "path": "built-ins/Promise/allSettled/species-get-error.js",
+      "duration_ms": 47784
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Promise/allSettled/resolved-immed.js",
+    "built-ins/Promise/allSettled/resolved-sequence-extra-ticks.js",
+    "built-ins/Promise/allSettled/resolved-sequence-mixed.js",
+    "built-ins/Promise/allSettled/resolved-sequence-with-rejections.js",
+    "built-ins/Promise/allSettled/resolved-sequence.js",
+    "built-ins/Promise/allSettled/resolved-then-catch-finally.js",
+    "built-ins/Promise/allSettled/resolves-empty-array.js",
+    "built-ins/Promise/allSettled/resolves-to-array.js",
+    "built-ins/Promise/allSettled/returns-promise.js",
+    "built-ins/Promise/allSettled/species-get-error.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

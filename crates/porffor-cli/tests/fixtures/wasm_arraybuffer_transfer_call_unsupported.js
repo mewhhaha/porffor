@@ -143,4 +143,20 @@ try {
 }
 if (!overMaxThrew) throw "resizable over max";
 
+let immutable = new ArrayBuffer(1).transferToImmutable();
+let immutableCoercions = 0;
+let immutableThrew = false;
+try {
+  immutable.transfer({
+    valueOf: function() {
+      immutableCoercions += 1;
+      return 1;
+    }
+  });
+} catch (error) {
+  immutableThrew = true;
+}
+if (!immutableThrew) throw "immutable receiver";
+if (immutableCoercions !== 1) throw "immutable coercion order";
+
 123;

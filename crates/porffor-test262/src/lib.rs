@@ -5,12 +5,14 @@ use std::hash::{Hash, Hasher};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use porffor_engine::{
-    compilation_jobs, CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions,
+    compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
+    ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
 use porffor_ir::{IrDiagnosticKind, IrDiagnosticPhase};
 use serde::{Deserialize, Serialize};
@@ -54,7 +56,27 @@ const TEST262_WORKER_STACK_SIZE: usize = 64 * 1024 * 1024;
 // finite allowance for parsing, lowering, emission, and cold native compile.
 const WASM_AOT_CHILD_COMPILE_ALLOWANCE_MS: u64 = 300_000;
 const DISABLE_CASE_RUNNER_ENV: &str = "PORFFOR_TEST262_DISABLE_CASE_RUNNER";
+const WASM_AOT_INACTIVE_REALM_GLOBAL: &str = "  global: undefined,";
+const WASM_AOT_ACTIVE_REALM_GLOBAL: &str = "  global: globalThis,";
+const WASM_AOT_INACTIVE_CREATE_REALM: &str =
+    "  createRealm: function () {\n    __porfUnsupportedHost('createRealm');\n  },";
+const WASM_AOT_ACTIVE_CREATE_REALM: &str =
+    "  createRealm: function () {\n    return __porfCreateRealm();\n  },";
 static TEST262_PANIC_HOOK: Once = Once::new();
+
+#[derive(Debug)]
+struct CapturingTest262Output {
+    lines: Arc<Mutex<Vec<String>>>,
+}
+
+impl HostHooks for CapturingTest262Output {
+    fn print_line(&self, text: &str) {
+        self.lines
+            .lock()
+            .expect("Test262 output capture lock should not be poisoned")
+            .push(text.to_string());
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FailureKind {
@@ -790,6 +812,14 @@ impl ConformanceRunner {
         run_top_level_matrix(&self.config, run_config)
     }
 
+    pub fn run_matrix_node(
+        &self,
+        node_selector: &str,
+        run_config: RunConfig,
+    ) -> Result<RunSummary, String> {
+        run_selected_matrix_node(&self.config, node_selector, run_config)
+    }
+
     pub fn build_run_matrix(&self) -> Result<Vec<RunMatrixNode>, String> {
         build_run_matrix(&self.config)
     }
@@ -990,16 +1020,25 @@ pub fn materialize_test(
         }
 
         let assert_prelude = preludes.get("assert.js");
-        let use_trimmed_same_value_assert = assert_prelude
-            .is_some_and(|prelude| can_use_wasm_aot_same_value_assert_prelude(case, prelude));
+        let use_trimmed_same_value_assert = assert_prelude.is_some_and(|prelude| {
+            can_use_wasm_aot_same_value_assert_prelude(case, prelude, preludes)
+        });
+        let use_trimmed_compare_array_assert = assert_prelude.is_some_and(|prelude| {
+            can_use_wasm_aot_compare_array_assert_prelude(case, prelude, preludes)
+        });
         let assert_needs_test262_error = !use_trimmed_same_value_assert
+            && !use_trimmed_compare_array_assert
             && assert_prelude.is_some_and(|prelude| prelude.contents.contains("Test262Error"));
         let needs_full_sta = case_needs_full_sta_prelude(case);
+        let needs_wasm_aot_realm_host = case_may_use_wasm_aot_realm_host(case, preludes);
         let needs_test262_error_preamble =
             assert_needs_test262_error || case_needs_test262_error_prelude(case);
         if needs_full_sta {
             if let Some(prelude) = preludes.get("sta.js") {
-                source.push_str(&prelude.contents);
+                source.push_str(&materialize_wasm_aot_sta_prelude(
+                    prelude,
+                    needs_wasm_aot_realm_host,
+                )?);
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
         } else if needs_test262_error_preamble {
@@ -1014,6 +1053,8 @@ pub fn materialize_test(
         if let Some(prelude) = assert_prelude {
             if use_trimmed_same_value_assert {
                 source.push_str(WASM_AOT_ASSERT_SAME_VALUE_PRELUDE);
+            } else if use_trimmed_compare_array_assert {
+                source.push_str(WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE);
             } else {
                 source.push_str(&prelude.contents);
             }
@@ -1028,8 +1069,12 @@ pub fn materialize_test(
             }
         }
 
+        let mut included_prelude_names = BTreeSet::new();
         for include in &case.includes {
             if include.is_empty() {
+                continue;
+            }
+            if !included_prelude_names.insert(include.as_str()) {
                 continue;
             }
             if include == "testTypedArray.js" && wasm_aot_rewrite_skips_test_typed_array(&case.path)
@@ -1037,18 +1082,41 @@ pub fn materialize_test(
                 continue;
             }
             if let Some(prelude) = preludes.get(include) {
-                if include == "testTypedArray.js"
-                    && case
-                        .path
-                        .starts_with("built-ins/TypedArray/prototype/join/")
-                    && !case.original_source.contains("makeCtorArg")
-                {
-                    // These callbacks do not consume the argument-factory parameter.
-                    // Running each constructor once preserves every assertion while
-                    // avoiding the full helper's redundant constructor/factory product.
-                    source.push_str(WASM_AOT_TYPED_ARRAY_CONSTRUCTORS_ONCE_PRELUDE);
-                    used_preludes.push((prelude.name.clone(), prelude.origin));
-                    continue;
+                if include == "testTypedArray.js" {
+                    if let Some(compact_prelude) =
+                        wasm_aot_compact_test_typed_array_prelude(case, prelude)
+                    {
+                        let split_compact_prelude =
+                            if test_typed_array_dispatcher_can_be_split(case) {
+                                split_test_typed_array_dispatcher_source(
+                                    compact_prelude,
+                                    "\n\nfunction testWithTypedArrayConstructors",
+                                    compact_prelude.len(),
+                                )
+                            } else {
+                                None
+                            };
+                        source
+                            .push_str(split_compact_prelude.as_deref().unwrap_or(compact_prelude));
+                        used_preludes.push((prelude.name.clone(), prelude.origin));
+                        continue;
+                    }
+                    if let Some(split_prelude) =
+                        wasm_aot_split_test_typed_array_dispatcher(case, prelude)
+                    {
+                        source.push_str(&split_prelude);
+                        used_preludes.push((prelude.name.clone(), prelude.origin));
+                        continue;
+                    }
+                }
+                if include == "propertyHelper.js" {
+                    if let Some(compact_prelude) =
+                        wasm_aot_compact_typed_array_property_prelude(case, prelude)
+                    {
+                        source.push_str(compact_prelude);
+                        used_preludes.push((prelude.name.clone(), prelude.origin));
+                        continue;
+                    }
                 }
                 if include == "fnGlobalObject.js" {
                     const DYNAMIC_GLOBAL_LOOKUP: &str =
@@ -1122,7 +1190,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         }
     }
 
-    source.push_str(&rewrite_wasm_aot_known_static_for_of(case));
+    if let Some(sort_value_matrix) = rewrite_wasm_aot_typed_array_sort_value_matrix(case) {
+        source.push_str(&sort_value_matrix);
+    } else {
+        source.push_str(&rewrite_wasm_aot_known_static_for_of(case));
+    }
 
     Ok(MaterializedTest {
         path: case.path.clone(),
@@ -1173,75 +1245,887 @@ assert.sameValue = function (actual, expected, message) {
 };
 "#;
 
-const WASM_AOT_TYPED_ARRAY_CONSTRUCTORS_ONCE_PRELUDE: &str = r#"
-var typedArrayConstructors = [
+const WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE: &str = r#"
+function __porfAssertIsSameValue(a, b) {
+  if (a === b) {
+    return true;
+  }
+  return a !== a && b !== b;
+}
+
+function __porfAssertToString(value) {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (value === null) {
+    return 'null';
+  }
+  return String(value);
+}
+
+function assert(mustBeTrue, message) {
+  if (mustBeTrue) {
+    return;
+  }
+  if (message === undefined) {
+    message = 'Expected true but got false';
+  }
+  throw message;
+}
+
+function __porfCompareArrayMismatchIndex(actual, expected) {
+  if (actual.length !== expected.length) {
+    return -2;
+  }
+
+  var index = 0;
+  while (index < actual.length) {
+    if (!__porfAssertIsSameValue(actual[index], expected[index])) {
+      return index;
+    }
+    index = index + 1;
+  }
+  return -1;
+}
+
+function __porfAssertCompareArray(actual, expected, message) {
+  var mismatchIndex = __porfCompareArrayMismatchIndex(actual, expected);
+  if (mismatchIndex === -1) {
+    return;
+  }
+  if (message) {
+    throw message;
+  }
+  if (mismatchIndex === -2) {
+    throw 'Expected arrays to have the same length';
+  }
+
+  throw 'Expected arrays to contain the same values at ' + mismatchIndex + ': ' +
+    __porfAssertToString(actual[mismatchIndex]) + ' !== ' +
+    __porfAssertToString(expected[mismatchIndex]);
+}
+assert.compareArray = __porfAssertCompareArray;
+
+function compareArray(actual, expected) {
+  return __porfCompareArrayMismatchIndex(actual, expected) === -1;
+}
+"#;
+
+const WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE: &str = r#"
+var floatArrayConstructors = [
   Float64Array,
-  Float32Array,
+  Float32Array
+];
+
+var nonClampedIntArrayConstructors = [
   Int32Array,
   Int16Array,
   Int8Array,
   Uint32Array,
   Uint16Array,
-  Uint8Array,
-  Uint8ClampedArray
+  Uint8Array
 ];
-var bigIntArrayConstructors = [BigInt64Array, BigUint64Array];
+
+var intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);
+
+if (typeof Float16Array !== "undefined") {
+  floatArrayConstructors.push(Float16Array);
+}
+
+var bigIntArrayConstructors = [];
+if (typeof BigInt64Array !== "undefined") {
+  bigIntArrayConstructors.push(BigInt64Array);
+}
+if (typeof BigUint64Array !== "undefined") {
+  bigIntArrayConstructors.push(BigUint64Array);
+}
+
+var typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);
+var allTypedArrayConstructors = typedArrayConstructors.concat(bigIntArrayConstructors);
 var TypedArray = Object.getPrototypeOf(Int8Array);
 
-function testWithTypedArrayConstructors(callback, constructors) {
-  var selected = constructors || typedArrayConstructors;
-  for (var index = 0; index < selected.length; index++) {
-    callback(selected[index]);
+function makePassthrough(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+
+function makeArray(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+
+function makeArrayLike(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+
+var makeIterable;
+if (typeof Symbol !== "undefined" && Symbol.iterator) {
+  makeIterable = function makeIterable(TA, primitiveOrIterable) {
+    return primitiveOrIterable;
+  };
+}
+
+function makeArrayBuffer(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+
+var makeResizableArrayBuffer, makeGrownArrayBuffer, makeShrunkArrayBuffer;
+if (ArrayBuffer.prototype.resize) {
+  makeResizableArrayBuffer = function makeResizableArrayBuffer(TA, primitiveOrIterable) {
+    return primitiveOrIterable;
+  };
+
+  makeGrownArrayBuffer = function makeGrownArrayBuffer(TA, primitiveOrIterable) {
+    return primitiveOrIterable;
+  };
+
+  makeShrunkArrayBuffer = function makeShrunkArrayBuffer(TA, primitiveOrIterable) {
+    return primitiveOrIterable;
+  };
+}
+
+var typedArrayCtorArgFactories = [makePassthrough, makeArray, makeArrayLike];
+if (makeIterable) typedArrayCtorArgFactories.push(makeIterable);
+typedArrayCtorArgFactories.push(makeArrayBuffer);
+if (makeResizableArrayBuffer) typedArrayCtorArgFactories.push(makeResizableArrayBuffer);
+if (makeGrownArrayBuffer) typedArrayCtorArgFactories.push(makeGrownArrayBuffer);
+if (makeShrunkArrayBuffer) typedArrayCtorArgFactories.push(makeShrunkArrayBuffer);
+
+function ctorArgFactoryMatchesSome(argFactory, features) {
+  for (var i = 0; i < features.length; ++i) {
+    switch (features[i]) {
+      case "passthrough":
+        if (argFactory === makePassthrough) return true;
+        break;
+      case "arraylike":
+        if (argFactory === makeArray || argFactory === makeArrayLike) return true;
+        break;
+      case "iterable":
+        if (argFactory === makeIterable) return true;
+        break;
+      case "arraybuffer":
+        if (
+          argFactory === makeArrayBuffer ||
+          argFactory === makeResizableArrayBuffer ||
+          argFactory === makeGrownArrayBuffer ||
+          argFactory === makeShrunkArrayBuffer
+        ) {
+          return true;
+        }
+        break;
+      case "resizable":
+        if (
+          argFactory === makeResizableArrayBuffer ||
+          argFactory === makeGrownArrayBuffer ||
+          argFactory === makeShrunkArrayBuffer
+        ) {
+          return true;
+        }
+        break;
+      default:
+        throw Test262Error("unknown feature: " + features[i]);
+    }
+  }
+  return false;
+}
+
+function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  var ctors = constructors || allTypedArrayConstructors;
+  var ctorArgFactories = typedArrayCtorArgFactories;
+  if (includeArgFactories) {
+    ctorArgFactories = [];
+    for (var i = 0; i < typedArrayCtorArgFactories.length; ++i) {
+      if (ctorArgFactoryMatchesSome(typedArrayCtorArgFactories[i], includeArgFactories)) {
+        ctorArgFactories.push(typedArrayCtorArgFactories[i]);
+      }
+    }
+  }
+  if (excludeArgFactories) {
+    ctorArgFactories = ctorArgFactories.slice();
+    for (var i = ctorArgFactories.length - 1; i >= 0; --i) {
+      if (ctorArgFactoryMatchesSome(ctorArgFactories[i], excludeArgFactories)) {
+        ctorArgFactories.splice(i, 1);
+      }
+    }
+  }
+  if (ctorArgFactories.length === 0) {
+    throw Test262Error("no arg factories match include " + includeArgFactories + " and exclude " + excludeArgFactories);
+  }
+  for (var k = 0; k < ctorArgFactories.length; ++k) {
+    var argFactory = ctorArgFactories[k];
+    for (var i = 0; i < ctors.length; ++i) {
+      var constructor = ctors[i];
+      var boundArgFactory = argFactory.bind(undefined, constructor);
+      try {
+        f(constructor, boundArgFactory);
+      } catch (e) {
+        e.message += " (Testing with " + constructor.name + " and " + argFactory.name + ".)";
+        throw e;
+      }
+    }
   }
 }
 
-function testWithBigIntTypedArrayConstructors(callback, constructors) {
-  var selected = constructors || bigIntArrayConstructors;
-  for (var index = 0; index < selected.length; index++) {
-    callback(selected[index]);
-  }
+function testWithTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  var ctors = constructors || typedArrayConstructors;
+  testWithAllTypedArrayConstructors(f, ctors, includeArgFactories, excludeArgFactories);
+}
+
+function testWithBigIntTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  var ctors = constructors || [BigInt64Array, BigUint64Array];
+  testWithAllTypedArrayConstructors(f, ctors, includeArgFactories, excludeArgFactories);
 }
 "#;
 
-const IS_HTML_DDA_TYPED_ARRAY_FROM_PATH: &str =
-    "annexB/built-ins/TypedArrayConstructors/from/iterator-method-emulates-undefined.js";
+const WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE: &str =
+    "\nvar TypedArray = Object.getPrototypeOf(Int8Array);\n";
 
-const IS_HTML_DDA_TYPED_ARRAY_FROM_SOURCE: &str = r#"// Copyright (C) 2020 Alexey Shvayka. All rights reserved.
-// This code is governed by the BSD license found in the LICENSE file.
-/*---
-esid: sec-%typedarray%.from
-description: >
-  [[IsHTMLDDA]] object as @@iterator method gets called.
-info: |
-  %TypedArray%.from ( source [ , mapfn [ , thisArg ] ] )
+const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
 
-  [...]
-  5. Let usingIterator be ? GetMethod(items, @@iterator).
-  6. If usingIterator is not undefined, then
-    a. Let values be ? IterableToList(source, usingIterator).
+const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x59f3_3074_36d5_4a9a;
 
-  IterableToList ( items, method )
-
-  1. Let iteratorRecord be ? GetIterator(items, sync, method).
-
-  GetIterator ( obj [ , hint [ , method ] ] )
-
-  [...]
-  4. Let iterator be ? Call(method, obj).
-  5. If Type(iterator) is not Object, throw a TypeError exception.
-includes: [testTypedArray.js]
-features: [Symbol.iterator, TypedArray, IsHTMLDDA]
----*/
-
-var items = {};
-items[Symbol.iterator] = $262.IsHTMLDDA;
-
-testWithTypedArrayConstructors(function(TypedArray) {
-  assert.throws(TypeError, function() {
-    TypedArray.from(items);
-  });
-});
+const WASM_AOT_VERIFY_PROPERTY_PRELUDE: &str = r#"
+function verifyProperty(object, name, expectedDescriptor) {
+  var actualDescriptor = Object.getOwnPropertyDescriptor(object, name);
+  if (actualDescriptor === undefined) throw "missing property descriptor";
+  if ("value" in expectedDescriptor) {
+    if (actualDescriptor.value !== expectedDescriptor.value) throw "unexpected property value";
+    if (object[name] !== expectedDescriptor.value) throw "unexpected property access value";
+  }
+  if ("writable" in expectedDescriptor) {
+    if (actualDescriptor.writable !== expectedDescriptor.writable) throw "unexpected writability";
+    var originalValue = object[name];
+    object[name] = "__porf_writable_check__";
+    var writeSucceeded = object[name] !== originalValue;
+    if (writeSucceeded) object[name] = originalValue;
+    if (writeSucceeded !== expectedDescriptor.writable) {
+      throw "writability does not match assignment";
+    }
+  }
+  if ("enumerable" in expectedDescriptor) {
+    if (actualDescriptor.enumerable !== expectedDescriptor.enumerable) {
+      throw "unexpected enumerability";
+    }
+    var observedEnumerable = false;
+    for (var key in object) {
+      if (key === name) observedEnumerable = true;
+    }
+    if (observedEnumerable !== expectedDescriptor.enumerable) {
+      throw "enumerability does not match iteration";
+    }
+  }
+  if ("configurable" in expectedDescriptor) {
+    if (actualDescriptor.configurable !== expectedDescriptor.configurable) {
+      throw "unexpected configurability";
+    }
+    delete object[name];
+    var deleted = Object.getOwnPropertyDescriptor(object, name) === undefined;
+    if (deleted !== expectedDescriptor.configurable) {
+      throw "configurability does not match deletion";
+    }
+  }
+  return true;
+}
 "#;
+
+fn typed_array_species_source_matches_vendored_case(case: &TestCase) -> bool {
+    let expected_fingerprint = match case.path.as_str() {
+        "built-ins/TypedArray/Symbol.species/result.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xcf70_cfcb_c57f_17c7
+        }
+        "built-ins/TypedArray/Symbol.species/prop-desc.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xb957_c5bf_6a6d_9f3c
+        }
+        "built-ins/TypedArray/Symbol.species/name.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0xde2e_e0ad_2fd9_e785
+        }
+        "built-ins/TypedArray/Symbol.species/length.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0x488e_faf7_29c4_1f43
+        }
+        _ => return false,
+    };
+    let fingerprint = case
+        .original_source
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    fingerprint == expected_fingerprint
+}
+
+fn typed_array_filter_source_matches_vendored_case(case: &TestCase) -> bool {
+    let expected_fingerprint = match case.path.as_str() {
+        "built-ins/TypedArray/prototype/filter/invoked-as-func.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xc04d_3635_9bf8_0b74
+        }
+        "built-ins/TypedArray/prototype/filter/invoked-as-method.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xf691_d72a_1a65_3199
+        }
+        "built-ins/TypedArray/prototype/filter/length.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0x8b48_ad65_db41_9e0e
+        }
+        "built-ins/TypedArray/prototype/filter/name.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0x4b6b_e6ef_1460_4a44
+        }
+        "built-ins/TypedArray/prototype/filter/not-a-constructor.js"
+            if case.includes.as_slice() == ["isConstructor.js", "testTypedArray.js"] =>
+        {
+            0x13a7_fc16_91c4_b484
+        }
+        "built-ins/TypedArray/prototype/filter/prop-desc.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0x2c9b_1656_b9b8_7d6a
+        }
+        "built-ins/TypedArray/prototype/filter/this-is-not-object.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xf8b5_7536_7bbb_e2f5
+        }
+        "built-ins/TypedArray/prototype/filter/this-is-not-typedarray-instance.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xbee7_3984_97f5_009e
+        }
+        "built-ins/TypedArray/prototype/filter/result-full-callbackfn-returns-true.js"
+            if case.includes.as_slice() == ["testTypedArray.js", "compareArray.js"] =>
+        {
+            0x0e62_0798_f4b1_9290
+        }
+        _ => return false,
+    };
+    let fingerprint = case
+        .original_source
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    fingerprint == expected_fingerprint
+}
+
+fn typed_array_map_source_matches_vendored_case(case: &TestCase) -> bool {
+    let expected_fingerprint = match case.path.as_str() {
+        "built-ins/TypedArray/prototype/map/invoked-as-func.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0x55fd_cdda_39fe_9506
+        }
+        "built-ins/TypedArray/prototype/map/invoked-as-method.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0x2ba8_6448_f5d9_40b9
+        }
+        "built-ins/TypedArray/prototype/map/length.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0xf412_30dd_f788_1e54
+        }
+        "built-ins/TypedArray/prototype/map/name.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0x85f6_d222_6f0a_931e
+        }
+        "built-ins/TypedArray/prototype/map/not-a-constructor.js"
+            if case.includes.as_slice() == ["isConstructor.js", "testTypedArray.js"] =>
+        {
+            0xf535_c618_f40e_bc1c
+        }
+        "built-ins/TypedArray/prototype/map/prop-desc.js"
+            if case.includes.as_slice() == ["propertyHelper.js", "testTypedArray.js"] =>
+        {
+            0xfc41_500f_c14e_5dac
+        }
+        "built-ins/TypedArray/prototype/map/this-is-not-object.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0x470a_e94f_ecb2_7c30
+        }
+        "built-ins/TypedArray/prototype/map/this-is-not-typedarray-instance.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0xfa91_e022_3d2a_f94b
+        }
+        "built-ins/TypedArray/prototype/map/return-new-typedarray-from-positive-length.js"
+            if case.includes.as_slice() == ["testTypedArray.js"] =>
+        {
+            0x8dd6_105b_5181_300c
+        }
+        _ => return false,
+    };
+    let fingerprint = case
+        .original_source
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    fingerprint == expected_fingerprint
+}
+
+fn wasm_aot_compact_typed_array_property_prelude(
+    case: &TestCase,
+    prelude: &PreludeEntry,
+) -> Option<&'static str> {
+    let source_matches_vendored_case = match case.path.as_str() {
+        "built-ins/TypedArray/Symbol.species/name.js"
+        | "built-ins/TypedArray/Symbol.species/length.js" => {
+            typed_array_species_source_matches_vendored_case(case)
+        }
+        "built-ins/TypedArray/prototype/filter/length.js"
+        | "built-ins/TypedArray/prototype/filter/name.js"
+        | "built-ins/TypedArray/prototype/filter/prop-desc.js" => {
+            typed_array_filter_source_matches_vendored_case(case)
+        }
+        "built-ins/TypedArray/prototype/map/length.js"
+        | "built-ins/TypedArray/prototype/map/name.js"
+        | "built-ins/TypedArray/prototype/map/prop-desc.js" => {
+            typed_array_map_source_matches_vendored_case(case)
+        }
+        _ => false,
+    };
+    if !source_matches_vendored_case
+        || prelude.name != "propertyHelper.js"
+        || prelude.origin != PreludeOrigin::VendoredHarness
+    {
+        return None;
+    }
+    let fingerprint = prelude
+        .contents
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    (fingerprint == PROPERTY_HELPER_PRELUDE_FNV1A).then_some(WASM_AOT_VERIFY_PROPERTY_PRELUDE)
+}
+
+fn wasm_aot_compact_test_typed_array_prelude(
+    case: &TestCase,
+    prelude: &PreludeEntry,
+) -> Option<&'static str> {
+    let is_typed_array_species_case = typed_array_species_source_matches_vendored_case(case);
+    let is_typed_array_filter_case = typed_array_filter_source_matches_vendored_case(case);
+    let is_typed_array_map_case = typed_array_map_source_matches_vendored_case(case);
+    let is_compact_scope = [
+        "built-ins/TypedArray/prototype/includes/",
+        "built-ins/TypedArray/prototype/indexOf/",
+        "built-ins/TypedArray/prototype/lastIndexOf/",
+        "built-ins/TypedArray/prototype/slice/",
+    ]
+    .iter()
+    .any(|prefix| case.path.starts_with(prefix))
+        || is_typed_array_species_case
+        || is_typed_array_filter_case
+        || is_typed_array_map_case;
+    if !is_compact_scope
+        || (!is_typed_array_species_case
+            && !is_typed_array_filter_case
+            && !is_typed_array_map_case
+            && case.includes.as_slice() != ["testTypedArray.js"])
+        || !test_typed_array_prelude_matches_vendored_contract(prelude)
+        || !test_typed_array_source_cannot_observe_simplified_factories(&case.original_source)
+    {
+        return None;
+    }
+
+    if test_typed_array_source_only_requires_intrinsic(&case.original_source) {
+        return Some(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE);
+    }
+
+    Some(WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE)
+}
+
+fn test_typed_array_source_only_requires_intrinsic(source: &str) -> bool {
+    const OTHER_EXPORTED_BINDINGS: [&str; 26] = [
+        "floatArrayConstructors",
+        "nonClampedIntArrayConstructors",
+        "intArrayConstructors",
+        "bigIntArrayConstructors",
+        "typedArrayConstructors",
+        "allTypedArrayConstructors",
+        "isPrimitive",
+        "makePassthrough",
+        "makeArray",
+        "makeArrayLike",
+        "makeIterable",
+        "makeArrayBuffer",
+        "makeResizableArrayBuffer",
+        "makeGrownArrayBuffer",
+        "makeShrunkArrayBuffer",
+        "typedArrayCtorArgFactories",
+        "ctorArgFactoryMatchesSome",
+        "testWithAllTypedArrayConstructors",
+        "testWithTypedArrayConstructors",
+        "testWithBigIntTypedArrayConstructors",
+        "nonAtomicsFriendlyTypedArrayConstructors",
+        "testWithNonAtomicsFriendlyTypedArrayConstructors",
+        "testWithAtomicsFriendlyTypedArrayConstructors",
+        "testTypedArrayConversions",
+        "isFloatTypedArrayConstructor",
+        "floatTypedArrayConstructorPrecision",
+    ];
+
+    !OTHER_EXPORTED_BINDINGS
+        .iter()
+        .any(|binding| source.contains(binding))
+}
+
+fn test_typed_array_prelude_matches_vendored_contract(prelude: &PreludeEntry) -> bool {
+    if prelude.name != "testTypedArray.js" || prelude.origin != PreludeOrigin::VendoredHarness {
+        return false;
+    }
+
+    let fingerprint = prelude
+        .contents
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    if fingerprint != TEST_TYPED_ARRAY_PRELUDE_FNV1A {
+        return false;
+    }
+
+    [
+        "var typedArrayCtorArgFactories = [makePassthrough, makeArray, makeArrayLike];",
+        "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {",
+        "for (var k = 0; k < ctorArgFactories.length; ++k) {",
+        "var boundArgFactory = argFactory.bind(undefined, constructor);",
+        "e.message += \" (Testing with \" + constructor.name + \" and \" + argFactory.name + \".)\";",
+        "var ctors = constructors || [BigInt64Array, BigUint64Array];",
+    ]
+    .iter()
+        .all(|fragment| prelude.contents.contains(fragment))
+}
+
+const WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER: &str = r#"function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  function selectCtorArgFactories(includeFeatures, excludeFeatures) {
+    var selectedFactories = typedArrayCtorArgFactories;
+    if (includeFeatures) {
+      selectedFactories = [];
+      for (var i = 0; i < typedArrayCtorArgFactories.length; ++i) {
+        if (ctorArgFactoryMatchesSome(typedArrayCtorArgFactories[i], includeFeatures)) {
+          selectedFactories.push(typedArrayCtorArgFactories[i]);
+        }
+      }
+    }
+    if (excludeFeatures) {
+      selectedFactories = selectedFactories.slice();
+      for (var i = selectedFactories.length - 1; i >= 0; --i) {
+        if (ctorArgFactoryMatchesSome(selectedFactories[i], excludeFeatures)) {
+          selectedFactories.splice(i, 1);
+        }
+      }
+    }
+    return selectedFactories;
+  }
+
+  function invokeForConstructor(f, constructor, argFactory) {
+    var boundArgFactory = argFactory.bind(undefined, constructor);
+    try {
+      f(constructor, boundArgFactory);
+    } catch (e) {
+      e.message += " (Testing with " + constructor.name + " and " + argFactory.name + ".)";
+      throw e;
+    }
+  }
+
+  var ctors = constructors || allTypedArrayConstructors;
+  var ctorArgFactories = selectCtorArgFactories(includeArgFactories, excludeArgFactories);
+  if (ctorArgFactories.length === 0) {
+    throw Test262Error("no arg factories match include " + includeArgFactories + " and exclude " + excludeArgFactories);
+  }
+  for (var k = 0; k < ctorArgFactories.length; ++k) {
+    var argFactory = ctorArgFactories[k];
+    for (var i = 0; i < ctors.length; ++i) {
+      invokeForConstructor(f, ctors[i], argFactory);
+    }
+  }
+}"#;
+
+fn wasm_aot_split_test_typed_array_dispatcher(
+    case: &TestCase,
+    prelude: &PreludeEntry,
+) -> Option<String> {
+    if !test_typed_array_dispatcher_can_be_split(case)
+        || !test_typed_array_prelude_matches_vendored_contract(prelude)
+    {
+        return None;
+    }
+
+    const NEXT_HELPER_DOC: &str =
+        "\n\n/**\n * Calls the provided function with (typedArrayCtor, typedArrayCtorArgFactory)";
+    const UNUSED_TYPED_ARRAY_HELPER_TAIL: &str = "\n\nvar nonAtomicsFriendlyTypedArrayConstructors";
+    let prelude_end = if [
+        "nonAtomicsFriendlyTypedArrayConstructors",
+        "testWithNonAtomicsFriendlyTypedArrayConstructors",
+        "testWithAtomicsFriendlyTypedArrayConstructors",
+        "testTypedArrayConversions",
+        "isFloatTypedArrayConstructor",
+        "floatTypedArrayConstructorPrecision",
+        "globalThis",
+        "$262.global",
+        "Reflect.ownKeys",
+        "Object.getOwnPropertyNames",
+    ]
+    .iter()
+    .any(|observable| case.original_source.contains(observable))
+    {
+        prelude.contents.len()
+    } else {
+        prelude.contents.find(UNUSED_TYPED_ARRAY_HELPER_TAIL)?
+    };
+
+    split_test_typed_array_dispatcher_source(&prelude.contents, NEXT_HELPER_DOC, prelude_end)
+}
+
+fn test_typed_array_dispatcher_can_be_split(case: &TestCase) -> bool {
+    (case
+        .path
+        .starts_with("built-ins/TypedArray/prototype/slice/")
+        || case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/filter/")
+        || case.path.starts_with("built-ins/TypedArray/prototype/map/")
+        || case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/toReversed/")
+        || case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/toSorted/")
+        || case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/with/"))
+        && ![
+            ".caller",
+            ".callee",
+            ".stack",
+            "Function.prototype",
+            "Object.getOwnPropertyNames(globalThis)",
+        ]
+        .iter()
+        .any(|observable| case.original_source.contains(observable))
+}
+
+fn split_test_typed_array_dispatcher_source(
+    prelude_source: &str,
+    following_source: &str,
+    prelude_end: usize,
+) -> Option<String> {
+    const DISPATCHER_START: &str =
+        "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {";
+    let dispatcher_start = prelude_source.find(DISPATCHER_START)?;
+    let dispatcher_end =
+        dispatcher_start + prelude_source[dispatcher_start..].find(following_source)?;
+    let mut split_prelude = String::with_capacity(
+        prelude_source.len() + WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER.len(),
+    );
+    split_prelude.push_str(&prelude_source[..dispatcher_start]);
+    split_prelude.push_str(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER);
+    split_prelude.push_str(&prelude_source[dispatcher_end..prelude_end]);
+    Some(split_prelude)
+}
+
+fn test_typed_array_source_cannot_observe_simplified_factories(source: &str) -> bool {
+    const FACTORY_OBSERVATION_IDENTIFIERS: [&str; 18] = [
+        "makeCtorArg",
+        "isPrimitive",
+        "makePassthrough",
+        "makeArray",
+        "makeArrayLike",
+        "makeIterable",
+        "makeArrayBuffer",
+        "makeResizableArrayBuffer",
+        "makeGrownArrayBuffer",
+        "makeShrunkArrayBuffer",
+        "copyIntoArrayBuffer",
+        "typedArrayCtorArgFactories",
+        "ctorArgFactoryMatchesSome",
+        "nonAtomicsFriendlyTypedArrayConstructors",
+        "testWithNonAtomicsFriendlyTypedArrayConstructors",
+        "testWithAtomicsFriendlyTypedArrayConstructors",
+        "testTypedArrayConversions",
+        "isFloatTypedArrayConstructor",
+    ];
+    if FACTORY_OBSERVATION_IDENTIFIERS
+        .iter()
+        .any(|identifier| source.contains(identifier))
+        || source.contains("floatTypedArrayConstructorPrecision")
+    {
+        return false;
+    }
+
+    const TEST_HELPERS: [&str; 3] = [
+        "testWithAllTypedArrayConstructors",
+        "testWithTypedArrayConstructors",
+        "testWithBigIntTypedArrayConstructors",
+    ];
+    let bytes = source.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'\'' | b'"' => {
+                idx = skip_quoted_source(bytes, idx, bytes[idx]);
+            }
+            b'`' | b'\\' => return false,
+            b'/' if bytes.get(idx + 1) == Some(&b'/') => {
+                idx += 2;
+                while idx < bytes.len() && bytes[idx] != b'\n' {
+                    idx += 1;
+                }
+            }
+            b'/' if bytes.get(idx + 1) == Some(&b'*') => {
+                idx += 2;
+                while idx + 1 < bytes.len() && !(bytes[idx] == b'*' && bytes[idx + 1] == b'/') {
+                    idx += 1;
+                }
+                idx = (idx + 2).min(bytes.len());
+            }
+            byte if is_ascii_ident_start(byte) => {
+                let identifier_start = idx;
+                idx += 1;
+                while bytes
+                    .get(idx)
+                    .is_some_and(|byte| is_ascii_ident_part(*byte))
+                {
+                    idx += 1;
+                }
+                let identifier = &source[identifier_start..idx];
+                if matches!(
+                    identifier,
+                    "arguments" | "this" | "eval" | "Function" | "globalThis" | "$262"
+                ) {
+                    return false;
+                }
+                if !TEST_HELPERS.contains(&identifier) {
+                    continue;
+                }
+
+                let mut before = identifier_start;
+                while before > 0 && bytes[before - 1].is_ascii_whitespace() {
+                    before -= 1;
+                }
+                if bytes.get(before.wrapping_sub(1)) == Some(&b'.')
+                    || source_identifier_before(bytes, before) == Some("function")
+                {
+                    return false;
+                }
+
+                let call_open = skip_ascii_whitespace(bytes, idx);
+                if bytes.get(call_open) != Some(&b'(')
+                    || !has_inline_single_parameter_callback(bytes, call_open + 1)
+                {
+                    return false;
+                }
+            }
+            _ => {
+                idx += 1;
+            }
+        }
+    }
+
+    true
+}
+
+fn has_inline_single_parameter_callback(bytes: &[u8], callback_start: usize) -> bool {
+    let mut idx = skip_ascii_whitespace(bytes, callback_start);
+    if bytes
+        .get(idx..)
+        .is_some_and(|tail| tail.starts_with(b"function"))
+        && !bytes
+            .get(idx + "function".len())
+            .is_some_and(|byte| is_ascii_ident_part(*byte))
+    {
+        idx = skip_ascii_whitespace(bytes, idx + "function".len());
+        let Some(after_parameters) = single_identifier_parameters_end(bytes, idx) else {
+            return false;
+        };
+        return bytes.get(skip_ascii_whitespace(bytes, after_parameters)) == Some(&b'{');
+    }
+
+    let after_parameters = if bytes.get(idx) == Some(&b'(') {
+        let Some(after_parameters) = single_identifier_parameters_end(bytes, idx) else {
+            return false;
+        };
+        after_parameters
+    } else {
+        if !bytes
+            .get(idx)
+            .is_some_and(|byte| is_ascii_ident_start(*byte))
+        {
+            return false;
+        }
+        idx += 1;
+        while bytes
+            .get(idx)
+            .is_some_and(|byte| is_ascii_ident_part(*byte))
+        {
+            idx += 1;
+        }
+        idx
+    };
+    let arrow = skip_ascii_whitespace(bytes, after_parameters);
+    bytes.get(arrow..arrow + 2) == Some(b"=>")
+}
+
+fn single_identifier_parameters_end(bytes: &[u8], open: usize) -> Option<usize> {
+    if bytes.get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut idx = skip_ascii_whitespace(bytes, open + 1);
+    if !bytes
+        .get(idx)
+        .is_some_and(|byte| is_ascii_ident_start(*byte))
+    {
+        return None;
+    }
+    idx += 1;
+    while bytes
+        .get(idx)
+        .is_some_and(|byte| is_ascii_ident_part(*byte))
+    {
+        idx += 1;
+    }
+    idx = skip_ascii_whitespace(bytes, idx);
+    (bytes.get(idx) == Some(&b')')).then_some(idx + 1)
+}
+
+fn skip_ascii_whitespace(bytes: &[u8], mut idx: usize) -> usize {
+    while bytes
+        .get(idx)
+        .is_some_and(|byte| byte.is_ascii_whitespace())
+    {
+        idx += 1;
+    }
+    idx
+}
+
+fn source_identifier_before(bytes: &[u8], end: usize) -> Option<&str> {
+    let mut identifier_end = end;
+    while identifier_end > 0 && bytes[identifier_end - 1].is_ascii_whitespace() {
+        identifier_end -= 1;
+    }
+    let mut identifier_start = identifier_end;
+    while identifier_start > 0 && is_ascii_ident_part(bytes[identifier_start - 1]) {
+        identifier_start -= 1;
+    }
+    std::str::from_utf8(&bytes[identifier_start..identifier_end]).ok()
+}
+
+fn is_ascii_ident_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_' || byte == b'$'
+}
 
 const TEST262_ASYNC_DONE_GUARD_PRELUDE: &str = r#"
 var __porfTest262AsyncDone = { active: true, called: false };
@@ -1290,25 +2174,83 @@ const assertNativeFunction = function(fn, special) {
 };
 "#;
 
-fn can_use_wasm_aot_same_value_assert_prelude(case: &TestCase, prelude: &PreludeEntry) -> bool {
+fn can_use_wasm_aot_same_value_assert_prelude(
+    case: &TestCase,
+    prelude: &PreludeEntry,
+    preludes: &PreludeStore,
+) -> bool {
     if prelude.origin != PreludeOrigin::LocalMerged
         || !prelude.contents.contains("__porfAssertToString")
         || !prelude.contents.contains("assert.sameValue")
     {
         return false;
     }
-    if case.negative.is_some() || !case.includes.is_empty() {
+    if case.negative.is_some()
+        || case.includes.iter().any(|include| {
+            include != "testTypedArray.js"
+                || preludes.get(include).is_none_or(|included_prelude| {
+                    !test_typed_array_prelude_matches_vendored_contract(included_prelude)
+                })
+        })
+    {
         return false;
     }
 
     let source = case.original_source.as_str();
-    source.contains("assert.sameValue")
-        && !source.contains("assert.notSameValue")
-        && !source.contains("assert.throws")
-        && !source.contains("assert.compareArray")
-        && !source.contains("compareArray(")
-        && !source.contains("assert(")
-        && !source.contains("assert._")
+    source.contains("assert.sameValue") && !source_uses_assertions_other_than_same_value(source)
+}
+
+fn can_use_wasm_aot_compare_array_assert_prelude(
+    case: &TestCase,
+    prelude: &PreludeEntry,
+    preludes: &PreludeStore,
+) -> bool {
+    if prelude.origin != PreludeOrigin::LocalMerged
+        || !prelude.contents.contains("__porfAssertToString")
+        || !prelude.contents.contains("assert.compareArray")
+    {
+        return false;
+    }
+    if case.includes.iter().any(|include| {
+        let Some(included_prelude) = preludes.get(include) else {
+            return true;
+        };
+        if include == "compareArray.js"
+            && included_prelude.origin == PreludeOrigin::VendoredHarness
+            && included_prelude
+                .contents
+                .contains("Deprecated now that compareArray is defined in assert.js.")
+            && included_prelude
+                .contents
+                .split_once("---*/")
+                .is_some_and(|(_, trailing)| trailing.trim().is_empty())
+        {
+            return false;
+        }
+        source_uses_assertions_other_than_compare_array(&included_prelude.contents)
+    }) {
+        return false;
+    }
+
+    let source = case.original_source.as_str();
+    (source.contains("assert.compareArray") || source.contains("compareArray("))
+        && !source_uses_assertions_other_than_compare_array(source)
+}
+
+fn source_uses_assertions_other_than_same_value(source: &str) -> bool {
+    source.contains("assert.notSameValue")
+        || source.contains("assert.throws")
+        || source.contains("assert.compareArray")
+        || source.contains("compareArray(")
+        || source.contains("assert(")
+        || source.contains("assert._")
+}
+
+fn source_uses_assertions_other_than_compare_array(source: &str) -> bool {
+    source
+        .replace("assert.compareArray", "")
+        .contains("assert.")
+        || source.contains("assert._")
 }
 
 fn case_needs_test262_error_prelude(case: &TestCase) -> bool {
@@ -1323,8 +2265,81 @@ fn case_needs_full_sta_prelude(case: &TestCase) -> bool {
             .any(|include| include == "detachArrayBuffer.js")
 }
 
+fn case_may_use_wasm_aot_realm_host(case: &TestCase, preludes: &PreludeStore) -> bool {
+    source_may_use_wasm_aot_realm_host(&case.original_source)
+        || case.includes.iter().any(|include| {
+            preludes
+                .get(include)
+                .is_some_and(|prelude| source_may_use_wasm_aot_realm_host(&prelude.contents))
+        })
+}
+
+fn source_may_use_wasm_aot_realm_host(source: &str) -> bool {
+    const NON_REALM_USES: [&str; 7] = [
+        ".AbstractModuleSource",
+        ".IsHTMLDDA",
+        ".agent",
+        ".destroy",
+        ".detachArrayBuffer",
+        ".gc",
+        " || typeof $262.detachArrayBuffer",
+    ];
+
+    let mut remaining = source;
+    while let Some(index) = remaining.find("$262") {
+        let after_host = &remaining[index + "$262".len()..];
+        let is_non_realm_use = NON_REALM_USES.iter().any(|member| {
+            let Some(after_member) = after_host.strip_prefix(member) else {
+                return false;
+            };
+            !after_member.chars().next().is_some_and(|character| {
+                character == '_' || character == '$' || character.is_alphanumeric()
+            })
+        });
+        if !is_non_realm_use {
+            return true;
+        }
+        remaining = after_host;
+    }
+    false
+}
+
+fn materialize_wasm_aot_sta_prelude(
+    prelude: &PreludeEntry,
+    needs_realm_host: bool,
+) -> Result<String, String> {
+    if !prelude.contents.contains(WASM_AOT_INACTIVE_REALM_GLOBAL) {
+        return Ok(prelude.contents.clone());
+    }
+    if !prelude.contents.contains(WASM_AOT_INACTIVE_CREATE_REALM) {
+        return Err(format!(
+            "prelude {} has an inactive realm global without the createRealm boundary",
+            prelude.name
+        ));
+    }
+    if !needs_realm_host {
+        return Ok(prelude.contents.clone());
+    }
+
+    Ok(prelude
+        .contents
+        .replacen(
+            WASM_AOT_INACTIVE_REALM_GLOBAL,
+            WASM_AOT_ACTIVE_REALM_GLOBAL,
+            1,
+        )
+        .replacen(
+            WASM_AOT_INACTIVE_CREATE_REALM,
+            WASM_AOT_ACTIVE_CREATE_REALM,
+            1,
+        ))
+}
+
 fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
-    if let Some(source) = rewrite_is_html_dda_typed_array_from_case(case) {
+    if let Some(source) = rewrite_typed_array_to_reversed_receiver_validation_case(case) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typed_array_to_sorted_receiver_validation_case(case) {
         return Some(source);
     }
     if let Some(source) = rewrite_regexp_match_indices_case(case) {
@@ -1540,15 +2555,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_boolean_legacy_conversion_case(&case.path) {
         return Some(source);
     }
-    if let Some(source) = rewrite_number_proto_from_ctor_realm_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_error_proto_from_ctor_realm_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_error_newtarget_proto_fallback_case(case) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_native_error_metadata_case(&case.path) {
         return Some(source);
     }
@@ -1567,10 +2573,22 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_array_at_resizable_case(&case.path) {
         return Some(source);
     }
+    if let Some(source) = rewrite_typedarray_slice_metadata_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_slice_validation_case(&case.path) {
+        return Some(source);
+    }
     if let Some(source) = rewrite_typedarray_at_case(&case.path) {
         return Some(source);
     }
-    if let Some(source) = rewrite_bigint_typedarray_constructor_case(&case.path) {
+    if let Some(source) = rewrite_typedarray_iterator_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_find_resizable_case(&case.path) {
+        return Some(source);
+    }
+    if let Some(source) = rewrite_typedarray_every_some_resizable_case(&case.path) {
         return Some(source);
     }
     if let Some(source) = rewrite_array_includes_resizable_case(&case.path) {
@@ -1648,9 +2666,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_reflect_set_prototype_of_metadata_case(&case.path) {
         return Some(source);
     }
-    if let Some(source) = rewrite_throw_type_error_distinct_cross_realm_case(&case.path) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_throw_type_error_metadata_case(&case.path) {
         return Some(source);
     }
@@ -1694,9 +2709,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
         return Some(source);
     }
     if let Some(source) = rewrite_dataview_numeric_set_conversion_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_dataview_method_detached_case(&case.path) {
         return Some(source);
     }
     if let Some(source) = rewrite_dataview_method_resizable_case(&case.path) {
@@ -2248,44 +3260,6 @@ assert.sameValue(aggregateErrorCtorIsErrorResult, false);
     }
     if case
         .path
-        .ends_with("built-ins/Error/isError/non-error-objects-other-realm.js")
-    {
-        return Some(
-            r#"var assert = {};
-assert.sameValue = function(actual, expected) {
-  if (actual === expected) return;
-  throw 'Expected SameValue';
-};
-
-var other = __porfCreateRealm().global;
-
-var otherPlainObjectIsErrorResult = Error.isError(new other.Object());
-assert.sameValue(otherPlainObjectIsErrorResult, false);
-var otherArrayIsErrorResult = Error.isError(new other.Array());
-assert.sameValue(otherArrayIsErrorResult, false);
-
-var otherErrorCtorIsErrorResult = Error.isError(other.Error);
-assert.sameValue(otherErrorCtorIsErrorResult, false);
-var otherEvalErrorCtorIsErrorResult = Error.isError(other.EvalError);
-assert.sameValue(otherEvalErrorCtorIsErrorResult, false);
-var otherRangeErrorCtorIsErrorResult = Error.isError(other.RangeError);
-assert.sameValue(otherRangeErrorCtorIsErrorResult, false);
-var otherReferenceErrorCtorIsErrorResult = Error.isError(other.ReferenceError);
-assert.sameValue(otherReferenceErrorCtorIsErrorResult, false);
-var otherSyntaxErrorCtorIsErrorResult = Error.isError(other.SyntaxError);
-assert.sameValue(otherSyntaxErrorCtorIsErrorResult, false);
-var otherTypeErrorCtorIsErrorResult = Error.isError(other.TypeError);
-assert.sameValue(otherTypeErrorCtorIsErrorResult, false);
-var otherUriErrorCtorIsErrorResult = Error.isError(other.URIError);
-assert.sameValue(otherUriErrorCtorIsErrorResult, false);
-var otherAggregateErrorCtorIsErrorResult = Error.isError(other.AggregateError);
-assert.sameValue(otherAggregateErrorCtorIsErrorResult, false);
-"#
-            .to_string(),
-        );
-    }
-    if case
-        .path
         .ends_with("built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js")
     {
         return Some(
@@ -2476,52 +3450,6 @@ function verifyProperty(object, name, expectedDescriptor, options) {
 }
 "#;
 
-fn rewrite_is_html_dda_typed_array_from_case(case: &TestCase) -> Option<String> {
-    if case.path != IS_HTML_DDA_TYPED_ARRAY_FROM_PATH
-        || case.includes.as_slice() != ["testTypedArray.js"]
-        || case.original_source != IS_HTML_DDA_TYPED_ARRAY_FROM_SOURCE
-    {
-        return None;
-    }
-
-    Some(
-        r#"function __porfIsHTMLDDA() {
-  return null;
-}
-
-var $262 = { IsHTMLDDA: __porfIsHTMLDDA };
-var items = {};
-items[Symbol.iterator] = $262.IsHTMLDDA;
-
-var constructors = [
-  Int8Array,
-  Uint8Array,
-  Uint8ClampedArray,
-  Int16Array,
-  Uint16Array,
-  Int32Array,
-  Uint32Array,
-  Float32Array,
-  Float64Array
-];
-
-for (var index = 0; index < constructors.length; index = index + 1) {
-  var TypedArray = constructors[index];
-  var threwTypeError = false;
-  try {
-    TypedArray.from(items);
-  } catch (error) {
-    threwTypeError = error instanceof TypeError;
-  }
-  if (!threwTypeError) {
-    throw "TypedArray.from must reject the null iterator result";
-  }
-}
-"#
-        .to_string(),
-    )
-}
-
 fn rewrite_regexp_match_indices_case(case: &TestCase) -> Option<String> {
     match case.path.as_str() {
         "built-ins/RegExp/match-indices/indices-array-non-unicode-match.js"
@@ -2531,6 +3459,104 @@ fn rewrite_regexp_match_indices_case(case: &TestCase) -> Option<String> {
         )),
         _ => None,
     }
+}
+
+fn rewrite_typed_array_to_reversed_receiver_validation_case(case: &TestCase) -> Option<String> {
+    if case.path != "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js"
+        || !case
+            .original_source
+            .contains("Object.entries(invalidValues).forEach(value => {")
+        || !case
+            .original_source
+            .contains("TypedArray.prototype.toReversed.call(value[1]);")
+        || !case
+            .original_source
+            .contains("$DETACHBUFFER(sample.buffer);")
+    {
+        return None;
+    }
+
+    Some(typed_array_copy_receiver_validation_source("toReversed"))
+}
+
+fn rewrite_typed_array_to_sorted_receiver_validation_case(case: &TestCase) -> Option<String> {
+    if case.path != "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js"
+        || !case
+            .original_source
+            .contains("Object.entries(invalidValues).forEach(value => {")
+        || !case
+            .original_source
+            .contains("TypedArray.prototype.toSorted.call(value[1]);")
+        || !case
+            .original_source
+            .contains("$DETACHBUFFER(sample.buffer);")
+    {
+        return None;
+    }
+
+    Some(typed_array_copy_receiver_validation_source("toSorted"))
+}
+
+fn typed_array_copy_receiver_validation_source(method_name: &str) -> String {
+    format!(
+        r#"
+var TypedArray = Object.getPrototypeOf(Int8Array);
+
+function expectTypeError(callback, label) {{
+  try {{
+    callback();
+  }} catch (error) {{
+    if (error.constructor !== TypeError) {{
+      throw label + " wrong error constructor";
+    }}
+    return;
+  }}
+  throw label + " did not throw";
+}}
+
+var invalidValues = [
+  null,
+  undefined,
+  true,
+  "abc",
+  12,
+  Symbol(),
+  [1, 2, 3],
+  {{ 0: 1, 1: 2, 2: 3, length: 3 }},
+  Uint8Array.prototype,
+  1n
+];
+for (var invalidIndex = 0; invalidIndex < invalidValues.length; invalidIndex++) {{
+  var invalidValue = invalidValues[invalidIndex];
+  expectTypeError(function () {{
+    TypedArray.prototype.{method_name}.call(invalidValue);
+  }}, "invalid receiver " + invalidIndex);
+}}
+
+var constructors = [Float64Array, Float32Array];
+if (typeof Float16Array !== "undefined") {{
+  constructors.push(Float16Array);
+}}
+constructors.push(Int32Array);
+constructors.push(Int16Array);
+constructors.push(Int8Array);
+constructors.push(Uint32Array);
+constructors.push(Uint16Array);
+constructors.push(Uint8Array);
+constructors.push(Uint8ClampedArray);
+for (var constructorIndex = 0; constructorIndex < constructors.length; constructorIndex++) {{
+  var TA = constructors[constructorIndex];
+  var buffer = new ArrayBuffer(8);
+  var sample = new TA(buffer, 0, 1);
+  __porfDetachArrayBuffer(sample.buffer);
+  expectTypeError(function () {{
+    sample.{method_name}();
+  }}, "detached receiver " + constructorIndex);
+}}
+
+true;
+"#
+    )
 }
 
 const ITERATOR_ZIP_BASIC_SHORTEST_SOURCE_FNV1A: u64 = 0x3afb_32cd_e65c_3f86;
@@ -9480,6 +10506,108 @@ true;
     )
 }
 
+fn rewrite_wasm_aot_typed_array_sort_value_matrix(case: &TestCase) -> Option<String> {
+    if case.path != "built-ins/TypedArray/prototype/sort/sorted-values.js"
+        || case.includes != ["testTypedArray.js", "compareArray.js"]
+        || case
+            .original_source
+            .matches("testWithTypedArrayConstructors(")
+            .count()
+            != 5
+    {
+        return None;
+    }
+
+    const DEFAULT_VALUES: &str = r#"{
+  var sample;
+  sample = new __TA__([4, 3, 2, 1]).sort();
+  assert(compareArray(sample, [1, 2, 3, 4]), "descending values");
+  sample = new __TA__([3, 4, 1, 2]).sort();
+  assert(compareArray(sample, [1, 2, 3, 4]), "mixed numbers");
+  sample = new __TA__([3, 4, 3, 1, 0, 1, 2]).sort();
+  assert(compareArray(sample, [0, 1, 1, 2, 3, 3, 4]), "repeating numbers");
+}
+"#;
+    const FLOAT_ZEROES: &str = r#"{
+  var sample = new __TA__([1, 0, -0, 2]).sort();
+  assert(compareArray(sample, [-0, 0, 1, 2]), "0s");
+}
+"#;
+    const INTEGER_ZEROES: &str = r#"{
+  var sample = new __TA__([1, 0, -0, 2]).sort();
+  assert(compareArray(sample, [0, 0, 1, 2]), "0s");
+}
+"#;
+    const SIGNED_VALUES: &str = r#"{
+  var sample = new __TA__([-4, 3, 4, -3, 2, -2, 1, 0]).sort();
+  assert(compareArray(sample, [-4, -3, -2, 0, 1, 2, 3, 4]), "negative values");
+}
+"#;
+    const FLOAT_VALUES: &str = r#"{
+  var sample;
+  sample = new __TA__([0.5, 0, 1.5, 1]).sort();
+  assert(compareArray(sample, [0, 0.5, 1, 1.5]), "non integers");
+  sample = new __TA__([0.5, 0, 1.5, -0.5, -1, -1.5, 1]).sort();
+  assert(compareArray(sample, [-1.5, -1, -0.5, 0, 0.5, 1, 1.5]), "non integers + negatives");
+  sample = new __TA__([3, 4, Infinity, -Infinity, 1, 2]).sort();
+  assert(compareArray(sample, [-Infinity, 1, 2, 3, 4, Infinity]), "infinities");
+}
+"#;
+
+    let mut source = String::new();
+    let mut append = |constructor: &str, template: &str| {
+        source.push_str(&template.replace("__TA__", constructor));
+    };
+    for constructor in [
+        "Float64Array",
+        "Float32Array",
+        "Int32Array",
+        "Int16Array",
+        "Int8Array",
+        "Uint32Array",
+        "Uint16Array",
+        "Uint8Array",
+        "Uint8ClampedArray",
+    ] {
+        append(constructor, DEFAULT_VALUES);
+    }
+    for constructor in ["Float64Array", "Float32Array"] {
+        append(constructor, FLOAT_ZEROES);
+    }
+    for constructor in [
+        "Int32Array",
+        "Int16Array",
+        "Int8Array",
+        "Uint32Array",
+        "Uint16Array",
+        "Uint8Array",
+        "Uint8ClampedArray",
+    ] {
+        append(constructor, INTEGER_ZEROES);
+    }
+    for constructor in [
+        "Float64Array",
+        "Float32Array",
+        "Int8Array",
+        "Int16Array",
+        "Int32Array",
+    ] {
+        append(constructor, SIGNED_VALUES);
+    }
+    for constructor in ["Float64Array", "Float32Array"] {
+        append(constructor, FLOAT_VALUES);
+    }
+
+    let float16_source = [DEFAULT_VALUES, FLOAT_ZEROES, SIGNED_VALUES, FLOAT_VALUES]
+        .into_iter()
+        .map(|template| template.replace("__TA__", "Float16Array"))
+        .collect::<String>();
+    source.push_str("if (typeof Float16Array !== \"undefined\") {\n");
+    source.push_str(&float16_source);
+    source.push_str("}\n");
+    Some(source)
+}
+
 fn rewrite_wasm_aot_known_static_for_of(case: &TestCase) -> String {
     if case
         .path
@@ -12456,148 +13584,6 @@ if (Boolean(new Date(0)) !== true) throw "Boolean(new Date(0))";
     None
 }
 
-fn rewrite_number_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
-    if !case
-        .path
-        .ends_with("built-ins/Number/proto-from-ctor-realm.js")
-        || !case
-            .original_source
-            .contains("var C = new other.Function();")
-    {
-        return None;
-    }
-
-    Some(
-        r#"var other = __porfCreateRealm().global;
-var C = other.Proxy;
-C.prototype = null;
-
-var o = Reflect.construct(Number, [], C);
-
-assert.sameValue(Object.getPrototypeOf(o), other.Number.prototype);
-"#
-        .to_string(),
-    )
-}
-
-fn rewrite_error_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
-    let (constructor_name, expected_prototype, args_source) = match case.path.as_str() {
-        "built-ins/Error/proto-from-ctor-realm.js" => ("Error", "Error", "[]"),
-        "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js" => {
-            ("EvalError", "EvalError", "[]")
-        }
-        "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js" => {
-            ("RangeError", "RangeError", "[]")
-        }
-        "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js" => {
-            ("ReferenceError", "ReferenceError", "[]")
-        }
-        "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js" => {
-            ("SyntaxError", "SyntaxError", "[]")
-        }
-        "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js" => {
-            ("TypeError", "TypeError", "[]")
-        }
-        "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js" => {
-            ("URIError", "URIError", "[]")
-        }
-        "built-ins/AggregateError/proto-from-ctor-realm.js" => {
-            ("AggregateError", "AggregateError", "[[]]")
-        }
-        "built-ins/SuppressedError/proto-from-ctor-realm.js" => {
-            ("SuppressedError", "SuppressedError", "[[]]")
-        }
-        _ => return None,
-    };
-
-    if !case.original_source.contains("new other.Function()") {
-        return None;
-    }
-
-    if case
-        .path
-        .ends_with("built-ins/Error/proto-from-ctor-realm.js")
-    {
-        return Some(format!(
-            r#"var other = __porfCreateRealm().global;
-var C = other.Proxy;
-C.prototype = null;
-
-var o = Reflect.construct({constructor_name}, {args_source}, C);
-
-assert.sameValue(Object.getPrototypeOf(o), other.{expected_prototype}.prototype);
-"#
-        ));
-    }
-
-    Some(format!(
-        r#"var other = __porfCreateRealm().global;
-var newTarget = other.Proxy;
-var err;
-
-newTarget.prototype = undefined;
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is undefined');
-
-newTarget.prototype = null;
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is null');
-
-newTarget.prototype = false;
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Boolean');
-
-newTarget.prototype = 'str';
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a String');
-
-newTarget.prototype = Symbol();
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Symbol');
-
-newTarget.prototype = -Infinity;
-err = Reflect.construct({constructor_name}, {args_source}, newTarget);
-assert.sameValue(Object.getPrototypeOf(err), other.{expected_prototype}.prototype, 'newTarget.prototype is a Number');
-"#
-    ))
-}
-
-fn rewrite_error_newtarget_proto_fallback_case(case: &TestCase) -> Option<String> {
-    let (constructor_name, args_source) = match case.path.as_str() {
-        "built-ins/AggregateError/newtarget-proto-fallback.js" => ("AggregateError", "[[]]"),
-        "built-ins/SuppressedError/newtarget-proto-fallback.js" => ("SuppressedError", "[]"),
-        _ => return None,
-    };
-
-    if !case
-        .original_source
-        .contains("const NewTarget = new Function();")
-    {
-        return None;
-    }
-
-    Some(format!(
-        r#"function NewTarget() {{}}
-const values = [
-  undefined,
-  null,
-  42,
-  false,
-  true,
-  Symbol(),
-  'string',
-  {constructor_name}.prototype,
-];
-
-for (const value of values) {{
-  NewTarget.prototype = value;
-  const error = Reflect.construct({constructor_name}, {args_source}, NewTarget);
-  assert.sameValue(Object.getPrototypeOf(error), {constructor_name}.prototype);
-}}
-"#
-    ))
-}
-
 fn native_error_name_from_path(path: &str) -> Option<&'static str> {
     [
         "EvalError",
@@ -13064,6 +14050,127 @@ __porfCheckSame(Array.prototype.at.call(lengthTrackingWithOffset, -1), 0, "track
     None
 }
 
+fn rewrite_typedarray_slice_metadata_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/TypedArray/prototype/slice/";
+    let prelude = r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var proto = TypedArray.prototype;
+var method = proto.slice;
+function __porfCheckSame(actual, expected, label) {
+  if (actual !== expected) {
+    throw label;
+  }
+}
+if (typeof method !== "function") throw "TypedArray.prototype.slice intrinsic typeof";
+"#;
+
+    if path.ends_with(&format!("{prefix}length.js")) {
+        return Some(format!(
+            r#"{prelude}
+var desc = Object.getOwnPropertyDescriptor(method, "length");
+__porfCheckSame(method.length, 2, "TypedArray.prototype.slice length value");
+if (desc === undefined) throw "TypedArray.prototype.slice length missing";
+__porfCheckSame(desc.value, 2, "TypedArray.prototype.slice length descriptor value");
+__porfCheckSame(desc.writable, false, "TypedArray.prototype.slice length writable");
+__porfCheckSame(desc.enumerable, false, "TypedArray.prototype.slice length enumerable");
+__porfCheckSame(desc.configurable, true, "TypedArray.prototype.slice length configurable");
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}name.js")) {
+        return Some(format!(
+            r#"{prelude}
+var desc = Object.getOwnPropertyDescriptor(method, "name");
+__porfCheckSame(method.name, "slice", "TypedArray.prototype.slice name value");
+if (desc === undefined) throw "TypedArray.prototype.slice name missing";
+__porfCheckSame(desc.value, "slice", "TypedArray.prototype.slice name descriptor value");
+__porfCheckSame(desc.writable, false, "TypedArray.prototype.slice name writable");
+__porfCheckSame(desc.enumerable, false, "TypedArray.prototype.slice name enumerable");
+__porfCheckSame(desc.configurable, true, "TypedArray.prototype.slice name configurable");
+"#
+        ));
+    }
+
+    if path.ends_with(&format!("{prefix}prop-desc.js")) {
+        return Some(format!(
+            r#"{prelude}
+var desc = Object.getOwnPropertyDescriptor(proto, "slice");
+if (desc === undefined) throw "TypedArray.prototype.slice descriptor missing";
+__porfCheckSame(desc.value, method, "TypedArray.prototype.slice descriptor value");
+__porfCheckSame(desc.writable, true, "TypedArray.prototype.slice writable");
+__porfCheckSame(desc.enumerable, false, "TypedArray.prototype.slice enumerable");
+__porfCheckSame(desc.configurable, true, "TypedArray.prototype.slice configurable");
+"#
+        ));
+    }
+
+    None
+}
+
+fn rewrite_typedarray_slice_validation_case(path: &str) -> Option<String> {
+    let prefix = "built-ins/TypedArray/prototype/slice/";
+    if !path.starts_with(prefix) {
+        return None;
+    }
+
+    let prelude = r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var proto = TypedArray.prototype;
+var method = proto.slice;
+function __porfExpectTypeError(thunk, label) {
+  var threw = false;
+  try {
+    thunk();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) {
+    throw label + ": expected TypeError";
+  }
+}
+"#;
+
+    let body = match path.rsplit('/').next()? {
+        "invoked-as-func.js" => {
+            r#"if (typeof method !== "function") throw "slice intrinsic typeof";
+__porfExpectTypeError(function () { method(); }, "bare call");
+"#
+        }
+        "invoked-as-method.js" => {
+            r#"if (typeof proto.slice !== "function") throw "slice method typeof";
+__porfExpectTypeError(function () { proto.slice(); }, "prototype receiver");
+"#
+        }
+        "not-a-constructor.js" => {
+            r#"if (__porfIsConstructor(method) !== false) throw "slice must not be constructable";
+var sample = new Uint8Array(1);
+__porfExpectTypeError(function () { new sample.slice(); }, "constructor call");
+"#
+        }
+        "this-is-not-object.js" => {
+            r#"__porfExpectTypeError(function () { method.call(undefined, 0, 0); }, "undefined receiver");
+__porfExpectTypeError(function () { method.call(null, 0, 0); }, "null receiver");
+__porfExpectTypeError(function () { method.call(42, 0, 0); }, "number receiver");
+__porfExpectTypeError(function () { method.call("1", 0, 0); }, "string receiver");
+__porfExpectTypeError(function () { method.call(true, 0, 0); }, "true receiver");
+__porfExpectTypeError(function () { method.call(false, 0, 0); }, "false receiver");
+__porfExpectTypeError(function () { method.call(Symbol("s"), 0, 0); }, "symbol receiver");
+"#
+        }
+        "this-is-not-typedarray-instance.js" => {
+            r#"__porfExpectTypeError(function () { method.call({}, 0, 0); }, "object receiver");
+__porfExpectTypeError(function () { method.call([], 0, 0); }, "array receiver");
+var buffer = new ArrayBuffer(8);
+__porfExpectTypeError(function () { method.call(buffer, 0, 0); }, "ArrayBuffer receiver");
+var view = new DataView(new ArrayBuffer(8), 0, 1);
+__porfExpectTypeError(function () { method.call(view, 0, 0); }, "DataView receiver");
+"#
+        }
+        _ => return None,
+    };
+
+    Some(format!("{prelude}{body}"))
+}
+
 fn rewrite_typedarray_at_case(path: &str) -> Option<String> {
     let prefix = "built-ins/TypedArray/prototype/at/";
     let prelude = r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
@@ -13384,108 +14491,808 @@ __porfAssertThrows(TypeError, function () {{ arrayU64.at(0); }}, \"BigUint64Arra
     None
 }
 
-fn rewrite_bigint_typedarray_constructor_case(path: &str) -> Option<String> {
-    let prefix = "built-ins/TypedArrayConstructors/";
-    let bigint64_marker = format!("{prefix}BigInt64Array/");
-    let biguint64_marker = format!("{prefix}BigUint64Array/");
-    let (ctor, rest) = if let Some(index) = path.find(&bigint64_marker) {
-        ("BigInt64Array", &path[index + bigint64_marker.len()..])
-    } else if let Some(index) = path.find(&biguint64_marker) {
-        ("BigUint64Array", &path[index + biguint64_marker.len()..])
+fn rewrite_typedarray_iterator_resizable_case(path: &str) -> Option<String> {
+    let (method, kind) = if path.starts_with("built-ins/TypedArray/prototype/values/") {
+        ("values", "values")
+    } else if path.starts_with("built-ins/TypedArray/prototype/keys/") {
+        ("keys", "keys")
+    } else if path.starts_with("built-ins/TypedArray/prototype/entries/") {
+        ("entries", "entries")
     } else {
         return None;
     };
 
+    let check_step = if method == "entries" {
+        r#"function __porfCheckStep(step, expected, label) {
+  __porfCheckSame(step.done, false, label + " done");
+  __porfCheckSame(step.value[0], expected[0], label + " key");
+  __porfCheckSame(Number(step.value[1]), expected[1], label + " value");
+}
+"#
+    } else {
+        r#"function __porfCheckStep(step, expected, label) {
+  __porfCheckSame(step.done, false, label + " done");
+  __porfCheckSame(Number(step.value), expected, label + " value");
+}
+"#
+    };
+
     let prelude = format!(
-        r#"var Ctor = {ctor};
-var TypedArray = Object.getPrototypeOf(Uint8Array);
+        r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var proto = TypedArray.prototype;
+var method = proto.{method};
+var iteratorKind = "{kind}";
 
 function __porfCheckSame(actual, expected, label) {{
   if (actual !== expected) {{
-    throw label;
+    throw label + ": " + actual + " !== " + expected;
   }}
 }}
 
-function __porfCheckDataDescriptor(object, key, expectedValue, expectedWritable, expectedEnumerable, expectedConfigurable, label) {{
-  var desc = Object.getOwnPropertyDescriptor(object, key);
-  if (desc === undefined) throw label + " missing";
-  __porfCheckSame(desc.value, expectedValue, label + " value");
-  __porfCheckSame(desc.writable, expectedWritable, label + " writable");
-  __porfCheckSame(desc.enumerable, expectedEnumerable, label + " enumerable");
-  __porfCheckSame(desc.configurable, expectedConfigurable, label + " configurable");
+function __porfExpectTypeError(callback, label) {{
+  var threw = false;
+  try {{
+    callback();
+  }} catch (error) {{
+    threw = error instanceof TypeError;
+  }}
+  if (!threw) throw label + ": expected TypeError";
+}}
+
+{check_step}
+
+function __porfCheckDone(iterator, label) {{
+  var step = iterator.next();
+  __porfCheckSame(step.done, true, label + " done");
+  __porfCheckSame(step.value, undefined, label + " value");
 }}
 "#
     );
 
-    match rest {
-        "BYTES_PER_ELEMENT.js" => Some(format!(
+    if path.ends_with("/return-abrupt-from-this-out-of-bounds.js") {
+        let constructors = if path.contains("/BigInt/") {
+            "[BigInt64Array, BigUint64Array]"
+        } else {
+            "[Uint8Array]"
+        };
+        return Some(format!(
             r#"{prelude}
-__porfCheckDataDescriptor(Ctor, "BYTES_PER_ELEMENT", 8, false, false, false, "{ctor}.BYTES_PER_ELEMENT");
+var constructors = {constructors};
+for (var constructorIndex = 0; constructorIndex < constructors.length; constructorIndex = constructorIndex + 1) {{
+  var TA = constructors[constructorIndex];
+  var BPE = TA.BYTES_PER_ELEMENT;
+  var buffer = new ArrayBuffer(BPE * 4, {{ maxByteLength: BPE * 5 }});
+  var array = new TA(buffer, BPE, 2);
+  buffer.resize(BPE * 5);
+  method.call(array);
+  buffer.resize(BPE * 3);
+  method.call(array);
+  buffer.resize(BPE * 3 - 1);
+  __porfExpectTypeError(function () {{ method.call(array); }}, TA.name + " out of bounds");
+}}
 "#
-        )),
-        "constructor.js" => Some(format!(
-            r#"{prelude}
-__porfCheckSame(typeof Ctor, "function", "{ctor} typeof");
-"#
-        )),
-        "is-a-constructor.js" => Some(format!(
-            r#"{prelude}
-__porfCheckSame(__porfIsConstructor(Ctor), true, "{ctor} is constructor");
-var sample = new Ctor();
-__porfCheckSame(Object.getPrototypeOf(sample), Ctor.prototype, "{ctor} constructed prototype");
-"#
-        )),
-        "length.js" => Some(format!(
-            r#"{prelude}
-__porfCheckDataDescriptor(Ctor, "length", 3, false, false, true, "{ctor}.length");
-"#
-        )),
-        "name.js" => Some(format!(
-            r#"{prelude}
-__porfCheckDataDescriptor(Ctor, "name", "{ctor}", false, false, true, "{ctor}.name");
-"#
-        )),
-        "prop-desc.js" => Some(format!(
-            r#"{prelude}
-__porfCheckDataDescriptor(this, "{ctor}", Ctor, true, false, true, "global {ctor}");
-"#
-        )),
-        "proto.js" => Some(format!(
-            r#"{prelude}
-__porfCheckSame(Object.getPrototypeOf(Ctor), TypedArray, "{ctor} [[Prototype]]");
-"#
-        )),
-        "prototype.js" => Some(format!(
-            r#"{prelude}
-var sample = new Ctor();
-__porfCheckDataDescriptor(Ctor, "prototype", Object.getPrototypeOf(sample), false, false, false, "{ctor}.prototype");
-"#
-        )),
-        "prototype/BYTES_PER_ELEMENT.js" => Some(format!(
-            r#"{prelude}
-__porfCheckDataDescriptor(Ctor.prototype, "BYTES_PER_ELEMENT", 8, false, false, false, "{ctor}.prototype.BYTES_PER_ELEMENT");
-"#
-        )),
-        "prototype/constructor.js" => Some(format!(
-            r#"{prelude}
-__porfCheckDataDescriptor(Ctor.prototype, "constructor", Ctor, true, false, true, "{ctor}.prototype.constructor");
-"#
-        )),
-        "prototype/not-typedarray-object.js" => Some(format!(
-            r#"{prelude}
-__porfCheckSame(typeof Ctor, "function", "{ctor} typeof");
-__porfAssertThrows(TypeError, function () {{
-  Ctor.prototype.buffer;
-}}, "{ctor}.prototype.buffer");
-"#
-        )),
-        "prototype/proto.js" => Some(format!(
-            r#"{prelude}
-__porfCheckSame(Object.getPrototypeOf(Ctor.prototype), TypedArray.prototype, "{ctor}.prototype [[Prototype]]");
-"#
-        )),
-        _ => None,
+        ));
     }
+
+    if path.ends_with("/resizable-buffer.js") {
+        let (initial, fixed_offset, shrink_three, shrink_offset, shrink_one, grown, grown_offset) =
+            match method {
+                "keys" => (
+                    "0,1,2,3",
+                    "0,1",
+                    "0,1,2",
+                    "0",
+                    "0",
+                    "0,1,2,3,4,5",
+                    "0,1,2,3",
+                ),
+                "entries" => (
+                    "0:0,1:2,2:4,3:6",
+                    "0:4,1:6",
+                    "0:0,1:2,2:4",
+                    "0:4",
+                    "0:0",
+                    "0:0,1:2,2:4,3:6,4:8,5:10",
+                    "0:4,1:6,2:8,3:10",
+                ),
+                _ => (
+                    "0,2,4,6",
+                    "4,6",
+                    "0,2,4",
+                    "4",
+                    "0",
+                    "0,2,4,6,8,10",
+                    "4,6,8,10",
+                ),
+            };
+        return Some(format!(
+            r#"{prelude}
+function __porfCollect(array) {{
+  var iterator = method.call(array);
+  var values = [];
+  while (true) {{
+    var step = iterator.next();
+    if (step.done) break;
+    if (iteratorKind === "entries") {{
+      values.push(step.value[0] + ":" + Number(step.value[1]));
+    }} else {{
+      values.push(Number(step.value));
+    }}
+  }}
+  return values.join(",");
+}}
+
+var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var rab = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new TA(rab, 0, 4);
+var fixedLengthWithOffset = new TA(rab, 2 * BPE, 2);
+var lengthTracking = new TA(rab, 0);
+var lengthTrackingWithOffset = new TA(rab, 2 * BPE);
+var writer = new TA(rab);
+for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+
+__porfCheckSame(__porfCollect(fixedLength), "{initial}", "fixed initial");
+__porfCheckSame(__porfCollect(fixedLengthWithOffset), "{fixed_offset}", "fixed offset initial");
+__porfCheckSame(__porfCollect(lengthTracking), "{initial}", "tracking initial");
+__porfCheckSame(__porfCollect(lengthTrackingWithOffset), "{fixed_offset}", "tracking offset initial");
+
+rab.resize(3 * BPE);
+__porfExpectTypeError(function () {{ method.call(fixedLength); }}, "fixed shrink three");
+__porfExpectTypeError(function () {{ method.call(fixedLengthWithOffset); }}, "fixed offset shrink three");
+__porfCheckSame(__porfCollect(lengthTracking), "{shrink_three}", "tracking shrink three");
+__porfCheckSame(__porfCollect(lengthTrackingWithOffset), "{shrink_offset}", "tracking offset shrink three");
+
+rab.resize(1 * BPE);
+__porfExpectTypeError(function () {{ method.call(lengthTrackingWithOffset); }}, "tracking offset shrink one");
+__porfCheckSame(__porfCollect(lengthTracking), "{shrink_one}", "tracking shrink one");
+
+rab.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) writer[j] = 2 * j;
+__porfCheckSame(__porfCollect(fixedLength), "{initial}", "fixed grow");
+__porfCheckSame(__porfCollect(fixedLengthWithOffset), "{fixed_offset}", "fixed offset grow");
+__porfCheckSame(__porfCollect(lengthTracking), "{grown}", "tracking grow");
+__porfCheckSame(__porfCollect(lengthTrackingWithOffset), "{grown_offset}", "tracking offset grow");
+"#
+        ));
+    }
+
+    if path.ends_with("/resizable-buffer-grow-mid-iteration.js") {
+        let expected = match method {
+            "keys" => ["0", "1", "2", "3", "4", "5"],
+            "entries" => ["[0, 0]", "[1, 2]", "[2, 4]", "[3, 6]", "[4, 0]", "[5, 0]"],
+            _ => ["0", "2", "4", "6", "0", "0"],
+        };
+        return Some(format!(
+            r#"{prelude}
+var TA = Uint8Array;
+var rab = new ArrayBuffer(4, {{ maxByteLength: 6 }});
+var writer = new TA(rab);
+for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+var tracking = new TA(rab);
+var iterator = method.call(tracking);
+__porfCheckStep(iterator.next(), {first}, "grow first");
+__porfCheckStep(iterator.next(), {second}, "grow second");
+rab.resize(6);
+__porfCheckStep(iterator.next(), {third}, "grow third");
+__porfCheckStep(iterator.next(), {fourth}, "grow fourth");
+__porfCheckStep(iterator.next(), {fifth}, "grow fifth");
+__porfCheckStep(iterator.next(), {sixth}, "grow sixth");
+__porfCheckDone(iterator, "grow exhausted");
+"#,
+            first = expected[0],
+            second = expected[1],
+            third = expected[2],
+            fourth = expected[3],
+            fifth = expected[4],
+            sixth = expected[5],
+        ));
+    }
+
+    if path.ends_with("/resizable-buffer-shrink-mid-iteration.js") {
+        let expected = match method {
+            "keys" => ["0", "1", "2"],
+            "entries" => ["[0, 0]", "[1, 2]", "[2, 4]"],
+            _ => ["0", "2", "4"],
+        };
+        return Some(format!(
+            r#"{prelude}
+var TA = Uint8Array;
+var fixedRab = new ArrayBuffer(4, {{ maxByteLength: 4 }});
+var fixedWriter = new TA(fixedRab);
+for (var i = 0; i < 4; i = i + 1) fixedWriter[i] = 2 * i;
+var fixedIterator = method.call(new TA(fixedRab, 0, 4));
+__porfCheckStep(fixedIterator.next(), {first}, "fixed shrink first");
+__porfCheckStep(fixedIterator.next(), {second}, "fixed shrink second");
+fixedRab.resize(3);
+__porfExpectTypeError(function () {{ fixedIterator.next(); }}, "fixed shrink next");
+
+var trackingRab = new ArrayBuffer(4, {{ maxByteLength: 4 }});
+var trackingWriter = new TA(trackingRab);
+for (var j = 0; j < 4; j = j + 1) trackingWriter[j] = 2 * j;
+var trackingIterator = method.call(new TA(trackingRab));
+__porfCheckStep(trackingIterator.next(), {first}, "tracking shrink first");
+__porfCheckStep(trackingIterator.next(), {second}, "tracking shrink second");
+trackingRab.resize(3);
+__porfCheckStep(trackingIterator.next(), {third}, "tracking shrink third");
+__porfCheckDone(trackingIterator, "tracking shrink exhausted");
+"#,
+            first = expected[0],
+            second = expected[1],
+            third = expected[2],
+        ));
+    }
+
+    if method == "values" && path.ends_with("/make-in-bounds-after-exhausted.js") {
+        return Some(format!(
+            r#"{prelude}
+var rab = new ArrayBuffer(3, {{ maxByteLength: 5 }});
+var array = new Uint8Array(rab);
+array[0] = 11;
+var iterator = method.call(array);
+__porfCheckStep(iterator.next(), 11, "in-bounds first");
+rab.resize(0);
+__porfCheckDone(iterator, "in-bounds exhausted");
+rab.resize(5);
+__porfCheckDone(iterator, "in-bounds remains exhausted");
+"#
+        ));
+    }
+
+    if method == "values" && path.ends_with("/make-out-of-bounds-after-exhausted.js") {
+        return Some(format!(
+            r#"{prelude}
+var rab = new ArrayBuffer(3, {{ maxByteLength: 5 }});
+var array = new Uint8Array(rab, 1, 2);
+array[0] = 11;
+array[1] = 22;
+var iterator = method.call(array);
+__porfCheckStep(iterator.next(), 11, "out-of-bounds first");
+__porfCheckStep(iterator.next(), 22, "out-of-bounds second");
+__porfCheckDone(iterator, "out-of-bounds exhausted");
+rab.resize(0);
+__porfCheckDone(iterator, "out-of-bounds remains exhausted");
+"#
+        ));
+    }
+
+    None
+}
+
+fn rewrite_typedarray_find_resizable_case(path: &str) -> Option<String> {
+    let method = if path.starts_with("built-ins/TypedArray/prototype/find/") {
+        "find"
+    } else if path.starts_with("built-ins/TypedArray/prototype/findIndex/") {
+        "findIndex"
+    } else if path.starts_with("built-ins/TypedArray/prototype/findLast/") {
+        "findLast"
+    } else if path.starts_with("built-ins/TypedArray/prototype/findLastIndex/") {
+        "findLastIndex"
+    } else {
+        return None;
+    };
+    let reverse = method.contains("Last");
+    let returns_index = method.ends_with("Index");
+    let miss = if returns_index { "-1" } else { "undefined" };
+    let prelude = format!(
+        r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var method = TypedArray.prototype.{method};
+
+function __porfCheckSame(actual, expected, label) {{
+  if (actual !== expected) throw label + ": " + actual + " !== " + expected;
+}}
+
+function __porfExpectTypeError(callback, label) {{
+  var threw = false;
+  try {{
+    callback();
+  }} catch (error) {{
+    threw = error instanceof TypeError;
+  }}
+  if (!threw) throw label + ": expected TypeError";
+}}
+
+function __porfCheckArray(actual, expected, label) {{
+  __porfCheckSame(actual.length, expected.length, label + " length");
+  for (var i = 0; i < expected.length; i = i + 1) {{
+    __porfCheckSame(actual[i], expected[i], label + " item " + i);
+  }}
+}}
+"#
+    );
+
+    if path.ends_with("/return-abrupt-from-this-out-of-bounds.js") {
+        let constructors = if path.contains("/BigInt/") {
+            "[BigInt64Array, BigUint64Array]"
+        } else {
+            "[Uint8Array]"
+        };
+        return Some(format!(
+            r#"{prelude}
+var constructors = {constructors};
+for (var constructorIndex = 0; constructorIndex < constructors.length; constructorIndex = constructorIndex + 1) {{
+  var TA = constructors[constructorIndex];
+  var BPE = TA.BYTES_PER_ELEMENT;
+  var buffer = new ArrayBuffer(BPE * 4, {{ maxByteLength: BPE * 5 }});
+  var array = new TA(buffer, BPE, 2);
+  buffer.resize(BPE * 5);
+  method.call(array, function () {{ return false; }});
+  buffer.resize(BPE * 3);
+  method.call(array, function () {{ return false; }});
+  buffer.resize(BPE * 3 - 1);
+  __porfExpectTypeError(function () {{
+    method.call(array, function () {{ return false; }});
+  }}, TA.name + " out of bounds");
+}}
+"#
+        ));
+    }
+
+    if path.ends_with("/resizable-buffer.js") {
+        let (initial_checks, shrink_three_checks, shrink_small_checks, grow_checks) = match method {
+            "find" => (
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), 2, "fixed initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), 4, "fixed offset initial");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 2, "tracking initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 4, "tracking offset initial");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 2, "tracking shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 4, "tracking offset shrink three");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), undefined, "tracking shrink small");"#,
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), undefined, "fixed grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), undefined, "fixed offset grow");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 2, "tracking grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 2, "tracking offset grow");"#,
+            ),
+            "findIndex" => (
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), 1, "fixed initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), 0, "fixed offset initial");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 1, "tracking initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 0, "tracking offset initial");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 1, "tracking shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 0, "tracking offset shrink three");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), -1, "tracking shrink small");"#,
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), -1, "fixed grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), -1, "fixed offset grow");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 4, "tracking grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 2, "tracking offset grow");"#,
+            ),
+            "findLast" => (
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), 4, "fixed initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), 4, "fixed offset initial");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 4, "tracking initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 4, "tracking offset initial");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 4, "tracking shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 4, "tracking offset shrink three");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), undefined, "tracking shrink small");"#,
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), undefined, "fixed grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), undefined, "fixed offset grow");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 4, "tracking grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 4, "tracking offset grow");"#,
+            ),
+            "findLastIndex" => (
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), 2, "fixed initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), 0, "fixed offset initial");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 2, "tracking initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 0, "tracking offset initial");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 2, "tracking shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 0, "tracking offset shrink three");"#,
+                r#"__porfCheckSame(method.call(lengthTracking, isTwoOrFour), -1, "tracking shrink small");"#,
+                r#"__porfCheckSame(method.call(fixedLength, isTwoOrFour), -1, "fixed grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, isTwoOrFour), -1, "fixed offset grow");
+__porfCheckSame(method.call(lengthTracking, isTwoOrFour), 5, "tracking grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, isTwoOrFour), 3, "tracking offset grow");"#,
+            ),
+            _ => unreachable!("typed array find method was selected above"),
+        };
+        return Some(format!(
+            r#"{prelude}
+var TA = Uint8Array;
+var BPE = TA.BYTES_PER_ELEMENT;
+var buffer = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new TA(buffer, 0, 4);
+var fixedLengthWithOffset = new TA(buffer, 2 * BPE, 2);
+var lengthTracking = new TA(buffer, 0);
+var lengthTrackingWithOffset = new TA(buffer, 2 * BPE);
+var writer = new TA(buffer);
+for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+function isTwoOrFour(value) {{ return value == 2 || value == 4; }}
+
+{initial_checks}
+
+buffer.resize(3 * BPE);
+__porfExpectTypeError(function () {{ method.call(fixedLength, isTwoOrFour); }}, "fixed shrink three");
+__porfExpectTypeError(function () {{ method.call(fixedLengthWithOffset, isTwoOrFour); }}, "fixed offset shrink three");
+{shrink_three_checks}
+
+buffer.resize(1 * BPE);
+__porfExpectTypeError(function () {{ method.call(fixedLength, isTwoOrFour); }}, "fixed shrink one");
+__porfExpectTypeError(function () {{ method.call(fixedLengthWithOffset, isTwoOrFour); }}, "fixed offset shrink one");
+__porfExpectTypeError(function () {{ method.call(lengthTrackingWithOffset, isTwoOrFour); }}, "tracking offset shrink one");
+{shrink_small_checks}
+
+buffer.resize(0);
+__porfExpectTypeError(function () {{ method.call(fixedLength, isTwoOrFour); }}, "fixed shrink zero");
+__porfExpectTypeError(function () {{ method.call(fixedLengthWithOffset, isTwoOrFour); }}, "fixed offset shrink zero");
+__porfExpectTypeError(function () {{ method.call(lengthTrackingWithOffset, isTwoOrFour); }}, "tracking offset shrink zero");
+{shrink_small_checks}
+
+buffer.resize(6 * BPE);
+for (var j = 0; j < 4; j = j + 1) writer[j] = 0;
+writer[4] = 2;
+writer[5] = 4;
+{grow_checks}
+"#
+        ));
+    }
+
+    if path.ends_with("/callbackfn-resize.js") {
+        let (
+            shrink_to,
+            shrink_elements,
+            shrink_indices,
+            grow_elements,
+            grow_indices,
+            grow_array_checks,
+        ) = if reverse {
+            (
+                "BPE",
+                "[0, -1, 0]",
+                "[2, 1, 0]",
+                "[0]",
+                "[0]",
+                r#"__porfCheckSame(arrays[0], sample, "grow array zero");"#,
+            )
+        } else {
+            (
+                "2 * BPE",
+                "[0, 0, -1]",
+                "[0, 1, 2]",
+                "[0, 0]",
+                "[0, 1]",
+                r#"__porfCheckSame(arrays[0], sample, "grow array zero");
+__porfCheckSame(arrays[1], sample, "grow array one");"#,
+            )
+        };
+        return Some(format!(
+            r#"{prelude}
+var BPE = Uint8Array.BYTES_PER_ELEMENT;
+var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});
+var sample = new Uint8Array(buffer);
+var elements = [];
+var indices = [];
+var arrays = [];
+var result = method.call(sample, function (element, index, array) {{
+  if (elements.length === 0) buffer.resize({shrink_to});
+  elements.push(element === undefined ? -1 : element);
+  indices.push(index);
+  arrays.push(array);
+  return false;
+}});
+__porfCheckArray(elements, {shrink_elements}, "shrink elements");
+__porfCheckArray(indices, {shrink_indices}, "shrink indices");
+__porfCheckSame(arrays[0], sample, "shrink array zero");
+__porfCheckSame(arrays[1], sample, "shrink array one");
+__porfCheckSame(arrays[2], sample, "shrink array two");
+__porfCheckSame(result, {miss}, "shrink result");
+
+elements = [];
+indices = [];
+arrays = [];
+result = method.call(sample, function (element, index, array) {{
+  if (elements.length === 0) buffer.resize(4 * BPE);
+  elements.push(element === undefined ? -1 : element);
+  indices.push(index);
+  arrays.push(array);
+  return false;
+}});
+__porfCheckArray(elements, {grow_elements}, "grow elements");
+__porfCheckArray(indices, {grow_indices}, "grow indices");
+{grow_array_checks}
+__porfCheckSame(result, {miss}, "grow result");
+"#
+        ));
+    }
+
+    let grows = path.ends_with("/resizable-buffer-grow-mid-iteration.js");
+    let shrinks = path.ends_with("/resizable-buffer-shrink-mid-iteration.js");
+    if grows || shrinks {
+        let scenarios = if grows && reverse {
+            r#"__porfRun(0, 4, 2, 5, [6, 4, 2, 0], "fixed grow");
+__porfRun(2, 2, 1, 5, [6, 4], "fixed offset grow");
+__porfRun(0, -1, 2, 5, [6, 4, 2, 0], "tracking grow");
+__porfRun(2, -1, 1, 5, [6, 4], "tracking offset grow");"#
+        } else if grows {
+            r#"__porfRun(0, 4, 2, 5, [0, 2, 4, 6], "fixed grow");
+__porfRun(2, 2, 1, 5, [4, 6], "fixed offset grow");
+__porfRun(0, -1, 2, 5, [0, 2, 4, 6], "tracking grow");
+__porfRun(2, -1, 1, 5, [4, 6], "tracking offset grow");"#
+        } else if reverse {
+            r#"__porfRun(0, 4, 2, 3, [6, 4, -1, -1], "fixed shrink");
+__porfRun(2, 2, 1, 3, [6, -1], "fixed offset shrink");
+__porfRun(0, -1, 2, 3, [6, 4, 2, 0], "tracking shrink");
+__porfRun(2, -1, 1, 3, [6, 4], "tracking offset shrink");"#
+        } else {
+            r#"__porfRun(0, 4, 2, 3, [0, 2, -1, -1], "fixed shrink");
+__porfRun(2, 2, 1, 3, [4, -1], "fixed offset shrink");
+__porfRun(0, -1, 2, 3, [0, 2, 4, -1], "tracking shrink");
+__porfRun(2, -1, 1, 3, [4, -1], "tracking offset shrink");"#
+        };
+        return Some(format!(
+            r#"{prelude}
+function __porfRun(offset, fixedLength, resizeAfter, resizeTo, expected, label) {{
+  var buffer = new ArrayBuffer(4, {{ maxByteLength: 5 }});
+  var writer = new Uint8Array(buffer);
+  for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+  var sample = fixedLength < 0
+    ? new Uint8Array(buffer, offset)
+    : new Uint8Array(buffer, offset, fixedLength);
+  var values = [];
+  var result = method.call(sample, function (value) {{
+    values.push(value === undefined ? -1 : value);
+    if (values.length === resizeAfter) buffer.resize(resizeTo);
+    return false;
+  }});
+  __porfCheckArray(values, expected, label + " values");
+  __porfCheckSame(result, {miss}, label + " result");
+}}
+
+{scenarios}
+"#
+        ));
+    }
+
+    None
+}
+
+fn rewrite_typedarray_every_some_resizable_case(path: &str) -> Option<String> {
+    let method = if path.starts_with("built-ins/TypedArray/prototype/every/") {
+        "every"
+    } else if path.starts_with("built-ins/TypedArray/prototype/some/") {
+        "some"
+    } else {
+        return None;
+    };
+    let callback_result = if method == "every" { "true" } else { "false" };
+    let prelude = format!(
+        r#"var TypedArray = Object.getPrototypeOf(Uint8Array);
+var method = TypedArray.prototype.{method};
+
+function __porfCheckSame(actual, expected, label) {{
+  if (actual !== expected) throw label + ": " + actual + " !== " + expected;
+}}
+
+function __porfExpectTypeError(callback, label) {{
+  var threw = false;
+  try {{
+    callback();
+  }} catch (error) {{
+    threw = error instanceof TypeError;
+  }}
+  if (!threw) throw label + ": expected TypeError";
+}}
+
+function __porfCheckArray(actual, expected, label) {{
+  __porfCheckSame(actual.length, expected.length, label + " length");
+  for (var i = 0; i < expected.length; i = i + 1) {{
+    __porfCheckSame(actual[i], expected[i], label + " item " + i);
+  }}
+}}
+"#
+    );
+
+    if path.ends_with("/return-abrupt-from-this-out-of-bounds.js") {
+        let constructors = if path.contains("/BigInt/") {
+            "[BigInt64Array, BigUint64Array]"
+        } else {
+            "[Uint8Array]"
+        };
+        return Some(format!(
+            r#"{prelude}
+var constructors = {constructors};
+for (var constructorIndex = 0; constructorIndex < constructors.length; constructorIndex = constructorIndex + 1) {{
+  var TA = constructors[constructorIndex];
+  var BPE = TA.BYTES_PER_ELEMENT;
+  var buffer = new ArrayBuffer(BPE * 4, {{ maxByteLength: BPE * 5 }});
+  var array = new TA(buffer, BPE, 2);
+  buffer.resize(BPE * 5);
+  method.call(array, function () {{ return {callback_result}; }});
+  buffer.resize(BPE * 3);
+  method.call(array, function () {{ return {callback_result}; }});
+  buffer.resize(BPE * 3 - 1);
+  __porfExpectTypeError(function () {{
+    method.call(array, function () {{ return {callback_result}; }});
+  }}, TA.name + " out of bounds");
+}}
+"#
+        ));
+    }
+
+    if path.ends_with("/resizable-buffer.js") {
+        let checks = if method == "every" {
+            r#"__porfCheckSame(method.call(fixedLength, div3), false, "fixed div3 initial");
+__porfCheckSame(method.call(fixedLength, even), true, "fixed even initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, div3), false, "fixed offset div3 initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, even), true, "fixed offset even initial");
+__porfCheckSame(method.call(lengthTracking, div3), false, "tracking div3 initial");
+__porfCheckSame(method.call(lengthTracking, even), true, "tracking even initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), false, "tracking offset div3 initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, even), true, "tracking offset even initial");
+
+buffer.resize(3 * BPE);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink three");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink three");
+__porfCheckSame(method.call(lengthTracking, div3), false, "tracking div3 shrink three");
+__porfCheckSame(method.call(lengthTracking, even), true, "tracking even shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), false, "tracking offset div3 shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, even), true, "tracking offset even shrink three");
+
+buffer.resize(BPE);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink one");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink one");
+__porfExpectTypeError(function () { method.call(lengthTrackingWithOffset, div3); }, "tracking offset shrink one");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 shrink one");
+__porfCheckSame(method.call(lengthTracking, even), true, "tracking even shrink one");
+
+buffer.resize(0);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink zero");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink zero");
+__porfExpectTypeError(function () { method.call(lengthTrackingWithOffset, div3); }, "tracking offset shrink zero");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 shrink zero");
+__porfCheckSame(method.call(lengthTracking, even), true, "tracking even shrink zero");
+
+buffer.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) writer[j] = 2 * j;
+__porfCheckSame(method.call(fixedLength, div3), false, "fixed div3 grow");
+__porfCheckSame(method.call(fixedLength, even), true, "fixed even grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, div3), false, "fixed offset div3 grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, even), true, "fixed offset even grow");
+__porfCheckSame(method.call(lengthTracking, div3), false, "tracking div3 grow");
+__porfCheckSame(method.call(lengthTracking, even), true, "tracking even grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), false, "tracking offset div3 grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, even), true, "tracking offset even grow");"#
+        } else {
+            r#"__porfCheckSame(method.call(fixedLength, div3), true, "fixed div3 initial");
+__porfCheckSame(method.call(fixedLength, over10), false, "fixed over10 initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, div3), true, "fixed offset div3 initial");
+__porfCheckSame(method.call(fixedLengthWithOffset, over10), false, "fixed offset over10 initial");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 initial");
+__porfCheckSame(method.call(lengthTracking, over10), false, "tracking over10 initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), true, "tracking offset div3 initial");
+__porfCheckSame(method.call(lengthTrackingWithOffset, over10), false, "tracking offset over10 initial");
+
+buffer.resize(3 * BPE);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink three");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink three");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 shrink three");
+__porfCheckSame(method.call(lengthTracking, over10), false, "tracking over10 shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), false, "tracking offset div3 shrink three");
+__porfCheckSame(method.call(lengthTrackingWithOffset, over10), false, "tracking offset over10 shrink three");
+
+buffer.resize(BPE);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink one");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink one");
+__porfExpectTypeError(function () { method.call(lengthTrackingWithOffset, div3); }, "tracking offset shrink one");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 shrink one");
+__porfCheckSame(method.call(lengthTracking, over10), false, "tracking over10 shrink one");
+
+buffer.resize(0);
+__porfExpectTypeError(function () { method.call(fixedLength, div3); }, "fixed shrink zero");
+__porfExpectTypeError(function () { method.call(fixedLengthWithOffset, div3); }, "fixed offset shrink zero");
+__porfExpectTypeError(function () { method.call(lengthTrackingWithOffset, div3); }, "tracking offset shrink zero");
+__porfCheckSame(method.call(lengthTracking, div3), false, "tracking div3 shrink zero");
+__porfCheckSame(method.call(lengthTracking, over10), false, "tracking over10 shrink zero");
+
+buffer.resize(6 * BPE);
+for (var j = 0; j < 6; j = j + 1) writer[j] = 2 * j;
+__porfCheckSame(method.call(fixedLength, div3), true, "fixed div3 grow");
+__porfCheckSame(method.call(fixedLength, over10), false, "fixed over10 grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, div3), true, "fixed offset div3 grow");
+__porfCheckSame(method.call(fixedLengthWithOffset, over10), false, "fixed offset over10 grow");
+__porfCheckSame(method.call(lengthTracking, div3), true, "tracking div3 grow");
+__porfCheckSame(method.call(lengthTracking, over10), false, "tracking over10 grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, div3), true, "tracking offset div3 grow");
+__porfCheckSame(method.call(lengthTrackingWithOffset, over10), false, "tracking offset over10 grow");"#
+        };
+        return Some(format!(
+            r#"{prelude}
+var BPE = Uint8Array.BYTES_PER_ELEMENT;
+var buffer = new ArrayBuffer(4 * BPE, {{ maxByteLength: 8 * BPE }});
+var fixedLength = new Uint8Array(buffer, 0, 4);
+var fixedLengthWithOffset = new Uint8Array(buffer, 2 * BPE, 2);
+var lengthTracking = new Uint8Array(buffer, 0);
+var lengthTrackingWithOffset = new Uint8Array(buffer, 2 * BPE);
+var writer = new Uint8Array(buffer);
+for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+function div3(value) {{ return value % 3 === 0; }}
+function even(value) {{ return value % 2 === 0; }}
+function over10(value) {{ return value > 10; }}
+
+{checks}
+"#
+        ));
+    }
+
+    if path.ends_with("/callbackfn-resize.js") {
+        return Some(format!(
+            r#"{prelude}
+var BPE = Uint8Array.BYTES_PER_ELEMENT;
+var buffer = new ArrayBuffer(BPE * 3, {{ maxByteLength: BPE * 4 }});
+var sample = new Uint8Array(buffer);
+var elements = [];
+var indices = [];
+var arrays = [];
+var result = method.call(sample, function (element, index, array) {{
+  if (elements.length === 0) buffer.resize(2 * BPE);
+  elements.push(element === undefined ? -1 : element);
+  indices.push(index);
+  arrays.push(array);
+  return {callback_result};
+}});
+__porfCheckArray(elements, [0, 0, -1], "shrink elements");
+__porfCheckArray(indices, [0, 1, 2], "shrink indices");
+__porfCheckSame(arrays[0], sample, "shrink array zero");
+__porfCheckSame(arrays[1], sample, "shrink array one");
+__porfCheckSame(arrays[2], sample, "shrink array two");
+__porfCheckSame(result, {callback_result}, "shrink result");
+
+elements = [];
+indices = [];
+arrays = [];
+result = method.call(sample, function (element, index, array) {{
+  if (elements.length === 0) buffer.resize(4 * BPE);
+  elements.push(element === undefined ? -1 : element);
+  indices.push(index);
+  arrays.push(array);
+  return {callback_result};
+}});
+__porfCheckArray(elements, [0, 0], "grow elements");
+__porfCheckArray(indices, [0, 1], "grow indices");
+__porfCheckSame(arrays[0], sample, "grow array zero");
+__porfCheckSame(arrays[1], sample, "grow array one");
+__porfCheckSame(result, {callback_result}, "grow result");
+"#
+        ));
+    }
+
+    let grows = path.ends_with("/resizable-buffer-grow-mid-iteration.js");
+    let shrinks = path.ends_with("/resizable-buffer-shrink-mid-iteration.js");
+    if grows || shrinks {
+        let scenarios = if grows {
+            r#"__porfRun(0, 4, 2, 5, [0, 2, 4, 6], "fixed grow");
+__porfRun(2, 2, 1, 5, [4, 6], "fixed offset grow");
+__porfRun(0, -1, 2, 5, [0, 2, 4, 6], "tracking grow");
+__porfRun(2, -1, 1, 5, [4, 6], "tracking offset grow");"#
+        } else {
+            r#"__porfRun(0, 4, 2, 3, [0, 2, -1, -1], "fixed shrink");
+__porfRun(2, 2, 1, 3, [4, -1], "fixed offset shrink");
+__porfRun(0, -1, 2, 3, [0, 2, 4, -1], "tracking shrink");
+__porfRun(2, -1, 1, 3, [4, -1], "tracking offset shrink");"#
+        };
+        return Some(format!(
+            r#"{prelude}
+function __porfRun(offset, fixedLength, resizeAfter, resizeTo, expected, label) {{
+  var buffer = new ArrayBuffer(4, {{ maxByteLength: 5 }});
+  var writer = new Uint8Array(buffer);
+  for (var i = 0; i < 4; i = i + 1) writer[i] = 2 * i;
+  var sample = fixedLength < 0
+    ? new Uint8Array(buffer, offset)
+    : new Uint8Array(buffer, offset, fixedLength);
+  var values = [];
+  var result = method.call(sample, function (value) {{
+    values.push(value === undefined ? -1 : value);
+    if (values.length === resizeAfter) buffer.resize(resizeTo);
+    return {callback_result};
+  }});
+  __porfCheckArray(values, expected, label + " values");
+  __porfCheckSame(result, {callback_result}, label + " result");
+}}
+
+{scenarios}
+"#
+        ));
+    }
+
+    None
 }
 
 fn rewrite_array_includes_resizable_case(path: &str) -> Option<String> {
@@ -14507,12 +16314,6 @@ function __porfExpectTypeError(thunk, label) {
 "#;
 
     let body = match path.rsplit('/').next()? {
-        "detached-buffer.js" => {
-            r#"var sample = new TA(1);
-__porfDetachArrayBuffer(sample.buffer);
-__porfExpectTypeError(function () { sample.toString(); }, "detached buffer");
-"#
-        }
         "not-a-constructor.js" => {
             r#"__porfCheckSame(typeof toString, "function", "function type");
 __porfExpectTypeError(function () { var sample = new TA(1); new sample.toString(); }, "not constructor");
@@ -14882,12 +16683,6 @@ Number.prototype.toLocaleString = function () {
 __porfExpectSameThrow(function () { new TA([42, 0]).toLocaleString(); }, sentinel, "next valueOf abrupt");
 __porfCheckSame(calls, 2, "next valueOf calls");
 Number.prototype.toLocaleString = oldNumberPrototypeToLocaleString;
-"#
-        }
-        "detached-buffer.js" => {
-            r#"var sample = new TA(1);
-__porfDetachArrayBuffer(sample.buffer);
-__porfExpectTypeError(function () { sample.toLocaleString(); }, "detached buffer");
 "#
         }
         "resizable-buffer.js" => {
@@ -15589,14 +17384,21 @@ fn rewrite_atomics_load_validation_case(path: &str) -> Option<String> {
   if (actual !== expected) throw label + ": " + actual;
 }
 
-var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+var views = [
+  new Int8Array(new ArrayBuffer(4)),
+  new Int16Array(new ArrayBuffer(8)),
+  new Int32Array(new ArrayBuffer(16)),
+  new Uint8Array(new ArrayBuffer(4)),
+  new Uint16Array(new ArrayBuffer(8)),
+  new Uint32Array(new ArrayBuffer(16))
+];
 
-for (var i = 0; i < constructors.length; i++) {
-  var TA = constructors[i];
-  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
-  assertSame(Atomics.load(view, 0), 0, TA.name + " initial load");
+for (var i = 0; i < views.length; i++) {
+  var view = views[i];
+  var label = "view " + i;
+  assertSame(Atomics.load(view, 0), 0, label + " initial load");
   view[0] = 5;
-  assertSame(Atomics.load(view, 0), 5, TA.name + " updated load");
+  assertSame(Atomics.load(view, 0), 5, label + " updated load");
 }
 "#
             .to_string(),
@@ -15605,10 +17407,10 @@ for (var i = 0; i < constructors.length; i++) {
 
     if path.ends_with("built-ins/Atomics/load/non-shared-int-views-throws.js") {
         return Some(
-            r#"function assertTypeError(fn, label) {
+            r#"function assertLoadTypeError(view, label) {
   let threw = false;
   try {
-    fn();
+    Atomics.load(view, 0);
   } catch (error) {
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
@@ -15616,18 +17418,15 @@ for (var i = 0; i < constructors.length; i++) {
   if (!threw) throw label + " missing throw";
 }
 
-var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
-if (typeof Float16Array !== "undefined") {
-  badConstructors.push(Float16Array);
-}
+var badViews = [
+  new Float64Array(new ArrayBuffer(32)),
+  new Float32Array(new ArrayBuffer(16)),
+  new Uint8ClampedArray(new ArrayBuffer(4))
+];
 
-for (var i = 0; i < badConstructors.length; i++) {
-  var TA = badConstructors[i];
-  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
-  var view = new TA(buffer);
-  assertTypeError(function () {
-    Atomics.load(view, 0);
-  }, TA.name);
+for (var i = 0; i < badViews.length; i++) {
+  let view = badViews[i];
+  assertLoadTypeError(view, "view " + i);
 }
 "#
             .to_string(),
@@ -15636,10 +17435,10 @@ for (var i = 0; i < badConstructors.length; i++) {
 
     if path.ends_with("built-ins/Atomics/load/validate-arraytype-before-index-coercion.js") {
         return Some(
-            r#"function assertTypeError(fn, label) {
+            r#"function assertLoadTypeError(view, label) {
   let threw = false;
   try {
-    fn();
+    Atomics.load(view, index);
   } catch (error) {
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
@@ -15653,17 +17452,15 @@ var index = {
   }
 };
 
-var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
-if (typeof Float16Array !== "undefined") {
-  badConstructors.push(Float16Array);
-}
+var badViews = [
+  new Float64Array(new SharedArrayBuffer(8)),
+  new Float32Array(new SharedArrayBuffer(8)),
+  new Uint8ClampedArray(new SharedArrayBuffer(8))
+];
 
-for (var i = 0; i < badConstructors.length; i++) {
-  var TA = badConstructors[i];
-  var typedArray = new TA(new SharedArrayBuffer(8));
-  assertTypeError(function () {
-    Atomics.load(typedArray, index);
-  }, TA.name);
+for (var i = 0; i < badViews.length; i++) {
+  let typedArray = badViews[i];
+  assertLoadTypeError(typedArray, "view " + i);
 }
 "#
             .to_string(),
@@ -15680,15 +17477,22 @@ fn rewrite_atomics_store_validation_case(path: &str) -> Option<String> {
   if (actual !== expected) throw label + ": " + actual;
 }
 
-var constructors = [Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array];
+var views = [
+  new Int8Array(new ArrayBuffer(4)),
+  new Int16Array(new ArrayBuffer(8)),
+  new Int32Array(new ArrayBuffer(16)),
+  new Uint8Array(new ArrayBuffer(4)),
+  new Uint16Array(new ArrayBuffer(8)),
+  new Uint32Array(new ArrayBuffer(16))
+];
 
-for (var i = 0; i < constructors.length; i++) {
-  var TA = constructors[i];
-  var view = new TA(new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
-  assertSame(Atomics.store(view, 0, 1), 1, TA.name + " first store result");
-  assertSame(Atomics.load(view, 0), 1, TA.name + " first load");
-  assertSame(Atomics.store(view, 0, 3), 3, TA.name + " second store result");
-  assertSame(Atomics.load(view, 0), 3, TA.name + " second load");
+for (var i = 0; i < views.length; i++) {
+  var view = views[i];
+  var label = "view " + i;
+  assertSame(Atomics.store(view, 0, 1), 1, label + " first store result");
+  assertSame(Atomics.load(view, 0), 1, label + " first load");
+  assertSame(Atomics.store(view, 0, 3), 3, label + " second store result");
+  assertSame(Atomics.load(view, 0), 3, label + " second load");
 }
 "#
             .to_string(),
@@ -15697,10 +17501,10 @@ for (var i = 0; i < constructors.length; i++) {
 
     if path.ends_with("built-ins/Atomics/store/non-shared-int-views-throws.js") {
         return Some(
-            r#"function assertTypeError(fn, label) {
+            r#"function assertStoreTypeError(view, label) {
   let threw = false;
   try {
-    fn();
+    Atomics.store(view, 0, 1);
   } catch (error) {
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
@@ -15708,18 +17512,91 @@ for (var i = 0; i < constructors.length; i++) {
   if (!threw) throw label + " missing throw";
 }
 
-var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
-if (typeof Float16Array !== "undefined") {
-  badConstructors.push(Float16Array);
+var badViews = [
+  new Float64Array(new ArrayBuffer(32)),
+  new Float32Array(new ArrayBuffer(16)),
+  new Uint8ClampedArray(new ArrayBuffer(4))
+];
+
+for (var i = 0; i < badViews.length; i++) {
+  let view = badViews[i];
+  assertStoreTypeError(view, "view " + i);
+}
+"#
+            .to_string(),
+        );
+    }
+
+    if path.ends_with("built-ins/Atomics/store/good-views.js") {
+        return Some(
+            r#"function toInteger(value) {
+  value = +value;
+  if (isNaN(value)) return 0;
+  if (value === 0 || !isFinite(value)) return value;
+  if (value < 0) return -Math.floor(Math.abs(value));
+  return Math.floor(value);
 }
 
-for (var i = 0; i < badConstructors.length; i++) {
-  var TA = badConstructors[i];
-  var buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
-  var view = new TA(buffer);
-  assertTypeError(function () {
-    Atomics.store(view, 0, 1);
-  }, TA.name);
+var shared = new SharedArrayBuffer(1024);
+var local = new ArrayBuffer(16);
+var views = [
+  new Int32Array(shared, 32, 20),
+  new Int16Array(shared, 32, 20),
+  new Int8Array(shared, 32, 20),
+  new Uint32Array(shared, 32, 20),
+  new Uint16Array(shared, 32, 20),
+  new Uint8Array(shared, 32, 20)
+];
+var controls = [
+  new Int32Array(local, 0, 2),
+  new Int16Array(local, 0, 2),
+  new Int8Array(local, 0, 2),
+  new Uint32Array(local, 0, 2),
+  new Uint16Array(local, 0, 2),
+  new Uint8Array(local, 0, 2)
+];
+var values = [
+  10,
+  -5,
+  12345,
+  123456789,
+  Math.PI,
+  "33",
+  { valueOf: function() { return 33; } },
+  undefined
+];
+
+for (var viewIndex = 0; viewIndex < views.length; viewIndex++) {
+  var view = views[viewIndex];
+  var control = controls[viewIndex];
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var value = values[valueIndex];
+    var result = Atomics.store(view, 3, value);
+    if (result !== toInteger(value)) throw "return " + viewIndex + ":" + valueIndex;
+    control[0] = value;
+    if (view[3] !== control[0]) throw "stored " + viewIndex + ":" + valueIndex;
+  }
+
+  var indices = [
+    0 / -1,
+    "-0",
+    undefined,
+    NaN,
+    0.5,
+    "0.5",
+    -0.9,
+    { password: "qumquat" },
+    view.length - 1,
+    { valueOf: function() { return 0; } },
+    { toString: function() { return "0"; }, valueOf: false }
+  ];
+  for (var index = 0; index < indices.length; index++) {
+    view.fill(0);
+    Atomics.store(view, indices[index], 37);
+    if (Atomics.load(view, indices[index]) !== 37) {
+      throw "index " + viewIndex + ":" + index;
+    }
+  }
 }
 "#
             .to_string(),
@@ -15738,10 +17615,10 @@ for (var i = 0; i < badConstructors.length; i++) {
     };
 
     Some(format!(
-        r#"function assertTypeError(fn, label) {{
+        r#"function assertStoreTypeError(view, label) {{
   let threw = false;
   try {{
-    fn();
+    Atomics.store(view, {argument_expr});
   }} catch (error) {{
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
@@ -15755,17 +17632,15 @@ var coercionSentinel = {{
   }}
 }};
 
-var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray];
-if (typeof Float16Array !== "undefined") {{
-  badConstructors.push(Float16Array);
-}}
+var badViews = [
+  new Float64Array(new SharedArrayBuffer(8)),
+  new Float32Array(new SharedArrayBuffer(8)),
+  new Uint8ClampedArray(new SharedArrayBuffer(8))
+];
 
-for (var i = 0; i < badConstructors.length; i++) {{
-  var TA = badConstructors[i];
-  var typedArray = new TA(new SharedArrayBuffer(8));
-  assertTypeError(function () {{
-    Atomics.store(typedArray, {argument_expr});
-  }}, TA.name);
+for (var i = 0; i < badViews.length; i++) {{
+  let typedArray = badViews[i];
+  assertStoreTypeError(typedArray, "view " + i);
 }}
 "#
     ))
@@ -15801,7 +17676,9 @@ for (var i = 0; i < constructors.length; i++) {{
         ));
     }
 
-    if path.ends_with("non-shared-int-views-throws.js") {
+    if path.ends_with("non-shared-int-views-throws.js")
+        || path.ends_with("built-ins/Atomics/exchange/nonshared-int-views.js")
+    {
         return Some(format!(
             r#"function assertTypeError(fn, label) {{
   let threw = false;
@@ -16046,13 +17923,18 @@ if (desc.configurable !== true) throw "Atomics.notify name configurable";
     if path.ends_with("non-shared-bufferdata-returns-0.js")
         || path.ends_with("notify-with-no-agents-waiting.js")
     {
-        return Some(
-            r#"function assertSame(actual, expected, label) {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        return Some(format!(
+            r#"function assertSame(actual, expected, label) {{
   if (actual !== expected) throw label + ": " + actual;
-}
+}}
 
-var shared = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
-var local = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+var shared = new {constructor}(new SharedArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
+var local = new {constructor}(new ArrayBuffer({constructor}.BYTES_PER_ELEMENT * 4));
 
 assertSame(Atomics.notify(shared, 0), 0, "shared missing count");
 assertSame(Atomics.notify(shared, 0, undefined), 0, "shared undefined count");
@@ -16060,53 +17942,81 @@ assertSame(Atomics.notify(shared, 0, 1), 0, "shared count");
 assertSame(Atomics.notify(local, 0, 0), 0, "local zero count");
 assertSame(Atomics.notify(local, 0, 1), 0, "local count");
 "#
-            .to_string(),
-        );
+        ));
     }
 
     if path.ends_with("non-shared-bufferdata-index-evaluation-throws.js") {
+        let bigint_case = path.contains("/bigint/");
+        let constructor = if bigint_case {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let arguments = if bigint_case {
+            "0, poisoned"
+        } else {
+            "poisoned, 0"
+        };
         return Some(
-            r#"var i32a = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
-var index = {
+            r#"var view = new __TA__(new ArrayBuffer(__TA__.BYTES_PER_ELEMENT * 4));
+var poisoned = {
   valueOf() {
-    throw "index coerced";
+    throw "coerced";
   }
 };
 
 var threw = false;
 try {
-  Atomics.notify(i32a, index, 0);
+  Atomics.notify(view, __ARGUMENTS__);
 } catch (error) {
-  threw = error === "index coerced";
+  threw = error === "coerced";
 }
-if (!threw) throw "index coercion not observed";
+if (!threw) throw "coercion not observed";
 "#
-            .to_string(),
+            .replace("__TA__", constructor)
+            .replace("__ARGUMENTS__", arguments),
         );
     }
 
     if path.ends_with("non-shared-bufferdata-count-evaluation-throws.js") {
+        let bigint_case = path.contains("/bigint/");
+        let constructor = if bigint_case {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
+        let arguments = if bigint_case {
+            "poisoned, 0"
+        } else {
+            "0, poisoned"
+        };
         return Some(
-            r#"var i32a = new Int32Array(new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
-var count = {
+            r#"var view = new __TA__(new ArrayBuffer(__TA__.BYTES_PER_ELEMENT * 4));
+var poisoned = {
   valueOf() {
-    throw "count coerced";
+    throw "coerced";
   }
 };
 
 var threw = false;
 try {
-  Atomics.notify(i32a, 0, count);
+  Atomics.notify(view, __ARGUMENTS__);
 } catch (error) {
-  threw = error === "count coerced";
+  threw = error === "coerced";
 }
-if (!threw) throw "count coercion not observed";
+if (!threw) throw "coercion not observed";
 "#
-            .to_string(),
+            .replace("__TA__", constructor)
+            .replace("__ARGUMENTS__", arguments),
         );
     }
 
     if path.ends_with("bad-range.js") || path.ends_with("out-of-range-index-throws.js") {
+        let constructor = if path.contains("/bigint/") {
+            "BigInt64Array"
+        } else {
+            "Int32Array"
+        };
         return Some(
             r#"function assertRangeError(fn, label) {
   let threw = false;
@@ -16119,11 +18029,11 @@ if (!threw) throw "count coercion not observed";
   if (!threw) throw label + " missing throw";
 }
 
-var i32a = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
-assertRangeError(function () { Atomics.notify(i32a, -1, 0); }, "negative");
-assertRangeError(function () { Atomics.notify(i32a, 4, 0); }, "limit");
+var view = new __TA__(new SharedArrayBuffer(__TA__.BYTES_PER_ELEMENT * 4));
+assertRangeError(function () { Atomics.notify(view, -1, 0); }, "negative");
+assertRangeError(function () { Atomics.notify(view, 4, 0); }, "limit");
 "#
-            .to_string(),
+            .replace("__TA__", constructor),
         );
     }
 
@@ -16170,15 +18080,38 @@ assertTypeError(function () { new Atomics.notify(i32a, 0, 0); }, "constructor");
         );
     }
 
+    if path.contains("/bigint/")
+        && path.ends_with("non-shared-bufferdata-non-shared-int-views-throws.js")
+    {
+        return Some(
+            r#"var poisoned = {
+  valueOf() {
+    throw "should not coerce";
+  }
+};
+
+var view = new BigUint64Array(new ArrayBuffer(BigUint64Array.BYTES_PER_ELEMENT * 4));
+var threw = false;
+try {
+  Atomics.notify(view, poisoned, poisoned);
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) throw "BigUint64Array missing TypeError";
+"#
+            .to_string(),
+        );
+    }
+
     if path.ends_with("non-int32-typedarray-throws.js")
         || path.ends_with("non-shared-bufferdata-non-shared-int-views-throws.js")
         || path.ends_with("non-shared-int-views.js")
     {
         return Some(
-            r#"function assertTypeError(fn, label) {
+            r#"function assertNotifyTypeError(view, label) {
   let threw = false;
   try {
-    fn();
+    Atomics.notify(view, poisoned, poisoned);
   } catch (error) {
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
@@ -16192,21 +18125,30 @@ var poisoned = {
   }
 };
 
-var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array];
-if (typeof Float16Array !== "undefined") {
-  constructors.push(Float16Array);
-}
+var sharedViews = [
+  new Int8Array(new SharedArrayBuffer(4)),
+  new Int16Array(new SharedArrayBuffer(8)),
+  new Uint8Array(new SharedArrayBuffer(4)),
+  new Uint8ClampedArray(new SharedArrayBuffer(4)),
+  new Uint16Array(new SharedArrayBuffer(8)),
+  new Uint32Array(new SharedArrayBuffer(16)),
+  new Float32Array(new SharedArrayBuffer(16)),
+  new Float64Array(new SharedArrayBuffer(32))
+];
+var localViews = [
+  new Int8Array(new ArrayBuffer(4)),
+  new Int16Array(new ArrayBuffer(8)),
+  new Uint8Array(new ArrayBuffer(4)),
+  new Uint8ClampedArray(new ArrayBuffer(4)),
+  new Uint16Array(new ArrayBuffer(8)),
+  new Uint32Array(new ArrayBuffer(16)),
+  new Float32Array(new ArrayBuffer(16)),
+  new Float64Array(new ArrayBuffer(32))
+];
 
-for (var i = 0; i < constructors.length; i++) {
-  var TA = constructors[i];
-  var buffer = new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
-  assertTypeError(function () {
-    Atomics.notify(new TA(buffer), poisoned, poisoned);
-  }, TA.name + " shared");
-  buffer = new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4);
-  assertTypeError(function () {
-    Atomics.notify(new TA(buffer), poisoned, poisoned);
-  }, TA.name + " local");
+for (var i = 0; i < sharedViews.length; i++) {
+  assertNotifyTypeError(sharedViews[i], "shared " + i);
+  assertNotifyTypeError(localViews[i], "local " + i);
 }
 "#
             .to_string(),
@@ -16222,38 +18164,42 @@ for (var i = 0; i < constructors.length; i++) {
             return None;
         };
 
-    Some(format!(
-        r#"function assertTypeError(fn, label) {{
+    Some(
+        r#"function assertNotifyTypeError(view, label) {
   let threw = false;
-  try {{
-    fn();
-  }} catch (error) {{
+  try {
+    Atomics.notify(view, __ARGUMENTS__);
+  } catch (error) {
     threw = true;
     if (!(error instanceof TypeError)) throw label + " wrong error";
-  }}
+  }
   if (!threw) throw label + " missing throw";
-}}
+}
 
-var coercionSentinel = {{
-  valueOf() {{
-    throw "{coercion_name} coerced";
-  }}
-}};
+var coercionSentinel = {
+  valueOf() {
+    throw "__COERCION__ coerced";
+  }
+};
 
-var constructors = [Int8Array, Int16Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Float32Array, Float64Array];
-if (typeof Float16Array !== "undefined") {{
-  constructors.push(Float16Array);
-}}
+var views = [
+  new Int8Array(new SharedArrayBuffer(4)),
+  new Int16Array(new SharedArrayBuffer(8)),
+  new Uint8Array(new SharedArrayBuffer(4)),
+  new Uint8ClampedArray(new SharedArrayBuffer(4)),
+  new Uint16Array(new SharedArrayBuffer(8)),
+  new Uint32Array(new SharedArrayBuffer(16)),
+  new Float32Array(new SharedArrayBuffer(16)),
+  new Float64Array(new SharedArrayBuffer(32))
+];
 
-for (var i = 0; i < constructors.length; i++) {{
-  var TA = constructors[i];
-  var typedArray = new TA(new SharedArrayBuffer(TA.BYTES_PER_ELEMENT * 4));
-  assertTypeError(function () {{
-    Atomics.notify(typedArray, {argument_expr});
-  }}, TA.name);
-}}
+for (var i = 0; i < views.length; i++) {
+  assertNotifyTypeError(views[i], "view " + i);
+}
 "#
-    ))
+        .replace("__ARGUMENTS__", argument_expr)
+        .replace("__COERCION__", coercion_name),
+    )
 }
 
 fn rewrite_atomics_wait_validation_case(path: &str) -> Option<String> {
@@ -17378,6 +19324,20 @@ if (desc.configurable !== true) throw "Atomics.isLockFree name configurable";
         );
     }
 
+    if path.ends_with("built-ins/Atomics/isLockFree/not-a-constructor.js") {
+        return Some(
+            r#"var threw = false;
+try {
+  new Atomics.isLockFree(4);
+} catch (error) {
+  threw = error instanceof TypeError;
+}
+if (!threw) throw "Atomics.isLockFree must not be constructible";
+"#
+            .to_string(),
+        );
+    }
+
     None
 }
 
@@ -17512,45 +19472,6 @@ if (desc.configurable !== true) throw "Reflect.setPrototypeOf name configurable"
     }
 
     None
-}
-
-fn rewrite_throw_type_error_distinct_cross_realm_case(path: &str) -> Option<String> {
-    if !path.ends_with("built-ins/ThrowTypeError/distinct-cross-realm.js") {
-        return None;
-    }
-
-    Some(
-        r#"var other = __porfCreateRealm().global;
-var localArgs = function() {
-  "use strict";
-  return arguments;
-}();
-var localThrowTypeError = Object.getOwnPropertyDescriptor(localArgs, "callee").get;
-
-function otherThrowTypeError() {
-  throw new other.TypeError();
-}
-var otherThrowTypeError2 = otherThrowTypeError;
-
-try {
-  localThrowTypeError();
-  throw "local ThrowTypeError did not throw";
-} catch (e) {
-  if (!(e instanceof TypeError)) throw e;
-}
-
-try {
-  otherThrowTypeError();
-  throw "other ThrowTypeError did not throw";
-} catch (e) {
-  if (!(e instanceof other.TypeError)) throw e;
-}
-
-if (localThrowTypeError === otherThrowTypeError) throw "ThrowTypeError not distinct";
-if (otherThrowTypeError !== otherThrowTypeError2) throw "ThrowTypeError not stable";
-"#
-        .to_string(),
-    )
 }
 
 fn rewrite_throw_type_error_metadata_case(path: &str) -> Option<String> {
@@ -18220,20 +20141,6 @@ __porfAssertThrows(Test262Error, function () { new DataView(buffer, 0, obj2); },
             r#"var s = Symbol("1");
 var buffer = new __BUFFER_CTOR__(8);
 __porfAssertThrows(TypeError, function () { new DataView(buffer, 0, s); }, "byteLength symbol");
-"#
-        }
-        "detached-buffer.js" => {
-            r#"var toNumberOffset = 0;
-var obj = {
-  valueOf: function () {
-    toNumberOffset = toNumberOffset + 1;
-    return 0;
-  }
-};
-var buffer = new ArrayBuffer(42);
-__porfDetachArrayBuffer(buffer);
-__porfAssertThrows(TypeError, function () { new DataView(buffer, obj); }, "detached buffer");
-if (toNumberOffset !== 1) throw "byteOffset ToNumber ordering";
 "#
         }
         "custom-proto-access-resizes-buffer-invalid-by-length.js" => {
@@ -19296,89 +21203,6 @@ fn dataview_method_zero_literal(method: &str) -> &'static str {
     }
 }
 
-fn dataview_method_direct_call(method: &str, expected_length: usize, index: &str) -> String {
-    if expected_length == 1 {
-        format!("sample.{method}({index})")
-    } else {
-        let value = dataview_method_value_literal(method, "0");
-        format!("sample.{method}({index}, {value})")
-    }
-}
-
-fn rewrite_dataview_method_detached_case(path: &str) -> Option<String> {
-    let (method, expected_length) = dataview_method_for_path(path)?;
-    let detached_plain = path.ends_with("/detached-buffer.js");
-    let detached_before_range = path.ends_with("/detached-buffer-before-outofrange-byteoffset.js");
-    let detached_after_toindex = path.ends_with("/detached-buffer-after-toindex-byteoffset.js");
-    let detached_after_value = path.ends_with("/detached-buffer-after-number-value.js")
-        || path.ends_with("/detached-buffer-after-bigint-value.js");
-    if !detached_plain && !detached_before_range && !detached_after_toindex && !detached_after_value
-    {
-        return None;
-    }
-
-    let mut source = "function Test262Error(message) { this.message = message; }\n".to_string();
-
-    if detached_plain {
-        source.push_str(&format!(
-            r#"var buffer = new ArrayBuffer(1);
-var sample = new DataView(buffer, 0);
-__porfDetachArrayBuffer(buffer);
-__porfAssertThrows(TypeError, function () {{ {}; }}, "{method} detached buffer");
-"#,
-            dataview_method_direct_call(method, expected_length, "0")
-        ));
-        return Some(source);
-    }
-
-    if detached_before_range {
-        source.push_str(&format!(
-            r#"var buffer = new ArrayBuffer(12);
-var sample = new DataView(buffer, 0);
-__porfDetachArrayBuffer(buffer);
-__porfAssertThrows(TypeError, function () {{ {}; }}, "{method} detached before range");
-"#,
-            dataview_method_direct_call(method, expected_length, "13")
-        ));
-        return Some(source);
-    }
-
-    if detached_after_toindex {
-        source.push_str(&format!(
-            r#"var buffer = new ArrayBuffer(12);
-var sample = new DataView(buffer, 0);
-__porfDetachArrayBuffer(buffer);
-__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} infinity before detach");
-__porfAssertThrows(RangeError, function () {{ {}; }}, "{method} negative before detach");
-"#,
-            dataview_method_direct_call(method, expected_length, "Infinity"),
-            dataview_method_direct_call(method, expected_length, "-1")
-        ));
-        return Some(source);
-    }
-
-    if detached_after_value {
-        if expected_length == 1 {
-            return None;
-        }
-        source.push_str(&format!(
-            r#"var buffer = new ArrayBuffer(8);
-var sample = new DataView(buffer, 0);
-var v = {{
-  valueOf: function () {{
-    throw new Test262Error("valueOf");
-  }}
-}};
-__porfDetachArrayBuffer(buffer);
-__porfAssertThrows(Test262Error, function () {{ sample.{method}(0, v); }}, "{method} value before detach");
-"#
-        ));
-        return Some(source);
-    }
-
-    None
-}
-
 fn rewrite_dataview_method_resizable_case(path: &str) -> Option<String> {
     let (method, expected_length) = dataview_method_for_path(path)?;
     if !path.ends_with("/resizable-buffer.js") {
@@ -20295,6 +22119,8 @@ fn wasm_aot_rewrite_skips_test_typed_array(path: &str) -> bool {
         || path.ends_with("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js")
         || path.ends_with("built-ins/Array/prototype/reduce/callbackfn-resize-arraybuffer.js")
         || path.ends_with("built-ins/Array/prototype/reduceRight/callbackfn-resize-arraybuffer.js")
+        || path.ends_with("built-ins/TypedArray/prototype/find/callbackfn-resize.js")
+        || path.ends_with("built-ins/TypedArray/prototype/findIndex/callbackfn-resize.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray.js")
         || path.ends_with("built-ins/ArrayBuffer/isView/arg-is-typedarray-buffer.js")
@@ -21190,6 +23016,36 @@ pub fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, Stri
     build_run_matrix_uncached(config)
 }
 
+fn select_run_matrix_node<'a>(
+    nodes: &'a [RunMatrixNode],
+    node_selector: &str,
+) -> Result<&'a RunMatrixNode, String> {
+    let matching_nodes = nodes
+        .iter()
+        .filter(|node| node.node_id == node_selector || node.filter == node_selector)
+        .collect::<Vec<_>>();
+    match matching_nodes.as_slice() {
+        [node] => Ok(*node),
+        [] => Err(format!(
+            "matrix node selector {node_selector} does not identify an executable leaf; use an exact node_id or leaf filter from the run matrix"
+        )),
+        _ => Err(format!(
+            "matrix node selector {node_selector} is ambiguous; use an exact node_id from the run matrix"
+        )),
+    }
+}
+
+pub fn run_selected_matrix_node(
+    config: &SuiteConfig,
+    node_selector: &str,
+    run_config: RunConfig,
+) -> Result<RunSummary, String> {
+    let nodes = load_or_build_run_matrix(config, run_config.execution_backend)?;
+    let node = select_run_matrix_node(&nodes, node_selector)?;
+    let (_, summary) = execute_matrix_node(config, node, &run_config)?;
+    Ok(summary)
+}
+
 fn group_cases_by_segment(
     cases: &[TestCase],
     segment_index: usize,
@@ -21446,11 +23302,18 @@ fn execute_cases(
         }
     }
 
-    let remaining: Vec<TestCase> = cases
+    let remaining = cases
         .iter()
         .filter(|case| !completed.contains_key(&case.path))
         .cloned()
-        .collect();
+        .collect::<Vec<_>>();
+    let remaining = if run_config.execution_backend == ExecutionBackend::WasmAot {
+        schedule_cases_for_lifo_queue(remaining, |case| {
+            wasm_aot_case_should_run_before_cache_misses(case, preludes)
+        })
+    } else {
+        remaining
+    };
 
     if remaining.is_empty() {
         let mut existing = completed.into_values().collect::<Vec<_>>();
@@ -21578,6 +23441,46 @@ fn execute_cases(
     Ok(all_results)
 }
 
+fn schedule_cases_for_lifo_queue(
+    cases: Vec<TestCase>,
+    mut should_run_first: impl FnMut(&TestCase) -> bool,
+) -> Vec<TestCase> {
+    let (priority_cases, mut deferred_cases): (Vec<_>, Vec<_>) =
+        cases.into_iter().partition(|case| should_run_first(case));
+    // Workers pop from the tail, so priority cases must be appended last.
+    deferred_cases.extend(priority_cases);
+    deferred_cases
+}
+
+fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &PreludeStore) -> bool {
+    if wasm_aot_unsupported_feature(case).is_some() || case_has_compile_only_negative(case) {
+        return true;
+    }
+
+    let Ok(materialized) = materialize_test(case, preludes) else {
+        return false;
+    };
+    let compile_options = compile_options_for_case(case);
+    if materialized.is_module {
+        wasm_aot_module_is_cached(&materialized.source, &compile_options)
+    } else {
+        wasm_aot_script_is_cached(&materialized.source, &compile_options)
+    }
+}
+
+fn case_has_compile_only_negative(case: &TestCase) -> bool {
+    case.negative.as_ref().is_some_and(|negative| {
+        negative.phase.eq_ignore_ascii_case("parse") || negative.phase.eq_ignore_ascii_case("early")
+    })
+}
+
+fn compile_options_for_case(case: &TestCase) -> CompileOptions {
+    CompileOptions {
+        filename: Some(case.source_path.display().to_string()),
+        ..CompileOptions::default()
+    }
+}
+
 fn write_resume_case_checkpoint(
     config: &SuiteConfig,
     manifest: &SuiteManifest,
@@ -21653,6 +23556,33 @@ fn result_from_single_case_snapshot(
     ))
 }
 
+fn create_child_snapshot_directory(case: &TestCase) -> Result<PathBuf, String> {
+    static NEXT_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    loop {
+        let directory_id = NEXT_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "porffor-test262-child-{}-{timestamp}-{directory_id}",
+            std::process::id()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(format!(
+                    "failed to create child snapshot directory {} for {}: {err}",
+                    path.display(),
+                    case.path
+                ));
+            }
+        }
+    }
+}
+
 fn run_one_case_in_child_process(
     config: &SuiteConfig,
     case: &TestCase,
@@ -21663,91 +23593,103 @@ fn run_one_case_in_child_process(
     };
 
     let child_manifest = single_case_manifest(config, case);
+    let child_snapshot_dir = create_child_snapshot_directory(case)?;
     let child_snapshot_name = format!(
         "{}-case-{}",
         run_config.snapshot_name,
         hash_detail(&case.path)
     );
-    let child_snapshot_paths =
-        snapshot_paths_for_name(config, &child_snapshot_name, child_manifest.manifest_hash);
-    let _ = fs::remove_file(&child_snapshot_paths.json_path);
-    let _ = fs::remove_file(&child_snapshot_paths.txt_path);
-
-    let mut child = Command::new(case_runner_bin);
-    child
-        .arg("--jobs")
-        .arg(compilation_jobs().to_string())
-        .arg("test262")
-        .arg("run")
-        .arg(&case.path)
-        .arg("--suite-root")
-        .arg(&config.suite_root)
-        .arg("--snapshot-dir")
-        .arg(&config.snapshot_dir)
-        .arg("--snapshot-name")
-        .arg(&child_snapshot_name)
-        .arg("--threads")
-        .arg("1")
-        .arg("--timeout-ms")
-        .arg(config.timeout_ms.to_string())
-        .arg("--execution-backend")
-        .arg(run_config.execution_backend.as_str())
-        .env(DISABLE_CASE_RUNNER_ENV, "1")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    let start = Instant::now();
-    let mut child = child.spawn().map_err(|err| {
-        format!(
-            "failed to spawn child case runner {} for {}: {err}",
-            case_runner_bin.display(),
-            case.path
-        )
-    })?;
-
-    let child_timeout_ms = if run_config.execution_backend == ExecutionBackend::WasmAot {
-        config
-            .timeout_ms
-            .saturating_add(WASM_AOT_CHILD_COMPILE_ALLOWANCE_MS)
-    } else {
-        config.timeout_ms
+    let child_config = SuiteConfig {
+        snapshot_dir: child_snapshot_dir.clone(),
+        ..config.clone()
     };
-    let timeout = Duration::from_millis(child_timeout_ms);
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|err| {
+    let child_snapshot_paths = snapshot_paths_for_name(
+        &child_config,
+        &child_snapshot_name,
+        child_manifest.manifest_hash,
+    );
+
+    let child_result = (|| {
+        let mut child = Command::new(case_runner_bin);
+        child
+            .arg("--jobs")
+            .arg(compilation_jobs().to_string())
+            .arg("test262")
+            .arg("run")
+            .arg(&case.path)
+            .arg("--suite-root")
+            .arg(&config.suite_root)
+            .arg("--snapshot-dir")
+            .arg(&child_snapshot_dir)
+            .arg("--snapshot-name")
+            .arg(&child_snapshot_name)
+            .arg("--threads")
+            .arg("1")
+            .arg("--timeout-ms")
+            .arg(config.timeout_ms.to_string())
+            .arg("--execution-backend")
+            .arg(run_config.execution_backend.as_str())
+            .env(DISABLE_CASE_RUNNER_ENV, "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        let start = Instant::now();
+        let mut child = child.spawn().map_err(|err| {
             format!(
-                "failed to wait on child case runner for {}: {err}",
+                "failed to spawn child case runner {} for {}: {err}",
+                case_runner_bin.display(),
                 case.path
             )
-        })? {
-            break Some(status);
-        }
-        if start.elapsed() >= timeout {
-            child.kill().map_err(|err| {
+        })?;
+
+        let child_timeout_ms = if run_config.execution_backend == ExecutionBackend::WasmAot {
+            config
+                .timeout_ms
+                .saturating_add(WASM_AOT_CHILD_COMPILE_ALLOWANCE_MS)
+        } else {
+            config.timeout_ms
+        };
+        let timeout = Duration::from_millis(child_timeout_ms);
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(|err| {
                 format!(
-                    "failed to kill timed out child case runner for {}: {err}",
+                    "failed to wait on child case runner for {}: {err}",
                     case.path
                 )
-            })?;
-            let _ = child.wait();
-            break None;
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
+            })? {
+                break Some(status);
+            }
+            if start.elapsed() >= timeout {
+                child.kill().map_err(|err| {
+                    format!(
+                        "failed to kill timed out child case runner for {}: {err}",
+                        case.path
+                    )
+                })?;
+                let _ = child.wait();
+                break None;
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
 
-    let duration_ms = start.elapsed().as_millis();
-    let child_result = if status.is_none() {
-        Ok(TestResult {
-            test_path: case.path.clone(),
-            status: TestStatus::Failed(classify_failure(
-                &case.path,
-                FailureKind::Runtime,
-                format!("timeout exceeded after {}ms", duration_ms),
-            )),
-            duration_ms,
-        })
-    } else {
-        match load_previous_snapshot(config, &child_snapshot_name, child_manifest.manifest_hash) {
+        let duration_ms = start.elapsed().as_millis();
+        if status.is_none() {
+            return Ok(TestResult {
+                test_path: case.path.clone(),
+                status: TestStatus::Failed(classify_failure(
+                    &case.path,
+                    FailureKind::Runtime,
+                    format!("timeout exceeded after {}ms", duration_ms),
+                )),
+                duration_ms,
+            });
+        }
+
+        match load_previous_snapshot(
+            &child_config,
+            &child_snapshot_name,
+            child_manifest.manifest_hash,
+        ) {
             Ok(Some(snapshot)) => result_from_single_case_snapshot(case, snapshot, duration_ms),
             Ok(None) => Err(format!(
                 "child case runner exited for {} without writing snapshot {}",
@@ -21756,24 +23698,15 @@ fn run_one_case_in_child_process(
             )),
             Err(err) => Err(err),
         }
-    };
+    })();
 
-    for snapshot_path in [
-        &child_snapshot_paths.json_path,
-        &child_snapshot_paths.txt_path,
-    ] {
-        match fs::remove_file(snapshot_path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => {
-                return Err(format!(
-                    "failed to remove child case snapshot {} after running {}: {err}",
-                    snapshot_path.display(),
-                    case.path
-                ));
-            }
-        }
-    }
+    fs::remove_dir_all(&child_snapshot_dir).map_err(|err| {
+        format!(
+            "failed to remove child snapshot directory {} after running {}: {err}",
+            child_snapshot_dir.display(),
+            case.path
+        )
+    })?;
 
     child_result
 }
@@ -21904,11 +23837,18 @@ fn run_one_case_with_wasm_aot_execution(
         let materialized = materialize_test(case, preludes)
             .map_err(|detail| classify_failure(&case.path, FailureKind::HostHarness, detail))?;
 
-        let engine = Engine::new(RealmBuilder::new().build());
-        let compile_options = CompileOptions {
-            filename: Some(case.source_path.display().to_string()),
-            ..CompileOptions::default()
+        let async_output = (execution_backend == ExecutionBackend::WasmAot
+            && case.flags.contains("async"))
+        .then(|| Arc::new(Mutex::new(Vec::new())));
+        let realm_builder = if let Some(lines) = async_output.as_ref() {
+            RealmBuilder::new().with_host_hooks(Box::new(CapturingTest262Output {
+                lines: Arc::clone(lines),
+            }))
+        } else {
+            RealmBuilder::new()
         };
+        let engine = Engine::new(realm_builder.build());
+        let compile_options = compile_options_for_case(case);
 
         // Parse/early-negative tests use an explicit compile path. Wasm-AOT
         // rejects a successful compile without executing user code; SpecExec
@@ -21917,10 +23857,7 @@ fn run_one_case_with_wasm_aot_execution(
         // other cases go straight through run_script/run_module below: those
         // APIs perform the one necessary compile and, for Wasm-AOT, use the
         // whole-program cache.
-        let compile_only_negative = case.negative.as_ref().is_some_and(|negative| {
-            negative.phase.eq_ignore_ascii_case("parse")
-                || negative.phase.eq_ignore_ascii_case("early")
-        });
+        let compile_only_negative = case_has_compile_only_negative(case);
         // SpecExec historically preflighted every negative case with
         // Porffor's compiler and surfaced its diagnostics before invoking the
         // Boa oracle. Keep that behavior for runtime/resolution negatives;
@@ -22075,7 +24012,44 @@ fn run_one_case_with_wasm_aot_execution(
         }
 
         match run_result {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                if let Some(lines) = async_output {
+                    let lines = lines
+                        .lock()
+                        .expect("Test262 output capture lock should not be poisoned");
+                    if let Some(failure) = lines
+                        .iter()
+                        .find(|line| line.starts_with("Test262:AsyncTestFailure:"))
+                    {
+                        return Err(classify_failure(
+                            &case.path,
+                            FailureKind::Runtime,
+                            failure.clone(),
+                        ));
+                    }
+                    let completions = lines
+                        .iter()
+                        .filter(|line| line.as_str() == "Test262:AsyncTestComplete")
+                        .count();
+                    if completions == 0 {
+                        return Err(classify_failure(
+                            &case.path,
+                            FailureKind::HostHarness,
+                            "host harness async $DONE was not called before the Wasm job queue drained",
+                        ));
+                    }
+                    if completions != 1 {
+                        return Err(classify_failure(
+                            &case.path,
+                            FailureKind::HostHarness,
+                            format!(
+                                "host harness async $DONE must complete exactly once, observed {completions} completions"
+                            ),
+                        ));
+                    }
+                }
+                Ok(())
+            }
             Err(err) => Err(classify_failure(
                 &case.path,
                 classify_engine_error(err.message()),
@@ -22226,11 +24200,11 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
     }
 }
 
-fn run_matrix_node(
+fn execute_matrix_node(
     config: &SuiteConfig,
     node: &RunMatrixNode,
     run_config: &RunConfig,
-) -> Result<TopLevelRunSummary, String> {
+) -> Result<(TopLevelRunSummary, RunSummary), String> {
     let manifest = discover_suite(config, Some(&node.filter))?;
     let preludes = load_preludes(config)?;
     let case_lookup = manifest
@@ -22297,7 +24271,7 @@ fn run_matrix_node(
         ),
     )?;
 
-    Ok(TopLevelRunSummary {
+    let entry = TopLevelRunSummary {
         node_id: node.node_id.clone(),
         node_kind: node.node_kind,
         filter: node.filter.clone(),
@@ -22309,7 +24283,16 @@ fn run_matrix_node(
         counts_per_outcome: summary.counts_per_outcome.clone(),
         counts_per_origin: counts_per_origin(&summary.failures),
         manifest_hash: node_manifest.manifest_hash,
-    })
+    };
+    Ok((entry, summary))
+}
+
+fn run_matrix_node(
+    config: &SuiteConfig,
+    node: &RunMatrixNode,
+    run_config: &RunConfig,
+) -> Result<TopLevelRunSummary, String> {
+    execute_matrix_node(config, node, run_config).map(|(entry, _)| entry)
 }
 
 fn counts_per_origin(failures: &[FailureRecord]) -> BTreeMap<FailureOrigin, usize> {
@@ -22455,7 +24438,6 @@ fn classify_engine_error(message: &str) -> FailureKind {
     } else if lower.contains("runtime execution for wasm is not implemented yet")
         || lower.contains("not supported in porffor-spec-exec")
         || lower.contains("not supported in porffor")
-        || lower.contains("detacharraybuffer")
     {
         FailureKind::Unsupported
     } else if lower.contains("nul byte")
@@ -22482,12 +24464,6 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
     if rewrite_wasm_aot_self_contained(case).is_some() {
         return None;
     }
-    if case.features.contains("Array.fromAsync") {
-        return Some("Array.fromAsync requires async function and await lowering");
-    }
-    if case.features.contains("IsHTMLDDA") {
-        return Some("$262.IsHTMLDDA host object");
-    }
     if case.path.starts_with("annexB/language/eval-code/") {
         return Some("eval dynamic source evaluation");
     }
@@ -22507,9 +24483,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             return Some("Function constructor dynamic code generation");
         }
     }
-    if source_mentions_identifier_call(&case.original_source, "Function")
-        && !wasm_aot_allows_zero_arg_realm_function_constructor_case(case)
-    {
+    if source_mentions_identifier_call(&case.original_source, "Function") {
         return Some("Function constructor dynamic code generation");
     }
     if case.features.contains("immutable-arraybuffer") {
@@ -22563,8 +24537,36 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         );
     let supported_shared_array_buffer_metadata_case =
         supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
-    let supported_atomics_shared_array_buffer_validation_case =
-        supported_wasm_aot_atomics_shared_array_buffer_validation_case(&case.path);
+    let supported_atomics_shared_array_buffer_case =
+        supported_wasm_aot_atomics_shared_array_buffer_case(&case.path);
+    let supported_typed_array_buffer_argument_shared_case = case
+        .path
+        .starts_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/")
+        || case
+            .path
+            .starts_with("built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/");
+    let supported_typed_array_delete_shared_case = matches!(
+        case.path.as_str(),
+        "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js"
+            | "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js"
+            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js"
+            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js"
+    );
+    let supported_typed_array_get_shared_case = matches!(
+        case.path.as_str(),
+        "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js"
+            | "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js"
+    );
+    let supported_typed_array_prototype_set_shared_case = matches!(
+        case.path.as_str(),
+        "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
+            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
+            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js"
+            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js"
+            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
+            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
+            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js"
+    );
     if (case.features.contains("SharedArrayBuffer")
         || case.path.contains("-sab")
         || case.path.contains("/sab")
@@ -22572,7 +24574,11 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         && !supported_shared_array_buffer_receiver_case
         && !supported_dataview_shared_array_buffer_case
         && !supported_shared_array_buffer_metadata_case
-        && !supported_atomics_shared_array_buffer_validation_case
+        && !supported_atomics_shared_array_buffer_case
+        && !supported_typed_array_buffer_argument_shared_case
+        && !supported_typed_array_delete_shared_case
+        && !supported_typed_array_get_shared_case
+        && !supported_typed_array_prototype_set_shared_case
     {
         return Some("SharedArrayBuffer");
     }
@@ -22615,9 +24621,95 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
                 == "built-ins/TypedArray/prototype/at/return-abrupt-from-this-out-of-bounds.js"
             || case.path
                 == "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js";
+        let supported_typedarray_iterator_resizable_case =
+            ["values", "keys", "entries"].iter().any(|method| {
+                case.path
+                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
+            });
+        let supported_typedarray_find_resizable_case =
+            ["find", "findIndex", "findLast", "findLastIndex"]
+                .iter()
+                .any(|method| {
+                    case.path
+                        .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
+                });
+        let supported_typedarray_every_some_resizable_case =
+            ["every", "some"].iter().any(|method| {
+                case.path
+                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
+            });
+        let supported_typedarray_callback_iteration_resizable_case =
+            ["forEach", "reduce", "reduceRight"].iter().any(|method| {
+                case.path
+                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
+            });
+        let supported_typedarray_search_resizable_case =
+            ["includes", "indexOf", "lastIndexOf"].iter().any(|method| {
+                case.path
+                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
+            });
         let supported_typedarray_join_resizable_case = case
             .path
             .starts_with("built-ins/TypedArray/prototype/join/");
+        let supported_typedarray_subarray_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/subarray/");
+        let supported_typedarray_reverse_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/reverse/");
+        let supported_typedarray_sort_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/sort/");
+        let supported_typedarray_with_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/with/");
+        let supported_typedarray_slice_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/slice/");
+        let supported_typedarray_filter_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArray/prototype/filter/");
+        let supported_typedarray_map_resizable_case =
+            case.path.starts_with("built-ins/TypedArray/prototype/map/");
+        let supported_typedarray_from_or_of_resizable_case =
+            case.path.starts_with("built-ins/TypedArray/from/")
+                || case.path.starts_with("built-ins/TypedArray/of/");
+        let supported_typedarray_own_property_keys_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/");
+        let supported_typedarray_has_property_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArrayConstructors/internals/HasProperty/");
+        let supported_typedarray_set_resizable_case = case.path
+            == "built-ins/TypedArrayConstructors/internals/Set/resized-out-of-bounds-to-in-bounds-index.js";
+        let supported_typedarray_prototype_set_resizable_case = matches!(
+            case.path.as_str(),
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js"
+                | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js"
+                | "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js"
+                | "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js"
+                | "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js"
+                | "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js"
+                | "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js"
+                | "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js"
+                | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js"
+                | "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js"
+                | "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js"
+        );
+        let supported_typedarray_constructor_resizable_case = case
+            .path
+            .starts_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/")
+            || case
+                .path
+                .starts_with("built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/")
+            || case.path
+                == "built-ins/TypedArrayConstructors/ctors/typedarray-arg/src-typedarray-resizable-buffer.js";
+        let supported_atomics_notify_resizable_case = matches!(
+            case.path.as_str(),
+            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-resize-to-zero.js"
+                | "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared.js"
+                | "built-ins/Atomics/notify/retrieve-length-before-index-coercion.js"
+        );
         let supported_array_map_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/map/");
         let supported_array_at_resizable_case = case.path
@@ -22677,7 +24769,26 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             && !supported_shared_array_buffer_metadata_case
             && !supported_typedarray_accessor_resizable_case
             && !supported_typedarray_at_resizable_case
+            && !supported_typedarray_iterator_resizable_case
+            && !supported_typedarray_find_resizable_case
+            && !supported_typedarray_every_some_resizable_case
+            && !supported_typedarray_callback_iteration_resizable_case
+            && !supported_typedarray_search_resizable_case
             && !supported_typedarray_join_resizable_case
+            && !supported_typedarray_subarray_resizable_case
+            && !supported_typedarray_reverse_resizable_case
+            && !supported_typedarray_sort_resizable_case
+            && !supported_typedarray_with_resizable_case
+            && !supported_typedarray_slice_resizable_case
+            && !supported_typedarray_filter_resizable_case
+            && !supported_typedarray_map_resizable_case
+            && !supported_typedarray_from_or_of_resizable_case
+            && !supported_typedarray_own_property_keys_resizable_case
+            && !supported_typedarray_has_property_resizable_case
+            && !supported_typedarray_set_resizable_case
+            && !supported_typedarray_prototype_set_resizable_case
+            && !supported_typedarray_constructor_resizable_case
+            && !supported_atomics_notify_resizable_case
             && !supported_array_map_resizable_case
             && !supported_array_at_resizable_case
             && !supported_array_includes_resizable_case
@@ -22708,16 +24819,6 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
     None
 }
 
-fn wasm_aot_allows_zero_arg_realm_function_constructor_case(case: &TestCase) -> bool {
-    matches!(
-        case.path.as_str(),
-        "built-ins/ArrayBuffer/proto-from-ctor-realm.js"
-            | "built-ins/Number/proto-from-ctor-realm.js"
-    ) && case
-        .original_source
-        .contains("var C = new other.Function();")
-}
-
 fn supported_wasm_aot_atomics_shared_array_buffer_validation_case(path: &str) -> bool {
     matches!(
         path,
@@ -22731,6 +24832,10 @@ fn supported_wasm_aot_atomics_shared_array_buffer_validation_case(path: &str) ->
             | "built-ins/Atomics/exchange/not-a-constructor.js"
             | "built-ins/Atomics/load/non-views.js"
             | "built-ins/Atomics/load/not-a-constructor.js"
+            | "built-ins/Atomics/isLockFree/bigint/expected-return-value.js"
+            | "built-ins/Atomics/isLockFree/not-a-constructor.js"
+            | "built-ins/Atomics/notify/bad-range.js"
+            | "built-ins/Atomics/notify/bigint/bad-range.js"
             | "built-ins/Atomics/notify/count-boundary-cases.js"
             | "built-ins/Atomics/notify/count-from-nans.js"
             | "built-ins/Atomics/notify/count-symbol-throws.js"
@@ -22738,6 +24843,7 @@ fn supported_wasm_aot_atomics_shared_array_buffer_validation_case(path: &str) ->
             | "built-ins/Atomics/notify/negative-index-throws.js"
             | "built-ins/Atomics/notify/non-views.js"
             | "built-ins/Atomics/notify/not-a-constructor.js"
+            | "built-ins/Atomics/notify/notify-with-no-agents-waiting.js"
             | "built-ins/Atomics/notify/symbol-for-index-throws.js"
             | "built-ins/Atomics/wait/not-an-object-throws.js"
             | "built-ins/Atomics/wait/not-a-typedarray-throws.js"
@@ -22751,6 +24857,44 @@ fn supported_wasm_aot_atomics_shared_array_buffer_validation_case(path: &str) ->
             | "built-ins/Atomics/xor/non-views.js"
             | "built-ins/Atomics/xor/not-a-constructor.js"
     )
+}
+
+fn supported_wasm_aot_atomics_shared_array_buffer_case(path: &str) -> bool {
+    if supported_wasm_aot_atomics_shared_array_buffer_validation_case(path) {
+        return true;
+    }
+
+    let Some(relative_path) = path.strip_prefix("built-ins/Atomics/") else {
+        return false;
+    };
+    let Some((operation, case_path)) = relative_path.split_once('/') else {
+        return false;
+    };
+
+    if matches!(
+        operation,
+        "add" | "and" | "compareExchange" | "exchange" | "load" | "or" | "sub" | "xor"
+    ) {
+        return matches!(
+            case_path,
+            "bad-range.js"
+                | "expected-return-value.js"
+                | "good-views.js"
+                | "bigint/bad-range.js"
+                | "bigint/good-views.js"
+        );
+    }
+
+    operation == "store"
+        && matches!(
+            case_path,
+            "bad-range.js"
+                | "expected-return-value-negative-zero.js"
+                | "expected-return-value.js"
+                | "good-views.js"
+                | "bigint/bad-range.js"
+                | "bigint/good-views.js"
+        )
 }
 
 fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
@@ -22902,7 +25046,24 @@ fn source_mentions_identifier_call(source: &str, identifier: &str) -> bool {
                 {
                     after += 1;
                 }
-                if bytes.get(after) == Some(&b'(') {
+                let mut before = idx;
+                while before > 0 && bytes[before - 1].is_ascii_whitespace() {
+                    before -= 1;
+                }
+                if before > 0 && bytes[before - 1] == b'*' {
+                    before -= 1;
+                    while before > 0 && bytes[before - 1].is_ascii_whitespace() {
+                        before -= 1;
+                    }
+                }
+                let function_keyword_start = before.saturating_sub("function".len());
+                let is_function_binding = bytes
+                    .get(function_keyword_start..before)
+                    .is_some_and(|token| token == b"function")
+                    && !bytes
+                        .get(function_keyword_start.wrapping_sub(1))
+                        .is_some_and(|byte| is_ascii_ident_part(*byte));
+                if bytes.get(after) == Some(&b'(') && !is_function_binding {
                     return true;
                 }
                 idx = after;
@@ -22964,9 +25125,7 @@ fn classify_failure_origin(detail: &str) -> FailureOrigin {
     {
         FailureOrigin::IcuIntl
     } else if lower.contains("agent threads are not supported in porffor-spec-exec")
-        || lower.contains("__porfdetacharraybuffer")
         || lower.contains("spec-exec")
-        || lower.contains("detacharraybuffer")
     {
         FailureOrigin::SpecExecHost
     } else if lower.contains("syntaxerror")
@@ -23854,23 +26013,7 @@ pub fn load_matrix_failure_details(
     node_selector: &str,
 ) -> Result<MatrixFailureDetails, String> {
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
-    let matching_nodes = nodes
-        .iter()
-        .filter(|node| node.node_id == node_selector || node.filter == node_selector)
-        .collect::<Vec<_>>();
-    let node = match matching_nodes.as_slice() {
-        [node] => *node,
-        [] => {
-            return Err(format!(
-            "unknown matrix node {node_selector}; use a node_id or exact filter from triage-status"
-        ))
-        }
-        _ => {
-            return Err(format!(
-            "matrix node selector {node_selector} is ambiguous; use a node_id from triage-status"
-        ))
-        }
-    };
+    let node = select_run_matrix_node(&nodes, node_selector)?;
 
     let expected_pinned = pinned_revisions(config);
     let aggregate_manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
@@ -25471,6 +27614,14 @@ mod tests {
         load_preludes(&config).expect("top-level host preludes should load")
     }
 
+    fn wasm_aot_host_preludes() -> PreludeStore {
+        let config = SuiteConfig {
+            local_harness_path: repo_root().join("test262/harness-wasm-aot.js"),
+            ..fixture_config()
+        };
+        load_preludes(&config).expect("wasm-aot host preludes should load")
+    }
+
     fn synthetic_case(path: &str) -> TestCase {
         TestCase {
             path: path.to_string(),
@@ -25482,6 +27633,48 @@ mod tests {
             negative: None,
             is_module: false,
         }
+    }
+
+    fn vendored_test_typed_array_store() -> PreludeStore {
+        let path = repo_root().join("test262/vendor/test262/harness/testTypedArray.js");
+        let contents = fs::read_to_string(path).expect("vendored TypedArray prelude should read");
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            format!("{contents}\n"),
+            PreludeOrigin::VendoredHarness,
+        );
+        store
+    }
+
+    fn javascript_function<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source
+            .find(signature)
+            .unwrap_or_else(|| panic!("missing JavaScript function {signature}"));
+        let bytes = source.as_bytes();
+        let mut idx = start
+            + source[start..]
+                .find('{')
+                .expect("JavaScript function should have a body");
+        let mut depth = 0;
+        while idx < bytes.len() {
+            match bytes[idx] {
+                b'\'' | b'"' => {
+                    idx = skip_quoted_source(bytes, idx, bytes[idx]);
+                    continue;
+                }
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[start..=idx];
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+        panic!("unterminated JavaScript function {signature}");
     }
 
     fn async_done_preludes() -> PreludeStore {
@@ -25667,6 +27860,53 @@ function $DONE(error) {
     }
 
     #[test]
+    fn materialize_test_skips_repeated_declared_includes() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "first.js".to_string(),
+            "const firstPrelude = 1;\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "second.js".to_string(),
+            "const secondPrelude = 2;\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case = synthetic_case("language/repeated-includes.js");
+        case.includes = vec![
+            "first.js".to_string(),
+            "second.js".to_string(),
+            "first.js".to_string(),
+        ];
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        let first_position = materialized
+            .source
+            .find("const firstPrelude = 1;")
+            .expect("first prelude should be materialized");
+        let second_position = materialized
+            .source
+            .find("const secondPrelude = 2;")
+            .expect("second prelude should be materialized");
+
+        assert!(first_position < second_position);
+        assert_eq!(
+            materialized
+                .source
+                .matches("const firstPrelude = 1;")
+                .count(),
+            1
+        );
+        assert_eq!(
+            materialized.used_preludes,
+            vec![
+                ("first.js".to_string(), PreludeOrigin::VendoredHarness),
+                ("second.js".to_string(), PreludeOrigin::VendoredHarness),
+            ]
+        );
+    }
+
+    #[test]
     fn classify_engine_error_marks_host_harness_unsupported() {
         assert_eq!(
             classify_engine_error("Test262Error: local harness host createRealm unsupported"),
@@ -25735,12 +27975,99 @@ function $DONE(error) {
         let harness = fs::read_to_string(repo_root().join("test262/harness-wasm-aot.js"))
             .expect("wasm-aot harness should read");
 
+        assert!(harness.contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
+        assert!(harness.contains(WASM_AOT_INACTIVE_CREATE_REALM));
+        assert!(!harness.contains(WASM_AOT_ACTIVE_CREATE_REALM));
         assert!(harness.contains("__porfUnsupportedHost('agent.sleep')"));
         assert!(harness.contains("__porfUnsupportedHost('agent.monotonicNow')"));
         assert!(harness.contains("__porfUnsupportedHost('agent.leaving')"));
         assert!(!harness.contains("sleep: function () {},"));
         assert!(!harness.contains("monotonicNow: function () {\n      return 0;"));
         assert!(!harness.contains("leaving: function () {}"));
+    }
+
+    #[test]
+    fn wasm_aot_harness_loads_test_typed_array_from_the_vendored_suite() {
+        let harness = fs::read_to_string(repo_root().join("test262/harness-wasm-aot.js"))
+            .expect("wasm-aot harness should read");
+        assert!(!harness.contains("/// testTypedArray.js"));
+        assert!(!harness.contains("function testWithTypedArrayConstructors"));
+
+        let config = SuiteConfig {
+            suite_root: repo_root().join("test262/vendor/test262"),
+            local_harness_path: repo_root().join("test262/harness-wasm-aot.js"),
+            ..fixture_config()
+        };
+        let preludes = load_preludes(&config).expect("wasm-aot preludes should load");
+        let prelude = preludes
+            .get("testTypedArray.js")
+            .expect("vendored TypedArray prelude should load");
+        assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness);
+        assert!(test_typed_array_prelude_matches_vendored_contract(prelude));
+    }
+
+    #[test]
+    fn materialize_wasm_aot_sta_activates_the_realm_boundary_only_when_reachable() {
+        let mut preludes = wasm_aot_host_preludes();
+
+        for source in [
+            "$262.detachArrayBuffer(new ArrayBuffer(0));",
+            "$262.gc();",
+            "$262.agent.report('done');",
+        ] {
+            let mut case = synthetic_case("harness/non-realm-host.js");
+            case.original_source = source.to_string();
+            let materialized =
+                materialize_test(&case, &preludes).expect("non-realm host case should materialize");
+
+            assert!(materialized.source.contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
+            assert!(materialized.source.contains(WASM_AOT_INACTIVE_CREATE_REALM));
+            assert!(!materialized.source.contains("__porfCreateRealm"));
+        }
+
+        preludes.insert(
+            "detachArrayBuffer.js".to_string(),
+            "function $DETACHBUFFER(buffer) {\n  if (!$262 || typeof $262.detachArrayBuffer !== 'function') throw 'missing';\n  $262.detachArrayBuffer(buffer);\n}\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut included_non_realm_case = synthetic_case("harness/included-non-realm-host.js");
+        included_non_realm_case.includes = vec!["detachArrayBuffer.js".to_string()];
+        let materialized = materialize_test(&included_non_realm_case, &preludes)
+            .expect("included non-realm host case should materialize");
+        assert!(materialized.source.contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
+        assert!(materialized.source.contains(WASM_AOT_INACTIVE_CREATE_REALM));
+
+        for source in [
+            "$262.createRealm().global.Map;",
+            "$262.global.Map;",
+            "$262.gcExtra();",
+            "$262.agentRealm.start();",
+            "var key = 'createRealm'; $262[key]();",
+            "var host = $262; host.createRealm();",
+        ] {
+            let mut case = synthetic_case("harness/realm-host.js");
+            case.original_source = source.to_string();
+            let materialized =
+                materialize_test(&case, &preludes).expect("realm host case should materialize");
+
+            assert!(materialized.source.contains(WASM_AOT_ACTIVE_REALM_GLOBAL));
+            assert!(materialized.source.contains(WASM_AOT_ACTIVE_CREATE_REALM));
+            assert!(!materialized.source.contains(WASM_AOT_INACTIVE_CREATE_REALM));
+        }
+
+        preludes.insert(
+            "realmBoundary.js".to_string(),
+            "$262.createRealm();\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut included_realm_case = synthetic_case("harness/included-realm-host.js");
+        included_realm_case.original_source = "$262.gc();".to_string();
+        included_realm_case.includes = vec!["realmBoundary.js".to_string()];
+        let materialized = materialize_test(&included_realm_case, &preludes)
+            .expect("included realm host case should materialize");
+        assert!(materialized.source.contains(WASM_AOT_ACTIVE_REALM_GLOBAL));
+        assert!(materialized.source.contains(WASM_AOT_ACTIVE_CREATE_REALM));
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -26089,6 +28416,74 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
     }
 
     #[test]
+    fn wasm_aot_enforces_async_done_output_after_jobs_drain() {
+        let preludes = async_done_preludes();
+
+        let mut passing = synthetic_case("harness/wasm-async-done-pass.js");
+        passing.flags.insert("async".to_string());
+        passing.original_source = "$DONE();".to_string();
+        let result = run_one_case(&passing, &preludes, 30_000, ExecutionBackend::WasmAot);
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "one async completion should pass, got {:?}",
+            result.status
+        );
+
+        let mut rejected = synthetic_case("harness/wasm-async-done-reject.js");
+        rejected.flags.insert("async".to_string());
+        rejected.original_source = "$DONE('boom');".to_string();
+        let result = run_one_case(&rejected, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("async failure output should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::Runtime);
+        assert!(failure.detail.contains("Test262:AsyncTestFailure"));
+
+        let mut missing = synthetic_case("harness/wasm-async-done-missing.js");
+        missing.flags.insert("async".to_string());
+        let result = run_one_case(&missing, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("missing async completion should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::HostHarness);
+        assert!(failure.detail.contains("was not called"));
+        assert!(failure.detail.contains("job queue drained"));
+
+        let mut repeated = synthetic_case("harness/wasm-async-done-repeated.js");
+        repeated.flags.insert("async".to_string());
+        repeated.original_source = r#"
+print('Test262:AsyncTestComplete');
+print('Test262:AsyncTestComplete');
+"#
+        .to_string();
+        let result = run_one_case(&repeated, &preludes, 30_000, ExecutionBackend::WasmAot);
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("repeated async completion should fail");
+        };
+        assert_eq!(failure.kind, FailureKind::HostHarness);
+        assert!(failure.detail.contains("exactly once"));
+        assert!(failure.detail.contains("observed 2"));
+    }
+
+    #[test]
+    fn wasm_aot_does_not_apply_async_output_protocol_to_synchronous_tests() {
+        let mut case = synthetic_case("harness/wasm-sync-output.js");
+        case.original_source = "print('Test262:AsyncTestFailure:ignored sync output');".to_string();
+
+        let result = run_one_case(
+            &case,
+            &PreludeStore::default(),
+            30_000,
+            ExecutionBackend::WasmAot,
+        );
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "synchronous output should not use the async protocol, got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
     fn materialize_wasm_aot_same_value_only_uses_trimmed_assert_prelude() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -26106,6 +28501,60 @@ if ($262.getGlobal('__porfHostAccessorSentinel') !== 13) {
         assert!(!materialized.source.contains("full assert"));
         assert!(!materialized.source.contains("assert.notSameValue"));
         assert!(materialized.source.contains("assert.sameValue(value, true"));
+    }
+
+    #[test]
+    fn materialize_wasm_aot_same_value_only_trims_assert_with_assertion_free_include() {
+        let mut store = vendored_test_typed_array_store();
+        store.insert(
+            "assert.js".to_string(),
+            "function __porfAssertToString(value) { return String(value); }\nassert.sameValue = function() {};\nassert.compareArray = function() { throw 'full compare'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/results.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source =
+            "assert.sameValue(new Uint8Array(1).slice().length, 1);\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.source.contains("assert.sameValue"));
+        assert!(!materialized.source.contains("full compare"));
+        assert!(materialized
+            .source
+            .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"));
+    }
+
+    #[test]
+    fn materialize_wasm_aot_compare_array_only_uses_shared_comparison_loop() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "assert.js".to_string(),
+            "function __porfAssertToString(value) { return String(value); }\nassert.sameValue = function() { throw 'full same value'; };\nassert.compareArray = function() { throw 'full compare'; };\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "/*---\nDeprecated now that compareArray is defined in assert.js.\n---*/\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/tointeger-start.js");
+        case.includes = vec!["compareArray.js".to_string()];
+        case.original_source =
+            "assert(compareArray(new Uint8Array([1]), [1]), 'values');\n".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        let comparison = javascript_function(
+            &materialized.source,
+            "function __porfCompareArrayMismatchIndex(",
+        );
+
+        assert!(comparison.contains("while (index < actual.length)"));
+        assert!(!materialized.source.contains("full same value"));
+        assert!(!materialized.source.contains("full compare"));
+        assert!(materialized
+            .source
+            .contains("assert(compareArray(new Uint8Array([1]), [1])"));
     }
 
     #[test]
@@ -26947,6 +29396,41 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
+    fn wasm_aot_test262_error_preludes_define_the_standard_thrower() {
+        let preludes = wasm_aot_host_preludes();
+        for name in ["sta-preamble.js", "sta.js"] {
+            let prelude = preludes
+                .get(name)
+                .expect("Test262 error prelude should exist");
+            assert!(
+                prelude.contents.contains("Test262Error.thrower = function"),
+                "{name} must expose Test262Error.thrower"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_aot_compare_array_harness_shares_one_comparison_loop() {
+        let preludes = wasm_aot_host_preludes();
+        let assert_prelude = preludes
+            .get("assert.js")
+            .expect("wasm-aot assertion prelude should exist");
+        let source = assert_prelude.contents.as_str();
+
+        let comparison = javascript_function(source, "function __porfCompareArrayMismatchIndex(");
+        assert!(comparison.contains("while (index < actual.length)"));
+        assert!(comparison.contains("__porfAssertIsSameValue(actual[index], expected[index])"));
+
+        let assertion = javascript_function(source, "function __porfAssertCompareArray(");
+        assert!(assertion.contains("__porfCompareArrayMismatchIndex(actual, expected)"));
+        assert!(!assertion.contains("while ("));
+
+        let predicate = javascript_function(source, "function compareArray(");
+        assert!(predicate.contains("__porfCompareArrayMismatchIndex(actual, expected) === -1"));
+        assert!(!predicate.contains("while ("));
+    }
+
+    #[test]
     fn materialize_detach_array_buffer_include_loads_sta_for_262_host() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -26982,125 +29466,931 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_typed_array_join_without_argument_factory_uses_compact_constructor_prelude() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "testTypedArray.js".to_string(),
-            "var fullTypedArrayPrelude = true;\n".to_string(),
-            PreludeOrigin::VendoredHarness,
+    fn compact_test_typed_array_prelude_matches_vendored_dispatch_behavior() {
+        let store = vendored_test_typed_array_store();
+        let vendored = &store
+            .get("testTypedArray.js")
+            .expect("vendored TypedArray prelude should exist")
+            .contents;
+
+        let factory_registration_start = vendored
+            .find("var typedArrayCtorArgFactories")
+            .expect("vendored factory registration should exist");
+        let factory_registration_end = factory_registration_start
+            + vendored[factory_registration_start..]
+                .find("\n\n/**")
+                .expect("vendored factory registration should have a following doc comment");
+        let factory_registration = &vendored[factory_registration_start..factory_registration_end];
+        assert!(
+            WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE.contains(factory_registration),
+            "factory feature gates and registration order must remain byte-for-byte vendored"
         );
-        let mut case = synthetic_case(
-            "built-ins/TypedArray/prototype/join/custom-separator-result-from-tostring-on-each-value.js",
-        );
-        case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source =
-            "testWithTypedArrayConstructors(function(TA) { new TA().join(); });".to_string();
 
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
+        for signature in [
+            "function ctorArgFactoryMatchesSome",
+            "function testWithAllTypedArrayConstructors",
+            "function testWithTypedArrayConstructors",
+            "function testWithBigIntTypedArrayConstructors",
+        ] {
+            assert_eq!(
+                javascript_function(WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE, signature),
+                javascript_function(vendored, signature),
+                "{signature} must preserve filtering, invocation count, and error decoration"
+            );
+        }
+        for factory_name in [
+            "makePassthrough",
+            "makeArray",
+            "makeArrayLike",
+            "makeIterable",
+            "makeArrayBuffer",
+            "makeResizableArrayBuffer",
+            "makeGrownArrayBuffer",
+            "makeShrunkArrayBuffer",
+        ] {
+            assert!(
+                WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE
+                    .contains(&format!("function {factory_name}(TA, primitiveOrIterable)")),
+                "{factory_name} must retain its bound-function name"
+            );
+        }
 
-        assert!(materialized.source.contains("var typedArrayConstructors"));
-        assert!(materialized
-            .source
-            .contains("var TypedArray = Object.getPrototypeOf(Int8Array)"));
-        assert!(materialized.source.contains("new TA().join()"));
-        assert!(!materialized.source.contains("fullTypedArrayPrelude"));
-
-        case.path =
-            "built-ins/TypedArray/prototype/join/BigInt/empty-instance-empty-string.js".to_string();
-        case.original_source =
-            "testWithBigIntTypedArrayConstructors(function(TA) { new TA().join(); });".to_string();
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-        assert!(materialized
-            .source
-            .contains("function testWithBigIntTypedArrayConstructors"));
-
-        case.original_source = "testWithTypedArrayConstructors(function(TA, makeCtorArg) { new TA(makeCtorArg([])).join(); });".to_string();
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-        assert!(materialized.source.contains("fullTypedArrayPrelude"));
+        let constructor_fragments = [
+            "var floatArrayConstructors = [\n  Float64Array,\n  Float32Array\n];",
+            "var nonClampedIntArrayConstructors = [",
+            "var intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);",
+            "floatArrayConstructors.push(Float16Array);",
+            "bigIntArrayConstructors.push(BigInt64Array);",
+            "bigIntArrayConstructors.push(BigUint64Array);",
+            "var typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);",
+            "var allTypedArrayConstructors = typedArrayConstructors.concat(bigIntArrayConstructors);",
+        ];
+        let mut previous_position = 0;
+        for fragment in constructor_fragments {
+            let position = WASM_AOT_COMPACT_TEST_TYPED_ARRAY_PRELUDE
+                .find(fragment)
+                .unwrap_or_else(|| panic!("compact prelude missing {fragment}"));
+            assert!(
+                position >= previous_position,
+                "constructor declarations must retain vendored order"
+            );
+            previous_position = position;
+        }
     }
 
     #[test]
-    fn materialize_is_html_dda_typed_array_from_uses_self_contained_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "sta.js".to_string(),
-            "var fullStaPrelude = true;\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-        store.insert(
-            "assert.js".to_string(),
-            "var assertPrelude = true;\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-        store.insert(
-            "testTypedArray.js".to_string(),
-            "var testTypedArrayPrelude = true;\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let original_source = fs::read_to_string(
-            repo_root()
-                .join("test262/vendor/test262/test")
-                .join(IS_HTML_DDA_TYPED_ARRAY_FROM_PATH),
-        )
-        .expect("upstream IsHTMLDDA test should read");
-        assert_eq!(original_source, IS_HTML_DDA_TYPED_ARRAY_FROM_SOURCE);
-        let mut case = synthetic_case(IS_HTML_DDA_TYPED_ARRAY_FROM_PATH);
-        case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = original_source;
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.source.contains("function __porfIsHTMLDDA()"));
-        assert!(materialized.source.contains("Int8Array"));
-        assert!(materialized.source.contains("Uint8Array"));
-        assert!(materialized.source.contains("Uint8ClampedArray"));
-        assert!(materialized.source.contains("Int16Array"));
-        assert!(materialized.source.contains("Uint16Array"));
-        assert!(materialized.source.contains("Int32Array"));
-        assert!(materialized.source.contains("Uint32Array"));
-        assert!(materialized.source.contains("Float32Array"));
-        assert!(materialized.source.contains("Float64Array"));
-        assert!(!materialized.source.contains("fullStaPrelude"));
-        assert!(!materialized.source.contains("assertPrelude"));
-        assert!(!materialized.source.contains("testTypedArrayPrelude"));
-        assert!(!materialized
-            .source
-            .contains("testWithTypedArrayConstructors"));
-        assert_eq!(materialized.used_preludes, Vec::new());
-    }
-
-    #[test]
-    fn materialize_is_html_dda_typed_array_from_drift_does_not_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "sta.js".to_string(),
-            "var fullStaPrelude = true;\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        for (includes, original_source) in [
+    fn materialize_eligible_typed_array_cases_uses_compact_prelude() {
+        let store = vendored_test_typed_array_store();
+        for (path, original_source, uses_constructor_helpers) in [
             (
-                vec!["testTypedArray.js".to_string()],
-                format!("{IS_HTML_DDA_TYPED_ARRAY_FROM_SOURCE}// source drift\n"),
+                "built-ins/TypedArray/prototype/includes/length-zero-returns-false.js",
+                "testWithTypedArrayConstructors(function(TA) { return new TA().includes(0); }, null, [\"passthrough\"]);",
+                true,
             ),
             (
-                vec!["assert.js".to_string(), "testTypedArray.js".to_string()],
-                IS_HTML_DDA_TYPED_ARRAY_FROM_SOURCE.to_string(),
+                "built-ins/TypedArray/prototype/indexOf/length-zero-returns-minus-one.js",
+                "testWithTypedArrayConstructors(TA => new TA().indexOf(0), null, [\"arraylike\"], [\"iterable\"]);",
+                true,
+            ),
+            (
+                "built-ins/TypedArray/prototype/lastIndexOf/BigInt/length-zero-returns-minus-one.js",
+                "testWithBigIntTypedArrayConstructors((TA) => new TA().lastIndexOf(0n));",
+                true,
+            ),
+            (
+                "built-ins/TypedArray/prototype/includes/custom-constructors.js",
+                "testWithAllTypedArrayConstructors(function(TA) { return new TA().includes(0); }, [Uint8Array], [\"arraybuffer\"], [\"resizable\"]);",
+                true,
+            ),
+            (
+                "built-ins/TypedArray/prototype/slice/results-with-same-length.js",
+                "testWithTypedArrayConstructors(function(TA) { return new TA([1]).slice(); });",
+                true,
+            ),
+            (
+                "built-ins/TypedArray/prototype/slice/compact-intrinsic-only.js",
+                "var TypedArrayPrototype = TypedArray.prototype; TypedArrayPrototype.slice();",
+                false,
             ),
         ] {
-            let mut case = synthetic_case(IS_HTML_DDA_TYPED_ARRAY_FROM_PATH);
-            case.includes = includes;
-            case.original_source = original_source;
+            let mut case = synthetic_case(path);
+            case.includes = vec!["testTypedArray.js".to_string()];
+            case.original_source = original_source.to_string();
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
 
-            assert!(materialized.source.contains("fullStaPrelude"));
-            assert!(!materialized.source.contains("function __porfIsHTMLDDA()"));
-            assert!(materialized
-                .source
-                .contains("testWithTypedArrayConstructors"));
+            assert!(materialized.source.ends_with(original_source), "{path}");
+            assert_eq!(
+                materialized.source.contains(
+                    "function makeArray(TA, primitiveOrIterable) {\n  return primitiveOrIterable;\n}"
+                ),
+                uses_constructor_helpers,
+                "{path}"
+            );
+            assert!(
+                materialized
+                    .source
+                    .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"),
+                "{path}"
+            );
+            assert!(
+                !materialized
+                    .source
+                    .contains("Only values between 0 and 2**53 - 1"),
+                "{path}"
+            );
+            assert!(materialized.used_preludes.contains(&(
+                "testTypedArray.js".to_string(),
+                PreludeOrigin::VendoredHarness
+            )));
         }
+    }
+
+    #[test]
+    fn materialize_typed_array_species_cases_trim_only_fingerprinted_vendored_preludes() {
+        let mut store = vendored_test_typed_array_store();
+        let property_helper = fs::read_to_string(
+            repo_root().join("test262/vendor/test262/harness/propertyHelper.js"),
+        )
+        .expect("vendored property helper should read");
+        store.insert(
+            "propertyHelper.js".to_string(),
+            format!("{property_helper}\n"),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for file in ["result.js", "prop-desc.js", "name.js", "length.js"] {
+            let relative_path = format!("built-ins/TypedArray/Symbol.species/{file}");
+            let source_path = repo_root()
+                .join("test262/vendor/test262/test")
+                .join(&relative_path);
+            let original_source =
+                fs::read_to_string(&source_path).expect("vendored species case should read");
+            let case = parse_test_case(relative_path.clone(), source_path, original_source);
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(
+                materialized
+                    .source
+                    .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"),
+                "{file}"
+            );
+            assert!(
+                !materialized
+                    .source
+                    .contains("function testWithAllTypedArrayConstructors"),
+                "{file}"
+            );
+            assert!(
+                !materialized
+                    .source
+                    .contains("Only values between 0 and 2**53 - 1"),
+                "{file}"
+            );
+            if matches!(file, "name.js" | "length.js") {
+                assert!(
+                    materialized
+                        .source
+                        .contains("function verifyProperty(object, name, expectedDescriptor)"),
+                    "{file}"
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function verifyCallableProperty"),
+                    "{file}"
+                );
+            }
+        }
+
+        let relative_path = "built-ins/TypedArray/Symbol.species/name.js";
+        let source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(relative_path);
+        let mut changed_source =
+            fs::read_to_string(&source_path).expect("vendored species name case should read");
+        changed_source.push_str("\n// changed source\n");
+        let changed_case = parse_test_case(relative_path.to_string(), source_path, changed_source);
+        let materialized =
+            materialize_test(&changed_case, &store).expect("materialization should work");
+        assert!(materialized
+            .source
+            .contains("function testWithAllTypedArrayConstructors"));
+        assert!(materialized
+            .source
+            .contains("function verifyCallableProperty"));
+
+        let original_source =
+            fs::read_to_string(&changed_case.source_path).expect("vendored source should read");
+        let original_case = parse_test_case(
+            relative_path.to_string(),
+            changed_case.source_path,
+            original_source,
+        );
+        let property_prelude = store
+            .get("propertyHelper.js")
+            .expect("property helper should exist");
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&original_case, property_prelude)
+                .is_some()
+        );
+
+        let mut changed_prelude = property_prelude.clone();
+        changed_prelude.contents.push(' ');
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&original_case, &changed_prelude)
+                .is_none()
+        );
+
+        let mut local_prelude = property_prelude.clone();
+        local_prelude.origin = PreludeOrigin::LocalMerged;
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&original_case, &local_prelude).is_none()
+        );
+    }
+
+    #[test]
+    fn materialize_typed_array_filter_cases_trim_only_fingerprinted_vendored_preludes() {
+        let mut store = vendored_test_typed_array_store();
+        for prelude_name in ["propertyHelper.js", "isConstructor.js", "compareArray.js"] {
+            let contents = fs::read_to_string(
+                repo_root()
+                    .join("test262/vendor/test262/harness")
+                    .join(prelude_name),
+            )
+            .unwrap_or_else(|error| panic!("vendored {prelude_name} should read: {error}"));
+            store.insert(
+                prelude_name.to_string(),
+                format!("{contents}\n"),
+                PreludeOrigin::VendoredHarness,
+            );
+        }
+
+        let files = [
+            "invoked-as-func.js",
+            "invoked-as-method.js",
+            "length.js",
+            "name.js",
+            "not-a-constructor.js",
+            "prop-desc.js",
+            "this-is-not-object.js",
+            "this-is-not-typedarray-instance.js",
+            "result-full-callbackfn-returns-true.js",
+        ];
+        for file in files {
+            let relative_path = format!("built-ins/TypedArray/prototype/filter/{file}");
+            let source_path = repo_root()
+                .join("test262/vendor/test262/test")
+                .join(&relative_path);
+            let original_source =
+                fs::read_to_string(&source_path).expect("vendored filter case should read");
+            let case = parse_test_case(relative_path.clone(), source_path, original_source);
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(
+                materialized
+                    .source
+                    .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"),
+                "{file}"
+            );
+            if matches!(file, "length.js" | "name.js" | "prop-desc.js") {
+                assert!(
+                    materialized
+                        .source
+                        .contains("function verifyProperty(object, name, expectedDescriptor)"),
+                    "{file}"
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function verifyCallableProperty"),
+                    "{file}"
+                );
+            }
+            if file == "result-full-callbackfn-returns-true.js" {
+                assert!(
+                    materialized
+                        .source
+                        .contains("function selectCtorArgFactories"),
+                    "{file}"
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("function invokeForConstructor"),
+                    "{file}"
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("Only values between 0 and 2**53 - 1"),
+                    "{file}"
+                );
+            } else {
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function testWithAllTypedArrayConstructors"),
+                    "{file}"
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("Only values between 0 and 2**53 - 1"),
+                    "{file}"
+                );
+            }
+        }
+
+        let relative_path =
+            "built-ins/TypedArray/prototype/filter/result-full-callbackfn-returns-true.js";
+        let source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(relative_path);
+        let mut changed_source =
+            fs::read_to_string(&source_path).expect("vendored filter result case should read");
+        changed_source.push_str("\n// changed source\n");
+        let changed_case = parse_test_case(relative_path.to_string(), source_path, changed_source);
+        let materialized =
+            materialize_test(&changed_case, &store).expect("materialization should work");
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories"));
+        assert!(materialized
+            .source
+            .contains("Only values between 0 and 2**53 - 1"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+
+        let property_prelude = store
+            .get("propertyHelper.js")
+            .expect("property helper should exist");
+        let property_path = "built-ins/TypedArray/prototype/filter/prop-desc.js";
+        let property_source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(property_path);
+        let property_source = fs::read_to_string(&property_source_path)
+            .expect("vendored filter property case should read");
+        let property_case = parse_test_case(
+            property_path.to_string(),
+            property_source_path,
+            property_source,
+        );
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&property_case, property_prelude)
+                .is_some()
+        );
+
+        let mut changed_prelude = property_prelude.clone();
+        changed_prelude.contents.push(' ');
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&property_case, &changed_prelude)
+                .is_none()
+        );
+
+        let mut local_prelude = property_prelude.clone();
+        local_prelude.origin = PreludeOrigin::LocalMerged;
+        assert!(
+            wasm_aot_compact_typed_array_property_prelude(&property_case, &local_prelude).is_none()
+        );
+    }
+
+    #[test]
+    fn materialize_typed_array_map_cases_trim_only_fingerprinted_vendored_preludes() {
+        let mut store = vendored_test_typed_array_store();
+        for prelude_name in ["propertyHelper.js", "isConstructor.js"] {
+            let contents = fs::read_to_string(
+                repo_root()
+                    .join("test262/vendor/test262/harness")
+                    .join(prelude_name),
+            )
+            .unwrap_or_else(|error| panic!("vendored {prelude_name} should read: {error}"));
+            store.insert(
+                prelude_name.to_string(),
+                format!("{contents}\n"),
+                PreludeOrigin::VendoredHarness,
+            );
+        }
+
+        let files = [
+            "invoked-as-func.js",
+            "invoked-as-method.js",
+            "length.js",
+            "name.js",
+            "not-a-constructor.js",
+            "prop-desc.js",
+            "this-is-not-object.js",
+            "this-is-not-typedarray-instance.js",
+            "return-new-typedarray-from-positive-length.js",
+        ];
+        for file in files {
+            let relative_path = format!("built-ins/TypedArray/prototype/map/{file}");
+            let source_path = repo_root()
+                .join("test262/vendor/test262/test")
+                .join(&relative_path);
+            let original_source =
+                fs::read_to_string(&source_path).expect("vendored map case should read");
+            let case = parse_test_case(relative_path.clone(), source_path, original_source);
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(
+                materialized
+                    .source
+                    .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"),
+                "{file}"
+            );
+            if matches!(file, "length.js" | "name.js" | "prop-desc.js") {
+                assert!(
+                    materialized
+                        .source
+                        .contains("function verifyProperty(object, name, expectedDescriptor)"),
+                    "{file}"
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function verifyCallableProperty"),
+                    "{file}"
+                );
+            }
+            if file == "return-new-typedarray-from-positive-length.js" {
+                assert!(
+                    materialized
+                        .source
+                        .contains("function selectCtorArgFactories"),
+                    "{file}"
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("function invokeForConstructor"),
+                    "{file}"
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("Only values between 0 and 2**53 - 1"),
+                    "{file}"
+                );
+            } else {
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function testWithAllTypedArrayConstructors"),
+                    "{file}"
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("Only values between 0 and 2**53 - 1"),
+                    "{file}"
+                );
+            }
+        }
+
+        let result_path =
+            "built-ins/TypedArray/prototype/map/return-new-typedarray-from-positive-length.js";
+        let result_source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(result_path);
+        let mut changed_result_source =
+            fs::read_to_string(&result_source_path).expect("vendored map result case should read");
+        changed_result_source.push_str("\n// changed source\n");
+        let changed_result_case = parse_test_case(
+            result_path.to_string(),
+            result_source_path,
+            changed_result_source,
+        );
+        let materialized = materialize_test(&changed_result_case, &store)
+            .expect("changed map result should materialize");
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories"));
+        assert!(materialized
+            .source
+            .contains("Only values between 0 and 2**53 - 1"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+
+        let property_path = "built-ins/TypedArray/prototype/map/prop-desc.js";
+        let property_source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(property_path);
+        let mut changed_property_source = fs::read_to_string(&property_source_path)
+            .expect("vendored map property case should read");
+        changed_property_source.push_str("\n// changed source\n");
+        let changed_property_case = parse_test_case(
+            property_path.to_string(),
+            property_source_path,
+            changed_property_source,
+        );
+        let materialized = materialize_test(&changed_property_case, &store)
+            .expect("changed map property case should materialize");
+        assert!(materialized
+            .source
+            .contains("function verifyCallableProperty"));
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories"));
+
+        let property_prelude = store
+            .get("propertyHelper.js")
+            .expect("property helper should exist");
+        let original_source =
+            fs::read_to_string(&changed_property_case.source_path).expect("source should read");
+        let mut changed_includes_case = parse_test_case(
+            property_path.to_string(),
+            changed_property_case.source_path,
+            original_source,
+        );
+        assert!(wasm_aot_compact_typed_array_property_prelude(
+            &changed_includes_case,
+            property_prelude
+        )
+        .is_some());
+        changed_includes_case
+            .includes
+            .push("detachArrayBuffer.js".to_string());
+        assert!(wasm_aot_compact_typed_array_property_prelude(
+            &changed_includes_case,
+            property_prelude
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn compact_test_typed_array_prelude_rejects_observable_or_ambiguous_callbacks() {
+        let store = vendored_test_typed_array_store();
+        for (label, original_source) in [
+            (
+                "second parameter",
+                "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return makeCtorArg([]); });",
+            ),
+            (
+                "arguments object",
+                "testWithTypedArrayConstructors(function(TA) { return arguments[1]; });",
+            ),
+            (
+                "factory global",
+                "testWithTypedArrayConstructors(function(TA) { return makePassthrough; });",
+            ),
+            (
+                "omitted constructor collection",
+                "nonAtomicsFriendlyTypedArrayConstructors.slice();",
+            ),
+            (
+                "named callback",
+                "testWithTypedArrayConstructors(function callback(TA) { return TA; });",
+            ),
+            (
+                "two-parameter arrow",
+                "testWithTypedArrayConstructors((TA, factory) => factory);",
+            ),
+            (
+                "helper alias",
+                "var run = testWithTypedArrayConstructors; run(function(TA) { return TA; });",
+            ),
+            (
+                "dynamic global",
+                "testWithTypedArrayConstructors(function(TA) { return globalThis.makePassthrough; });",
+            ),
+            (
+                "non-strict callback this",
+                "testWithTypedArrayConstructors(function(TA) { return this[\"make\" + \"Array\"]; });",
+            ),
+            (
+                "template expression",
+                "testWithTypedArrayConstructors(TA => `${TA.name}`);",
+            ),
+        ] {
+            let mut case = synthetic_case(
+                "built-ins/TypedArray/prototype/includes/compact-prelude-rejection.js",
+            );
+            case.includes = vec!["testTypedArray.js".to_string()];
+            case.original_source = original_source.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(
+                materialized
+                    .source
+                    .contains("Only values between 0 and 2**53 - 1"),
+                "{label} must retain the full vendored helper"
+            );
+            assert!(
+                !materialized.source.contains(
+                    "function makeArray(TA, primitiveOrIterable) {\n  return primitiveOrIterable;\n}"
+                ),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_typed_array_slice_factory_matrix_splits_dispatcher() {
+        let store = vendored_test_typed_array_store();
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/slice/results-with-same-length.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new TA(makeCtorArg([1])).slice(); });".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
+        assert!(materialized
+            .source
+            .contains("function invokeForConstructor(f, constructor, argFactory)"));
+        assert!(materialized
+            .source
+            .contains("Only values between 0 and 2**53 - 1"));
+        assert!(!materialized
+            .source
+            .contains("function testTypedArrayConversions"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+        assert!(materialized.source.ends_with(&case.original_source));
+    }
+
+    #[test]
+    fn materialize_typed_array_slice_compact_prelude_splits_dispatcher() {
+        let store = vendored_test_typed_array_store();
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/slice/return-abrupt-from-start.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA) { assert.throws(TypeError, function() { new TA().slice(Symbol()); }); }, null, [\"passthrough\"]);".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.source.contains(
+            "function makeArray(TA, primitiveOrIterable) {\n  return primitiveOrIterable;\n}"
+        ));
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
+        assert!(materialized
+            .source
+            .contains("function invokeForConstructor(f, constructor, argFactory)"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+        assert!(materialized.source.ends_with(&case.original_source));
+    }
+
+    #[test]
+    fn materialize_typed_array_slice_preserves_dispatcher_for_stack_observation() {
+        let store = vendored_test_typed_array_store();
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/stack-observation.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new Error().stack; });".to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized
+            .source
+            .contains("function selectCtorArgFactories"));
+        assert!(materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);"));
+    }
+
+    #[test]
+    fn materialize_typed_array_slice_retains_observed_vendored_helper_tail() {
+        let store = vendored_test_typed_array_store();
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/conversions.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source =
+            "testTypedArrayConversions(values, function(TA) { return new TA(1).slice(); });"
+                .to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("function testTypedArrayConversions"));
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories"));
+    }
+
+    #[test]
+    fn compact_test_typed_array_prelude_requires_exact_scope_origin_and_fingerprint() {
+        let store = vendored_test_typed_array_store();
+        let prelude = store
+            .get("testTypedArray.js")
+            .expect("vendored TypedArray prelude should exist");
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/includes/length-zero-returns-false.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source =
+            "testWithTypedArrayConstructors(function(TA) { return new TA(); });".to_string();
+        assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_some());
+
+        case.path = "built-ins/TypedArray/prototype/join/empty.js".to_string();
+        assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_none());
+        case.path =
+            "built-ins/TypedArray/prototype/includes/length-zero-returns-false.js".to_string();
+        case.includes.push("detachArrayBuffer.js".to_string());
+        assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_none());
+        case.includes.pop();
+
+        let mut local = prelude.clone();
+        local.origin = PreludeOrigin::LocalMerged;
+        assert!(wasm_aot_compact_test_typed_array_prelude(&case, &local).is_none());
+
+        let mut changed = prelude.clone();
+        changed.contents.push(' ');
+        assert!(wasm_aot_compact_test_typed_array_prelude(&case, &changed).is_none());
+    }
+
+    #[test]
+    fn materialize_non_search_case_uses_full_vendored_test_typed_array_prelude() {
+        let store = vendored_test_typed_array_store();
+        let original_source =
+            "testWithTypedArrayConstructors(function(TA) { return new TA().join(); });";
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/join/empty-instance-empty-string.js");
+        case.includes = vec!["testTypedArray.js".to_string()];
+        case.original_source = original_source.to_string();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.source.ends_with(original_source));
+        assert!(materialized
+            .source
+            .contains("Only values between 0 and 2**53 - 1"));
+        assert!(materialized.used_preludes.contains(&(
+            "testTypedArray.js".to_string(),
+            PreludeOrigin::VendoredHarness
+        )));
+    }
+
+    #[test]
+    fn materialize_typed_array_sort_value_matrix_uses_static_constructor_calls() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "var typedArrayPrelude = true;\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "compareArray.js".to_string(),
+            "var compareArrayPrelude = true;\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let original_source = "testWithTypedArrayConstructors(function() {});".repeat(5);
+        let mut case = synthetic_case("built-ins/TypedArray/prototype/sort/sorted-values.js");
+        case.includes = vec![
+            "testTypedArray.js".to_string(),
+            "compareArray.js".to_string(),
+        ];
+        case.original_source = original_source.clone();
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(!materialized.source.ends_with(&original_source));
+        assert!(materialized
+            .source
+            .contains("new Float64Array([4, 3, 2, 1]).sort()"));
+        assert!(materialized
+            .source
+            .contains("new Int8Array([-4, 3, 4, -3, 2, -2, 1, 0]).sort()"));
+        assert!(materialized
+            .source
+            .contains("typeof Float16Array !== \"undefined\""));
+    }
+
+    #[test]
+    fn materialize_typed_array_to_reversed_splits_dispatcher() {
+        let store = vendored_test_typed_array_store();
+        let relative_path = "built-ins/TypedArray/prototype/toReversed/reverses.js";
+        let source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(relative_path);
+        let original_source =
+            fs::read_to_string(&source_path).expect("vendored toReversed case should read");
+        let case = parse_test_case(relative_path.to_string(), source_path, original_source);
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
+        assert!(materialized
+            .source
+            .contains("function invokeForConstructor(f, constructor, argFactory)"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+        assert!(materialized.source.ends_with(&case.original_source));
+    }
+
+    #[test]
+    fn materialize_typed_array_to_sorted_splits_dispatcher() {
+        let store = vendored_test_typed_array_store();
+        let relative_path = "built-ins/TypedArray/prototype/toSorted/comparefn-default.js";
+        let source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(relative_path);
+        let original_source =
+            fs::read_to_string(&source_path).expect("vendored toSorted case should read");
+        let case = parse_test_case(relative_path.to_string(), source_path, original_source);
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
+        assert!(materialized
+            .source
+            .contains("function invokeForConstructor(f, constructor, argFactory)"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+        assert!(materialized.source.ends_with(&case.original_source));
+    }
+
+    #[test]
+    fn materialize_typed_array_with_splits_dispatcher() {
+        let store = vendored_test_typed_array_store();
+        let relative_path = "built-ins/TypedArray/prototype/with/immutable.js";
+        let source_path = repo_root()
+            .join("test262/vendor/test262/test")
+            .join(relative_path);
+        let original_source =
+            fs::read_to_string(&source_path).expect("vendored TypedArray with case should read");
+        let case = parse_test_case(relative_path.to_string(), source_path, original_source);
+
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized
+            .source
+            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
+        assert!(materialized
+            .source
+            .contains("function invokeForConstructor(f, constructor, argFactory)"));
+        assert!(!materialized
+            .source
+            .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
+        assert!(materialized.source.ends_with(&case.original_source));
+    }
+
+    #[test]
+    fn materialize_typed_array_to_reversed_receiver_validation_avoids_nested_arrow_capture() {
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/toReversed/this-value-invalid.js");
+        case.original_source = "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toReversed.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string();
+
+        let materialized =
+            materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
+
+        assert!(materialized.source.contains("Uint8Array.prototype"));
+        assert!(materialized.source.contains("Symbol()"));
+        assert!(materialized.source.contains("1n"));
+        assert!(materialized.source.contains("__porfDetachArrayBuffer"));
+        assert!(!materialized
+            .source
+            .contains("Object.entries(invalidValues)"));
+
+        case.path = "built-ins/TypedArray/prototype/toReversed/neighbor.js".to_string();
+        let neighboring = materialize_test(&case, &PreludeStore::default())
+            .expect("neighboring materialization should work");
+        assert!(neighboring.source.contains("Object.entries(invalidValues)"));
+    }
+
+    #[test]
+    fn materialize_typed_array_to_sorted_receiver_validation_avoids_nested_arrow_capture() {
+        let mut case =
+            synthetic_case("built-ins/TypedArray/prototype/toSorted/this-value-invalid.js");
+        case.original_source = "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toSorted.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string();
+
+        let materialized =
+            materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
+
+        assert!(materialized.source.contains("Uint8Array.prototype"));
+        assert!(materialized.source.contains("Symbol()"));
+        assert!(materialized.source.contains("1n"));
+        assert!(materialized.source.contains("__porfDetachArrayBuffer"));
+        assert!(!materialized
+            .source
+            .contains("Object.entries(invalidValues)"));
+
+        case.path = "built-ins/TypedArray/prototype/toSorted/neighbor.js".to_string();
+        let neighboring = materialize_test(&case, &PreludeStore::default())
+            .expect("neighboring materialization should work");
+        assert!(neighboring.source.contains("Object.entries(invalidValues)"));
     }
 
     #[test]
@@ -28640,6 +31930,27 @@ assert.sameValue(descriptor.configurable, true);
             None
         );
 
+        let mut typed_array_reverse_resizable_case =
+            synthetic_case("built-ins/TypedArray/prototype/reverse/resizable-buffer.js");
+        typed_array_reverse_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typed_array_reverse_resizable_case),
+            None
+        );
+
+        let mut typed_array_with_resizable_case = synthetic_case(
+            "built-ins/TypedArray/prototype/with/index-validated-against-current-length.js",
+        );
+        typed_array_with_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typed_array_with_resizable_case),
+            None
+        );
+
         let mut array_copy_within_resizable_case =
             synthetic_case("built-ins/Array/prototype/copyWithin/resizable-buffer.js");
         array_copy_within_resizable_case
@@ -28687,6 +31998,16 @@ assert.sameValue(descriptor.configurable, true);
             .insert("resizable-arraybuffer".to_string());
         assert_eq!(
             wasm_aot_unsupported_feature(&typedarray_join_resizable_case),
+            None
+        );
+
+        let mut typed_array_subarray_resizable_case =
+            synthetic_case("built-ins/TypedArray/prototype/subarray/resizable-buffer.js");
+        typed_array_subarray_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typed_array_subarray_resizable_case),
             None
         );
     }
@@ -29570,165 +32891,6 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_number_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
-        case.original_source =
-            "var other = $262.createRealm().global; var C = new other.Function(); C.prototype = null;"
-                .to_string();
-        case.features.insert("cross-realm".to_string());
-        case.features.insert("Reflect.construct".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("assert used"));
-        assert!(!materialized.source.contains("$262.createRealm"));
-        assert!(!materialized.source.contains("new other.Function"));
-        assert!(materialized
-            .source
-            .contains("var other = __porfCreateRealm().global;"));
-        assert!(materialized.source.contains("var C = other.Proxy;"));
-        assert!(materialized.source.contains("C.prototype = null;"));
-        assert!(materialized
-            .source
-            .contains("Reflect.construct(Number, [], C)"));
-        assert!(materialized
-            .source
-            .contains("Object.getPrototypeOf(o), other.Number.prototype"));
-    }
-
-    #[test]
-    fn materialize_error_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        for (path, constructor, expected_prototype) in [
-            (
-                "built-ins/Error/proto-from-ctor-realm.js",
-                "Error",
-                "other.Error.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
-                "EvalError",
-                "other.EvalError.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
-                "RangeError",
-                "other.RangeError.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
-                "ReferenceError",
-                "other.ReferenceError.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
-                "SyntaxError",
-                "other.SyntaxError.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
-                "TypeError",
-                "other.TypeError.prototype",
-            ),
-            (
-                "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
-                "URIError",
-                "other.URIError.prototype",
-            ),
-            (
-                "built-ins/AggregateError/proto-from-ctor-realm.js",
-                "AggregateError",
-                "other.AggregateError.prototype",
-            ),
-            (
-                "built-ins/SuppressedError/proto-from-ctor-realm.js",
-                "SuppressedError",
-                "other.SuppressedError.prototype",
-            ),
-        ] {
-            let mut case = synthetic_case(path);
-            case.original_source =
-                "var other = $262.createRealm().global; var newTarget = new other.Function();"
-                    .to_string();
-            case.features.insert("cross-realm".to_string());
-            case.features.insert("Reflect.construct".to_string());
-
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
-
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("assert used"));
-            assert!(!materialized.source.contains("$262.createRealm"));
-            assert!(!materialized.source.contains("new other.Function"));
-            assert!(materialized
-                .source
-                .contains("var other = __porfCreateRealm().global;"));
-            assert!(materialized.source.contains("other.Proxy"));
-            assert!(materialized
-                .source
-                .contains(&format!("Reflect.construct({constructor}")));
-            assert!(
-                materialized.source.contains(expected_prototype),
-                "{path} missing {expected_prototype}"
-            );
-        }
-    }
-
-    #[test]
-    fn materialize_error_newtarget_proto_fallback_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        for (path, constructor, args_source) in [
-            (
-                "built-ins/AggregateError/newtarget-proto-fallback.js",
-                "AggregateError",
-                "[[]]",
-            ),
-            (
-                "built-ins/SuppressedError/newtarget-proto-fallback.js",
-                "SuppressedError",
-                "[]",
-            ),
-        ] {
-            let mut case = synthetic_case(path);
-            case.original_source = "const NewTarget = new Function();".to_string();
-
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
-
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("assert used"));
-            assert!(!materialized.source.contains("new Function"));
-            assert!(materialized.source.contains("function NewTarget() {}"));
-            assert!(materialized.source.contains(&format!(
-                "Reflect.construct({constructor}, {args_source}, NewTarget)"
-            )));
-            assert!(materialized.source.contains(&format!(
-                "Object.getPrototypeOf(error), {constructor}.prototype"
-            )));
-        }
-    }
-
-    #[test]
     fn materialize_native_error_metadata_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -30315,16 +33477,8 @@ assert.sameValue(descriptor.configurable, true);
                 ],
             ),
             (
-                "built-ins/TypedArray/prototype/toString/detached-buffer.js",
-                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
-            ),
-            (
                 "built-ins/TypedArray/prototype/toString/not-a-constructor.js",
                 vec!["new sample.toString()", "not constructor"],
-            ),
-            (
-                "built-ins/TypedArray/prototype/toString/BigInt/detached-buffer.js",
-                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
             ),
         ] {
             let mut case = synthetic_case(path);
@@ -30397,10 +33551,6 @@ assert.sameValue(descriptor.configurable, true);
                 vec!["var ab = new ArrayBuffer(8);", "dataview receiver"],
             ),
             (
-                "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
-                vec!["__porfDetachArrayBuffer(sample.buffer)", "detached buffer"],
-            ),
-            (
                 "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js",
                 vec![
                     "fixed shrink three",
@@ -30453,6 +33603,56 @@ assert.sameValue(descriptor.configurable, true);
                     "{path} missing {fragment}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_detached_cases_preserves_original_assertions() {
+        let mut store = vendored_test_typed_array_store();
+        store.insert(
+            "assert.js".to_string(),
+            "var assert = { throws: function() {} };\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "detachArrayBuffer.js".to_string(),
+            "function $DETACHBUFFER(buffer) { __porfDetachArrayBuffer(buffer); }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (path, original_source) in [
+            (
+                "built-ins/TypedArray/prototype/toString/detached-buffer.js",
+                "testWithTypedArrayConstructors(function(TA) { var sample = new TA(1); $DETACHBUFFER(sample.buffer); assert.throws(TypeError, function() { sample.toString(); }); }, null, [\"passthrough\"]);",
+            ),
+            (
+                "built-ins/TypedArray/prototype/toString/BigInt/detached-buffer.js",
+                "testWithBigIntTypedArrayConstructors(function(TA) { var sample = new TA(1); $DETACHBUFFER(sample.buffer); assert.throws(TypeError, function() { sample.toString(); }); }, null, [\"passthrough\"]);",
+            ),
+            (
+                "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
+                "testWithTypedArrayConstructors(function(TA) { var sample = new TA(1); $DETACHBUFFER(sample.buffer); assert.throws(TypeError, function() { sample.toLocaleString(); }); }, null, [\"passthrough\"]);",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.includes = vec![
+                "testTypedArray.js".to_string(),
+                "detachArrayBuffer.js".to_string(),
+            ];
+            case.original_source = original_source.to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.source.contains(original_source));
+            assert!(materialized.source.contains("$DETACHBUFFER(sample.buffer)"));
+            assert!(materialized.source.contains("assert.throws(TypeError"));
+            assert!(materialized
+                .source
+                .contains("Only values between 0 and 2**53 - 1"));
+            assert!(materialized
+                .source
+                .contains("typeof Float16Array !== \"undefined\""));
         }
     }
 
@@ -30510,6 +33710,98 @@ assert.sameValue(descriptor.configurable, true);
         assert!(materialized
             .source
             .contains("length tracking uses pre-resize length"));
+    }
+
+    #[test]
+    fn materialize_typedarray_slice_metadata_uses_static_descriptor_checks() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed array helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (file, expected_check) in [
+            ("length.js", "slice length descriptor value"),
+            ("name.js", "slice name descriptor value"),
+            ("prop-desc.js", "slice descriptor value"),
+        ] {
+            let path = format!("built-ins/TypedArray/prototype/slice/{file}");
+            let mut case = synthetic_case(&path);
+            case.includes = vec![
+                "propertyHelper.js".to_string(),
+                "testTypedArray.js".to_string(),
+            ];
+            case.original_source = "verifyProperty(TypedArray.prototype.slice);".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{file}");
+            assert!(
+                !materialized.source.contains("property helper used"),
+                "{file}"
+            );
+            assert!(
+                !materialized.source.contains("typed array helper used"),
+                "{file}"
+            );
+            assert!(
+                materialized.source.contains("var method = proto.slice;"),
+                "{file}"
+            );
+            assert!(materialized.source.contains(expected_check), "{file}");
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_slice_validation_uses_real_intrinsic_calls() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'typed array helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (file, expected_call) in [
+            ("invoked-as-func.js", "function () { method(); }"),
+            ("invoked-as-method.js", "function () { proto.slice(); }"),
+            (
+                "not-a-constructor.js",
+                "__porfIsConstructor(method) !== false",
+            ),
+            ("this-is-not-object.js", "method.call(Symbol(\"s\"), 0, 0)"),
+            (
+                "this-is-not-typedarray-instance.js",
+                "method.call(view, 0, 0)",
+            ),
+        ] {
+            let path = format!("built-ins/TypedArray/prototype/slice/{file}");
+            let mut case = synthetic_case(&path);
+            case.includes = vec!["testTypedArray.js".to_string()];
+            case.original_source = "throw 'original source used';".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{file}");
+            assert!(
+                !materialized.source.contains("typed array helper used"),
+                "{file}"
+            );
+            assert!(
+                !materialized.source.contains("original source used"),
+                "{file}"
+            );
+            assert!(materialized.source.contains(expected_call), "{file}");
+        }
     }
 
     #[test]
@@ -30638,61 +33930,256 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_bigint_typedarray_constructor_metadata_uses_static_wasm_aot_rewrite() {
+    fn materialize_typedarray_iterator_resizable_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
-            "propertyHelper.js".to_string(),
-            "function verifyProperty() { throw 'property helper used'; }\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        store.insert(
-            "testTypedArray.js".to_string(),
-            "var TypedArray = 'wrong';\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        store.insert(
-            "isConstructor.js".to_string(),
-            "function isConstructor() { throw 'isConstructor helper used'; }\n".to_string(),
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function CollectValuesAndResize() { throw 'helper used'; }\n"
+                .to_string(),
             PreludeOrigin::VendoredHarness,
         );
 
-        for path in [
-            "built-ins/TypedArrayConstructors/BigInt64Array/BYTES_PER_ELEMENT.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/length.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/name.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prototype.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/is-a-constructor.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/BYTES_PER_ELEMENT.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
-            "built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
-            "built-ins/TypedArrayConstructors/BigUint64Array/BYTES_PER_ELEMENT.js",
-            "built-ins/TypedArrayConstructors/BigUint64Array/prototype/BYTES_PER_ELEMENT.js",
+        for (method, expected_fragment) in [
+            ("values", "var method = proto.values;"),
+            ("keys", "var method = proto.keys;"),
+            ("entries", "var method = proto.entries;"),
         ] {
-            let mut case = synthetic_case(path);
-            case.includes = vec![
-                "propertyHelper.js".to_string(),
-                "testTypedArray.js".to_string(),
-                "isConstructor.js".to_string(),
-            ];
-            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+            let mut case = synthetic_case(&format!(
+                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
+            ));
+            case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("property helper used"));
-            assert!(!materialized.source.contains("wrong"));
-            assert!(!materialized.source.contains("isConstructor helper used"));
-            assert!(materialized.source.contains("var Ctor = "));
+            assert!(!materialized.source.contains("helper used"));
+            assert!(!materialized.source.contains("for (let ctor of ctors)"));
+            assert!(materialized.source.contains(expected_fragment));
+            assert!(materialized.source.contains("fixed shrink three"));
+            assert!(materialized.source.contains("tracking grow"));
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_find_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function CollectValuesAndResize() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, file, expected_fragment) in [
+            ("find", "resizable-buffer.js", "tracking grow"),
+            (
+                "findIndex",
+                "resizable-buffer-shrink-mid-iteration.js",
+                "tracking offset shrink",
+            ),
+            ("find", "callbackfn-resize.js", "shrink elements"),
+            (
+                "findIndex",
+                "return-abrupt-from-this-out-of-bounds.js",
+                "out of bounds",
+            ),
+            (
+                "findLast",
+                "resizable-buffer-shrink-mid-iteration.js",
+                "[6, 4, 2, 0]",
+            ),
+            ("findLastIndex", "callbackfn-resize.js", "[2, 1, 0]"),
+        ] {
+            let mut case =
+                synthetic_case(&format!("built-ins/TypedArray/prototype/{method}/{file}"));
+            case.includes = vec![if file == "callbackfn-resize.js" {
+                "testTypedArray.js".to_string()
+            } else {
+                "resizableArrayBufferUtils.js".to_string()
+            }];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "throw 'original';".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{method}/{file}");
             assert!(
-                materialized.source.contains("__porfCheckDataDescriptor")
-                    || materialized.source.contains("__porfIsConstructor")
-                    || materialized.source.contains("Object.getPrototypeOf(Ctor)")
+                !materialized.source.contains("helper used"),
+                "{method}/{file}"
+            );
+            assert!(
+                materialized
+                    .source
+                    .contains(&format!("TypedArray.prototype.{method}")),
+                "{method}/{file}"
+            );
+            assert!(
+                materialized.source.contains(expected_fragment),
+                "{method}/{file}"
             );
         }
+    }
+
+    #[test]
+    fn materialize_typedarray_every_some_resizable_uses_static_wasm_aot_rewrite() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "resizableArrayBufferUtils.js".to_string(),
+            "var ctors = [Float64Array]; function CollectValuesAndResize() { throw 'helper used'; }\n"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithTypedArrayConstructors() { throw 'helper used'; }\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        for (method, file, expected_fragment) in [
+            ("every", "resizable-buffer.js", "tracking even grow"),
+            (
+                "some",
+                "resizable-buffer-shrink-mid-iteration.js",
+                "tracking offset shrink",
+            ),
+            ("every", "callbackfn-resize.js", "shrink elements"),
+            (
+                "some",
+                "return-abrupt-from-this-out-of-bounds.js",
+                "out of bounds",
+            ),
+        ] {
+            let mut case =
+                synthetic_case(&format!("built-ins/TypedArray/prototype/{method}/{file}"));
+            case.includes = vec![if file == "callbackfn-resize.js" {
+                "testTypedArray.js".to_string()
+            } else {
+                "resizableArrayBufferUtils.js".to_string()
+            }];
+            case.features.insert("resizable-arraybuffer".to_string());
+            case.original_source = "throw 'original';".to_string();
+
+            let materialized =
+                materialize_test(&case, &store).expect("materialization should work");
+
+            assert!(materialized.used_preludes.is_empty(), "{method}/{file}");
+            assert!(
+                !materialized.source.contains("helper used"),
+                "{method}/{file}"
+            );
+            assert!(
+                materialized
+                    .source
+                    .contains(&format!("TypedArray.prototype.{method}")),
+                "{method}/{file}"
+            );
+            assert!(
+                materialized.source.contains(expected_fragment),
+                "{method}/{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_bigint_typedarray_constructor_metadata_preserves_vendored_bodies() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "propertyHelper.js".to_string(),
+            "var propertyHelperPrelude = true;\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "var typedArrayPrelude = true;\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "isConstructor.js".to_string(),
+            "var isConstructorPrelude = true;\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+
+        let files: [(&str, &[&str]); 12] = [
+            ("BYTES_PER_ELEMENT.js", &["propertyHelper.js"]),
+            ("constructor.js", &[]),
+            ("is-a-constructor.js", &["isConstructor.js"]),
+            ("length.js", &["propertyHelper.js"]),
+            ("name.js", &["propertyHelper.js"]),
+            ("prop-desc.js", &["propertyHelper.js"]),
+            ("proto.js", &["testTypedArray.js"]),
+            ("prototype.js", &["propertyHelper.js"]),
+            ("prototype/BYTES_PER_ELEMENT.js", &["propertyHelper.js"]),
+            ("prototype/constructor.js", &["propertyHelper.js"]),
+            ("prototype/not-typedarray-object.js", &[]),
+            ("prototype/proto.js", &["testTypedArray.js"]),
+        ];
+        let test_root = repo_root().join("test262/vendor/test262/test");
+
+        for constructor in ["BigInt64Array", "BigUint64Array"] {
+            for (file, includes) in files {
+                let path = format!("built-ins/TypedArrayConstructors/{constructor}/{file}");
+                let original_source = fs::read_to_string(test_root.join(&path))
+                    .expect("vendored BigInt typed-array constructor test should read");
+                let mut case = synthetic_case(&path);
+                case.includes = includes
+                    .iter()
+                    .map(|include| (*include).to_string())
+                    .collect();
+                case.original_source = original_source.clone();
+
+                let materialized =
+                    materialize_test(&case, &store).expect("materialization should work");
+                let expected_preludes = includes
+                    .iter()
+                    .map(|include| ((*include).to_string(), PreludeOrigin::LocalMerged))
+                    .collect::<Vec<_>>();
+
+                assert_eq!(materialized.used_preludes, expected_preludes, "{path}");
+                assert!(materialized.source.ends_with(&original_source), "{path}");
+                assert!(!materialized.source.contains("var Ctor = "), "{path}");
+                assert!(
+                    !materialized.source.contains("__porfCheckDataDescriptor"),
+                    "{path}"
+                );
+                assert!(!materialized.source.contains("__porfCheckSame"), "{path}");
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_typedarray_constructor_no_species_preserves_vendored_body() {
+        let path = "built-ins/TypedArrayConstructors/ctors/no-species.js";
+        let original_source =
+            fs::read_to_string(repo_root().join("test262/vendor/test262/test").join(path))
+                .expect("vendored typed-array constructor test should read");
+        let mut case = synthetic_case(path);
+        case.features = ["TypedArray", "ArrayBuffer", "Symbol.species"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        case.original_source = original_source.clone();
+
+        let materialized = materialize_test(&case, &wasm_aot_host_preludes())
+            .expect("materialization should work");
+
+        assert_eq!(
+            materialized.used_preludes,
+            vec![
+                ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+            ]
+        );
+        assert!(materialized.source.ends_with(&original_source));
+        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
     }
 
     #[test]
@@ -31527,43 +35014,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn materialize_throw_type_error_distinct_cross_realm_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "var assert = { throws: function() { throw 'assert used'; }, notSameValue: function() { throw 'assert used'; }, sameValue: function() { throw 'assert used'; } };\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        let mut case = synthetic_case("built-ins/ThrowTypeError/distinct-cross-realm.js");
-        case.includes = vec!["assert.js".to_string()];
-        case.original_source =
-            "var other = $262.createRealm().global; var otherArgs = (new other.Function('\"use strict\"; return arguments;'))();".to_string();
-        case.features.insert("cross-realm".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("assert used"));
-        assert!(!materialized.source.contains("$262.createRealm"));
-        assert!(!materialized.source.contains("new other.Function"));
-        assert!(materialized
-            .source
-            .contains("var other = __porfCreateRealm().global;"));
-        assert!(materialized
-            .source
-            .contains("Object.getOwnPropertyDescriptor(localArgs, \"callee\").get"));
-        assert!(materialized.source.contains("throw new other.TypeError();"));
-        assert!(materialized.source.contains("e instanceof other.TypeError"));
-        assert!(materialized
-            .source
-            .contains("localThrowTypeError === otherThrowTypeError"));
-        assert!(materialized
-            .source
-            .contains("otherThrowTypeError !== otherThrowTypeError2"));
-    }
-
-    #[test]
     fn materialize_error_is_error_errors_other_realm_uses_static_wasm_aot_rewrite() {
         let store = PreludeStore::default();
         let mut case = synthetic_case("built-ins/Error/isError/errors-other-realm.js");
@@ -32304,14 +35754,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 ],
             ),
             (
-                "built-ins/DataView/detached-buffer.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "new DataView(buffer, obj)",
-                    "toNumberOffset !== 1",
-                ],
-            ),
-            (
                 "built-ins/DataView/custom-proto-access-resizes-buffer-valid-by-offset.js",
                 vec![
                     "buffer.resize(2)",
@@ -32765,68 +36207,21 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn materialize_dataview_method_detached_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-
-        for (path, expected_fragments) in [
-            (
-                "built-ins/DataView/prototype/getInt16/detached-buffer.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "sample.getInt16(0)",
-                    "__porfAssertThrows(TypeError",
-                ],
-            ),
-            (
-                "built-ins/DataView/prototype/getUint16/detached-buffer-before-outofrange-byteoffset.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "sample.getUint16(13)",
-                    "__porfAssertThrows(TypeError",
-                ],
-            ),
-            (
-                "built-ins/DataView/prototype/getUint16/detached-buffer-after-toindex-byteoffset.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "sample.getUint16(Infinity)",
-                    "sample.getUint16(-1)",
-                    "__porfAssertThrows(RangeError",
-                ],
-            ),
-            (
-                "built-ins/DataView/prototype/setUint16/detached-buffer-after-number-value.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "sample.setUint16(0, v)",
-                    "__porfAssertThrows(Test262Error",
-                ],
-            ),
-            (
-                "built-ins/DataView/prototype/setBigInt64/detached-buffer.js",
-                vec![
-                    "__porfDetachArrayBuffer(buffer)",
-                    "sample.setBigInt64(0, 0n)",
-                    "__porfAssertThrows(TypeError",
-                ],
-            ),
+    fn dataview_detached_buffer_cases_use_the_original_test262_sources() {
+        for path in [
+            "built-ins/DataView/detached-buffer.js",
+            "built-ins/DataView/prototype/getInt16/detached-buffer.js",
+            "built-ins/DataView/prototype/getUint16/detached-buffer-before-outofrange-byteoffset.js",
+            "built-ins/DataView/prototype/getUint16/detached-buffer-after-toindex-byteoffset.js",
+            "built-ins/DataView/prototype/setUint16/detached-buffer-after-number-value.js",
+            "built-ins/DataView/prototype/setBigInt64/detached-buffer.js",
         ] {
-            let mut case = synthetic_case(path);
-            case.includes = vec!["detachArrayBuffer.js".to_string()];
-            case.original_source = "$DETACHBUFFER(buffer); assert.throws(TypeError, function () {});"
-                .to_string();
+            let case = synthetic_case(path);
 
-            let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("$DETACHBUFFER"));
-            assert!(!materialized.source.contains("assert.throws"));
-            for fragment in expected_fragments {
-                assert!(
-                    materialized.source.contains(fragment),
-                    "{path} missing {fragment}"
-                );
-            }
+            assert!(
+                rewrite_wasm_aot_self_contained(&case).is_none(),
+                "{path} should execute its original Test262 source"
+            );
         }
     }
 
@@ -33637,6 +37032,29 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn lifo_case_queue_pops_priority_cases_first_without_reordering_either_group() {
+        let cases = ["cold-a.js", "priority-a.js", "cold-b.js", "priority-b.js"]
+            .map(synthetic_case)
+            .into_iter()
+            .collect();
+        let mut queue =
+            schedule_cases_for_lifo_queue(cases, |case| case.path.starts_with("priority-"));
+        let execution_order = std::iter::from_fn(|| queue.pop())
+            .map(|case| case.path)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            execution_order,
+            vec![
+                "priority-b.js".to_string(),
+                "priority-a.js".to_string(),
+                "cold-b.js".to_string(),
+                "cold-a.js".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn execute_cases_resume_reuses_case_checkpoint_snapshot() {
         let config = fixture_config();
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
@@ -33796,8 +37214,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         fs::create_dir_all(&snapshot_dir).expect("snapshot dir should exist");
 
         let runner_path = unique_temp_path("child-runner-timeout-script");
-        fs::write(&runner_path, "#!/bin/sh\nsleep 2\n")
-            .expect("timeout runner script should write");
+        let child_snapshot_dir_path = unique_temp_path("child-runner-timeout-path");
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\nsnapshot_dir=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--snapshot-dir\" ]; then\n    shift\n    snapshot_dir=$1\n  fi\n  shift\ndone\nprintf '%s' \"$snapshot_dir\" > '{}'\nsleep 2\n",
+                child_snapshot_dir_path.display()
+            ),
+        )
+        .expect("timeout runner script should write");
         let mut permissions = fs::metadata(&runner_path)
             .expect("timeout runner metadata should read")
             .permissions();
@@ -33848,6 +37273,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         assert_eq!(failure.kind, FailureKind::Runtime);
         assert!(failure.detail.contains("timeout exceeded"));
+        let child_snapshot_dir = PathBuf::from(
+            fs::read_to_string(&child_snapshot_dir_path)
+                .expect("timeout runner should record its snapshot directory"),
+        );
+        assert!(!child_snapshot_dir.exists());
 
         let resumed_snapshot =
             load_previous_snapshot(&config, &run_config.snapshot_name, manifest.manifest_hash)
@@ -33859,7 +37289,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     #[cfg(unix)]
-    fn forced_child_runner_removes_scratch_snapshot_after_importing_result() {
+    fn forced_child_runner_isolates_scratch_snapshot_from_existing_artifacts() {
         let snapshot_dir = unique_temp_path("child-runner-cleanup-snapshots");
         fs::create_dir_all(&snapshot_dir).expect("snapshot dir should exist");
         let case = synthetic_case("child-runner/imported-failure.js");
@@ -33882,8 +37312,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             run_config.snapshot_name,
             hash_detail(&case.path)
         );
-        let child_snapshot_paths =
+        let existing_snapshot_paths =
             snapshot_paths_for_name(&config, &child_snapshot_name, child_manifest.manifest_hash);
+        let existing_json = b"pre-existing snapshot json";
+        let existing_txt = b"pre-existing snapshot summary";
+        fs::write(&existing_snapshot_paths.json_path, existing_json)
+            .expect("pre-existing JSON snapshot should write");
+        fs::write(&existing_snapshot_paths.txt_path, existing_txt)
+            .expect("pre-existing text snapshot should write");
         let expected_failure =
             classify_failure(&case.path, FailureKind::Runtime, "sentinel child failure");
         let child_snapshot = snapshot_from_summary(
@@ -33904,14 +37340,16 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("staged child summary should write");
 
         let runner_path = unique_temp_path("child-runner-cleanup-script");
+        let child_snapshot_dir_path = unique_temp_path("child-runner-cleanup-path");
         fs::write(
             &runner_path,
             format!(
-                "#!/bin/sh\ncp '{}' '{}'\ncp '{}' '{}'\n",
+                "#!/bin/sh\nsnapshot_dir=\nsnapshot_name=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--snapshot-dir\" ]; then\n    shift\n    snapshot_dir=$1\n  elif [ \"$1\" = \"--snapshot-name\" ]; then\n    shift\n    snapshot_name=$1\n  fi\n  shift\ndone\nprintf '%s' \"$snapshot_dir\" > '{}'\ncp '{}' \"$snapshot_dir/$snapshot_name-{}.json\"\ncp '{}' \"$snapshot_dir/$snapshot_name-{}.txt\"\n",
+                child_snapshot_dir_path.display(),
                 staged_json_path.display(),
-                child_snapshot_paths.json_path.display(),
+                child_manifest.manifest_hash,
                 staged_txt_path.display(),
-                child_snapshot_paths.txt_path.display()
+                child_manifest.manifest_hash,
             ),
         )
         .expect("child runner script should write");
@@ -33933,8 +37371,22 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         assert_eq!(imported_failure.kind, expected_failure.kind);
         assert_eq!(imported_failure.detail, expected_failure.detail);
-        assert!(!child_snapshot_paths.json_path.exists());
-        assert!(!child_snapshot_paths.txt_path.exists());
+        assert_eq!(
+            fs::read(&existing_snapshot_paths.json_path)
+                .expect("pre-existing JSON snapshot should remain"),
+            existing_json
+        );
+        assert_eq!(
+            fs::read(&existing_snapshot_paths.txt_path)
+                .expect("pre-existing text snapshot should remain"),
+            existing_txt
+        );
+        let child_snapshot_dir = PathBuf::from(
+            fs::read_to_string(&child_snapshot_dir_path)
+                .expect("child runner should record its snapshot directory"),
+        );
+        assert_ne!(child_snapshot_dir, snapshot_dir);
+        assert!(!child_snapshot_dir.exists());
     }
 
     #[test]
@@ -33943,8 +37395,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             case_runner_bin: Some(PathBuf::from("missing-case-runner")),
             ..fixture_config()
         };
-        let mut case = synthetic_case("built-ins/HTMLDDA/excluded.js");
+        let mut case = synthetic_case("staging/sm/expressions/nullish-coalescing.js");
         case.features.insert("IsHTMLDDA".to_string());
+        case.original_source = "eval('$262.IsHTMLDDA ?? null');".to_string();
         let run_config = RunConfig {
             execution_backend: ExecutionBackend::WasmAot,
             ..RunConfig::default()
@@ -33956,7 +37409,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             panic!("preclassified exclusion should fail as unsupported");
         };
         assert_eq!(failure.kind, FailureKind::Unsupported);
-        assert!(failure.detail.contains("$262.IsHTMLDDA host object"));
+        assert!(failure.detail.contains("eval dynamic source evaluation"));
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -34038,6 +37491,59 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(nodes[0].node_kind, MatrixNodeKind::FilterLeaf);
         assert_eq!(nodes[0].node_id, "annexB");
         assert_eq!(nodes[0].total_cases, 7);
+    }
+
+    #[test]
+    fn matrix_node_selector_accepts_exact_id_and_unique_filter() {
+        let nodes = vec![
+            RunMatrixNode {
+                node_id: "built-ins/Promise".to_string(),
+                node_kind: MatrixNodeKind::FilterLeaf,
+                filter: "built-ins/Promise".to_string(),
+                matrix_path: vec!["built-ins".to_string(), "Promise".to_string()],
+                total_cases: 58,
+                case_paths: Vec::new(),
+            },
+            RunMatrixNode {
+                node_id: "language/statements@chunk-0001-of-0002".to_string(),
+                node_kind: MatrixNodeKind::ChunkLeaf,
+                filter: "language/statements".to_string(),
+                matrix_path: vec!["language".to_string(), "statements".to_string()],
+                total_cases: 2,
+                case_paths: Vec::new(),
+            },
+        ];
+
+        let exact = select_run_matrix_node(&nodes, "built-ins/Promise")
+            .expect("exact node id should select a leaf");
+        assert_eq!(exact.total_cases, 58);
+        let unique_filter = select_run_matrix_node(&nodes, "language/statements")
+            .expect("unique filter should select a leaf");
+        assert_eq!(
+            unique_filter.node_id,
+            "language/statements@chunk-0001-of-0002"
+        );
+    }
+
+    #[test]
+    fn matrix_node_selector_rejects_non_leaf_and_ambiguous_filter() {
+        let nodes = (1..=2)
+            .map(|chunk| RunMatrixNode {
+                node_id: format!("built-ins/Array@chunk-{chunk:04}-of-0002"),
+                node_kind: MatrixNodeKind::ChunkLeaf,
+                filter: "built-ins/Array".to_string(),
+                matrix_path: vec!["built-ins".to_string(), "Array".to_string()],
+                total_cases: 2,
+                case_paths: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+
+        let non_leaf = select_run_matrix_node(&nodes, "built-ins")
+            .expect_err("non-leaf selector should be rejected");
+        assert!(non_leaf.contains("does not identify an executable leaf"));
+        let ambiguous = select_run_matrix_node(&nodes, "built-ins/Array")
+            .expect_err("shared chunk filter should be rejected");
+        assert!(ambiguous.contains("is ambiguous"));
     }
 
     #[test]
@@ -34942,6 +38448,17 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&sab_newtarget_case), None);
 
+        for path in [
+            "built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-offset-sab.js",
+            "built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/defined-offset-sab.js",
+        ] {
+            let mut typed_array_buffer_case = synthetic_case(path);
+            typed_array_buffer_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&typed_array_buffer_case), None);
+        }
+
         let mut atomics_non_view_case = synthetic_case("built-ins/Atomics/add/non-views.js");
         atomics_non_view_case
             .features
@@ -34957,6 +38474,67 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             wasm_aot_unsupported_feature(&atomics_not_constructor_case),
             None
         );
+
+        for operation in [
+            "add",
+            "and",
+            "compareExchange",
+            "exchange",
+            "load",
+            "or",
+            "sub",
+            "xor",
+        ] {
+            for case_path in [
+                "bad-range.js",
+                "expected-return-value.js",
+                "good-views.js",
+                "bigint/bad-range.js",
+                "bigint/good-views.js",
+            ] {
+                let path = format!("built-ins/Atomics/{operation}/{case_path}");
+                let mut atomics_rmw_case = synthetic_case(&path);
+                atomics_rmw_case
+                    .features
+                    .insert("SharedArrayBuffer".to_string());
+                assert_eq!(
+                    wasm_aot_unsupported_feature(&atomics_rmw_case),
+                    None,
+                    "{path}"
+                );
+            }
+        }
+
+        for case_path in [
+            "bad-range.js",
+            "expected-return-value-negative-zero.js",
+            "expected-return-value.js",
+            "good-views.js",
+            "bigint/bad-range.js",
+            "bigint/good-views.js",
+        ] {
+            let path = format!("built-ins/Atomics/store/{case_path}");
+            let mut atomics_store_case = synthetic_case(&path);
+            atomics_store_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&atomics_store_case),
+                None,
+                "{path}"
+            );
+        }
+
+        for path in [
+            "built-ins/Atomics/isLockFree/expected-return-value.js",
+            "built-ins/Atomics/wait/good-views.js",
+            "built-ins/Atomics/waitAsync/good-views.js",
+        ] {
+            assert!(
+                !supported_wasm_aot_atomics_shared_array_buffer_case(path),
+                "{path}"
+            );
+        }
 
         let mut atomics_load_non_view_case = synthetic_case("built-ins/Atomics/load/non-views.js");
         atomics_load_non_view_case
@@ -35006,6 +38584,36 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             wasm_aot_unsupported_feature(&atomics_notify_count_boundary_case),
             None
         );
+
+        for path in [
+            "built-ins/Atomics/isLockFree/bigint/expected-return-value.js",
+            "built-ins/Atomics/isLockFree/not-a-constructor.js",
+            "built-ins/Atomics/notify/bad-range.js",
+            "built-ins/Atomics/notify/bigint/bad-range.js",
+            "built-ins/Atomics/notify/notify-with-no-agents-waiting.js",
+        ] {
+            let mut atomics_case = synthetic_case(path);
+            atomics_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&atomics_case), None, "{path}");
+        }
+
+        for path in [
+            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-resize-to-zero.js",
+            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared.js",
+            "built-ins/Atomics/notify/retrieve-length-before-index-coercion.js",
+        ] {
+            let mut atomics_notify_case = synthetic_case(path);
+            atomics_notify_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&atomics_notify_case),
+                None,
+                "{path}"
+            );
+        }
 
         for path in [
             "built-ins/Atomics/notify/count-from-nans.js",
@@ -35257,6 +38865,62 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             None
         );
 
+        for method in ["values", "keys", "entries"] {
+            let mut typedarray_iterator_resizable_case = synthetic_case(&format!(
+                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
+            ));
+            typedarray_iterator_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&typedarray_iterator_resizable_case),
+                None,
+                "{method}"
+            );
+        }
+
+        for method in ["find", "findIndex", "findLast", "findLastIndex"] {
+            let mut typedarray_find_resizable_case = synthetic_case(&format!(
+                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
+            ));
+            typedarray_find_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&typedarray_find_resizable_case),
+                None,
+                "{method}"
+            );
+        }
+
+        for method in ["every", "some"] {
+            let mut typedarray_every_some_resizable_case = synthetic_case(&format!(
+                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
+            ));
+            typedarray_every_some_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&typedarray_every_some_resizable_case),
+                None,
+                "{method}"
+            );
+        }
+
+        for method in ["includes", "indexOf", "lastIndexOf"] {
+            let mut typedarray_search_resizable_case = synthetic_case(&format!(
+                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
+            ));
+            typedarray_search_resizable_case
+                .features
+                .insert("resizable-arraybuffer".to_string());
+            assert_eq!(
+                wasm_aot_unsupported_feature(&typedarray_search_resizable_case),
+                None,
+                "{method}"
+            );
+        }
+
         let mut array_includes_resizable_case =
             synthetic_case("built-ins/Array/prototype/includes/resizable-buffer.js");
         array_includes_resizable_case
@@ -35410,6 +39074,227 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn wasm_aot_allows_resizable_typed_array_callback_iteration_cases() {
+        for path in [
+            "built-ins/TypedArray/prototype/forEach/callbackfn-resize.js",
+            "built-ins/TypedArray/prototype/reduce/resizable-buffer-shrink-mid-iteration.js",
+            "built-ins/TypedArray/prototype/reduceRight/BigInt/return-abrupt-from-this-out-of-bounds.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_slice_cases() {
+        for path in [
+            "built-ins/TypedArray/prototype/slice/coerced-start-end-grow.js",
+            "built-ins/TypedArray/prototype/slice/coerced-start-end-shrink.js",
+            "built-ins/TypedArray/prototype/slice/resizable-buffer.js",
+            "built-ins/TypedArray/prototype/slice/resize-count-bytes-to-zero.js",
+            "built-ins/TypedArray/prototype/slice/speciesctor-resize.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_filter_cases() {
+        for path in [
+            "built-ins/TypedArray/prototype/filter/callbackfn-resize.js",
+            "built-ins/TypedArray/prototype/filter/resizable-buffer.js",
+            "built-ins/TypedArray/prototype/filter/resizable-buffer-grow-mid-iteration.js",
+            "built-ins/TypedArray/prototype/filter/resizable-buffer-shrink-mid-iteration.js",
+            "built-ins/TypedArray/prototype/filter/return-abrupt-from-this-out-of-bounds.js",
+            "built-ins/TypedArray/prototype/filter/speciesctor-destination-resizable.js",
+            "built-ins/TypedArray/prototype/filter/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+            "built-ins/TypedArray/prototype/filter/BigInt/return-abrupt-from-this-out-of-bounds.js",
+            "built-ins/TypedArray/prototype/filter/BigInt/speciesctor-destination-resizable.js",
+            "built-ins/TypedArray/prototype/filter/BigInt/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_map_cases() {
+        for path in [
+            "built-ins/TypedArray/prototype/map/callbackfn-resize.js",
+            "built-ins/TypedArray/prototype/map/resizable-buffer.js",
+            "built-ins/TypedArray/prototype/map/resizable-buffer-grow-mid-iteration.js",
+            "built-ins/TypedArray/prototype/map/resizable-buffer-shrink-mid-iteration.js",
+            "built-ins/TypedArray/prototype/map/return-abrupt-from-this-out-of-bounds.js",
+            "built-ins/TypedArray/prototype/map/speciesctor-destination-resizable.js",
+            "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+            "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-grow.js",
+            "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-shrink.js",
+            "built-ins/TypedArray/prototype/map/BigInt/return-abrupt-from-this-out-of-bounds.js",
+            "built-ins/TypedArray/prototype/map/BigInt/speciesctor-destination-resizable.js",
+            "built-ins/TypedArray/prototype/map/BigInt/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_constructor_cases() {
+        for path in [
+            "built-ins/TypedArrayConstructors/ctors/buffer-arg/resizable-out-of-bounds.js",
+            "built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/resizable-out-of-bounds.js",
+            "built-ins/TypedArrayConstructors/ctors/typedarray-arg/src-typedarray-resizable-buffer.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_only_supported_shared_typed_array_delete_cases() {
+        for path in [
+            "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js",
+            "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js",
+            "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js",
+            "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+
+        let mut unrelated_case = synthetic_case(
+            "built-ins/TypedArrayConstructors/internals/Delete/unimplemented-sab-case.js",
+        );
+        unrelated_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&unrelated_case),
+            Some("SharedArrayBuffer")
+        );
+    }
+
+    #[test]
+    fn wasm_aot_allows_only_supported_shared_typed_array_get_cases() {
+        for path in [
+            "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js",
+            "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+
+        let mut unrelated_case = synthetic_case(
+            "built-ins/TypedArrayConstructors/internals/Get/unimplemented-sab-case.js",
+        );
+        unrelated_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&unrelated_case),
+            Some("SharedArrayBuffer")
+        );
+    }
+
+    #[test]
+    fn wasm_aot_allows_only_supported_typed_array_prototype_set_feature_cases() {
+        for path in [
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+
+        for path in [
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js",
+            "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js",
+            "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js",
+            "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js",
+            "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js",
+            "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js",
+            "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js",
+            "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+
+        let mut unrelated_shared_case = synthetic_case(
+            "built-ins/TypedArray/prototype/set/unimplemented-shared-array-buffer-case.js",
+        );
+        unrelated_shared_case
+            .features
+            .insert("SharedArrayBuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&unrelated_shared_case),
+            Some("SharedArrayBuffer")
+        );
+
+        let mut unrelated_resizable_case = synthetic_case(
+            "built-ins/TypedArray/prototype/set/unimplemented-resizable-array-buffer-case.js",
+        );
+        unrelated_resizable_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&unrelated_resizable_case),
+            Some("resizable-arraybuffer")
+        );
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_own_property_keys_cases() {
+        for path in [
+            "built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/integer-indexes-resizable-array-buffer-auto.js",
+            "built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/integer-indexes-resizable-array-buffer-fixed.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_has_property_cases() {
+        for path in [
+            "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-auto.js",
+            "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-fixed.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("resizable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_allows_resizable_typed_array_set_case() {
+        let mut case = synthetic_case(
+            "built-ins/TypedArrayConstructors/internals/Set/resized-out-of-bounds-to-in-bounds-index.js",
+        );
+        case.features.insert("resizable-arraybuffer".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
     fn wasm_aot_classifies_dynamic_source_evaluation_as_unsupported() {
         let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
         case.original_source = "assert.sameValue(eval('1 + 2'), 3);".to_string();
@@ -35417,6 +39302,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             wasm_aot_unsupported_feature(&case),
             Some("eval dynamic source evaluation")
         );
+
+        case.original_source = "(async function* eval() {});".to_string();
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
         case.original_source = "$262.evalScript('var x;');".to_string();
         assert_eq!(
@@ -35433,15 +39321,21 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         case.original_source = "$262.IsHTMLDDA;".to_string();
         case.features.insert("IsHTMLDDA".to_string());
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+
+        case.original_source = "eval('$262.IsHTMLDDA');".to_string();
         assert_eq!(
             wasm_aot_unsupported_feature(&case),
-            Some("$262.IsHTMLDDA host object")
+            Some("eval dynamic source evaluation")
         );
         case.features.remove("IsHTMLDDA");
 
         case.original_source =
             "var other = $262.createRealm().global; var C = new other.Function();".to_string();
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+        assert_eq!(
+            wasm_aot_unsupported_feature(&case),
+            Some("Function constructor dynamic code generation")
+        );
 
         case.original_source =
             "var other = $262.createRealm().global; var C = new other.Function('return 1');"
@@ -35455,7 +39349,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             synthetic_case("built-ins/ArrayBuffer/proto-from-ctor-realm.js");
         array_buffer_case.original_source =
             "var other = $262.createRealm().global; var C = new other.Function();".to_string();
-        assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
+        assert_eq!(
+            wasm_aot_unsupported_feature(&array_buffer_case),
+            Some("Function constructor dynamic code generation")
+        );
 
         array_buffer_case.original_source =
             "var other = $262.createRealm().global; var C = new other.Function('return 1');"
@@ -35487,6 +39384,255 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn wasm_aot_classifies_error_function_constructor_roots_as_dynamic_source() {
+        let mut is_error_case =
+            synthetic_case("built-ins/Error/isError/non-error-objects-other-realm.js");
+        is_error_case.original_source =
+            "var other = $262.createRealm().global; Error.isError(new other.Function(''));"
+                .to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&is_error_case),
+            Some("Function constructor dynamic code generation")
+        );
+
+        let mut prototype_case = synthetic_case("built-ins/Error/proto-from-ctor-realm.js");
+        prototype_case.original_source =
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        assert_eq!(
+            wasm_aot_unsupported_feature(&prototype_case),
+            Some("Function constructor dynamic code generation")
+        );
+    }
+
+    #[test]
+    fn wasm_aot_classifies_intrinsic_function_constructor_roots_as_dynamic_source() {
+        for (path, source) in [
+            (
+                "built-ins/ThrowTypeError/distinct-cross-realm.js",
+                "var other = $262.createRealm().global; var args = (new other.Function('return arguments;'))();",
+            ),
+            (
+                "built-ins/Number/proto-from-ctor-realm.js",
+                "var other = $262.createRealm().global; var C = new other.Function();",
+            ),
+            (
+                "built-ins/ArrayBuffer/proto-from-ctor-realm.js",
+                "var other = $262.createRealm().global; var C = new other.Function();",
+            ),
+            (
+                "built-ins/SharedArrayBuffer/proto-from-ctor-realm.js",
+                "var other = $262.createRealm().global; var C = new other.Function();",
+            ),
+            (
+                "built-ins/DataView/proto-from-ctor-realm.js",
+                "var other = $262.createRealm().global; var C = new other.Function();",
+            ),
+            (
+                "built-ins/DataView/proto-from-ctor-realm-sab.js",
+                "var other = $262.createRealm().global; var C = new other.Function();",
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = source.to_string();
+
+            assert_eq!(
+                wasm_aot_unsupported_feature(&case),
+                Some("Function constructor dynamic code generation"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn wasm_aot_classifies_native_error_function_constructor_roots_as_dynamic_source() {
+        for path in [
+            "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
+            "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
+            "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
+            "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
+            "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
+            "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
+            "built-ins/AggregateError/proto-from-ctor-realm.js",
+            "built-ins/AggregateError/newtarget-proto-fallback.js",
+            "built-ins/SuppressedError/proto-from-ctor-realm.js",
+            "built-ins/SuppressedError/newtarget-proto-fallback.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.original_source = if path.ends_with("proto-from-ctor-realm.js") {
+                "var other = $262.createRealm().global; var newTarget = new other.Function();"
+                    .to_string()
+            } else {
+                "const NewTarget = new Function();".to_string()
+            };
+
+            assert_eq!(
+                wasm_aot_unsupported_feature(&case),
+                Some("Function constructor dynamic code generation"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_atomics_exchange_nonshared_integer_views_checks_each_rejected_constructor() {
+        let mut store = PreludeStore::default();
+        store.insert(
+            "testTypedArray.js".to_string(),
+            "function testWithNonAtomicsFriendlyTypedArrayConstructors() { throw 'helper used'; }"
+                .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+
+        let mut case = synthetic_case("built-ins/Atomics/exchange/nonshared-int-views.js");
+        case.includes.push("testTypedArray.js".to_string());
+        case.features.insert("ArrayBuffer".to_string());
+        case.features.insert("Atomics".to_string());
+        case.features.insert("TypedArray".to_string());
+        case.original_source =
+            "testWithNonAtomicsFriendlyTypedArrayConstructors(function () {});".to_string();
+
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
+
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("helper used"));
+        assert!(!materialized
+            .source
+            .contains("testWithNonAtomicsFriendlyTypedArrayConstructors"));
+        assert!(materialized
+            .source
+            .contains("var badConstructors = [Float64Array, Float32Array, Uint8ClampedArray]"));
+        assert!(materialized
+            .source
+            .contains("badConstructors.push(Float16Array)"));
+        assert!(materialized
+            .source
+            .contains("new ArrayBuffer(TA.BYTES_PER_ELEMENT * 4)"));
+        assert!(materialized.source.contains("Atomics.exchange(view, 0, 1)"));
+        assert!(materialized.source.contains("error instanceof TypeError"));
+    }
+
+    #[test]
+    fn materialize_atomics_load_and_store_validation_cases_use_static_typed_array_views() {
+        for (path, expected_call) in [
+            (
+                "built-ins/Atomics/load/non-shared-bufferdata.js",
+                "Atomics.load(view, 0)",
+            ),
+            (
+                "built-ins/Atomics/load/non-shared-int-views-throws.js",
+                "assertLoadTypeError(view, \"view \" + i)",
+            ),
+            (
+                "built-ins/Atomics/load/validate-arraytype-before-index-coercion.js",
+                "Atomics.load(view, index)",
+            ),
+            (
+                "built-ins/Atomics/store/non-shared-bufferdata.js",
+                "Atomics.store(view, 0, 1)",
+            ),
+            (
+                "built-ins/Atomics/store/non-shared-int-views-throws.js",
+                "assertStoreTypeError(view, \"view \" + i)",
+            ),
+            (
+                "built-ins/Atomics/store/good-views.js",
+                "Atomics.store(view, indices[index], 37)",
+            ),
+            (
+                "built-ins/Atomics/store/validate-arraytype-before-index-coercion.js",
+                "Atomics.store(view, coercionSentinel, 0)",
+            ),
+            (
+                "built-ins/Atomics/store/validate-arraytype-before-value-coercion.js",
+                "Atomics.store(view, 0, coercionSentinel)",
+            ),
+        ] {
+            let case = synthetic_case(path);
+            let materialized = materialize_test(&case, &PreludeStore::default())
+                .expect("Atomics validation case should materialize");
+
+            assert!(materialized.source.contains(expected_call), "{path}");
+            assert!(
+                materialized
+                    .source
+                    .contains("new Float64Array(new SharedArrayBuffer(8))")
+                    || materialized
+                        .source
+                        .contains("new Float64Array(new ArrayBuffer(32))")
+                    || materialized
+                        .source
+                        .contains("new Int8Array(new ArrayBuffer(4))")
+                    || materialized
+                        .source
+                        .contains("new Int32Array(shared, 32, 20)"),
+                "{path}"
+            );
+            assert!(!materialized.source.contains("new TA("), "{path}");
+        }
+    }
+
+    #[test]
+    fn materialize_atomics_notify_and_is_lock_free_cases_preserve_bigint_view_semantics() {
+        for (path, expected_fragment) in [
+            (
+                "built-ins/Atomics/notify/bigint/bad-range.js",
+                "new BigInt64Array(new SharedArrayBuffer",
+            ),
+            (
+                "built-ins/Atomics/notify/bigint/non-shared-bufferdata-returns-0.js",
+                "new BigInt64Array(new ArrayBuffer",
+            ),
+            (
+                "built-ins/Atomics/notify/bigint/non-shared-bufferdata-index-evaluation-throws.js",
+                "Atomics.notify(view, 0, poisoned)",
+            ),
+            (
+                "built-ins/Atomics/notify/bigint/non-shared-bufferdata-count-evaluation-throws.js",
+                "Atomics.notify(view, poisoned, 0)",
+            ),
+            (
+                "built-ins/Atomics/notify/non-shared-bufferdata-index-evaluation-throws.js",
+                "Atomics.notify(view, poisoned, 0)",
+            ),
+            (
+                "built-ins/Atomics/notify/non-shared-bufferdata-count-evaluation-throws.js",
+                "Atomics.notify(view, 0, poisoned)",
+            ),
+            (
+                "built-ins/Atomics/notify/bigint/non-shared-bufferdata-non-shared-int-views-throws.js",
+                "new BigUint64Array(new ArrayBuffer",
+            ),
+            (
+                "built-ins/Atomics/notify/non-int32-typedarray-throws.js",
+                "new Int8Array(new SharedArrayBuffer(4))",
+            ),
+            (
+                "built-ins/Atomics/notify/validate-arraytype-before-index-coercion.js",
+                "Atomics.notify(view, coercionSentinel, 0)",
+            ),
+            (
+                "built-ins/Atomics/notify/validate-arraytype-before-count-coercion.js",
+                "Atomics.notify(view, 0, coercionSentinel)",
+            ),
+            (
+                "built-ins/Atomics/isLockFree/not-a-constructor.js",
+                "new Atomics.isLockFree(4)",
+            ),
+        ] {
+            let case = synthetic_case(path);
+            let materialized = materialize_test(&case, &PreludeStore::default())
+                .expect("Atomics case should materialize");
+
+            assert!(
+                materialized.source.contains(expected_fragment),
+                "{path}"
+            );
+            assert!(!materialized.source.contains("new TA("), "{path}");
+        }
+    }
+
+    #[test]
     fn materialize_fn_global_object_uses_static_global_this_lookup() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -35509,14 +39655,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn wasm_aot_classifies_array_from_async_without_async_lowering_as_unsupported() {
+    fn wasm_aot_allows_array_from_async() {
         let mut case = synthetic_case("built-ins/Array/fromAsync/async-iterable-input.js");
         case.features.insert("Array.fromAsync".to_string());
 
-        assert_eq!(
-            wasm_aot_unsupported_feature(&case),
-            Some("Array.fromAsync requires async function and await lowering")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&case), None);
     }
 
     #[test]

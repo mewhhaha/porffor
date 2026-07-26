@@ -1,0 +1,113 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7458303885472213461,
+  "run_kind": "full",
+  "total": 17,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-returns-string-throw.js",
+      "duration_ms": 10946
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-undefined-sync-get-abrupt.js",
+      "duration_ms": 10582
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-throw-method-is-null.js",
+      "duration_ms": 10451
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-returns-number-throw.js",
+      "duration_ms": 10315
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-not-callable-boolean-throw.js",
+      "duration_ms": 10299
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-not-callable-object-throw.js",
+      "duration_ms": 10291
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-returns-symbol-throw.js",
+      "duration_ms": 10250
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-returns-abrupt.js",
+      "duration_ms": 10224
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-not-callable-string-throw.js",
+      "duration_ms": 10220
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-getiter-async-null-sync-get-abrupt.js",
+      "duration_ms": 10184
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/expressions/async-generator/yield-star-getiter-async-throw-method-is-null.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262:AsyncTestFailure:Error: Error",
+      "detail_hash": 12230017052994221193,
+      "duration_ms": 10451
+    }
+  ],
+  "completed_paths": [
+    "language/expressions/async-generator/yield-star-getiter-async-get-abrupt.js",
+    "language/expressions/async-generator/yield-star-getiter-async-not-callable-boolean-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-not-callable-number-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-not-callable-object-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-not-callable-string-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-not-callable-symbol-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-null-sync-get-abrupt.js",
+    "language/expressions/async-generator/yield-star-getiter-async-return-method-is-null.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-abrupt.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-boolean-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-null-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-number-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-string-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-symbol-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-returns-undefined-throw.js",
+    "language/expressions/async-generator/yield-star-getiter-async-throw-method-is-null.js",
+    "language/expressions/async-generator/yield-star-getiter-async-undefined-sync-get-abrupt.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

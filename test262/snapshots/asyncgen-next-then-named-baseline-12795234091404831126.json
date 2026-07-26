@@ -1,0 +1,91 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12795234091404831126,
+  "run_kind": "full",
+  "total": 9,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-null-fulfillpromise.js",
+      "duration_ms": 10671
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-boolean-fulfillpromise.js",
+      "duration_ms": 10655
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-object-fulfillpromise.js",
+      "duration_ms": 10206
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-number-fulfillpromise.js",
+      "duration_ms": 10199
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-returns-abrupt.js",
+      "duration_ms": 10108
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-symbol-fulfillpromise.js",
+      "duration_ms": 10104
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-undefined-fulfillpromise.js",
+      "duration_ms": 10051
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-non-callable-string-fulfillpromise.js",
+      "duration_ms": 10034
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-next-then-get-abrupt.js",
+      "duration_ms": 9995
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/async-generator/named-yield-star-next-then-get-abrupt.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-boolean-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-null-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-number-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-object-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-string-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-symbol-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-non-callable-undefined-fulfillpromise.js",
+    "language/expressions/async-generator/named-yield-star-next-then-returns-abrupt.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

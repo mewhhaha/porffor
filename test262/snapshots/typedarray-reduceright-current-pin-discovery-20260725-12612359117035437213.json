@@ -1,0 +1,136 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12612359117035437213,
+  "run_kind": "full",
+  "total": 50,
+  "passed": 50,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 50
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-this.js",
+      "duration_ms": 78779
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-not-called-on-empty.js",
+      "duration_ms": 69977
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-resize.js",
+      "duration_ms": 69871
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/detached-buffer.js",
+      "duration_ms": 67716
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-set-value-during-iteration.js",
+      "duration_ms": 67715
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-is-not-callable-throws.js",
+      "duration_ms": 66967
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/values-are-not-cached.js",
+      "duration_ms": 65801
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/result-of-any-type.js",
+      "duration_ms": 63256
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-returns-abrupt.js",
+      "duration_ms": 62578
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reduceRight/callbackfn-detachbuffer.js",
+      "duration_ms": 61201
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-arguments-custom-accumulator.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-arguments-default-accumulator.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-detachbuffer.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-no-iteration-over-non-integer-properties.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-not-called-on-empty.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-return-does-not-change-instance.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-returns-abrupt.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-set-value-during-iteration.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/callbackfn-this.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/empty-instance-return-initialvalue.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/empty-instance-with-no-initialvalue-throws.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/result-is-last-callbackfn-return.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/result-of-any-type.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/return-first-value-without-callbackfn.js",
+    "built-ins/TypedArray/prototype/reduceRight/BigInt/values-are-not-cached.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-arguments-custom-accumulator.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-arguments-default-accumulator.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-detachbuffer.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-is-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-no-iteration-over-non-integer-properties.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-not-called-on-empty.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-resize.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-return-does-not-change-instance.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-returns-abrupt.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-set-value-during-iteration.js",
+    "built-ins/TypedArray/prototype/reduceRight/callbackfn-this.js",
+    "built-ins/TypedArray/prototype/reduceRight/detached-buffer.js",
+    "built-ins/TypedArray/prototype/reduceRight/empty-instance-return-initialvalue.js",
+    "built-ins/TypedArray/prototype/reduceRight/empty-instance-with-no-initialvalue-throws.js",
+    "built-ins/TypedArray/prototype/reduceRight/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/reduceRight/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/reduceRight/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/reduceRight/length.js",
+    "built-ins/TypedArray/prototype/reduceRight/name.js",
+    "built-ins/TypedArray/prototype/reduceRight/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/reduceRight/prop-desc.js",
+    "built-ins/TypedArray/prototype/reduceRight/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/reduceRight/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/reduceRight/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/reduceRight/result-is-last-callbackfn-return.js",
+    "built-ins/TypedArray/prototype/reduceRight/result-of-any-type.js",
+    "built-ins/TypedArray/prototype/reduceRight/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/reduceRight/return-first-value-without-callbackfn.js",
+    "built-ins/TypedArray/prototype/reduceRight/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/reduceRight/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/reduceRight/values-are-not-cached.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

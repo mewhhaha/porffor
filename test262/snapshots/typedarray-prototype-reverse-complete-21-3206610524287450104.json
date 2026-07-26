@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3206610524287450104,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/prop-desc.js",
+      "duration_ms": 80463
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/length.js",
+      "duration_ms": 80350
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/name.js",
+      "duration_ms": 80148
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/resizable-buffer.js",
+      "duration_ms": 62938
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/detached-buffer.js",
+      "duration_ms": 55524
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/BigInt/detached-buffer.js",
+      "duration_ms": 54777
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/preserves-non-numeric-properties.js",
+      "duration_ms": 53856
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/BigInt/preserves-non-numeric-properties.js",
+      "duration_ms": 53685
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/this-is-not-object.js",
+      "duration_ms": 52356
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/reverse/this-is-not-typedarray-instance.js",
+      "duration_ms": 51654
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/reverse/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/reverse/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/reverse/BigInt/preserves-non-numeric-properties.js",
+    "built-ins/TypedArray/prototype/reverse/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/reverse/BigInt/returns-original-object.js",
+    "built-ins/TypedArray/prototype/reverse/BigInt/reverts.js",
+    "built-ins/TypedArray/prototype/reverse/detached-buffer.js",
+    "built-ins/TypedArray/prototype/reverse/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/reverse/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/reverse/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/reverse/length.js",
+    "built-ins/TypedArray/prototype/reverse/name.js",
+    "built-ins/TypedArray/prototype/reverse/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/reverse/preserves-non-numeric-properties.js",
+    "built-ins/TypedArray/prototype/reverse/prop-desc.js",
+    "built-ins/TypedArray/prototype/reverse/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/reverse/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/reverse/returns-original-object.js",
+    "built-ins/TypedArray/prototype/reverse/reverts.js",
+    "built-ins/TypedArray/prototype/reverse/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/reverse/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

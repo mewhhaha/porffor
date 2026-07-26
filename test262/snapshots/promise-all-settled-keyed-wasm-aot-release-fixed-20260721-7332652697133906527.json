@@ -1,0 +1,76 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7332652697133906527,
+  "run_kind": "full",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/allSettledKeyed/name.js",
+      "duration_ms": 29729
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/prop-desc.js",
+      "duration_ms": 28897
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/length.js",
+      "duration_ms": 28716
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/extensible.js",
+      "duration_ms": 17126
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/not-a-constructor.js",
+      "duration_ms": 16182
+    },
+    {
+      "path": "built-ins/Promise/allSettledKeyed/proto.js",
+      "duration_ms": 6411
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Promise/allSettledKeyed/extensible.js",
+    "built-ins/Promise/allSettledKeyed/length.js",
+    "built-ins/Promise/allSettledKeyed/name.js",
+    "built-ins/Promise/allSettledKeyed/not-a-constructor.js",
+    "built-ins/Promise/allSettledKeyed/prop-desc.js",
+    "built-ins/Promise/allSettledKeyed/proto.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

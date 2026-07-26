@@ -1,0 +1,141 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5038154139032950733,
+  "run_kind": "full",
+  "total": 18,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 14
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+      "duration_ms": 33718
+    },
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunction-prototype.js",
+      "duration_ms": 31432
+    },
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunction-name.js",
+      "duration_ms": 28419
+    },
+    {
+      "path": "built-ins/AsyncFunction/instance-length.js",
+      "duration_ms": 27350
+    },
+    {
+      "path": "built-ins/AsyncFunction/instance-has-name.js",
+      "duration_ms": 27295
+    },
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunction-length.js",
+      "duration_ms": 27151
+    },
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunctionPrototype-is-not-callable.js",
+      "duration_ms": 19514
+    },
+    {
+      "path": "built-ins/AsyncFunction/instance-prototype-property.js",
+      "duration_ms": 16227
+    },
+    {
+      "path": "built-ins/AsyncFunction/is-not-a-global.js",
+      "duration_ms": 16115
+    },
+    {
+      "path": "built-ins/AsyncFunction/AsyncFunctionPrototype-prototype.js",
+      "duration_ms": 6331
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/AsyncFunction/AsyncFunction-construct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/AsyncFunction/instance-construct-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/AsyncFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/AsyncFunction/AsyncFunction-construct.js",
+    "built-ins/AsyncFunction/AsyncFunction-is-extensible.js",
+    "built-ins/AsyncFunction/AsyncFunction-is-subclass.js",
+    "built-ins/AsyncFunction/AsyncFunction-length.js",
+    "built-ins/AsyncFunction/AsyncFunction-name.js",
+    "built-ins/AsyncFunction/AsyncFunction-prototype.js",
+    "built-ins/AsyncFunction/AsyncFunction.js",
+    "built-ins/AsyncFunction/AsyncFunctionPrototype-is-extensible.js",
+    "built-ins/AsyncFunction/AsyncFunctionPrototype-is-not-callable.js",
+    "built-ins/AsyncFunction/AsyncFunctionPrototype-prototype.js",
+    "built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+    "built-ins/AsyncFunction/instance-construct-throws.js",
+    "built-ins/AsyncFunction/instance-has-name.js",
+    "built-ins/AsyncFunction/instance-length.js",
+    "built-ins/AsyncFunction/instance-prototype-property.js",
+    "built-ins/AsyncFunction/is-a-constructor.js",
+    "built-ins/AsyncFunction/is-not-a-global.js",
+    "built-ins/AsyncFunction/proto-from-ctor-realm.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}
