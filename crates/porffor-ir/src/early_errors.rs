@@ -279,7 +279,22 @@ fn statement_contains_this_before_super(
             }
             expr_contains_this_before_super(init, state);
         }
-        StatementIr::LexicalBlock(statements) => {
+        StatementIr::GeneratorYield {
+            value, resume_mode, ..
+        } => {
+            if let GeneratorResumeModeIr::AssignProperty { target, key } = resume_mode {
+                expr_contains_this_before_super(target, state);
+                if let PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) = key {
+                    expr_contains_this_before_super(expr, state);
+                }
+            }
+            expr_contains_this_before_super(value, state);
+        }
+        StatementIr::AsyncAwait { value, .. } => {
+            expr_contains_this_before_super(value, state);
+        }
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => {
             for statement in statements {
                 statement_contains_this_before_super(statement, state);
                 if state.saw_super {
@@ -355,6 +370,70 @@ fn statement_contains_this_before_super(
             }
             statement_contains_this_before_super(body, state);
         }
+        StatementIr::GeneratorLoop {
+            init,
+            test,
+            update,
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => {
+            if let Some(init) = init {
+                match init {
+                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+                        expr_contains_this_before_super(init, state);
+                    }
+                    ForInitIr::LexicalBlock(bindings) => {
+                        for binding in bindings {
+                            expr_contains_this_before_super(&binding.init, state);
+                        }
+                    }
+                    ForInitIr::Var(decls) => {
+                        for decl in decls {
+                            if let Some(init) = &decl.init {
+                                expr_contains_this_before_super(init, state);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(test) = test {
+                expr_contains_this_before_super(test, state);
+            }
+            if let Some(update) = update {
+                expr_contains_this_before_super(update, state);
+            }
+            for statement in before_yield {
+                statement_contains_this_before_super(statement, state);
+            }
+            statement_contains_this_before_super(yield_statement, state);
+            for statement in after_yield {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            expr_contains_this_before_super(condition, state);
+            for statement in then_before_yield
+                .iter()
+                .chain(then_yield_statement.as_deref())
+                .chain(then_after_yield)
+                .chain(else_before_yield)
+                .chain(else_yield_statement.as_deref())
+                .chain(else_after_yield)
+            {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
         | StatementIr::ForOfIterator { iterable, body, .. }
@@ -424,6 +503,7 @@ fn statement_contains_this_before_super(
         StatementIr::TryFinally {
             try_block,
             finally_block,
+            ..
         } => {
             for statement in &try_block.statements {
                 statement_contains_this_before_super(statement, state);

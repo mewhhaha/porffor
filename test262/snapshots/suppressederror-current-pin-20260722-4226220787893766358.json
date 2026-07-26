@@ -1,0 +1,127 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4226220787893766358,
+  "run_kind": "full",
+  "total": 22,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 20
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/SuppressedError/message-tostring-abrupt-symbol.js",
+      "duration_ms": 18295
+    },
+    {
+      "path": "built-ins/SuppressedError/message-tostring-abrupt.js",
+      "duration_ms": 16355
+    },
+    {
+      "path": "built-ins/SuppressedError/is-a-constructor.js",
+      "duration_ms": 15459
+    },
+    {
+      "path": "built-ins/SuppressedError/newtarget-is-undefined.js",
+      "duration_ms": 14426
+    },
+    {
+      "path": "built-ins/SuppressedError/prototype/proto.js",
+      "duration_ms": 6257
+    },
+    {
+      "path": "built-ins/SuppressedError/prop-desc.js",
+      "duration_ms": 6073
+    },
+    {
+      "path": "built-ins/SuppressedError/message-method-prop-cast.js",
+      "duration_ms": 6011
+    },
+    {
+      "path": "built-ins/SuppressedError/newtarget-proto-custom.js",
+      "duration_ms": 4874
+    },
+    {
+      "path": "built-ins/SuppressedError/order-of-args-evaluation.js",
+      "duration_ms": 4710
+    },
+    {
+      "path": "built-ins/SuppressedError/newtarget-proto.js",
+      "duration_ms": 4400
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/SuppressedError/newtarget-proto-fallback.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/SuppressedError/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/SuppressedError/is-a-constructor.js",
+    "built-ins/SuppressedError/length.js",
+    "built-ins/SuppressedError/message-method-prop-cast.js",
+    "built-ins/SuppressedError/message-method-prop.js",
+    "built-ins/SuppressedError/message-tostring-abrupt-symbol.js",
+    "built-ins/SuppressedError/message-tostring-abrupt.js",
+    "built-ins/SuppressedError/message-undefined-no-prop.js",
+    "built-ins/SuppressedError/name.js",
+    "built-ins/SuppressedError/newtarget-is-undefined.js",
+    "built-ins/SuppressedError/newtarget-proto-custom.js",
+    "built-ins/SuppressedError/newtarget-proto-fallback.js",
+    "built-ins/SuppressedError/newtarget-proto.js",
+    "built-ins/SuppressedError/order-of-args-evaluation.js",
+    "built-ins/SuppressedError/prop-desc.js",
+    "built-ins/SuppressedError/proto-from-ctor-realm.js",
+    "built-ins/SuppressedError/proto.js",
+    "built-ins/SuppressedError/prototype/constructor.js",
+    "built-ins/SuppressedError/prototype/errors-absent-on-prototype.js",
+    "built-ins/SuppressedError/prototype/message.js",
+    "built-ins/SuppressedError/prototype/name.js",
+    "built-ins/SuppressedError/prototype/prop-desc.js",
+    "built-ins/SuppressedError/prototype/proto.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

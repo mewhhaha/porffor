@@ -101,6 +101,23 @@ pub(crate) const ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX: u32 = 81;
 pub(crate) const STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 82;
 pub(crate) const PROMISE_PROTOTYPE_GLOBAL_INDEX: u32 = 83;
 pub(crate) const PROMISE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 84;
+pub(crate) const PROMISE_JOB_QUEUE_HEAD_GLOBAL_INDEX: u32 = 85;
+pub(crate) const PROMISE_JOB_QUEUE_TAIL_GLOBAL_INDEX: u32 = 86;
+pub(crate) const MAP_PROTOTYPE_GLOBAL_INDEX: u32 = 87;
+pub(crate) const MAP_CONSTRUCTOR_GLOBAL_INDEX: u32 = 88;
+pub(crate) const SET_PROTOTYPE_GLOBAL_INDEX: u32 = 89;
+pub(crate) const SET_CONSTRUCTOR_GLOBAL_INDEX: u32 = 90;
+pub(crate) const MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 91;
+pub(crate) const SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 92;
+pub(crate) const GENERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 93;
+pub(crate) const GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX: u32 = 94;
+pub(crate) const GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 95;
+pub(crate) const ASYNC_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 96;
+pub(crate) const ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX: u32 = 97;
+pub(crate) const ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 98;
+pub(crate) const ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 99;
+pub(crate) const ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX: u32 = 100;
+pub(crate) const ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 101;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -460,6 +477,74 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Promise",
         index: PROMISE_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "[[PromiseJobQueueHead]]",
+        index: PROMISE_JOB_QUEUE_HEAD_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[PromiseJobQueueTail]]",
+        index: PROMISE_JOB_QUEUE_TAIL_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Map.prototype",
+        index: MAP_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Map",
+        index: MAP_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Set.prototype",
+        index: SET_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Set",
+        index: SET_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%MapIteratorPrototype%",
+        index: MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%SetIteratorPrototype%",
+        index: SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%GeneratorPrototype%",
+        index: GENERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%GeneratorFunction.prototype%",
+        index: GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%GeneratorFunction%",
+        index: GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncIteratorPrototype%",
+        index: ASYNC_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncFunction.prototype%",
+        index: ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncFunction%",
+        index: ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncGeneratorPrototype%",
+        index: ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncGeneratorFunction.prototype%",
+        index: ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%AsyncGeneratorFunction%",
+        index: ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -477,6 +562,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
     match builtin {
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::PromiseConstructor => Some(PROMISE_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::MapConstructor => Some(MAP_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::SetConstructor => Some(SET_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {
             Some(AGGREGATE_ERROR_CONSTRUCTOR_GLOBAL_INDEX)
         }
@@ -664,6 +751,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ObjectPrototypeHasOwnProperty
         | StandardBuiltinId::ObjectPrototypeLookupGetter
         | StandardBuiltinId::ObjectPrototypeLookupSetter
+        | StandardBuiltinId::ObjectPrototypeProtoGetter
+        | StandardBuiltinId::ObjectPrototypeProtoSetter
         | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable
         | StandardBuiltinId::ObjectPrototypeIsPrototypeOf
         | StandardBuiltinId::ObjectPrototypeToString
@@ -685,9 +774,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ReflectSetPrototypeOf
         | StandardBuiltinId::ReflectOwnKeys
         | StandardBuiltinId::ArrayFrom
+        | StandardBuiltinId::ArrayFromAsync
+        | StandardBuiltinId::ArrayFromAsyncFulfilled
+        | StandardBuiltinId::ArrayFromAsyncRejected
         | StandardBuiltinId::ArrayOf
         | StandardBuiltinId::ArrayIsArray
         | StandardBuiltinId::ArraySpeciesGetter
+        | StandardBuiltinId::TypedArraySpeciesGetter
         | StandardBuiltinId::ArrayPrototypeConcat
         | StandardBuiltinId::ArrayPrototypeJoin
         | StandardBuiltinId::ArrayPrototypeSlice
@@ -728,6 +821,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayIteratorNext
         | StandardBuiltinId::ArrayIteratorIdentity
         | StandardBuiltinId::StringIteratorNext
+        | StandardBuiltinId::GeneratorPrototypeNext
+        | StandardBuiltinId::GeneratorPrototypeReturn
+        | StandardBuiltinId::GeneratorPrototypeThrow
+        | StandardBuiltinId::AsyncGeneratorPrototypeNext
+        | StandardBuiltinId::AsyncGeneratorPrototypeReturn
+        | StandardBuiltinId::AsyncGeneratorPrototypeThrow
         | StandardBuiltinId::IteratorFrom
         | StandardBuiltinId::IteratorZip
         | StandardBuiltinId::IteratorZipNext
@@ -843,9 +942,36 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
         | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
         | StandardBuiltinId::TypedArrayPrototypeLengthGetter
+        | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
         | StandardBuiltinId::TypedArrayPrototypeToString
+        | StandardBuiltinId::TypedArrayPrototypeAt
+        | StandardBuiltinId::TypedArrayPrototypeIncludes
+        | StandardBuiltinId::TypedArrayPrototypeIndexOf
+        | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
+        | StandardBuiltinId::TypedArrayPrototypeFind
+        | StandardBuiltinId::TypedArrayPrototypeFindIndex
+        | StandardBuiltinId::TypedArrayPrototypeFindLast
+        | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
+        | StandardBuiltinId::TypedArrayPrototypeEvery
+        | StandardBuiltinId::TypedArrayPrototypeSome
+        | StandardBuiltinId::TypedArrayPrototypeMap
+        | StandardBuiltinId::TypedArrayPrototypeFilter
+        | StandardBuiltinId::TypedArrayPrototypeForEach
+        | StandardBuiltinId::TypedArrayPrototypeReduce
+        | StandardBuiltinId::TypedArrayPrototypeReduceRight
+        | StandardBuiltinId::TypedArrayPrototypeValues
+        | StandardBuiltinId::TypedArrayPrototypeKeys
+        | StandardBuiltinId::TypedArrayPrototypeEntries
         | StandardBuiltinId::TypedArrayPrototypeJoin
         | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+        | StandardBuiltinId::TypedArrayPrototypeSubarray
+        | StandardBuiltinId::TypedArrayPrototypeSlice
+        | StandardBuiltinId::TypedArrayPrototypeSet
+        | StandardBuiltinId::TypedArrayPrototypeReverse
+        | StandardBuiltinId::TypedArrayPrototypeSort
+        | StandardBuiltinId::TypedArrayPrototypeToReversed
+        | StandardBuiltinId::TypedArrayPrototypeToSorted
+        | StandardBuiltinId::TypedArrayPrototypeWith
         | StandardBuiltinId::TypedArrayFrom
         | StandardBuiltinId::TypedArrayOf
         | StandardBuiltinId::DataViewPrototypeGetUint8
@@ -899,8 +1025,65 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::SymbolPrototypeToString
         | StandardBuiltinId::SymbolPrototypeValueOf
         | StandardBuiltinId::SymbolPrototypeToPrimitive
+        | StandardBuiltinId::PromisePrototypeThen
+        | StandardBuiltinId::PromisePrototypeCatch
+        | StandardBuiltinId::PromisePrototypeFinally
+        | StandardBuiltinId::PromiseThenFinally
+        | StandardBuiltinId::PromiseCatchFinally
+        | StandardBuiltinId::PromiseValueThunk
+        | StandardBuiltinId::PromiseThrower
+        | StandardBuiltinId::PromiseSpeciesGetter
+        | StandardBuiltinId::PromiseResolve
+        | StandardBuiltinId::PromiseWithResolvers
+        | StandardBuiltinId::PromiseTry
+        | StandardBuiltinId::PromiseReject
+        | StandardBuiltinId::PromiseAll
+        | StandardBuiltinId::PromiseAllSettled
+        | StandardBuiltinId::PromiseAllKeyed
+        | StandardBuiltinId::PromiseAllSettledKeyed
+        | StandardBuiltinId::PromiseAny
+        | StandardBuiltinId::PromiseRace
+        | StandardBuiltinId::PromiseAllResolveElement
+        | StandardBuiltinId::PromiseAllSettledResolveElement
+        | StandardBuiltinId::PromiseAllSettledRejectElement
+        | StandardBuiltinId::PromiseAnyRejectElement
+        | StandardBuiltinId::PromiseAllKeyedResolveElement
+        | StandardBuiltinId::PromiseAllSettledKeyedResolveElement
+        | StandardBuiltinId::PromiseAllSettledKeyedRejectElement
+        | StandardBuiltinId::PromiseCapabilityExecutor
         | StandardBuiltinId::PromiseResolveFunction
-        | StandardBuiltinId::PromiseRejectFunction => None,
+        | StandardBuiltinId::PromiseRejectFunction
+        | StandardBuiltinId::MapGroupBy
+        | StandardBuiltinId::ObjectGroupBy
+        | StandardBuiltinId::MapPrototypeClear
+        | StandardBuiltinId::MapPrototypeDelete
+        | StandardBuiltinId::MapPrototypeForEach
+        | StandardBuiltinId::MapPrototypeKeys
+        | StandardBuiltinId::MapPrototypeValues
+        | StandardBuiltinId::MapPrototypeEntries
+        | StandardBuiltinId::MapIteratorNext
+        | StandardBuiltinId::MapPrototypeGet
+        | StandardBuiltinId::MapPrototypeGetOrInsert
+        | StandardBuiltinId::MapPrototypeGetOrInsertComputed
+        | StandardBuiltinId::MapPrototypeHas
+        | StandardBuiltinId::MapPrototypeSet
+        | StandardBuiltinId::MapPrototypeSizeGetter
+        | StandardBuiltinId::SetPrototypeAdd
+        | StandardBuiltinId::SetPrototypeClear
+        | StandardBuiltinId::SetPrototypeDelete
+        | StandardBuiltinId::SetPrototypeDifference
+        | StandardBuiltinId::SetPrototypeForEach
+        | StandardBuiltinId::SetPrototypeIntersection
+        | StandardBuiltinId::SetPrototypeIsDisjointFrom
+        | StandardBuiltinId::SetPrototypeIsSubsetOf
+        | StandardBuiltinId::SetPrototypeIsSupersetOf
+        | StandardBuiltinId::SetPrototypeSymmetricDifference
+        | StandardBuiltinId::SetPrototypeUnion
+        | StandardBuiltinId::SetPrototypeValues
+        | StandardBuiltinId::SetPrototypeEntries
+        | StandardBuiltinId::SetIteratorNext
+        | StandardBuiltinId::SetPrototypeHas
+        | StandardBuiltinId::SetPrototypeSizeGetter => None,
     }
 }
 
@@ -1161,6 +1344,8 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::ObjectConstructor => Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::PromiseConstructor => Some(PROMISE_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::MapConstructor => Some(MAP_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::SetConstructor => Some(SET_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::NumberConstructor => Some(NUMBER_PROTOTYPE_GLOBAL_INDEX),
@@ -1257,6 +1442,10 @@ mod tests {
         assert_eq!(
             THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX, HEAP_PTR_GLOBAL_INDEX,
             "no-heap throw-error-name export intentionally aliases the heap pointer slot"
+        );
+        assert_eq!(
+            GLOBAL_INDEX_REGISTRY.len(),
+            ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
     }
 }

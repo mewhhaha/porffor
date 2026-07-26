@@ -1,5 +1,5 @@
 use super::*;
-use boa_ast::pattern::ArrayPattern;
+use boa_ast::pattern::{ArrayPattern, ObjectPattern};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PendingFunction<'a> {
@@ -7,6 +7,7 @@ pub(crate) struct PendingFunction<'a> {
     pub(crate) name: String,
     pub(crate) to_string_representation: CallableToStringRepresentation,
     pub(crate) flavor: FunctionFlavor,
+    pub(crate) execution_kind: FunctionExecutionKind,
     pub(crate) strict: bool,
     pub(crate) constructable: bool,
     pub(crate) self_binding_name: Option<String>,
@@ -118,6 +119,7 @@ pub(crate) struct FunctionPlan<'a> {
     pub(crate) name: String,
     pub(crate) to_string_representation: CallableToStringRepresentation,
     pub(crate) flavor: FunctionFlavor,
+    pub(crate) execution_kind: FunctionExecutionKind,
     pub(crate) strict: bool,
     pub(crate) constructable: bool,
     pub(crate) self_binding_name: Option<String>,
@@ -220,6 +222,9 @@ pub(crate) struct AnalysisBuilder<'a> {
     private_environment_plans: BTreeMap<PrivateEnvironmentId, PrivateEnvironmentPlan>,
     class_private_environment_ids: BTreeMap<String, PrivateEnvironmentId>,
     function_free_refs: BTreeMap<FunctionId, BTreeMap<String, String>>,
+    parameter_environment_bindings: BTreeMap<String, BTreeSet<String>>,
+    parameter_expression_environment_owners: BTreeMap<FunctionId, BTreeSet<String>>,
+    scanning_parameter_owners: BTreeSet<String>,
     function_order: Vec<FunctionId>,
     next_function_id: usize,
     next_environment_id: usize,
@@ -1098,6 +1103,98 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> Vec<PendingFunction<'a>> {
         let mut functions = Vec::new();
         for item in items {
+            let async_generator = match item {
+                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                    Declaration::AsyncGeneratorDeclaration(function) => Some(function),
+                    _ => None,
+                },
+                StatementListItem::Statement(_) => None,
+            };
+            if let Some(function) = async_generator {
+                let id = self.alloc_function_id();
+                self.function_declaration_ids
+                    .insert(async_generator_declaration_key(function), id.clone());
+                functions.push(PendingFunction {
+                    id,
+                    name: interner.resolve_expect(function.name().sym()).to_string(),
+                    to_string_representation: CallableToStringRepresentation::ExactSource(
+                        async_generator_declaration_source_slice(function, source_text),
+                    ),
+                    flavor: FunctionFlavor::Ordinary,
+                    execution_kind: FunctionExecutionKind::AsyncGenerator,
+                    strict: owner_strict || function.body().strict(),
+                    constructable: false,
+                    self_binding_name: None,
+                    parameters: function.parameters(),
+                    body: function.body(),
+                    is_expression: false,
+                    capture_aliases: capture_aliases.clone(),
+                });
+                continue;
+            }
+
+            let async_function = match item {
+                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                    Declaration::AsyncFunctionDeclaration(function) => Some(function),
+                    _ => None,
+                },
+                StatementListItem::Statement(_) => None,
+            };
+            if let Some(function) = async_function {
+                let id = self.alloc_function_id();
+                self.function_declaration_ids
+                    .insert(async_function_declaration_key(function), id.clone());
+                functions.push(PendingFunction {
+                    id,
+                    name: interner.resolve_expect(function.name().sym()).to_string(),
+                    to_string_representation: CallableToStringRepresentation::ExactSource(
+                        async_function_declaration_source_slice(function, source_text),
+                    ),
+                    flavor: FunctionFlavor::Ordinary,
+                    execution_kind: FunctionExecutionKind::Async,
+                    strict: owner_strict || function.body().strict(),
+                    constructable: false,
+                    self_binding_name: None,
+                    parameters: function.parameters(),
+                    body: function.body(),
+                    is_expression: false,
+                    capture_aliases: capture_aliases.clone(),
+                });
+                continue;
+            }
+
+            let generator = match item {
+                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                    Declaration::GeneratorDeclaration(function) => Some(function),
+                    _ => None,
+                },
+                StatementListItem::Statement(_) => None,
+            };
+            if let Some(function) = generator.filter(|function| {
+                generator_function_is_aot_supported(function.body(), function.parameters())
+            }) {
+                let id = self.alloc_function_id();
+                self.function_declaration_ids
+                    .insert(generator_declaration_key(function), id.clone());
+                functions.push(PendingFunction {
+                    id,
+                    name: interner.resolve_expect(function.name().sym()).to_string(),
+                    to_string_representation: CallableToStringRepresentation::ExactSource(
+                        generator_declaration_source_slice(function, source_text),
+                    ),
+                    flavor: FunctionFlavor::Ordinary,
+                    execution_kind: FunctionExecutionKind::Generator,
+                    strict: owner_strict || function.body().strict(),
+                    constructable: false,
+                    self_binding_name: None,
+                    parameters: function.parameters(),
+                    body: function.body(),
+                    is_expression: false,
+                    capture_aliases: capture_aliases.clone(),
+                });
+                continue;
+            }
+
             let function = match item {
                 StatementListItem::Declaration(declaration) => {
                     let Declaration::FunctionDeclaration(function) = declaration.as_ref() else {
@@ -1126,6 +1223,7 @@ impl<'a> AnalysisBuilder<'a> {
                     function_source_slice(function, source_text),
                 ),
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 strict: owner_strict || function.body().strict(),
                 constructable: true,
                 self_binding_name: None,
@@ -1147,6 +1245,18 @@ impl<'a> AnalysisBuilder<'a> {
         source_text: &'a str,
     ) {
         let owner_id = function.id.clone();
+        let mut parameter_environment_owners = self
+            .parameter_expression_environment_owners
+            .get(&parent_owner_id)
+            .cloned()
+            .unwrap_or_default();
+        if self.scanning_parameter_owners.contains(&parent_owner_id) {
+            parameter_environment_owners.insert(parent_owner_id.clone());
+        }
+        if !parameter_environment_owners.is_empty() {
+            self.parameter_expression_environment_owners
+                .insert(owner_id.clone(), parameter_environment_owners);
+        }
         self.collect_owner_annex_b_function_plans(
             &owner_id,
             annex_b_function_declarations(function.body),
@@ -1169,6 +1279,28 @@ impl<'a> AnalysisBuilder<'a> {
         } else {
             Vec::new()
         };
+        let mut parameter_environment_bindings = function
+            .parameters
+            .as_ref()
+            .iter()
+            .flat_map(|parameter| {
+                let mut names = Vec::new();
+                collect_binding_names(interner, parameter.variable().binding(), &mut names);
+                names
+            })
+            .collect::<BTreeSet<_>>();
+        if let Some(self_binding_name) = function.self_binding_name.as_ref() {
+            parameter_environment_bindings.insert(self_binding_name.clone());
+        }
+        if function.flavor == FunctionFlavor::Ordinary {
+            parameter_environment_bindings.extend([
+                LEXICAL_THIS_NAME.to_string(),
+                LEXICAL_ARGUMENTS_NAME.to_string(),
+                LEXICAL_NEW_TARGET_NAME.to_string(),
+            ]);
+        }
+        self.parameter_environment_bindings
+            .insert(owner_id.clone(), parameter_environment_bindings);
         let mut owned_env_slots = BTreeMap::new();
         for (slot, name) in simple_parameter_names.iter().enumerate() {
             owned_env_slots.insert(name.clone(), slot as u32);
@@ -1255,6 +1387,7 @@ impl<'a> AnalysisBuilder<'a> {
                 name: function.name.clone(),
                 to_string_representation: function.to_string_representation.clone(),
                 flavor: function.flavor,
+                execution_kind: function.execution_kind,
                 strict: function.strict,
                 constructable: function.constructable,
                 self_binding_name: function.self_binding_name.clone(),
@@ -2392,6 +2525,7 @@ impl<'a> AnalysisBuilder<'a> {
         self.environment_cursor_stack
             .push(activation_cursor.clone());
         let mut refs = BTreeMap::new();
+        self.scanning_parameter_owners.insert(owner_id.to_string());
         for parameter in parameters {
             if let Binding::Pattern(pattern) = parameter.variable().binding() {
                 self.scan_pattern_expressions(
@@ -2416,6 +2550,7 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
         }
+        self.scanning_parameter_owners.remove(owner_id);
         for item in items {
             self.scan_item(
                 owner_id,
@@ -2493,6 +2628,38 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 Declaration::FunctionDeclaration(function) => {
                     self.collect_non_root_function_declaration(
+                        owner_id,
+                        function,
+                        interner,
+                        source_text,
+                        capture_aliases,
+                    );
+                }
+                Declaration::GeneratorDeclaration(function)
+                    if generator_function_is_aot_supported(
+                        function.body(),
+                        function.parameters(),
+                    ) =>
+                {
+                    self.collect_non_root_generator_declaration(
+                        owner_id,
+                        function,
+                        interner,
+                        source_text,
+                        capture_aliases,
+                    );
+                }
+                Declaration::AsyncFunctionDeclaration(function) => {
+                    self.collect_non_root_async_function_declaration(
+                        owner_id,
+                        function,
+                        interner,
+                        source_text,
+                        capture_aliases,
+                    );
+                }
+                Declaration::AsyncGeneratorDeclaration(function) => {
+                    self.collect_non_root_async_generator_declaration(
                         owner_id,
                         function,
                         interner,
@@ -2675,6 +2842,7 @@ impl<'a> AnalysisBuilder<'a> {
                 function_source_slice(function, source_text),
             ),
             flavor: FunctionFlavor::Ordinary,
+            execution_kind: FunctionExecutionKind::Ordinary,
             strict: self
                 .owner_plans
                 .get(owner_id)
@@ -2686,6 +2854,135 @@ impl<'a> AnalysisBuilder<'a> {
             body: function.body(),
             is_expression: false,
             capture_aliases: function_capture_aliases,
+        };
+        self.collect_function_plan(
+            pending,
+            owner_id.to_string(),
+            self.current_environment_cursor(),
+            interner,
+            source_text,
+        );
+    }
+
+    fn collect_non_root_generator_declaration(
+        &mut self,
+        owner_id: &str,
+        function: &'a GeneratorDeclaration,
+        interner: &'a Interner,
+        source_text: &'a str,
+        capture_aliases: &BTreeMap<String, String>,
+    ) {
+        let key = generator_declaration_key(function);
+        if self.function_declaration_ids.contains_key(&key) {
+            return;
+        }
+        let id = self.alloc_function_id();
+        self.function_declaration_ids.insert(key, id.clone());
+        let pending = PendingFunction {
+            id,
+            name: interner.resolve_expect(function.name().sym()).to_string(),
+            to_string_representation: CallableToStringRepresentation::ExactSource(
+                generator_declaration_source_slice(function, source_text),
+            ),
+            flavor: FunctionFlavor::Ordinary,
+            execution_kind: FunctionExecutionKind::Generator,
+            strict: self
+                .owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.strict)
+                || function.body().strict(),
+            constructable: false,
+            self_binding_name: None,
+            parameters: function.parameters(),
+            body: function.body(),
+            is_expression: false,
+            capture_aliases: capture_aliases.clone(),
+        };
+        self.collect_function_plan(
+            pending,
+            owner_id.to_string(),
+            self.current_environment_cursor(),
+            interner,
+            source_text,
+        );
+    }
+
+    fn collect_non_root_async_function_declaration(
+        &mut self,
+        owner_id: &str,
+        function: &'a AsyncFunctionDeclaration,
+        interner: &'a Interner,
+        source_text: &'a str,
+        capture_aliases: &BTreeMap<String, String>,
+    ) {
+        let key = async_function_declaration_key(function);
+        if self.function_declaration_ids.contains_key(&key) {
+            return;
+        }
+        let id = self.alloc_function_id();
+        self.function_declaration_ids.insert(key, id.clone());
+        let pending = PendingFunction {
+            id,
+            name: interner.resolve_expect(function.name().sym()).to_string(),
+            to_string_representation: CallableToStringRepresentation::ExactSource(
+                async_function_declaration_source_slice(function, source_text),
+            ),
+            flavor: FunctionFlavor::Ordinary,
+            execution_kind: FunctionExecutionKind::Async,
+            strict: self
+                .owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.strict)
+                || function.body().strict(),
+            constructable: false,
+            self_binding_name: None,
+            parameters: function.parameters(),
+            body: function.body(),
+            is_expression: false,
+            capture_aliases: capture_aliases.clone(),
+        };
+        self.collect_function_plan(
+            pending,
+            owner_id.to_string(),
+            self.current_environment_cursor(),
+            interner,
+            source_text,
+        );
+    }
+
+    fn collect_non_root_async_generator_declaration(
+        &mut self,
+        owner_id: &str,
+        function: &'a AsyncGeneratorDeclaration,
+        interner: &'a Interner,
+        source_text: &'a str,
+        capture_aliases: &BTreeMap<String, String>,
+    ) {
+        let key = async_generator_declaration_key(function);
+        if self.function_declaration_ids.contains_key(&key) {
+            return;
+        }
+        let id = self.alloc_function_id();
+        self.function_declaration_ids.insert(key, id.clone());
+        let pending = PendingFunction {
+            id,
+            name: interner.resolve_expect(function.name().sym()).to_string(),
+            to_string_representation: CallableToStringRepresentation::ExactSource(
+                async_generator_declaration_source_slice(function, source_text),
+            ),
+            flavor: FunctionFlavor::Ordinary,
+            execution_kind: FunctionExecutionKind::AsyncGenerator,
+            strict: self
+                .owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.strict)
+                || function.body().strict(),
+            constructable: false,
+            self_binding_name: None,
+            parameters: function.parameters(),
+            body: function.body(),
+            is_expression: false,
+            capture_aliases: capture_aliases.clone(),
         };
         self.collect_function_plan(
             pending,
@@ -2761,6 +3058,20 @@ impl<'a> AnalysisBuilder<'a> {
                         activation_environment_id,
                         definition_environment_cursor.clone(),
                     );
+                    let owned_env_slots = matches!(
+                        method.kind(),
+                        MethodDefinitionKind::Generator
+                            | MethodDefinitionKind::Async
+                            | MethodDefinitionKind::AsyncGenerator
+                    )
+                    .then(|| {
+                        root_bindings
+                            .iter()
+                            .enumerate()
+                            .map(|(slot, name)| (name.clone(), slot as u32))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                     self.owner_plans.insert(
                         id.clone(),
                         OwnerPlan {
@@ -2774,7 +3085,7 @@ impl<'a> AnalysisBuilder<'a> {
                                 .iter()
                                 .map(|nested| (nested.name.clone(), nested.id.clone()))
                                 .collect(),
-                            owned_env_slots: BTreeMap::new(),
+                            owned_env_slots,
                             is_derived_constructor: false,
                             private_environment_id: self.current_private_environment_id(),
                         },
@@ -4087,11 +4398,30 @@ impl<'a> AnalysisBuilder<'a> {
                     debug_assert_eq!(cursor, expected_cursor);
                 }
             }
+            Statement::With(with) => {
+                self.scan_expression(
+                    owner_id,
+                    with.expression(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
+                self.scan_statement(
+                    owner_id,
+                    with.statement(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
+            }
             Statement::Break(_)
             | Statement::Continue(_)
             | Statement::Debugger
-            | Statement::Empty
-            | Statement::With(_) => {}
+            | Statement::Empty => {}
         }
     }
 
@@ -4162,17 +4492,15 @@ impl<'a> AnalysisBuilder<'a> {
                             refs,
                         );
                     }
-                    if let Pattern::Array(pattern) = pattern {
-                        self.scan_array_pattern_expressions(
-                            owner_id,
-                            pattern,
-                            interner,
-                            source_text,
-                            self_name,
-                            capture_aliases,
-                            refs,
-                        );
-                    }
+                    self.scan_pattern_expressions(
+                        owner_id,
+                        pattern,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
                 ArrayPatternElement::PropertyAccessRest { access } => {
                     self.scan_property_access(
@@ -4186,10 +4514,49 @@ impl<'a> AnalysisBuilder<'a> {
                     );
                 }
                 ArrayPatternElement::PatternRest { pattern } => {
-                    if let Pattern::Array(pattern) = pattern {
-                        self.scan_array_pattern_expressions(
+                    self.scan_pattern_expressions(
+                        owner_id,
+                        pattern,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scan_object_pattern_expressions(
+        &mut self,
+        owner_id: &str,
+        pattern: &'a ObjectPattern,
+        interner: &'a Interner,
+        source_text: &'a str,
+        self_name: Option<&str>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        for element in pattern.bindings() {
+            match element {
+                ObjectPatternElement::SingleName {
+                    name, default_init, ..
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
                             owner_id,
-                            pattern,
+                            default,
                             interner,
                             source_text,
                             self_name,
@@ -4198,6 +4565,88 @@ impl<'a> AnalysisBuilder<'a> {
                         );
                     }
                 }
+                ObjectPatternElement::Pattern {
+                    name,
+                    pattern,
+                    default_init,
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
+                            owner_id,
+                            default,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                    self.scan_pattern_expressions(
+                        owner_id,
+                        pattern,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+                ObjectPatternElement::AssignmentPropertyAccess {
+                    name,
+                    access,
+                    default_init,
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    self.scan_property_access(
+                        owner_id,
+                        access,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
+                            owner_id,
+                            default,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                }
+                ObjectPatternElement::AssignmentRestPropertyAccess { access } => {
+                    self.scan_property_access(
+                        owner_id,
+                        access,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+                ObjectPatternElement::RestProperty { .. } => {}
             }
         }
     }
@@ -4212,8 +4661,8 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
-        if let Pattern::Array(pattern) = pattern {
-            self.scan_array_pattern_expressions(
+        match pattern {
+            Pattern::Array(pattern) => self.scan_array_pattern_expressions(
                 owner_id,
                 pattern,
                 interner,
@@ -4221,7 +4670,16 @@ impl<'a> AnalysisBuilder<'a> {
                 self_name,
                 capture_aliases,
                 refs,
-            );
+            ),
+            Pattern::Object(pattern) => self.scan_object_pattern_expressions(
+                owner_id,
+                pattern,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            ),
         }
     }
 
@@ -4498,6 +4956,20 @@ impl<'a> AnalysisBuilder<'a> {
                                             object_method_source_slice(method, source_text),
                                         ),
                                     flavor: FunctionFlavor::Ordinary,
+                                    execution_kind: match method.kind() {
+                                        MethodDefinitionKind::Generator => {
+                                            FunctionExecutionKind::Generator
+                                        }
+                                        MethodDefinitionKind::Async => FunctionExecutionKind::Async,
+                                        MethodDefinitionKind::AsyncGenerator => {
+                                            FunctionExecutionKind::AsyncGenerator
+                                        }
+                                        MethodDefinitionKind::Ordinary
+                                        | MethodDefinitionKind::Get
+                                        | MethodDefinitionKind::Set => {
+                                            FunctionExecutionKind::Ordinary
+                                        }
+                                    },
                                     strict: self
                                         .owner_plans
                                         .get(owner_id)
@@ -4719,12 +5191,132 @@ impl<'a> AnalysisBuilder<'a> {
                             function_expression_source_slice(function, source_text),
                         ),
                         flavor: FunctionFlavor::Ordinary,
+                        execution_kind: FunctionExecutionKind::Ordinary,
                         strict: self
                             .owner_plans
                             .get(owner_id)
                             .is_some_and(|owner| owner.strict)
                             || function.body().strict(),
                         constructable: true,
+                        self_binding_name,
+                        parameters: function.parameters(),
+                        body: function.body(),
+                        is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
+                    };
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        self.current_environment_cursor(),
+                        interner,
+                        source_text,
+                    );
+                }
+            }
+            Expression::AsyncFunctionExpression(function) => {
+                let key = async_function_expression_key(function);
+                if !self.function_expr_ids.contains_key(&key) {
+                    let id = self.alloc_function_id();
+                    self.function_expr_ids.insert(key, id.clone());
+                    let name = function
+                        .name()
+                        .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
+                        .unwrap_or_default();
+                    let self_binding_name = function.has_binding_identifier().then(|| name.clone());
+                    let pending = PendingFunction {
+                        id,
+                        name,
+                        to_string_representation: CallableToStringRepresentation::ExactSource(
+                            async_function_expression_source_slice(function, source_text),
+                        ),
+                        flavor: FunctionFlavor::Ordinary,
+                        execution_kind: FunctionExecutionKind::Async,
+                        strict: self
+                            .owner_plans
+                            .get(owner_id)
+                            .is_some_and(|owner| owner.strict)
+                            || function.body().strict(),
+                        constructable: false,
+                        self_binding_name,
+                        parameters: function.parameters(),
+                        body: function.body(),
+                        is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
+                    };
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        self.current_environment_cursor(),
+                        interner,
+                        source_text,
+                    );
+                }
+            }
+            Expression::AsyncGeneratorExpression(function) => {
+                let key = async_generator_expression_key(function);
+                if !self.function_expr_ids.contains_key(&key) {
+                    let id = self.alloc_function_id();
+                    self.function_expr_ids.insert(key, id.clone());
+                    let name = function
+                        .name()
+                        .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
+                        .unwrap_or_default();
+                    let self_binding_name = function.has_binding_identifier().then(|| name.clone());
+                    let pending = PendingFunction {
+                        id,
+                        name,
+                        to_string_representation: CallableToStringRepresentation::ExactSource(
+                            async_generator_expression_source_slice(function, source_text),
+                        ),
+                        flavor: FunctionFlavor::Ordinary,
+                        execution_kind: FunctionExecutionKind::AsyncGenerator,
+                        strict: self
+                            .owner_plans
+                            .get(owner_id)
+                            .is_some_and(|owner| owner.strict)
+                            || function.body().strict(),
+                        constructable: false,
+                        self_binding_name,
+                        parameters: function.parameters(),
+                        body: function.body(),
+                        is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
+                    };
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        self.current_environment_cursor(),
+                        interner,
+                        source_text,
+                    );
+                }
+            }
+            Expression::GeneratorExpression(function)
+                if generator_function_is_aot_supported(function.body(), function.parameters()) =>
+            {
+                let key = generator_expression_key(function);
+                if !self.function_expr_ids.contains_key(&key) {
+                    let id = self.alloc_function_id();
+                    self.function_expr_ids.insert(key, id.clone());
+                    let name = function
+                        .name()
+                        .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
+                        .unwrap_or_default();
+                    let self_binding_name = function.has_binding_identifier().then(|| name.clone());
+                    let pending = PendingFunction {
+                        id,
+                        name,
+                        to_string_representation: CallableToStringRepresentation::ExactSource(
+                            generator_expression_source_slice(function, source_text),
+                        ),
+                        flavor: FunctionFlavor::Ordinary,
+                        execution_kind: FunctionExecutionKind::Generator,
+                        strict: self
+                            .owner_plans
+                            .get(owner_id)
+                            .is_some_and(|owner| owner.strict)
+                            || function.body().strict(),
+                        constructable: false,
                         self_binding_name,
                         parameters: function.parameters(),
                         body: function.body(),
@@ -4755,6 +5347,44 @@ impl<'a> AnalysisBuilder<'a> {
                             arrow_function_source_slice(function, source_text),
                         ),
                         flavor: FunctionFlavor::Arrow,
+                        execution_kind: FunctionExecutionKind::Ordinary,
+                        strict: self
+                            .owner_plans
+                            .get(owner_id)
+                            .is_some_and(|owner| owner.strict)
+                            || function.body().strict(),
+                        constructable: false,
+                        self_binding_name: None,
+                        parameters: function.parameters(),
+                        body: function.body(),
+                        is_expression: true,
+                        capture_aliases: capture_aliases.clone(),
+                    };
+                    self.collect_function_plan(
+                        pending,
+                        owner_id.to_string(),
+                        self.current_environment_cursor(),
+                        interner,
+                        source_text,
+                    );
+                }
+            }
+            Expression::AsyncArrowFunction(function) => {
+                let key = async_arrow_function_key(function);
+                if !self.function_expr_ids.contains_key(&key) {
+                    let id = self.alloc_function_id();
+                    self.function_expr_ids.insert(key, id.clone());
+                    let pending = PendingFunction {
+                        id,
+                        name: function
+                            .name()
+                            .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
+                            .unwrap_or_default(),
+                        to_string_representation: CallableToStringRepresentation::ExactSource(
+                            async_arrow_function_source_slice(function, source_text),
+                        ),
+                        flavor: FunctionFlavor::Arrow,
+                        execution_kind: FunctionExecutionKind::Async,
                         strict: self
                             .owner_plans
                             .get(owner_id)
@@ -4943,16 +5573,33 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
             }
-            Expression::AsyncArrowFunction(_)
-            | Expression::Literal(_)
+            Expression::Await(await_expression) => self.scan_expression(
+                owner_id,
+                await_expression.target(),
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            ),
+            Expression::Yield(yield_expression) => {
+                if let Some(target) = yield_expression.target() {
+                    self.scan_expression(
+                        owner_id,
+                        target,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+            }
+            Expression::Literal(_)
             | Expression::RegExpLiteral(_)
             | Expression::GeneratorExpression(_)
-            | Expression::AsyncFunctionExpression(_)
-            | Expression::AsyncGeneratorExpression(_)
             | Expression::ImportCall(_)
             | Expression::ImportMeta(_)
-            | Expression::Await(_)
-            | Expression::Yield(_)
             | Expression::FormalParameterList(_)
             | Expression::Debugger => {}
             Expression::Spread(spread) => {
@@ -5120,6 +5767,24 @@ impl<'a> AnalysisBuilder<'a> {
                         DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
                     ]);
             }
+        }
+        for function in self.function_plans.values() {
+            if !matches!(
+                function.execution_kind,
+                FunctionExecutionKind::Generator
+                    | FunctionExecutionKind::Async
+                    | FunctionExecutionKind::AsyncGenerator
+            ) {
+                continue;
+            }
+            let owner = self
+                .owner_plans
+                .get(&function.id)
+                .expect("generator owner must be planned");
+            owned_names
+                .entry(owner.activation_environment_id)
+                .or_default()
+                .extend(owner.root_bindings.iter().cloned());
         }
         let function_ids = self.function_order.clone();
         for function_id in function_ids {
@@ -5409,6 +6074,21 @@ impl<'a> AnalysisBuilder<'a> {
         );
         while let Some(current) = cursor {
             let environment = self.environment_plans.get(&current.environment_id)?;
+            let body_environment_is_hidden = self
+                .parameter_expression_environment_owners
+                .get(function_owner_id)
+                .is_some_and(|parameter_owner_ids| {
+                    environment.kind == EnvironmentKind::Activation
+                        && parameter_owner_ids.contains(&environment.owner_id)
+                        && !self
+                            .parameter_environment_bindings
+                            .get(&environment.owner_id)
+                            .is_some_and(|bindings| bindings.contains(name))
+                });
+            if body_environment_is_hidden {
+                cursor = environment.parent_cursor.clone();
+                continue;
+            }
             if self
                 .physical_binding_environments
                 .get(name)

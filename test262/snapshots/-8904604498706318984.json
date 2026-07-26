@@ -1,0 +1,679 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8904604498706318984,
+  "run_kind": "resume-case-checkpoint",
+  "total": 70,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 55,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 3,
+    "Crash": 0,
+    "NotImplemented": 55,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "path": "staging/sm/types/8.12.5-01.js",
+      "duration_ms": 8487
+    },
+    {
+      "path": "staging/sm/strict/primitive-assignment.js",
+      "duration_ms": 7310
+    },
+    {
+      "path": "staging/sm/strict/unbrand-this.js",
+      "duration_ms": 7009
+    },
+    {
+      "path": "staging/sm/strict/assign-to-callee-name.js",
+      "duration_ms": 6567
+    },
+    {
+      "path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "duration_ms": 6466
+    },
+    {
+      "path": "staging/sm/strict/8.7.2-01.js",
+      "duration_ms": 6274
+    },
+    {
+      "path": "staging/sm/strict/regress-532041.js",
+      "duration_ms": 6124
+    },
+    {
+      "path": "staging/sm/strict/15.4.5.1.js",
+      "duration_ms": 5802
+    },
+    {
+      "path": "staging/sm/strict/regress-599159.js",
+      "duration_ms": 4796
+    },
+    {
+      "path": "staging/sm/strict/primitive-this-getter.js",
+      "duration_ms": 4555
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "staging/sm/statements/for-of-var-with-initializer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/statements/property-reference-self-assignment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/statements/regress-642975.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/statements/try-completion.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/strict/10.4.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/strict/10.4.3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: indirect call: dynamic boolean property. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 1339415143642314428,
+      "duration_ms": 1759
+    },
+    {
+      "test_path": "staging/sm/strict/10.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2494
+    },
+    {
+      "test_path": "staging/sm/strict/11.1.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2283
+    },
+    {
+      "test_path": "staging/sm/strict/11.13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2272
+    },
+    {
+      "test_path": "staging/sm/strict/11.13.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2272
+    },
+    {
+      "test_path": "staging/sm/strict/11.3.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/11.3.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2313
+    },
+    {
+      "test_path": "staging/sm/strict/11.4.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2325
+    },
+    {
+      "test_path": "staging/sm/strict/11.4.4.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2334
+    },
+    {
+      "test_path": "staging/sm/strict/11.4.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/12.10.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2282
+    },
+    {
+      "test_path": "staging/sm/strict/12.14.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2262
+    },
+    {
+      "test_path": "staging/sm/strict/12.2.1-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/12.2.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2263
+    },
+    {
+      "test_path": "staging/sm/strict/13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/15.10.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2384
+    },
+    {
+      "test_path": "staging/sm/strict/15.3.4.5.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1384448)",
+      "detail_hash": 18030018152413622014,
+      "duration_ms": 3218
+    },
+    {
+      "test_path": "staging/sm/strict/15.3.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2192
+    },
+    {
+      "test_path": "staging/sm/strict/15.3.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2272
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.11.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.12.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2302
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.13.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2624
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2706
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.8.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2685
+    },
+    {
+      "test_path": "staging/sm/strict/15.4.4.9.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2363
+    },
+    {
+      "test_path": "staging/sm/strict/15.5.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2323
+    },
+    {
+      "test_path": "staging/sm/strict/15.5.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2302
+    },
+    {
+      "test_path": "staging/sm/strict/8.12.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2736
+    },
+    {
+      "test_path": "staging/sm/strict/8.12.7-2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2323
+    },
+    {
+      "test_path": "staging/sm/strict/8.12.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2333
+    },
+    {
+      "test_path": "staging/sm/strict/8.7.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2546
+    },
+    {
+      "test_path": "staging/sm/strict/B.1.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2292
+    },
+    {
+      "test_path": "staging/sm/strict/B.1.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2367
+    },
+    {
+      "test_path": "staging/sm/strict/deprecated-octal-noctal-tokens.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/strict/directive-prologue-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/strict/eval-variable-environment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2343
+    },
+    {
+      "test_path": "staging/sm/strict/primitive-this-getter.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1382104)",
+      "detail_hash": 7093451698417021494,
+      "duration_ms": 4555
+    },
+    {
+      "test_path": "staging/sm/strict/primitive-this-no-writeback.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1378448)",
+      "detail_hash": 14660657307062085670,
+      "duration_ms": 2805
+    },
+    {
+      "test_path": "staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/strict/regress-532254.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2302
+    },
+    {
+      "test_path": "staging/sm/strict/strict-function-statements.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic eval. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4286792387149679584,
+      "duration_ms": 2448
+    },
+    {
+      "test_path": "staging/sm/syntax/bug1863308.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/class-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/declaration-forbidden-in-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/escaped-let-static-identifier.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/keyword-unescaped-requirement.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/let-as-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `eval dynamic source evaluation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 4340862895924462476,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/sm/syntax/yield-as-identifier.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: ImportCall(ImportCall { arg: Literal(Literal { kind: String(Sym { value: 159 }), span: Span((256, 25), (256, 54)) }), options: None, phase: Source, span: Span((256, 11), (256, 55)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6280049397142304665,
+      "duration_ms": 6466
+    },
+    {
+      "test_path": "staging/top-level-await/tla-hang-entry.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: no lowered script ir. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9875155959959794989,
+      "duration_ms": 70
+    }
+  ],
+  "completed_paths": [
+    "staging/sm/statements/for-of-var-with-initializer.js",
+    "staging/sm/statements/if-constant-folding.js",
+    "staging/sm/statements/property-reference-self-assignment.js",
+    "staging/sm/statements/regress-642975.js",
+    "staging/sm/statements/try-completion.js",
+    "staging/sm/strict/10.4.2.js",
+    "staging/sm/strict/10.4.3.js",
+    "staging/sm/strict/10.6.js",
+    "staging/sm/strict/11.1.5.js",
+    "staging/sm/strict/11.13.1.js",
+    "staging/sm/strict/11.13.2.js",
+    "staging/sm/strict/11.3.1.js",
+    "staging/sm/strict/11.3.2.js",
+    "staging/sm/strict/11.4.1.js",
+    "staging/sm/strict/11.4.4.js",
+    "staging/sm/strict/11.4.5.js",
+    "staging/sm/strict/12.10.1.js",
+    "staging/sm/strict/12.14.1.js",
+    "staging/sm/strict/12.2.1-01.js",
+    "staging/sm/strict/12.2.1.js",
+    "staging/sm/strict/13.1.js",
+    "staging/sm/strict/15.10.7.js",
+    "staging/sm/strict/15.3.4.5.js",
+    "staging/sm/strict/15.3.5.1.js",
+    "staging/sm/strict/15.3.5.2.js",
+    "staging/sm/strict/15.4.4.11.js",
+    "staging/sm/strict/15.4.4.12.js",
+    "staging/sm/strict/15.4.4.13.js",
+    "staging/sm/strict/15.4.4.6.js",
+    "staging/sm/strict/15.4.4.8.js",
+    "staging/sm/strict/15.4.4.9.js",
+    "staging/sm/strict/15.4.5.1.js",
+    "staging/sm/strict/15.5.5.1.js",
+    "staging/sm/strict/15.5.5.2.js",
+    "staging/sm/strict/8.12.5.js",
+    "staging/sm/strict/8.12.7-2.js",
+    "staging/sm/strict/8.12.7.js",
+    "staging/sm/strict/8.7.2-01.js",
+    "staging/sm/strict/8.7.2.js",
+    "staging/sm/strict/B.1.1.js",
+    "staging/sm/strict/B.1.2.js",
+    "staging/sm/strict/assign-to-callee-name.js",
+    "staging/sm/strict/deprecated-octal-noctal-tokens.js",
+    "staging/sm/strict/directive-prologue-01.js",
+    "staging/sm/strict/eval-variable-environment.js",
+    "staging/sm/strict/primitive-assignment.js",
+    "staging/sm/strict/primitive-this-getter.js",
+    "staging/sm/strict/primitive-this-no-writeback.js",
+    "staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+    "staging/sm/strict/regress-532041.js",
+    "staging/sm/strict/regress-532254.js",
+    "staging/sm/strict/regress-599159.js",
+    "staging/sm/strict/strict-function-statements.js",
+    "staging/sm/strict/strict-this-is-not-truthy.js",
+    "staging/sm/strict/this-for-function-expression-recursion.js",
+    "staging/sm/strict/unbrand-this.js",
+    "staging/sm/syntax/bug1863308.js",
+    "staging/sm/syntax/class-error.js",
+    "staging/sm/syntax/declaration-forbidden-in-label.js",
+    "staging/sm/syntax/escaped-let-static-identifier.js",
+    "staging/sm/syntax/keyword-unescaped-requirement.js",
+    "staging/sm/syntax/let-as-label.js",
+    "staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+    "staging/sm/syntax/omitted-catch-binding.js",
+    "staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+    "staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+    "staging/sm/syntax/yield-as-identifier.js",
+    "staging/sm/types/8.12.5-01.js",
+    "staging/source-phase-imports/import-source-source-text-module.js",
+    "staging/top-level-await/tla-hang-entry.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

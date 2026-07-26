@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12106367013109396391,
+  "run_kind": "full",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/prototype/proto.js",
+      "duration_ms": 20932
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/proto.js",
+      "duration_ms": 20434
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/prototype/BYTES_PER_ELEMENT.js",
+      "duration_ms": 13853
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/BYTES_PER_ELEMENT.js",
+      "duration_ms": 13575
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/prototype/constructor.js",
+      "duration_ms": 12968
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/name.js",
+      "duration_ms": 12700
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/prototype.js",
+      "duration_ms": 12600
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/length.js",
+      "duration_ms": 11977
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/prototype/not-typedarray-object.js",
+      "duration_ms": 7006
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/Int8Array/is-a-constructor.js",
+      "duration_ms": 6206
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/Int8Array/BYTES_PER_ELEMENT.js",
+    "built-ins/TypedArrayConstructors/Int8Array/constructor.js",
+    "built-ins/TypedArrayConstructors/Int8Array/is-a-constructor.js",
+    "built-ins/TypedArrayConstructors/Int8Array/length.js",
+    "built-ins/TypedArrayConstructors/Int8Array/name.js",
+    "built-ins/TypedArrayConstructors/Int8Array/proto.js",
+    "built-ins/TypedArrayConstructors/Int8Array/prototype.js",
+    "built-ins/TypedArrayConstructors/Int8Array/prototype/BYTES_PER_ELEMENT.js",
+    "built-ins/TypedArrayConstructors/Int8Array/prototype/constructor.js",
+    "built-ins/TypedArrayConstructors/Int8Array/prototype/not-typedarray-object.js",
+    "built-ins/TypedArrayConstructors/Int8Array/prototype/proto.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -55,6 +55,22 @@ fn peek_skip_accending() {
 }
 
 #[test]
+fn peek_has_no_fixed_token_limit() {
+    let mut cur = BufferedLexer::from(
+        &b"a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39"[..],
+    );
+    let interner = &mut Interner::default();
+
+    assert_eq!(
+        *cur.peek(39, false, interner)
+            .unwrap()
+            .expect("Some value expected")
+            .kind(),
+        TokenKind::identifier(interner.get_or_intern_static("a39", utf16!("a39")))
+    );
+}
+
+#[test]
 fn peek_skip_next() {
     let mut cur = BufferedLexer::from(&b"a b c d e f g h i"[..]);
     let interner = &mut Interner::default();
@@ -216,8 +232,7 @@ fn peek_skip_next_till_end() {
     let mut cur = BufferedLexer::from(&b"a b c d e f g h i"[..]);
     let interner = &mut Interner::default();
 
-    let mut peeked: [Option<Token>; super::MAX_PEEK_SKIP + 1] =
-        [None::<Token>, None::<Token>, None::<Token>, None::<Token>];
+    let mut peeked = [None::<Token>, None::<Token>, None::<Token>, None::<Token>];
 
     loop {
         for (i, peek) in peeked.iter_mut().enumerate() {
@@ -228,7 +243,7 @@ fn peek_skip_next_till_end() {
             assert_eq!(&cur.next(false, interner).unwrap(), peek);
         }
 
-        if peeked[super::MAX_PEEK_SKIP - 1].is_none() {
+        if peeked[2].is_none() {
             break;
         }
     }

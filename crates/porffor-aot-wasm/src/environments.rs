@@ -384,24 +384,30 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn bind_parameters(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let parameter_initializers = self
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                let StatementIr::ParameterInitialization {
+                    parameter_index,
+                    statements,
+                } = statement
+                else {
+                    return None;
+                };
+                Some((*parameter_index, statements.clone()))
+            })
+            .collect::<Vec<_>>();
         if matches!(self.return_abi, ReturnAbi::MultiValue)
             && self.function_flavor == FunctionFlavor::Ordinary
         {
-            let payload_local = self.next_binding_local;
-            let tag_local = self.next_binding_local + 1;
-            self.next_binding_local += 2;
-            let arguments_storage = BindingStorage::Dynamic {
-                tag_local,
-                payload_local,
-            };
+            let arguments_storage = self.allocate_dynamic_binding_storage(LEXICAL_ARGUMENTS_NAME);
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
                 .insert(LEXICAL_ARGUMENTS_NAME.to_string(), arguments_storage);
             self.initialize_arguments_binding(arguments_storage, function)?;
-            if let Some(slot) = self.owned_env_slot(LEXICAL_ARGUMENTS_NAME) {
-                self.write_env_slot_from_locals(slot, 0, payload_local, tag_local, function);
-            }
         }
 
         for param in self.params {
@@ -421,9 +427,17 @@ impl<'a> FunctionBuilder<'a> {
             })?;
             if param.is_rest {
                 self.initialize_rest_parameter(index, storage, function)?;
-                continue;
+            } else {
+                self.initialize_parameter(index, param, storage, function)?;
             }
-            self.initialize_parameter(index, param, storage, function)?;
+            if let Some((_, statements)) = parameter_initializers
+                .iter()
+                .find(|(parameter_index, _)| *parameter_index == index)
+            {
+                for statement in statements {
+                    self.compile_statement(statement, function)?;
+                }
+            }
         }
         Ok(())
     }
@@ -476,6 +490,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.compile_expr_to_locals(default_init, payload_local, tag_local, function)?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             function.instruction(&Instruction::End);
         }
 
@@ -672,6 +687,18 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.current_function_meta().is_some_and(|meta| {
+            matches!(
+                meta.execution_kind,
+                FunctionExecutionKind::Generator | FunctionExecutionKind::Async
+            )
+        }) {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            return Ok(());
+        }
         if self.function_flavor == FunctionFlavor::Arrow {
             if let Some(storage) = self.lookup_binding(LEXICAL_NEW_TARGET_NAME) {
                 self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
@@ -901,6 +928,7 @@ impl<'a> FunctionBuilder<'a> {
                         | ValueKind::Object
                         | ValueKind::Function
                         | ValueKind::Array
+                        | ValueKind::BigInt
                         | ValueKind::Dynamic
                 ) =>
             {
@@ -1116,7 +1144,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
-        self.emit_object_read(
+        self.emit_object_read_without_throw_propagation(
             object_local,
             object_tag_local,
             object_local,
@@ -1129,7 +1157,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
-        Ok(())
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
     pub(crate) fn emit_global_property_write(
@@ -1196,7 +1224,7 @@ impl<'a> FunctionBuilder<'a> {
         storage: BindingStorage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if !self.is_script_global_binding(name) {
+        if !self.is_main() || !self.is_script_global_binding(name) {
             return Ok(());
         }
         if self

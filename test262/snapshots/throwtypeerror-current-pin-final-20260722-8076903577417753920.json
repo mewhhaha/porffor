@@ -1,0 +1,110 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8076903577417753920,
+  "run_kind": "full",
+  "total": 14,
+  "passed": 13,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 13
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/ThrowTypeError/throws-type-error.js",
+      "duration_ms": 5963
+    },
+    {
+      "path": "built-ins/ThrowTypeError/unique-per-realm-non-simple.js",
+      "duration_ms": 3041
+    },
+    {
+      "path": "built-ins/ThrowTypeError/unique-per-realm-unmapped-args.js",
+      "duration_ms": 2970
+    },
+    {
+      "path": "built-ins/ThrowTypeError/forbidden-caller.js",
+      "duration_ms": 2858
+    },
+    {
+      "path": "built-ins/ThrowTypeError/is-function.js",
+      "duration_ms": 2824
+    },
+    {
+      "path": "built-ins/ThrowTypeError/frozen.js",
+      "duration_ms": 2793
+    },
+    {
+      "path": "built-ins/ThrowTypeError/extensible.js",
+      "duration_ms": 2739
+    },
+    {
+      "path": "built-ins/ThrowTypeError/prototype.js",
+      "duration_ms": 2652
+    },
+    {
+      "path": "built-ins/ThrowTypeError/forbidden-arguments.js",
+      "duration_ms": 2626
+    },
+    {
+      "path": "built-ins/ThrowTypeError/property-order.js",
+      "duration_ms": 2614
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/ThrowTypeError/distinct-cross-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/ThrowTypeError/distinct-cross-realm.js",
+    "built-ins/ThrowTypeError/extensible.js",
+    "built-ins/ThrowTypeError/forbidden-arguments.js",
+    "built-ins/ThrowTypeError/forbidden-caller.js",
+    "built-ins/ThrowTypeError/frozen.js",
+    "built-ins/ThrowTypeError/is-function.js",
+    "built-ins/ThrowTypeError/length.js",
+    "built-ins/ThrowTypeError/name.js",
+    "built-ins/ThrowTypeError/property-order.js",
+    "built-ins/ThrowTypeError/prototype.js",
+    "built-ins/ThrowTypeError/throws-type-error.js",
+    "built-ins/ThrowTypeError/unique-per-realm-function-proto.js",
+    "built-ins/ThrowTypeError/unique-per-realm-non-simple.js",
+    "built-ins/ThrowTypeError/unique-per-realm-unmapped-args.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

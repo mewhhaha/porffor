@@ -33,6 +33,7 @@ impl HostHooks for StdoutHostHooks {
 struct ParsedTest262Args {
     config: SuiteConfig,
     filter: Option<String>,
+    matrix_node: Option<String>,
     run_config: RunConfig,
     readme_path: Option<PathBuf>,
 }
@@ -163,6 +164,7 @@ test262 options:
                                          feature build of porffor-engine/porffor-cli
   --resume
   --snapshot-name NAME
+  --matrix-node NODE                    run/report one exact matrix leaf by node id or unique filter
   --max-matrix-nodes N                report-all: process at most N new matrix
                                         nodes in this invocation
   --readme-path PATH
@@ -2218,6 +2220,17 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
 
     let subcommand = args[0].clone();
     let parsed = parse_test262_args(&args[1..])?;
+    if parsed.matrix_node.is_some() && !matches!(subcommand.as_str(), "run" | "report") {
+        return Err("--matrix-node is only valid with test262 run or report".to_string());
+    }
+    if parsed.matrix_node.is_some() && parsed.run_config.max_matrix_nodes.is_some() {
+        return Err("--matrix-node cannot be combined with --max-matrix-nodes".to_string());
+    }
+    if parsed.matrix_node.is_some()
+        && (parsed.run_config.shard_index != 0 || parsed.run_config.shard_count != 1)
+    {
+        return Err("--matrix-node cannot be combined with a shard selector".to_string());
+    }
     let runner = ConformanceRunner::with_config(parsed.config);
     let execution_backend = parsed.run_config.execution_backend;
 
@@ -2251,7 +2264,12 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "run" => {
-            let summary = runner.run_full(parsed.run_config)?;
+            let summary = match parsed.matrix_node.as_deref() {
+                Some(node_selector) => {
+                    runner.run_matrix_node(node_selector, parsed.run_config)?
+                }
+                None => runner.run_full(parsed.run_config)?,
+            };
             println!("execution_backend: {}", execution_backend.as_str());
             println!("total: {}", summary.total);
             println!("passed: {}", summary.passed);
@@ -2277,10 +2295,22 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                     failure.detail
                 );
             }
+            if summary.passed != summary.total {
+                return Err(format!(
+                    "test262 run failed: {} of {} cases did not pass",
+                    summary.total - summary.passed,
+                    summary.total
+                ));
+            }
             Ok(())
         }
         "report" => {
-            let summary = runner.run_full(parsed.run_config)?;
+            let summary = match parsed.matrix_node.as_deref() {
+                Some(node_selector) => {
+                    runner.run_matrix_node(node_selector, parsed.run_config)?
+                }
+                None => runner.run_full(parsed.run_config)?,
+            };
             let report = runner.baseline_report(&summary);
             println!("execution_backend: {}", execution_backend.as_str());
             println!("total: {}", report.total);
@@ -2674,6 +2704,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
 fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     let mut config = SuiteConfig::default();
     let mut filter = None::<String>;
+    let mut matrix_node = None::<String>;
     let mut run_config = RunConfig::default();
     // CLI-level product default: Wasm-AOT is the only backend whose results
     // count as conformance (AGENTS.md). `porffor-test262::RunConfig`'s own
@@ -2736,6 +2767,13 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                     .ok_or_else(|| "--snapshot-name needs a value".to_string())?;
                 run_config.snapshot_name = value.clone();
             }
+            "--matrix-node" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--matrix-node needs a value".to_string())?;
+                matrix_node = Some(value.clone());
+            }
             "--max-matrix-nodes" => {
                 index += 1;
                 let value = args
@@ -2772,6 +2810,10 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
             value => return Err(format!("unknown test262 arg: {value}")),
         }
         index += 1;
+    }
+
+    if matrix_node.is_some() && filter.is_some() {
+        return Err("--matrix-node cannot be combined with a positional filter".to_string());
     }
 
     if config.suite_root == PathBuf::from("test262/vendor/test262") {
@@ -2828,6 +2870,7 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     Ok(ParsedTest262Args {
         config,
         filter,
+        matrix_node,
         run_config,
         readme_path,
     })
@@ -2935,6 +2978,41 @@ mod tests {
         .expect_err("zero matrix node limit should be rejected");
 
         assert_eq!(error, "--max-matrix-nodes must be at least 1");
+    }
+
+    #[test]
+    fn parse_test262_args_reads_exact_matrix_node_selector() {
+        let parsed = parse_test262_args(&[
+            "--matrix-node".to_string(),
+            "built-ins/Promise".to_string(),
+        ])
+        .expect("matrix node selector should parse");
+
+        assert_eq!(parsed.matrix_node.as_deref(), Some("built-ins/Promise"));
+        assert!(parsed.filter.is_none());
+    }
+
+    #[test]
+    fn parse_test262_args_rejects_matrix_node_without_value() {
+        let error = parse_test262_args(&["--matrix-node".to_string()])
+            .expect_err("matrix node without a selector should be rejected");
+
+        assert_eq!(error, "--matrix-node needs a value");
+    }
+
+    #[test]
+    fn parse_test262_args_rejects_matrix_node_with_positional_filter() {
+        let error = parse_test262_args(&[
+            "--matrix-node".to_string(),
+            "built-ins/Promise".to_string(),
+            "built-ins/Array".to_string(),
+        ])
+        .expect_err("matrix node and positional filter should be rejected");
+
+        assert_eq!(
+            error,
+            "--matrix-node cannot be combined with a positional filter"
+        );
     }
 
     #[test]

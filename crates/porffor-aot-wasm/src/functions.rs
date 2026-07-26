@@ -12,6 +12,199 @@ fn is_canonical_array_index_name(name: &str) -> bool {
         .is_ok_and(|index| index <= MAX_ARRAY_LENGTH - 1)
 }
 
+#[cfg(test)]
+mod async_generator_topology_tests {
+    use super::*;
+
+    const PUBLIC_TOPOLOGY_SOURCES: &[&str] = &[
+        r#"
+            const asyncFunctionPrototype = Object.getPrototypeOf(async function () {});
+            const asyncGenerator = async function* stream() {};
+            const asyncGeneratorFunctionPrototype = Object.getPrototypeOf(asyncGenerator);
+            const asyncGeneratorPrototype = asyncGeneratorFunctionPrototype.prototype;
+
+            Object.getPrototypeOf(asyncGeneratorFunctionPrototype) === asyncFunctionPrototype
+                && Object.getPrototypeOf(asyncGenerator.prototype) === asyncGeneratorPrototype;
+        "#,
+        r#"
+            const asyncGeneratorFunctionPrototype = Object.getPrototypeOf(async function* () {});
+            const asyncGeneratorPrototype = asyncGeneratorFunctionPrototype.prototype;
+            const asyncIteratorPrototype = Object.getPrototypeOf(asyncGeneratorPrototype);
+            const receiver = {};
+
+            asyncIteratorPrototype[Symbol.asyncIterator].call(receiver) === receiver
+                && asyncGeneratorPrototype[Symbol.toStringTag] === "AsyncGenerator"
+                && asyncGeneratorFunctionPrototype[Symbol.toStringTag] === "AsyncGeneratorFunction";
+        "#,
+    ];
+
+    pub(crate) const PUBLIC_RUNTIME_SOURCES: &[&str] = &[
+        r#"
+            let started = false;
+            async function* values() {
+                started = true;
+                yield 1;
+            }
+            const iterator = values();
+            if (started) throw new Error("async-generator call must be lazy");
+            Object.getPrototypeOf(iterator) === values.prototype;
+        "#,
+        r#"
+            async function* values() { yield 1; }
+            const iterator = values();
+            const next = iterator.next();
+            const returned = iterator.return(2);
+            const thrown = iterator.throw(3);
+            next instanceof Promise && returned instanceof Promise && thrown instanceof Promise;
+        "#,
+        r#"
+            const order = [];
+            async function* empty() {}
+            const iterator = empty();
+            const first = iterator.next().then(result => {
+                order.push("first");
+                if (!result.done || result.value !== undefined) throw result;
+            });
+            const second = iterator.next().then(result => {
+                order.push("second");
+                if (!result.done || result.value !== undefined) throw result;
+            });
+            const returned = iterator.return(Promise.resolve(4)).then(result => {
+                order.push("return");
+                if (!result.done || result.value !== 4) throw result;
+            });
+            Promise.all([first, second, returned]).then(() => {
+                if (order.join(",") !== "first,second,return") throw order;
+            });
+        "#,
+        r#"
+            async function* empty() {}
+            const fulfilled = empty();
+            const rejected = empty();
+            const reason = new Error("return rejected");
+            Promise.all([fulfilled.next(), rejected.next()]).then(() => Promise.all([
+                fulfilled.return(Promise.resolve(4)).then(result => {
+                    if (!result.done || result.value !== 4) throw result;
+                }),
+                rejected.return(Promise.reject(reason)).then(
+                    () => { throw new Error("return must reject"); },
+                    error => { if (error !== reason) throw error; },
+                ),
+            ]));
+        "#,
+        r#"
+            const order = [];
+            let release;
+            const returnValue = new Promise(resolve => { release = resolve; });
+            const reason = new Error("queued throw");
+            async function* empty() {}
+            const iterator = empty();
+            iterator.next().then(() => {
+                const returned = iterator.return(returnValue).then(result => {
+                    order.push("return");
+                    if (!result.done || result.value !== 7) throw result;
+                });
+                const next = iterator.next().then(result => {
+                    order.push("next");
+                    if (!result.done || result.value !== undefined) throw result;
+                });
+                const thrown = iterator.throw(reason).then(
+                    () => { throw new Error("throw must reject"); },
+                    error => {
+                        order.push("throw");
+                        if (error !== reason) throw error;
+                    },
+                );
+                release(7);
+                return Promise.all([returned, next, thrown]);
+            }).then(() => {
+                if (order.join(",") !== "return,next,throw") throw order;
+            });
+        "#,
+        r#"
+            let started = false;
+            async function* values(source) {
+                started = true;
+                await source;
+                yield source;
+            }
+            const pending = values(1).next();
+            if (!started) throw new Error("first request must start body");
+            pending instanceof Promise;
+        "#,
+        r#"
+            const reason = new Error("body throw");
+            async function* complete() {}
+            async function* fail() { throw reason; }
+            Promise.all([
+                complete().next().then(result => {
+                    if (!result.done || result.value !== undefined) throw result;
+                }),
+                fail().next().then(
+                    () => { throw new Error("body throw must reject"); },
+                    error => { if (error !== reason) throw error; },
+                ),
+            ]);
+        "#,
+    ];
+
+    #[test]
+    fn syntax_created_async_generator_functions_use_async_generator_intrinsic_roots() {
+        assert_eq!(PUBLIC_TOPOLOGY_SOURCES.len(), 2);
+        assert_eq!(
+            syntax_function_object_prototype_global_index(FunctionExecutionKind::Async),
+            Some(ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX)
+        );
+        assert_eq!(
+            syntax_function_object_prototype_global_index(FunctionExecutionKind::AsyncGenerator),
+            Some(ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX)
+        );
+        assert_eq!(
+            syntax_function_instance_prototype_global_index(FunctionExecutionKind::AsyncGenerator),
+            Some(ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX)
+        );
+        assert_eq!(
+            syntax_function_instance_prototype_global_index(FunctionExecutionKind::Async),
+            None
+        );
+    }
+
+    #[test]
+    fn async_generator_runtime_regressions_cover_lazy_calls_requests_and_fifo_completion() {
+        assert_eq!(PUBLIC_RUNTIME_SOURCES.len(), 7);
+        assert!(PUBLIC_RUNTIME_SOURCES[0].contains("call must be lazy"));
+        assert!(PUBLIC_RUNTIME_SOURCES[1].contains("instanceof Promise"));
+        assert!(PUBLIC_RUNTIME_SOURCES[2].contains("first,second,return"));
+        assert!(PUBLIC_RUNTIME_SOURCES[3].contains("return rejected"));
+        assert!(PUBLIC_RUNTIME_SOURCES[4].contains("return,next,throw"));
+        assert!(PUBLIC_RUNTIME_SOURCES[5].contains("first request must start body"));
+        assert!(PUBLIC_RUNTIME_SOURCES[6].contains("body throw must reject"));
+    }
+}
+
+fn syntax_function_object_prototype_global_index(
+    execution_kind: FunctionExecutionKind,
+) -> Option<u32> {
+    match execution_kind {
+        FunctionExecutionKind::Ordinary => None,
+        FunctionExecutionKind::Generator => Some(GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX),
+        FunctionExecutionKind::Async => Some(ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX),
+        FunctionExecutionKind::AsyncGenerator => {
+            Some(ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX)
+        }
+    }
+}
+
+fn syntax_function_instance_prototype_global_index(
+    execution_kind: FunctionExecutionKind,
+) -> Option<u32> {
+    match execution_kind {
+        FunctionExecutionKind::Generator => Some(GENERATOR_PROTOTYPE_GLOBAL_INDEX),
+        FunctionExecutionKind::AsyncGenerator => Some(ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX),
+        FunctionExecutionKind::Ordinary | FunctionExecutionKind::Async => None,
+    }
+}
+
 fn helper_store_i64_local_at_offset(
     function: &mut Function,
     object_local: u32,
@@ -1999,7 +2192,10 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::Uint8ClampedArrayConstructor,
             StandardBuiltinId::BigInt64ArrayConstructor,
             StandardBuiltinId::BigUint64ArrayConstructor,
+            StandardBuiltinId::SharedArrayBufferConstructor,
             StandardBuiltinId::PromiseConstructor,
+            StandardBuiltinId::MapConstructor,
+            StandardBuiltinId::SetConstructor,
         ]
         .into_iter()
         .filter_map(|builtin| {
@@ -2730,6 +2926,21 @@ impl<'a> FunctionBuilder<'a> {
                 FUNCTION_FLAG_IS_HTMLDDA
             } else {
                 0
+            }
+            | if meta.execution_kind == FunctionExecutionKind::Generator {
+                FUNCTION_FLAG_GENERATOR
+            } else {
+                0
+            }
+            | if meta.execution_kind == FunctionExecutionKind::Async {
+                FUNCTION_FLAG_ASYNC
+            } else {
+                0
+            }
+            | if meta.execution_kind == FunctionExecutionKind::AsyncGenerator {
+                FUNCTION_FLAG_ASYNC_GENERATOR
+            } else {
+                0
             };
         let object_local = self.reserve_temp_local();
         let named_context_local = meta.is_named_expression.then(|| self.reserve_temp_local());
@@ -2789,7 +3000,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload(meta.name.as_str()),
+            self.strings.payload(meta.runtime_name()),
         ));
         function.instruction(&Instruction::I64Const(
             crate::objects::object_data_descriptor_kind(false, false, meta.length_name_configurable)
@@ -2826,10 +3037,25 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_const_at_offset(object_local, HEAP_CAP_OFFSET, 0, function);
         }
 
-        if meta.constructable {
+        if let Some(prototype_global_index) =
+            syntax_function_object_prototype_global_index(meta.execution_kind)
+        {
+            function.instruction(&Instruction::GlobalGet(prototype_global_index));
+            function.instruction(&Instruction::LocalSet(self.scratch_local));
+            self.store_i64_local_at_offset(
+                object_local,
+                HEAP_PROTOTYPE_OFFSET,
+                self.scratch_local,
+                function,
+            );
+        }
+
+        let instance_prototype_global_index =
+            syntax_function_instance_prototype_global_index(meta.execution_kind);
+        if meta.constructable || instance_prototype_global_index.is_some() {
             self.emit_alloc_plain_object_with_prototype(
                 None,
-                Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+                Some(instance_prototype_global_index.unwrap_or(OBJECT_PROTOTYPE_GLOBAL_INDEX)),
                 function,
             )?;
             function.instruction(&Instruction::LocalSet(prototype_local));
@@ -2858,26 +3084,31 @@ impl<'a> FunctionBuilder<'a> {
                 proto_tag_local,
                 true,
                 false,
-                true,
+                false,
                 function,
             )?;
 
-            function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::LocalGet(object_local));
-            function.instruction(&Instruction::LocalSet(proto_value_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(proto_tag_local));
-            self.emit_object_append_data_property_with_flags(
-                prototype_local,
-                key_local,
-                proto_value_local,
-                proto_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
+            if !matches!(
+                meta.execution_kind,
+                FunctionExecutionKind::Generator | FunctionExecutionKind::AsyncGenerator
+            ) {
+                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::LocalGet(object_local));
+                function.instruction(&Instruction::LocalSet(proto_value_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(proto_tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_local,
+                    key_local,
+                    proto_value_local,
+                    proto_tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+            }
         }
 
         function.instruction(&Instruction::LocalGet(object_local));
@@ -3584,6 +3815,106 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(realm_local);
     }
 
+    pub(crate) fn emit_load_function_defining_realm_map_iterator_prototype(
+        &mut self,
+        function_object_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
+    }
+
+    pub(crate) fn emit_load_function_defining_realm_set_iterator_prototype(
+        &mut self,
+        function_object_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
+    }
+
     pub(crate) fn emit_load_function_defining_realm_string_iterator_prototype(
         &mut self,
         function_object_local: u32,
@@ -3799,6 +4130,317 @@ impl<'a> FunctionBuilder<'a> {
             table_index_local,
             function,
         );
+    }
+
+    pub(crate) fn emit_start_async_generator_body(
+        &mut self,
+        activation_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let function_object_local = self.reserve_temp_local();
+        let function_environment_local = self.reserve_temp_local();
+        let this_payload_local = self.reserve_temp_local();
+        let this_tag_local = self.reserve_temp_local();
+        let argc_local = self.reserve_temp_local();
+        let argv_local = self.reserve_temp_local();
+        let table_index_local = self.reserve_temp_local();
+        let body_payload_local = self.reserve_temp_local();
+        let body_tag_local = self.reserve_temp_local();
+        let body_completion_local = self.reserve_temp_local();
+        let body_aux_local = self.reserve_temp_local();
+        let body_status_local = self.reserve_temp_local();
+        let resolved_return_payload_local = self.reserve_temp_local();
+        let resolved_return_tag_local = self.reserve_temp_local();
+
+        for (offset, destination_local) in [
+            (HEAP_ASYNC_GENERATOR_FUNCTION_OFFSET, function_object_local),
+            (
+                HEAP_ASYNC_GENERATOR_FUNCTION_ENV_OFFSET,
+                function_environment_local,
+            ),
+            (HEAP_ASYNC_GENERATOR_THIS_PAYLOAD_OFFSET, this_payload_local),
+            (HEAP_ASYNC_GENERATOR_THIS_TAG_OFFSET, this_tag_local),
+            (HEAP_ASYNC_GENERATOR_ARGC_OFFSET, argc_local),
+            (HEAP_ASYNC_GENERATOR_ARGV_OFFSET, argv_local),
+        ] {
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                offset,
+                destination_local,
+                function,
+            );
+        }
+        self.load_i64_to_local_from_offset(
+            function_object_local,
+            HEAP_FUNCTION_TABLE_INDEX_OFFSET,
+            table_index_local,
+            function,
+        );
+
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            body_status_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(body_status_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_RESUME_STATE_INITIALIZING as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            0,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+            ASYNC_GENERATOR_STATE_EXECUTING,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            ASYNC_GENERATOR_BODY_STATUS_RUNNING,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(function_environment_local));
+        function.instruction(&Instruction::LocalGet(this_payload_local));
+        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::LocalGet(activation_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalGet(argc_local));
+        function.instruction(&Instruction::LocalGet(argv_local));
+        function.instruction(&Instruction::LocalGet(table_index_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::CallIndirect {
+            type_index: JS_FUNCTION_TYPE_INDEX,
+            table_index: 0,
+        });
+        self.store_call_results_to(
+            body_payload_local,
+            body_tag_local,
+            body_completion_local,
+            body_aux_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET,
+            body_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
+            body_tag_local,
+            function,
+        );
+
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            body_status_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(body_status_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_BODY_STATUS_YIELD as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let delegate_record_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+            delegate_record_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(delegate_record_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_async_generator_yield_reactions(
+            activation_local,
+            body_payload_local,
+            body_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        let resume_body_local = self.reserve_temp_local();
+        self.emit_complete_async_generator_yield(
+            activation_local,
+            body_payload_local,
+            body_tag_local,
+            resume_body_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(resume_body_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::BrIf(2));
+        self.release_temp_local(resume_body_local);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(delegate_record_local);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(body_status_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_BODY_STATUS_RUNNING as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(body_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+            ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(body_aux_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::LocalSet(body_completion_local));
+        self.emit_complete_async_generator_step(
+            activation_local,
+            body_payload_local,
+            body_tag_local,
+            body_completion_local,
+            true,
+            function,
+        )?;
+        self.emit_drain_async_generator_queue(activation_local, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_async_generator_await_return_reactions(
+            activation_local,
+            body_payload_local,
+            body_tag_local,
+            resolved_return_payload_local,
+            resolved_return_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.set_completion_kind(CompletionKind::Normal, function);
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::LocalSet(body_completion_local));
+        self.emit_complete_async_generator_step(
+            activation_local,
+            resolved_return_payload_local,
+            resolved_return_tag_local,
+            body_completion_local,
+            true,
+            function,
+        )?;
+        self.emit_drain_async_generator_queue(activation_local, function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(body_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            ASYNC_GENERATOR_BODY_STATUS_THROW,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::LocalSet(body_completion_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(body_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(body_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(body_tag_local));
+        self.store_i64_local_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET,
+            body_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
+            body_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(body_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::LocalSet(body_completion_local));
+        function.instruction(&Instruction::End);
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+            ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+            function,
+        );
+        self.emit_complete_async_generator_step(
+            activation_local,
+            body_payload_local,
+            body_tag_local,
+            body_completion_local,
+            true,
+            function,
+        )?;
+        self.emit_drain_async_generator_queue(activation_local, function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.set_completion_kind(CompletionKind::Normal, function);
+
+        self.release_temp_local(resolved_return_tag_local);
+        self.release_temp_local(resolved_return_payload_local);
+        self.release_temp_local(body_status_local);
+        self.release_temp_local(body_aux_local);
+        self.release_temp_local(body_completion_local);
+        self.release_temp_local(body_tag_local);
+        self.release_temp_local(body_payload_local);
+        self.release_temp_local(table_index_local);
+        self.release_temp_local(argv_local);
+        self.release_temp_local(argc_local);
+        self.release_temp_local(this_tag_local);
+        self.release_temp_local(this_payload_local);
+        self.release_temp_local(function_environment_local);
+        self.release_temp_local(function_object_local);
+        Ok(())
     }
 
     pub(crate) fn emit_load_function_flags(
@@ -4381,6 +5023,18 @@ impl<'a> FunctionBuilder<'a> {
         let flags_local = self.reserve_temp_local();
         let call_this_payload_local = self.reserve_temp_local();
         let call_this_tag_local = self.reserve_temp_local();
+        let can_call_generator = self
+            .functions
+            .values()
+            .any(|meta| meta.execution_kind == FunctionExecutionKind::Generator);
+        let can_call_async_generator = self
+            .functions
+            .values()
+            .any(|meta| meta.execution_kind == FunctionExecutionKind::AsyncGenerator);
+        let can_call_async = self
+            .functions
+            .values()
+            .any(|meta| meta.execution_kind == FunctionExecutionKind::Async);
         let proxy_revocable_table_index = self
             .functions
             .get(&StandardBuiltinId::ProxyRevocable.function_id())
@@ -4422,7 +5076,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(callee_env_local));
         if let Some((this_payload_local, this_tag_local)) = this_locals {
             if let Some(this_tag_local) = this_tag_local {
                 function.instruction(&Instruction::LocalGet(flags_local));
@@ -4484,6 +5137,501 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(call_this_tag_local));
             function.instruction(&Instruction::End);
         }
+        if can_call_generator {
+            function.instruction(&Instruction::LocalGet(flags_local));
+            function.instruction(&Instruction::I64Const(FUNCTION_FLAG_GENERATOR as i64));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            let generator_prototype_local = self.reserve_temp_local();
+            self.emit_alloc_plain_object_with_prototype(
+                None,
+                Some(GENERATOR_PROTOTYPE_GLOBAL_INDEX),
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(payload_local));
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                OBJECT_INTERNAL_BRAND_GENERATOR,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_STATE_OFFSET,
+                GENERATOR_STATE_SUSPENDED_START,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_GENERATOR_FUNCTION_OFFSET,
+                callee_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_GENERATOR_THIS_PAYLOAD_OFFSET,
+                call_this_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_GENERATOR_THIS_TAG_OFFSET,
+                call_this_tag_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ARGC_OFFSET,
+                argc_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ARGV_OFFSET,
+                argv_local,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_TAG_OFFSET,
+                ValueKind::Undefined.tag() as u64,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_KIND_OFFSET,
+                GENERATOR_RESUME_KIND_NORMAL,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
+                ValueKind::Undefined.tag() as u64,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
+                ValueKind::Undefined.tag() as u64,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_DELEGATE_RECORD_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(payload_local, HEAP_GENERATOR_ENV_OFFSET, 0, function);
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_INITIALIZED_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                GENERATOR_RESUME_STATE_INITIALIZING,
+                function,
+            );
+            let initialization_payload_local = self.reserve_temp_local();
+            let initialization_tag_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(callee_env_local));
+            function.instruction(&Instruction::LocalGet(call_this_payload_local));
+            function.instruction(&Instruction::LocalGet(call_this_tag_local));
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalGet(argc_local));
+            function.instruction(&Instruction::LocalGet(argv_local));
+            function.instruction(&Instruction::LocalGet(table_index_local));
+            function.instruction(&Instruction::I32WrapI64);
+            self.set_completion_kind(CompletionKind::Normal, function);
+            function.instruction(&Instruction::CallIndirect {
+                type_index: JS_FUNCTION_TYPE_INDEX,
+                table_index: 0,
+            });
+            self.store_call_results(
+                initialization_payload_local,
+                initialization_tag_local,
+                function,
+            );
+            self.emit_propagate_throw_from_locals_if_needed(
+                initialization_payload_local,
+                initialization_tag_local,
+                function,
+            )?;
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                0,
+                function,
+            );
+            let generator_prototype_tag_local = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                callee_payload_local,
+                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                generator_prototype_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                callee_payload_local,
+                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+                generator_prototype_tag_local,
+                function,
+            );
+            self.emit_is_heap_object_like_tag_i32(generator_prototype_tag_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::GlobalGet(GENERATOR_PROTOTYPE_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalSet(generator_prototype_local));
+            function.instruction(&Instruction::End);
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_PROTOTYPE_OFFSET,
+                generator_prototype_local,
+                function,
+            );
+            self.release_temp_local(generator_prototype_tag_local);
+            self.release_temp_local(initialization_tag_local);
+            self.release_temp_local(initialization_payload_local);
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.set_completion_kind(CompletionKind::Normal, function);
+            self.emit_return_current_completion(function);
+            self.release_temp_local(generator_prototype_local);
+            function.instruction(&Instruction::End);
+        }
+
+        if can_call_async_generator {
+            function.instruction(&Instruction::LocalGet(flags_local));
+            function.instruction(&Instruction::I64Const(FUNCTION_FLAG_ASYNC_GENERATOR as i64));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            let async_generator_activation_local = self.reserve_temp_local();
+            let async_generator_prototype_local = self.reserve_temp_local();
+            let async_generator_prototype_tag_local = self.reserve_temp_local();
+
+            self.emit_alloc_plain_object_with_prototype(
+                None,
+                Some(ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX),
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(payload_local));
+            self.store_i64_const_at_offset(
+                payload_local,
+                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR,
+                function,
+            );
+            self.emit_heap_alloc_const(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, function)?;
+            function.instruction(&Instruction::LocalSet(async_generator_activation_local));
+            for (offset, source_local) in [
+                (HEAP_ASYNC_GENERATOR_FUNCTION_OFFSET, callee_payload_local),
+                (HEAP_ASYNC_GENERATOR_FUNCTION_ENV_OFFSET, callee_env_local),
+                (
+                    HEAP_ASYNC_GENERATOR_THIS_PAYLOAD_OFFSET,
+                    call_this_payload_local,
+                ),
+                (HEAP_ASYNC_GENERATOR_THIS_TAG_OFFSET, call_this_tag_local),
+                (HEAP_ASYNC_GENERATOR_ARGC_OFFSET, argc_local),
+                (HEAP_ASYNC_GENERATOR_ARGV_OFFSET, argv_local),
+            ] {
+                self.store_i64_local_at_offset(
+                    async_generator_activation_local,
+                    offset,
+                    source_local,
+                    function,
+                );
+            }
+            for (offset, value) in [
+                (HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+                    ASYNC_GENERATOR_STATE_SUSPENDED_START,
+                ),
+                (
+                    HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+                    ASYNC_GENERATOR_RESUME_STATE_INITIALIZING,
+                ),
+                (HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                ),
+                (
+                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+                    ASYNC_GENERATOR_RESUME_KIND_NORMAL,
+                ),
+                (HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+                    ASYNC_GENERATOR_BODY_STATUS_IDLE,
+                ),
+                (HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                ),
+                (HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET, 0),
+            ] {
+                self.store_i64_const_at_offset(
+                    async_generator_activation_local,
+                    offset,
+                    value,
+                    function,
+                );
+            }
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET,
+                async_generator_activation_local,
+                function,
+            );
+
+            let initialization_payload_local = self.reserve_temp_local();
+            let initialization_tag_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(callee_env_local));
+            function.instruction(&Instruction::LocalGet(call_this_payload_local));
+            function.instruction(&Instruction::LocalGet(call_this_tag_local));
+            function.instruction(&Instruction::LocalGet(async_generator_activation_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalGet(argc_local));
+            function.instruction(&Instruction::LocalGet(argv_local));
+            function.instruction(&Instruction::LocalGet(table_index_local));
+            function.instruction(&Instruction::I32WrapI64);
+            self.set_completion_kind(CompletionKind::Normal, function);
+            function.instruction(&Instruction::CallIndirect {
+                type_index: JS_FUNCTION_TYPE_INDEX,
+                table_index: 0,
+            });
+            self.store_call_results(
+                initialization_payload_local,
+                initialization_tag_local,
+                function,
+            );
+            self.emit_propagate_throw_from_locals_if_needed(
+                initialization_payload_local,
+                initialization_tag_local,
+                function,
+            )?;
+            self.release_temp_local(initialization_tag_local);
+            self.release_temp_local(initialization_payload_local);
+
+            self.load_i64_to_local_from_offset(
+                callee_payload_local,
+                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                async_generator_prototype_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                callee_payload_local,
+                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+                async_generator_prototype_tag_local,
+                function,
+            );
+            self.emit_is_heap_object_like_tag_i32(async_generator_prototype_tag_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::GlobalGet(
+                ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(async_generator_prototype_local));
+            function.instruction(&Instruction::End);
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_PROTOTYPE_OFFSET,
+                async_generator_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.set_completion_kind(CompletionKind::Normal, function);
+            self.emit_return_current_completion(function);
+
+            self.release_temp_local(async_generator_prototype_tag_local);
+            self.release_temp_local(async_generator_prototype_local);
+            self.release_temp_local(async_generator_activation_local);
+            function.instruction(&Instruction::End);
+        }
+
+        if can_call_async {
+            function.instruction(&Instruction::LocalGet(flags_local));
+            function.instruction(&Instruction::I64Const(FUNCTION_FLAG_ASYNC as i64));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            let async_promise_payload_local = self.reserve_temp_local();
+            let async_promise_record_local = self.reserve_temp_local();
+            let async_activation_local = self.reserve_temp_local();
+            let async_body_payload_local = self.reserve_temp_local();
+            let async_body_tag_local = self.reserve_temp_local();
+
+            function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalSet(self.scratch_local));
+            self.emit_alloc_promise_with_prototype(
+                self.scratch_local,
+                async_promise_payload_local,
+                async_promise_record_local,
+                function,
+            )?;
+            self.emit_heap_alloc_const(HEAP_ASYNC_ACTIVATION_RECORD_SIZE, function)?;
+            function.instruction(&Instruction::LocalSet(async_activation_local));
+            for (offset, source_local) in [
+                (HEAP_ASYNC_FUNCTION_ENV_OFFSET, callee_env_local),
+                (HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET, table_index_local),
+                (HEAP_ASYNC_THIS_PAYLOAD_OFFSET, call_this_payload_local),
+                (HEAP_ASYNC_THIS_TAG_OFFSET, call_this_tag_local),
+                (HEAP_ASYNC_ARGC_OFFSET, argc_local),
+                (HEAP_ASYNC_ARGV_OFFSET, argv_local),
+                (
+                    HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET,
+                    async_promise_payload_local,
+                ),
+                (HEAP_ASYNC_PROMISE_RECORD_OFFSET, async_promise_record_local),
+            ] {
+                self.store_i64_local_at_offset(
+                    async_activation_local,
+                    offset,
+                    source_local,
+                    function,
+                );
+            }
+            for (offset, value) in [
+                (HEAP_ASYNC_RESUME_STATE_OFFSET, 0),
+                (HEAP_ASYNC_RESUME_PAYLOAD_OFFSET, 0),
+                (
+                    HEAP_ASYNC_RESUME_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                ),
+                (HEAP_ASYNC_RESUME_KIND_OFFSET, ASYNC_RESUME_KIND_FULFILL),
+                (HEAP_ASYNC_ENV_OFFSET, 0),
+                (HEAP_ASYNC_INITIALIZED_OFFSET, 0),
+                (HEAP_ASYNC_COMPLETED_OFFSET, 0),
+                (HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET, 0),
+                (HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET, 0),
+            ] {
+                self.store_i64_const_at_offset(async_activation_local, offset, value, function);
+            }
+
+            function.instruction(&Instruction::LocalGet(callee_env_local));
+            function.instruction(&Instruction::LocalGet(call_this_payload_local));
+            function.instruction(&Instruction::LocalGet(call_this_tag_local));
+            function.instruction(&Instruction::LocalGet(async_activation_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalGet(argc_local));
+            function.instruction(&Instruction::LocalGet(argv_local));
+            function.instruction(&Instruction::LocalGet(table_index_local));
+            function.instruction(&Instruction::I32WrapI64);
+            self.set_completion_kind(CompletionKind::Normal, function);
+            function.instruction(&Instruction::CallIndirect {
+                type_index: JS_FUNCTION_TYPE_INDEX,
+                table_index: 0,
+            });
+            self.store_call_results(async_body_payload_local, async_body_tag_local, function);
+
+            function.instruction(&Instruction::LocalGet(self.completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(self.completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_settle_promise_record(
+                async_promise_record_local,
+                PROMISE_STATE_REJECTED,
+                async_body_payload_local,
+                async_body_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::Else);
+            self.emit_resolve_promise_record(
+                async_promise_payload_local,
+                async_promise_record_local,
+                async_body_payload_local,
+                async_body_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.store_i64_const_at_offset(
+                async_activation_local,
+                HEAP_ASYNC_COMPLETED_OFFSET,
+                1,
+                function,
+            );
+            function.instruction(&Instruction::End);
+
+            function.instruction(&Instruction::LocalGet(async_promise_payload_local));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.set_completion_kind(CompletionKind::Normal, function);
+            self.emit_return_current_completion(function);
+            self.release_temp_local(async_body_tag_local);
+            self.release_temp_local(async_body_payload_local);
+            self.release_temp_local(async_activation_local);
+            self.release_temp_local(async_promise_record_local);
+            self.release_temp_local(async_promise_payload_local);
+            function.instruction(&Instruction::End);
+        }
+
+        function.instruction(&Instruction::LocalGet(callee_env_local));
         function.instruction(&Instruction::LocalGet(call_this_payload_local));
         function.instruction(&Instruction::LocalGet(call_this_tag_local));
         self.emit_undefined_new_target(function);
@@ -4733,6 +5881,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.completion_local));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn store_call_results_to(
@@ -8747,9 +9904,30 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             function,
         )?;
-        match receiver.kind {
+        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            1,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        let receiver_kind = if matches!(receiver.kind, ValueKind::Undefined | ValueKind::Null) {
+            ValueKind::Dynamic
+        } else {
+            receiver.kind
+        };
+        match receiver_kind {
             ValueKind::Object | ValueKind::Function | ValueKind::Dynamic => {
-                let runtime_number_builtin = if receiver.kind == ValueKind::Dynamic {
+                let runtime_number_builtin = if receiver_kind == ValueKind::Dynamic {
                     match key {
                         PropertyKeyIr::StaticString(name) if name == "toString" => {
                             Some(StandardBuiltinId::NumberPrototypeToString)
@@ -8765,7 +9943,7 @@ impl<'a> FunctionBuilder<'a> {
                 } else {
                     None
                 };
-                let runtime_string_builtin = if receiver.kind == ValueKind::Dynamic {
+                let runtime_string_builtin = if receiver_kind == ValueKind::Dynamic {
                     match key {
                         PropertyKeyIr::StaticString(name) if name == "toString" => {
                             Some(StandardBuiltinId::StringPrototypeToString)
@@ -8778,7 +9956,7 @@ impl<'a> FunctionBuilder<'a> {
                 } else {
                     None
                 };
-                let runtime_bigint_builtin = if receiver.kind == ValueKind::Dynamic {
+                let runtime_bigint_builtin = if receiver_kind == ValueKind::Dynamic {
                     match key {
                         PropertyKeyIr::StaticString(name) if name == "toString" => {
                             Some(StandardBuiltinId::BigIntPrototypeToString)
@@ -9036,9 +10214,10 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(callee_payload_local);
                 self.release_temp_local(receiver_tag_local);
                 self.release_temp_local(receiver_payload_local);
-                return Err(EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: property access on non-object target",
-                ));
+                return Err(EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: property access on non-object target inferred as {:?}",
+                    receiver.kind
+                )));
             }
         }
 
@@ -9062,6 +10241,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
 
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
@@ -9093,12 +10273,69 @@ impl<'a> FunctionBuilder<'a> {
         self.functions.record_builtin_meta(meta);
         let wasm_index = meta.wasm_index;
         let is_class_constructor = meta.class_kind == ClassFunctionKind::Constructor;
+        let uses_resumable_call_dispatch = matches!(
+            meta.execution_kind,
+            FunctionExecutionKind::Generator
+                | FunctionExecutionKind::Async
+                | FunctionExecutionKind::AsyncGenerator
+        );
         let is_strict = meta.strict;
         let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
         let callee_payload_local = self.reserve_temp_local();
         let callee_tag_local = self.reserve_temp_local();
         let callee_env_local = self.reserve_temp_local();
         let callee_table_index_local = self.reserve_temp_local();
+
+        if uses_resumable_call_dispatch {
+            if let Some(storage) = self.lookup_binding(name) {
+                self.read_binding_to_locals(
+                    storage,
+                    callee_payload_local,
+                    callee_tag_local,
+                    function,
+                )?;
+            } else {
+                let key_local = self.reserve_temp_local();
+                let global_object_local = self.reserve_temp_local();
+                let global_object_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(global_object_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(global_object_tag_local));
+                self.emit_object_read(
+                    global_object_local,
+                    global_object_tag_local,
+                    global_object_local,
+                    global_object_tag_local,
+                    key_local,
+                    callee_payload_local,
+                    callee_tag_local,
+                    function,
+                )?;
+                self.release_temp_local(global_object_tag_local);
+                self.release_temp_local(global_object_local);
+                self.release_temp_local(key_local);
+            }
+            self.emit_function_handle_call_with_argv(
+                callee_payload_local,
+                callee_tag_local,
+                None,
+                argc_local,
+                argv_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(callee_table_index_local);
+            self.release_temp_local(callee_env_local);
+            self.release_temp_local(callee_tag_local);
+            self.release_temp_local(callee_payload_local);
+            self.release_temp_local(argv_local);
+            self.release_temp_local(argc_local);
+            return Ok(());
+        }
 
         if is_class_constructor {
             self.emit_throw_runtime_error(

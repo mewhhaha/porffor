@@ -1,0 +1,126 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6454436055780916821,
+  "run_kind": "full",
+  "total": 30,
+  "passed": 29,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 29
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/resolve/name.js",
+      "duration_ms": 20688
+    },
+    {
+      "path": "built-ins/Promise/resolve/prop-desc.js",
+      "duration_ms": 20646
+    },
+    {
+      "path": "built-ins/Promise/resolve/length.js",
+      "duration_ms": 20628
+    },
+    {
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+      "duration_ms": 17976
+    },
+    {
+      "path": "built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_2.js",
+      "duration_ms": 17858
+    },
+    {
+      "path": "built-ins/Promise/resolve/resolve-non-thenable.js",
+      "duration_ms": 14357
+    },
+    {
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+      "duration_ms": 14307
+    },
+    {
+      "path": "built-ins/Promise/resolve/resolve-non-obj.js",
+      "duration_ms": 14287
+    },
+    {
+      "path": "built-ins/Promise/resolve/resolve-self.js",
+      "duration_ms": 14277
+    },
+    {
+      "path": "built-ins/Promise/resolve/resolve-thenable.js",
+      "duration_ms": 14247
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Promise/resolve/context-non-object-with-promise.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1409808)",
+      "detail_hash": 5420632794974803279,
+      "duration_ms": 13701
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Promise/resolve/S25.4.4.5_A1.1_T1.js",
+    "built-ins/Promise/resolve/S25.4.4.5_A2.1_T1.js",
+    "built-ins/Promise/resolve/S25.4.4.5_A2.2_T1.js",
+    "built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+    "built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+    "built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+    "built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_1.js",
+    "built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_2.js",
+    "built-ins/Promise/resolve/arg-non-thenable.js",
+    "built-ins/Promise/resolve/arg-poisoned-then.js",
+    "built-ins/Promise/resolve/arg-uniq-ctor.js",
+    "built-ins/Promise/resolve/capability-executor-called-twice.js",
+    "built-ins/Promise/resolve/capability-executor-not-callable.js",
+    "built-ins/Promise/resolve/capability-invocation-error.js",
+    "built-ins/Promise/resolve/context-non-object-with-promise.js",
+    "built-ins/Promise/resolve/ctx-ctor-throws.js",
+    "built-ins/Promise/resolve/ctx-ctor.js",
+    "built-ins/Promise/resolve/ctx-non-ctor.js",
+    "built-ins/Promise/resolve/ctx-non-object.js",
+    "built-ins/Promise/resolve/length.js",
+    "built-ins/Promise/resolve/name.js",
+    "built-ins/Promise/resolve/not-a-constructor.js",
+    "built-ins/Promise/resolve/prop-desc.js",
+    "built-ins/Promise/resolve/resolve-from-promise-capability.js",
+    "built-ins/Promise/resolve/resolve-non-obj.js",
+    "built-ins/Promise/resolve/resolve-non-thenable.js",
+    "built-ins/Promise/resolve/resolve-poisoned-then.js",
+    "built-ins/Promise/resolve/resolve-prms-cstm-then.js",
+    "built-ins/Promise/resolve/resolve-self.js",
+    "built-ins/Promise/resolve/resolve-thenable.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

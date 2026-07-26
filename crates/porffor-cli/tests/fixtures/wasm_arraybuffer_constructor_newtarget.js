@@ -27,9 +27,19 @@ Object.defineProperty(newTarget, "prototype", {
     return Array.prototype;
   }
 });
+if (newTarget.prototype !== Array.prototype) throw "bound NewTarget prototype getter";
 let boundProtoBuffer = Reflect.construct(ArrayBuffer, [16], newTarget);
 if (Object.getPrototypeOf(boundProtoBuffer) !== Array.prototype) {
   throw "bound NewTarget prototype";
+}
+
+var redeclaredBuffer = Reflect.construct(ArrayBuffer, [8], Object);
+if (Object.getPrototypeOf(redeclaredBuffer) !== Object.prototype) {
+  throw "redeclared Object NewTarget prototype";
+}
+var redeclaredBuffer = Reflect.construct(ArrayBuffer, [16], newTarget);
+if (Object.getPrototypeOf(redeclaredBuffer) !== Array.prototype) {
+  throw "redeclared bound NewTarget prototype";
 }
 
 let lengthObject = {

@@ -1,0 +1,157 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2879933483929296098,
+  "run_kind": "matrix-filter-leaf",
+  "total": 58,
+  "passed": 57,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 57
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/resolve-function-length.js",
+      "duration_ms": 26757
+    },
+    {
+      "path": "built-ins/Promise/reject-function-name.js",
+      "duration_ms": 25355
+    },
+    {
+      "path": "built-ins/Promise/length.js",
+      "duration_ms": 23363
+    },
+    {
+      "path": "built-ins/Promise/resolve-function-name.js",
+      "duration_ms": 23363
+    },
+    {
+      "path": "built-ins/Promise/promise.js",
+      "duration_ms": 23238
+    },
+    {
+      "path": "built-ins/Promise/name.js",
+      "duration_ms": 23166
+    },
+    {
+      "path": "built-ins/Promise/executor-function-length.js",
+      "duration_ms": 22345
+    },
+    {
+      "path": "built-ins/Promise/executor-function-name.js",
+      "duration_ms": 22272
+    },
+    {
+      "path": "built-ins/Promise/reject-function-length.js",
+      "duration_ms": 22223
+    },
+    {
+      "path": "built-ins/Promise/resolve-function-nonconstructor.js",
+      "duration_ms": 17838
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Promise/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Promise/constructor.js",
+    "built-ins/Promise/create-resolving-functions-reject.js",
+    "built-ins/Promise/create-resolving-functions-resolve.js",
+    "built-ins/Promise/exception-after-resolve-in-executor.js",
+    "built-ins/Promise/exception-after-resolve-in-thenable-job.js",
+    "built-ins/Promise/exec-args.js",
+    "built-ins/Promise/executor-call-context-sloppy.js",
+    "built-ins/Promise/executor-call-context-strict.js",
+    "built-ins/Promise/executor-function-extensible.js",
+    "built-ins/Promise/executor-function-length.js",
+    "built-ins/Promise/executor-function-name.js",
+    "built-ins/Promise/executor-function-not-a-constructor.js",
+    "built-ins/Promise/executor-function-property-order.js",
+    "built-ins/Promise/executor-function-prototype.js",
+    "built-ins/Promise/executor-not-callable.js",
+    "built-ins/Promise/get-prototype-abrupt-executor-not-callable.js",
+    "built-ins/Promise/get-prototype-abrupt.js",
+    "built-ins/Promise/is-a-constructor.js",
+    "built-ins/Promise/length.js",
+    "built-ins/Promise/name.js",
+    "built-ins/Promise/promise.js",
+    "built-ins/Promise/property-order.js",
+    "built-ins/Promise/proto-from-ctor-realm.js",
+    "built-ins/Promise/reject-function-extensible.js",
+    "built-ins/Promise/reject-function-length.js",
+    "built-ins/Promise/reject-function-name.js",
+    "built-ins/Promise/reject-function-nonconstructor.js",
+    "built-ins/Promise/reject-function-property-order.js",
+    "built-ins/Promise/reject-function-prototype.js",
+    "built-ins/Promise/reject-ignored-via-abrupt.js",
+    "built-ins/Promise/reject-ignored-via-fn-deferred.js",
+    "built-ins/Promise/reject-ignored-via-fn-immed.js",
+    "built-ins/Promise/reject-via-abrupt-queue.js",
+    "built-ins/Promise/reject-via-abrupt.js",
+    "built-ins/Promise/reject-via-fn-deferred-queue.js",
+    "built-ins/Promise/reject-via-fn-deferred.js",
+    "built-ins/Promise/reject-via-fn-immed-queue.js",
+    "built-ins/Promise/reject-via-fn-immed.js",
+    "built-ins/Promise/resolve-function-extensible.js",
+    "built-ins/Promise/resolve-function-length.js",
+    "built-ins/Promise/resolve-function-name.js",
+    "built-ins/Promise/resolve-function-nonconstructor.js",
+    "built-ins/Promise/resolve-function-property-order.js",
+    "built-ins/Promise/resolve-function-prototype.js",
+    "built-ins/Promise/resolve-ignored-via-fn-deferred.js",
+    "built-ins/Promise/resolve-ignored-via-fn-immed.js",
+    "built-ins/Promise/resolve-non-obj-deferred.js",
+    "built-ins/Promise/resolve-non-obj-immed.js",
+    "built-ins/Promise/resolve-non-thenable-deferred.js",
+    "built-ins/Promise/resolve-non-thenable-immed.js",
+    "built-ins/Promise/resolve-poisoned-then-deferred.js",
+    "built-ins/Promise/resolve-poisoned-then-immed.js",
+    "built-ins/Promise/resolve-prms-cstm-then-deferred.js",
+    "built-ins/Promise/resolve-prms-cstm-then-immed.js",
+    "built-ins/Promise/resolve-self.js",
+    "built-ins/Promise/resolve-thenable-deferred.js",
+    "built-ins/Promise/resolve-thenable-immed.js",
+    "built-ins/Promise/undefined-newtarget.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Promise"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

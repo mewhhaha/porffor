@@ -1,0 +1,1027 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13146929685012755363,
+  "run_kind": "full",
+  "total": 94,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 94,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 94,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/NativeErrors/message_property_native_error.js",
+      "duration_ms": 7285
+    },
+    {
+      "path": "built-ins/NativeErrors/cause_property_native_error.js",
+      "duration_ms": 5630
+    },
+    {
+      "path": "built-ins/NativeErrors/nativeerror-tostring-message-throws-toprimitive.js",
+      "duration_ms": 4304
+    },
+    {
+      "path": "built-ins/NativeErrors/nativeerror-tostring-message-throws-symbol.js",
+      "duration_ms": 4222
+    },
+    {
+      "path": "built-ins/NativeErrors/TypeError/is-a-constructor.js",
+      "duration_ms": 3022
+    },
+    {
+      "path": "built-ins/NativeErrors/SyntaxError/is-a-constructor.js",
+      "duration_ms": 2875
+    },
+    {
+      "path": "built-ins/NativeErrors/ReferenceError/is-a-constructor.js",
+      "duration_ms": 2839
+    },
+    {
+      "path": "built-ins/NativeErrors/EvalError/is-a-constructor.js",
+      "duration_ms": 2815
+    },
+    {
+      "path": "built-ins/NativeErrors/URIError/is-a-constructor.js",
+      "duration_ms": 2777
+    },
+    {
+      "path": "built-ins/NativeErrors/RangeError/is-a-constructor.js",
+      "duration_ms": 2736
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2069
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2314
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2815
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2016
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1370
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1368
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1349
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1358
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2033
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1368
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1371
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1370
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1458
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2017
+    },
+    {
+      "test_path": "built-ins/NativeErrors/EvalError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2022
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1990
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2032
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2736
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1973
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1378
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1391
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1349
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1337
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2024
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1377
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1418
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1350
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1368
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1990
+    },
+    {
+      "test_path": "built-ins/NativeErrors/RangeError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2013
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2044
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2028
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2839
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2086
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1421
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1408
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1379
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1388
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2063
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1466
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1458
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1410
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1403
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2108
+    },
+    {
+      "test_path": "built-ins/NativeErrors/ReferenceError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2128
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2041
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2051
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2875
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2082
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1401
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1388
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1348
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1372
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2174
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1349
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1397
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1419
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1400
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2227
+    },
+    {
+      "test_path": "built-ins/NativeErrors/SyntaxError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2403
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2365
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2052
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 3022
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2293
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1555
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1747
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1753
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1398
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2022
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1417
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1421
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1411
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1410
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2016
+    },
+    {
+      "test_path": "built-ins/NativeErrors/TypeError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1982
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1984
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/instance-proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2024
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/is-a-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2777
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/is-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2018
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/length.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1472
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1440
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1552
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1461
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2215
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1489
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype/constructor.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1498
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype/message.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1484
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype/name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 1461
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype/not-error-object.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2202
+    },
+    {
+      "test_path": "built-ins/NativeErrors/URIError/prototype/proto.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 2245
+    },
+    {
+      "test_path": "built-ins/NativeErrors/cause_property_native_error.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 5630
+    },
+    {
+      "test_path": "built-ins/NativeErrors/message_property_native_error.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 7285
+    },
+    {
+      "test_path": "built-ins/NativeErrors/nativeerror-tostring-message-throws-symbol.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 4222
+    },
+    {
+      "test_path": "built-ins/NativeErrors/nativeerror-tostring-message-throws-toprimitive.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: string `TypedArray iterator method requires a TypedArray` must exist in pool",
+      "detail_hash": 11518879243474937896,
+      "duration_ms": 4304
+    }
+  ],
+  "completed_paths": [
+    "built-ins/NativeErrors/EvalError/constructor.js",
+    "built-ins/NativeErrors/EvalError/instance-proto.js",
+    "built-ins/NativeErrors/EvalError/is-a-constructor.js",
+    "built-ins/NativeErrors/EvalError/is-error-object.js",
+    "built-ins/NativeErrors/EvalError/length.js",
+    "built-ins/NativeErrors/EvalError/name.js",
+    "built-ins/NativeErrors/EvalError/prop-desc.js",
+    "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/EvalError/proto.js",
+    "built-ins/NativeErrors/EvalError/prototype.js",
+    "built-ins/NativeErrors/EvalError/prototype/constructor.js",
+    "built-ins/NativeErrors/EvalError/prototype/message.js",
+    "built-ins/NativeErrors/EvalError/prototype/name.js",
+    "built-ins/NativeErrors/EvalError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/EvalError/prototype/proto.js",
+    "built-ins/NativeErrors/RangeError/constructor.js",
+    "built-ins/NativeErrors/RangeError/instance-proto.js",
+    "built-ins/NativeErrors/RangeError/is-a-constructor.js",
+    "built-ins/NativeErrors/RangeError/is-error-object.js",
+    "built-ins/NativeErrors/RangeError/length.js",
+    "built-ins/NativeErrors/RangeError/name.js",
+    "built-ins/NativeErrors/RangeError/prop-desc.js",
+    "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/RangeError/proto.js",
+    "built-ins/NativeErrors/RangeError/prototype.js",
+    "built-ins/NativeErrors/RangeError/prototype/constructor.js",
+    "built-ins/NativeErrors/RangeError/prototype/message.js",
+    "built-ins/NativeErrors/RangeError/prototype/name.js",
+    "built-ins/NativeErrors/RangeError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/RangeError/prototype/proto.js",
+    "built-ins/NativeErrors/ReferenceError/constructor.js",
+    "built-ins/NativeErrors/ReferenceError/instance-proto.js",
+    "built-ins/NativeErrors/ReferenceError/is-a-constructor.js",
+    "built-ins/NativeErrors/ReferenceError/is-error-object.js",
+    "built-ins/NativeErrors/ReferenceError/length.js",
+    "built-ins/NativeErrors/ReferenceError/name.js",
+    "built-ins/NativeErrors/ReferenceError/prop-desc.js",
+    "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/ReferenceError/proto.js",
+    "built-ins/NativeErrors/ReferenceError/prototype.js",
+    "built-ins/NativeErrors/ReferenceError/prototype/constructor.js",
+    "built-ins/NativeErrors/ReferenceError/prototype/message.js",
+    "built-ins/NativeErrors/ReferenceError/prototype/name.js",
+    "built-ins/NativeErrors/ReferenceError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/ReferenceError/prototype/proto.js",
+    "built-ins/NativeErrors/SyntaxError/constructor.js",
+    "built-ins/NativeErrors/SyntaxError/instance-proto.js",
+    "built-ins/NativeErrors/SyntaxError/is-a-constructor.js",
+    "built-ins/NativeErrors/SyntaxError/is-error-object.js",
+    "built-ins/NativeErrors/SyntaxError/length.js",
+    "built-ins/NativeErrors/SyntaxError/name.js",
+    "built-ins/NativeErrors/SyntaxError/prop-desc.js",
+    "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/SyntaxError/proto.js",
+    "built-ins/NativeErrors/SyntaxError/prototype.js",
+    "built-ins/NativeErrors/SyntaxError/prototype/constructor.js",
+    "built-ins/NativeErrors/SyntaxError/prototype/message.js",
+    "built-ins/NativeErrors/SyntaxError/prototype/name.js",
+    "built-ins/NativeErrors/SyntaxError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/SyntaxError/prototype/proto.js",
+    "built-ins/NativeErrors/TypeError/constructor.js",
+    "built-ins/NativeErrors/TypeError/instance-proto.js",
+    "built-ins/NativeErrors/TypeError/is-a-constructor.js",
+    "built-ins/NativeErrors/TypeError/is-error-object.js",
+    "built-ins/NativeErrors/TypeError/length.js",
+    "built-ins/NativeErrors/TypeError/name.js",
+    "built-ins/NativeErrors/TypeError/prop-desc.js",
+    "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/TypeError/proto.js",
+    "built-ins/NativeErrors/TypeError/prototype.js",
+    "built-ins/NativeErrors/TypeError/prototype/constructor.js",
+    "built-ins/NativeErrors/TypeError/prototype/message.js",
+    "built-ins/NativeErrors/TypeError/prototype/name.js",
+    "built-ins/NativeErrors/TypeError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/TypeError/prototype/proto.js",
+    "built-ins/NativeErrors/URIError/constructor.js",
+    "built-ins/NativeErrors/URIError/instance-proto.js",
+    "built-ins/NativeErrors/URIError/is-a-constructor.js",
+    "built-ins/NativeErrors/URIError/is-error-object.js",
+    "built-ins/NativeErrors/URIError/length.js",
+    "built-ins/NativeErrors/URIError/name.js",
+    "built-ins/NativeErrors/URIError/prop-desc.js",
+    "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
+    "built-ins/NativeErrors/URIError/proto.js",
+    "built-ins/NativeErrors/URIError/prototype.js",
+    "built-ins/NativeErrors/URIError/prototype/constructor.js",
+    "built-ins/NativeErrors/URIError/prototype/message.js",
+    "built-ins/NativeErrors/URIError/prototype/name.js",
+    "built-ins/NativeErrors/URIError/prototype/not-error-object.js",
+    "built-ins/NativeErrors/URIError/prototype/proto.js",
+    "built-ins/NativeErrors/cause_property_native_error.js",
+    "built-ins/NativeErrors/message_property_native_error.js",
+    "built-ins/NativeErrors/nativeerror-tostring-message-throws-symbol.js",
+    "built-ins/NativeErrors/nativeerror-tostring-message-throws-toprimitive.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

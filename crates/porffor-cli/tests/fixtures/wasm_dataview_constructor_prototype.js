@@ -7,6 +7,21 @@ let custom = Reflect.construct(DataView, [buffer, 1, 2], customNewTarget);
 if (Object.getPrototypeOf(custom) !== proto) throw "custom prototype";
 if (custom.constructor !== Object) throw "custom constructor";
 
+let arrayNewTarget = function () {}.bind(null);
+Object.defineProperty(arrayNewTarget, "prototype", {
+  get: function () {
+    return Array.prototype;
+  }
+});
+let arrayPrototypeView = Reflect.construct(
+  DataView,
+  [buffer, 1, 2],
+  arrayNewTarget
+);
+if (Object.getPrototypeOf(arrayPrototypeView) !== Array.prototype) {
+  throw "Array exotic custom prototype";
+}
+
 let nullNewTarget = function () {};
 nullNewTarget.prototype = null;
 let fallback = Reflect.construct(DataView, [buffer], nullNewTarget);

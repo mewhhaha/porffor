@@ -2852,7 +2852,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 0, &mut function);
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// On an atom failure, restore the latest ordered fallback. If none exists,

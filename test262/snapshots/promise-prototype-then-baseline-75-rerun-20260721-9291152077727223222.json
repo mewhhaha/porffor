@@ -1,0 +1,161 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9291152077727223222,
+  "run_kind": "full",
+  "total": 75,
+  "passed": 75,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 75
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/prototype/then/name.js",
+      "duration_ms": 26957
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/length.js",
+      "duration_ms": 26010
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/prop-desc.js",
+      "duration_ms": 25011
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.1_T1.js",
+      "duration_ms": 23125
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.3_T1.js",
+      "duration_ms": 22677
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T2.js",
+      "duration_ms": 22082
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.5.3_A5.2_T1.js",
+      "duration_ms": 22031
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T1.js",
+      "duration_ms": 21703
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A1.1_T1.js",
+      "duration_ms": 21096
+    },
+    {
+      "path": "built-ins/Promise/prototype/then/S25.4.4_A2.1_T3.js",
+      "duration_ms": 20651
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Promise/prototype/then/S25.4.4_A1.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.4_A2.1_T3.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A1.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A2.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.1_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A4.2_T2.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.1_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.2_T1.js",
+    "built-ins/Promise/prototype/then/S25.4.5.3_A5.3_T1.js",
+    "built-ins/Promise/prototype/then/capability-executor-called-twice.js",
+    "built-ins/Promise/prototype/then/capability-executor-not-callable.js",
+    "built-ins/Promise/prototype/then/context-check-on-entry.js",
+    "built-ins/Promise/prototype/then/ctor-access-count.js",
+    "built-ins/Promise/prototype/then/ctor-custom.js",
+    "built-ins/Promise/prototype/then/ctor-null.js",
+    "built-ins/Promise/prototype/then/ctor-poisoned.js",
+    "built-ins/Promise/prototype/then/ctor-throws.js",
+    "built-ins/Promise/prototype/then/ctor-undef.js",
+    "built-ins/Promise/prototype/then/deferred-is-resolved-value.js",
+    "built-ins/Promise/prototype/then/length.js",
+    "built-ins/Promise/prototype/then/name.js",
+    "built-ins/Promise/prototype/then/not-a-constructor.js",
+    "built-ins/Promise/prototype/then/prfm-fulfilled.js",
+    "built-ins/Promise/prototype/then/prfm-pending-fulfulled.js",
+    "built-ins/Promise/prototype/then/prfm-pending-rejected.js",
+    "built-ins/Promise/prototype/then/prfm-rejected.js",
+    "built-ins/Promise/prototype/then/prop-desc.js",
+    "built-ins/Promise/prototype/then/reject-pending-fulfilled.js",
+    "built-ins/Promise/prototype/then/reject-pending-rejected.js",
+    "built-ins/Promise/prototype/then/reject-settled-fulfilled.js",
+    "built-ins/Promise/prototype/then/reject-settled-rejected.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-self.js",
+    "built-ins/Promise/prototype/then/resolve-pending-fulfilled-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-self.js",
+    "built-ins/Promise/prototype/then/resolve-pending-rejected-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-self.js",
+    "built-ins/Promise/prototype/then/resolve-settled-fulfilled-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-non-obj.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-non-thenable.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-poisoned-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-prms-cstm-then.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-self.js",
+    "built-ins/Promise/prototype/then/resolve-settled-rejected-thenable.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-nonstrict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-strict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-next.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-fulfilled-return-normal.js",
+    "built-ins/Promise/prototype/then/rxn-handler-identity.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-nonstrict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-invoke-strict.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-next-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-next.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-return-abrupt.js",
+    "built-ins/Promise/prototype/then/rxn-handler-rejected-return-normal.js",
+    "built-ins/Promise/prototype/then/rxn-handler-thrower.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,61 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8856395937596906020,
+  "run_kind": "full",
+  "total": 1,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/slice/invoked-as-method.js",
+      "duration_ms": 76044
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/slice/invoked-as-method.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large",
+      "detail_hash": 10119025308033241195,
+      "duration_ms": 76044
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/slice/invoked-as-method.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

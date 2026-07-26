@@ -1,7 +1,10 @@
 mod array;
+mod array_from_async;
 mod binary_data;
 mod bootstrap;
+mod collections;
 mod date;
+mod decimal;
 mod errors;
 mod host;
 mod iterators;

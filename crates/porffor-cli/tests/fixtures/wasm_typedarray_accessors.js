@@ -6,6 +6,7 @@ if (concretePrototypeParent === typedArrayPrototype) {} else throw "concrete pro
 let byteLengthDesc = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength");
 let byteOffsetDesc = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset");
 let lengthDesc = Object.getOwnPropertyDescriptor(typedArrayPrototype, "length");
+let toStringTagDesc = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag);
 
 if (byteLengthDesc === undefined) throw "byteLength descriptor missing";
 if (byteLengthDesc.set !== undefined) throw "byteLength setter";
@@ -15,19 +16,25 @@ if (byteLengthDesc.value !== undefined) throw "byteLength data descriptor";
 if (typeof byteLengthDesc.get !== "function") throw "byteLength getter";
 if (typeof byteOffsetDesc.get !== "function") throw "byteOffset getter";
 if (typeof lengthDesc.get !== "function") throw "length getter";
+if (toStringTagDesc.set !== undefined) throw "toStringTag setter";
+if (typeof toStringTagDesc.get !== "function") throw "toStringTag getter";
 if (byteLengthDesc.enumerable !== false) throw "byteLength enumerable";
 if (byteOffsetDesc.enumerable !== false) throw "byteOffset enumerable";
 if (lengthDesc.enumerable !== false) throw "length enumerable";
 if (byteLengthDesc.configurable !== true) throw "byteLength configurable";
 if (byteOffsetDesc.configurable !== true) throw "byteOffset configurable";
 if (lengthDesc.configurable !== true) throw "length configurable";
+if (toStringTagDesc.enumerable !== false) throw "toStringTag enumerable";
+if (toStringTagDesc.configurable !== true) throw "toStringTag configurable";
 
 if (Object.getOwnPropertyDescriptor(byteLengthDesc.get, "length").value !== 0) throw "byteLength getter length";
 if (Object.getOwnPropertyDescriptor(byteOffsetDesc.get, "length").value !== 0) throw "byteOffset getter length";
 if (Object.getOwnPropertyDescriptor(lengthDesc.get, "length").value !== 0) throw "length getter length";
+if (Object.getOwnPropertyDescriptor(toStringTagDesc.get, "length").value !== 0) throw "toStringTag getter length";
 if (Object.getOwnPropertyDescriptor(byteLengthDesc.get, "name").value !== "get byteLength") throw "byteLength getter name";
 if (Object.getOwnPropertyDescriptor(byteOffsetDesc.get, "name").value !== "get byteOffset") throw "byteOffset getter name";
 if (Object.getOwnPropertyDescriptor(lengthDesc.get, "name").value !== "get length") throw "length getter name";
+if (Object.getOwnPropertyDescriptor(toStringTagDesc.get, "name").value !== "get [Symbol.toStringTag]") throw "toStringTag getter name";
 let dynamicLengthKey = "length";
 let dynamicNameKey = "name";
 if (Object.getOwnPropertyDescriptor(byteLengthDesc.get, dynamicLengthKey).value !== 0) throw "byteLength getter dynamic length";
@@ -51,6 +58,23 @@ if (fixed.length !== 10) throw "fixed length";
 if (byteLengthDesc.get.call(fixed) !== 20) throw "call byteLength";
 if (byteOffsetDesc.get.call(fixed) !== 4) throw "call byteOffset";
 if (lengthDesc.get.call(fixed) !== 10) throw "call length";
+if (toStringTagDesc.get.call(fixed) !== "Uint16Array") throw "call toStringTag";
+if (fixed[Symbol.toStringTag] !== "Uint16Array") throw "inherited toStringTag";
+if (new BigInt64Array()[Symbol.toStringTag] !== "BigInt64Array") throw "bigint toStringTag";
+if (toStringTagDesc.get.call({}) !== undefined) throw "plain toStringTag";
+if (toStringTagDesc.get.call(undefined) !== undefined) throw "undefined toStringTag";
+
+let inheritedTypedArray = {};
+Object.setPrototypeOf(inheritedTypedArray, fixed);
+__porfAssertThrows(TypeError, function () {
+  byteLengthDesc.get.call(inheritedTypedArray);
+});
+__porfAssertThrows(TypeError, function () {
+  byteOffsetDesc.get.call(inheritedTypedArray);
+});
+__porfAssertThrows(TypeError, function () {
+  lengthDesc.get.call(inheritedTypedArray);
+});
 
 let sized = new Float32Array(3);
 if (sized.byteOffset !== 0) throw "sized byteOffset";
@@ -69,6 +93,7 @@ __porfDetachArrayBuffer(detachedBuffer);
 if (detached.byteOffset !== 0) throw "detached byteOffset";
 if (detached.byteLength !== 0) throw "detached byteLength";
 if (detached.length !== 0) throw "detached length";
+if (detached[Symbol.toStringTag] !== "Uint32Array") throw "detached toStringTag";
 
 __porfAssertThrows(TypeError, function () {
   byteLengthDesc.get.call({});

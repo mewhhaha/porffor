@@ -228,7 +228,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 208;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 312;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -241,10 +241,23 @@ pub(crate) const HEAP_BIGINT_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SYMBOL_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_RECORD_SIZE: u64 = 64;
+pub(crate) const HEAP_MAP_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_MAP_ENTRY_SIZE: u64 = 40;
+pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
+pub(crate) const HEAP_SET_ITERATOR_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
-pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 64;
+pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 56;
 #[allow(dead_code)]
 pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
+#[allow(dead_code)]
+pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
+pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 136;
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 184;
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE: u64 = 56;
 pub(crate) const SPARSE_ARRAY_DENSE_GROW_FACTOR: u64 = 16;
 pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 48;
 // Arguments records reuse the generic array header (ptr/len/cap/prototype at
@@ -274,6 +287,89 @@ pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
 pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
+pub(crate) const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
+pub(crate) const HEAP_GENERATOR_FUNCTION_OFFSET: u64 = 88;
+pub(crate) const HEAP_GENERATOR_THIS_PAYLOAD_OFFSET: u64 = 96;
+pub(crate) const HEAP_GENERATOR_THIS_TAG_OFFSET: u64 = 104;
+pub(crate) const HEAP_GENERATOR_ARGC_OFFSET: u64 = 112;
+pub(crate) const HEAP_GENERATOR_ARGV_OFFSET: u64 = 120;
+pub(crate) const HEAP_GENERATOR_RESUME_STATE_OFFSET: u64 = 128;
+pub(crate) const HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET: u64 = 136;
+pub(crate) const HEAP_GENERATOR_RESUME_TAG_OFFSET: u64 = 144;
+pub(crate) const HEAP_GENERATOR_ENV_OFFSET: u64 = 152;
+pub(crate) const HEAP_GENERATOR_INITIALIZED_OFFSET: u64 = 160;
+pub(crate) const HEAP_GENERATOR_RESUME_KIND_OFFSET: u64 = 168;
+pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET: u64 = 176;
+pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 184;
+pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET: u64 = 192;
+pub(crate) const HEAP_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET: u64 = 200;
+pub(crate) const HEAP_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET: u64 = 208;
+pub(crate) const HEAP_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET: u64 = 216;
+pub(crate) const HEAP_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET: u64 = 224;
+pub(crate) const HEAP_GENERATOR_DELEGATE_RECORD_OFFSET: u64 = 232;
+pub(crate) const HEAP_GENERATOR_DELEGATE_ITERATOR_PAYLOAD_OFFSET: u64 = 0;
+pub(crate) const HEAP_GENERATOR_DELEGATE_ITERATOR_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_GENERATOR_DELEGATE_NEXT_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_GENERATOR_DELEGATE_NEXT_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET: u64 = 32;
+pub(crate) const HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET: u64 = 40;
+pub(crate) const HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET: u64 = 48;
+pub(crate) const HEAP_GENERATOR_DELEGATE_ASYNC_ITERATOR_OFFSET: u64 = 56;
+pub(crate) const HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET: u64 = 64;
+pub(crate) const HEAP_GENERATOR_DELEGATE_RESULT_DONE_PAYLOAD_OFFSET: u64 = 72;
+pub(crate) const HEAP_GENERATOR_DELEGATE_RESULT_DONE_TAG_OFFSET: u64 = 80;
+pub(crate) const HEAP_GENERATOR_DELEGATE_RECORD_SIZE: u64 = 88;
+pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET: u64 = 80;
+pub(crate) const HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_GENERATOR_FUNCTION_OFFSET: u64 = 32;
+pub(crate) const HEAP_ASYNC_GENERATOR_FUNCTION_ENV_OFFSET: u64 = 40;
+pub(crate) const HEAP_ASYNC_GENERATOR_THIS_PAYLOAD_OFFSET: u64 = 48;
+pub(crate) const HEAP_ASYNC_GENERATOR_THIS_TAG_OFFSET: u64 = 56;
+pub(crate) const HEAP_ASYNC_GENERATOR_ARGC_OFFSET: u64 = 64;
+pub(crate) const HEAP_ASYNC_GENERATOR_ARGV_OFFSET: u64 = 72;
+pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET: u64 = 80;
+pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET: u64 = 88;
+pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET: u64 = 96;
+pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET: u64 = 104;
+pub(crate) const HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET: u64 = 112;
+pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
+pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
+pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET: u64 = 136;
+pub(crate) const HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET: u64 = 144;
+pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET: u64 = 152;
+pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET: u64 = 160;
+pub(crate) const HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET: u64 = 168;
+pub(crate) const HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET: u64 = 176;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_CAPABILITY_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_RECORD_OFFSET: u64 = 40;
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_NEXT_OFFSET: u64 = 48;
+pub(crate) const HEAP_PENDING_COMPLETION_NEXT_OFFSET: u64 = 0;
+pub(crate) const HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_PENDING_COMPLETION_TAG_OFFSET: u64 = 16;
+pub(crate) const HEAP_PENDING_COMPLETION_KIND_OFFSET: u64 = 24;
+pub(crate) const HEAP_PENDING_COMPLETION_AUX_OFFSET: u64 = 32;
+pub(crate) const HEAP_PENDING_COMPLETION_RECORD_SIZE: u64 = 40;
+// ArrayBuffer and SharedArrayBuffer instances use a brand-selected private
+// record in the generic object header. These slots must not be represented as
+// ordinary properties: user code can legally create or overwrite the legacy
+// `$ArrayBuffer...` names.
+pub(crate) const HEAP_ARRAY_BUFFER_DATA_OFFSET: u64 = 80;
+pub(crate) const HEAP_ARRAY_BUFFER_BYTE_LENGTH_OFFSET: u64 = 88;
+pub(crate) const HEAP_ARRAY_BUFFER_MAX_BYTE_LENGTH_OFFSET: u64 = 96;
+pub(crate) const HEAP_ARRAY_BUFFER_DETACH_KEY_TAG_OFFSET: u64 = 104;
+pub(crate) const HEAP_ARRAY_BUFFER_DETACH_KEY_PAYLOAD_OFFSET: u64 = 112;
+pub(crate) const HEAP_ARRAY_BUFFER_FLAGS_OFFSET: u64 = 120;
+pub(crate) const ARRAY_BUFFER_FLAG_RESIZABLE: u64 = 1;
+pub(crate) const ARRAY_BUFFER_FLAG_SHARED: u64 = 2;
+pub(crate) const ARRAY_BUFFER_FLAG_IMMUTABLE: u64 = 4;
+pub(crate) const ARRAY_BUFFER_FLAG_DETACHED: u64 = 8;
 // TypedArray instances are ordinary heap objects with integer-indexed exotic
 // behavior.  Their internal slots must not alias user-visible properties: JS
 // can legally create or overwrite names such as `$TypedArrayByteLength`.
@@ -506,6 +602,19 @@ pub(crate) const HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET: u
 pub(crate) const HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET: u64 = 184;
 pub(crate) const HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET: u64 = 192;
 pub(crate) const HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET: u64 = 200;
+pub(crate) const HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET: u64 = 208;
+pub(crate) const HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET: u64 = 216;
+pub(crate) const HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET: u64 = 224;
+pub(crate) const HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET: u64 = 232;
+pub(crate) const HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET: u64 = 240;
+pub(crate) const HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET: u64 = 248;
+pub(crate) const HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET: u64 = 256;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_ITERATOR_PROTOTYPE_OFFSET: u64 = 264;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET: u64 = 272;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_CONSTRUCTOR_OFFSET: u64 = 280;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET: u64 = 288;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET: u64 = 296;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET: u64 = 304;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -567,6 +676,7 @@ pub(crate) const HEAP_BIGINT_SIGN_OFFSET: u64 = 0;
 pub(crate) const HEAP_BIGINT_LIMBS_PTR_OFFSET: u64 = 8;
 pub(crate) const HEAP_BIGINT_LIMBS_LEN_OFFSET: u64 = 16;
 pub(crate) const HEAP_BIGINT_LIMBS_CAP_OFFSET: u64 = 24;
+pub(crate) const HEAP_BIGINT_VALUE_TAG: i64 = 12;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
@@ -579,14 +689,43 @@ pub(crate) const HEAP_PROMISE_REJECT_REACTIONS_OFFSET: u64 = 32;
 pub(crate) const HEAP_PROMISE_IS_HANDLED_OFFSET: u64 = 40;
 pub(crate) const HEAP_PROMISE_REALM_OFFSET: u64 = 48;
 pub(crate) const HEAP_PROMISE_HOST_DATA_OFFSET: u64 = 56;
+pub(crate) const HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET: u64 = 16;
+pub(crate) const HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET: u64 = 24;
+pub(crate) const HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET: u64 = 32;
+pub(crate) const HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET: u64 = 40;
+pub(crate) const HEAP_MAP_ENTRIES_PTR_OFFSET: u64 = 0;
+pub(crate) const HEAP_MAP_ENTRIES_LEN_OFFSET: u64 = 8;
+pub(crate) const HEAP_MAP_ENTRIES_CAP_OFFSET: u64 = 16;
+pub(crate) const HEAP_MAP_LIVE_COUNT_OFFSET: u64 = 24;
+pub(crate) const HEAP_MAP_ENTRY_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_MAP_ENTRY_KEY_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_MAP_ENTRY_VALUE_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET: u64 = 0;
+pub(crate) const HEAP_MAP_ITERATOR_NEXT_INDEX_OFFSET: u64 = 8;
+pub(crate) const HEAP_MAP_ITERATOR_KIND_OFFSET: u64 = 16;
+pub(crate) const HEAP_MAP_ITERATOR_DONE_OFFSET: u64 = 24;
+pub(crate) const HEAP_SET_ENTRIES_PTR_OFFSET: u64 = 0;
+pub(crate) const HEAP_SET_ENTRIES_LEN_OFFSET: u64 = 8;
+pub(crate) const HEAP_SET_ENTRIES_CAP_OFFSET: u64 = 16;
+pub(crate) const HEAP_SET_LIVE_COUNT_OFFSET: u64 = 24;
+pub(crate) const HEAP_SET_ENTRY_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_SET_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_SET_ITERATOR_SET_PAYLOAD_OFFSET: u64 = 0;
+pub(crate) const HEAP_SET_ITERATOR_NEXT_INDEX_OFFSET: u64 = 8;
+pub(crate) const HEAP_SET_ITERATOR_KIND_OFFSET: u64 = 16;
+pub(crate) const HEAP_SET_ITERATOR_DONE_OFFSET: u64 = 24;
 pub(crate) const HEAP_PROMISE_REACTION_CAPABILITY_OFFSET: u64 = 0;
 pub(crate) const HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_PROMISE_REACTION_REALM_OFFSET: u64 = 24;
 pub(crate) const HEAP_PROMISE_REACTION_NEXT_OFFSET: u64 = 32;
 pub(crate) const HEAP_PROMISE_REACTION_TYPE_OFFSET: u64 = 40;
-pub(crate) const HEAP_PROMISE_REACTION_JOB_CALLBACK_OFFSET: u64 = 48;
-pub(crate) const HEAP_PROMISE_REACTION_RESERVED_OFFSET: u64 = 56;
+pub(crate) const HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET: u64 = 48;
 pub(crate) const HEAP_PENDING_JOB_CALLBACK_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_PENDING_JOB_CALLBACK_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_PENDING_JOB_ARG_TAG_OFFSET: u64 = 16;
@@ -594,6 +733,25 @@ pub(crate) const HEAP_PENDING_JOB_ARG_PAYLOAD_OFFSET: u64 = 24;
 pub(crate) const HEAP_PENDING_JOB_REALM_OFFSET: u64 = 32;
 pub(crate) const HEAP_PENDING_JOB_NEXT_OFFSET: u64 = 40;
 pub(crate) const HEAP_PENDING_JOB_KIND_OFFSET: u64 = 48;
+pub(crate) const HEAP_ASYNC_FUNCTION_ENV_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_THIS_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_THIS_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_ARGC_OFFSET: u64 = 32;
+pub(crate) const HEAP_ASYNC_ARGV_OFFSET: u64 = 40;
+pub(crate) const HEAP_ASYNC_RESUME_STATE_OFFSET: u64 = 48;
+pub(crate) const HEAP_ASYNC_RESUME_PAYLOAD_OFFSET: u64 = 56;
+pub(crate) const HEAP_ASYNC_RESUME_TAG_OFFSET: u64 = 64;
+pub(crate) const HEAP_ASYNC_RESUME_KIND_OFFSET: u64 = 72;
+pub(crate) const HEAP_ASYNC_ENV_OFFSET: u64 = 80;
+pub(crate) const HEAP_ASYNC_INITIALIZED_OFFSET: u64 = 88;
+pub(crate) const HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET: u64 = 96;
+pub(crate) const HEAP_ASYNC_PROMISE_RECORD_OFFSET: u64 = 104;
+pub(crate) const HEAP_ASYNC_COMPLETED_OFFSET: u64 = 112;
+pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
+pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
+pub(crate) const ASYNC_RESUME_KIND_FULFILL: u64 = 0;
+pub(crate) const ASYNC_RESUME_KIND_REJECT: u64 = 1;
 pub(crate) const ENV_PARENT_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 8;
 pub(crate) const ENV_SLOT_SIZE: u64 = 16;
@@ -628,6 +786,55 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_FLAT_MAP_HELPER: u64 = 8;
 pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_TAKE_HELPER: u64 = 9;
 pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_DROP_HELPER: u64 = 10;
 pub(crate) const OBJECT_INTERNAL_BRAND_PROMISE: u64 = 11;
+pub(crate) const OBJECT_INTERNAL_BRAND_MAP: u64 = 12;
+pub(crate) const OBJECT_INTERNAL_BRAND_SET: u64 = 13;
+pub(crate) const OBJECT_INTERNAL_BRAND_MAP_ITERATOR: u64 = 14;
+pub(crate) const OBJECT_INTERNAL_BRAND_SET_ITERATOR: u64 = 15;
+pub(crate) const OBJECT_INTERNAL_BRAND_ARRAY_BUFFER: u64 = 16;
+pub(crate) const OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER: u64 = 17;
+pub(crate) const OBJECT_INTERNAL_BRAND_GENERATOR: u64 = 18;
+#[allow(dead_code)]
+pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR: u64 = 19;
+pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
+pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
+pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
+pub(crate) const GENERATOR_STATE_SUSPENDED_YIELD: u64 = 3;
+pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
+pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
+pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
+pub(crate) const GENERATOR_RESUME_KIND_THROW: u64 = 2;
+pub(crate) const GENERATOR_DELEGATED_RESULT_AUX_FLAG: i64 = i64::MIN;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_SUSPENDED_START: u64 = 0;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_SUSPENDED_YIELD: u64 = 1;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_EXECUTING: u64 = 2;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_DRAINING_QUEUE: u64 = 3;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_COMPLETED: u64 = 4;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT: u64 = 5;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_KIND_RETURN: u64 = 1;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_KIND_THROW: u64 = 2;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_KIND_FULFILL: u64 = 3;
+#[allow(dead_code)]
+pub(crate) const ASYNC_GENERATOR_RESUME_KIND_REJECT: u64 = 4;
+pub(crate) const ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED: u64 = 1;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_IDLE: u64 = 0;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_RUNNING: u64 = 1;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_AWAIT: u64 = 2;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_YIELD: u64 = 3;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_COMPLETE: u64 = 4;
+pub(crate) const ASYNC_GENERATOR_BODY_STATUS_THROW: u64 = 5;
 pub(crate) const PROMISE_STATE_PENDING: u64 = 0;
 pub(crate) const PROMISE_STATE_FULFILLED: u64 = 1;
 pub(crate) const PROMISE_STATE_REJECTED: u64 = 2;
@@ -641,6 +848,9 @@ pub(crate) const FUNCTION_FLAG_USES_SUPER: u64 = 64;
 pub(crate) const FUNCTION_FLAG_THIS_BEFORE_SUPER: u64 = 128;
 pub(crate) const FUNCTION_FLAG_STRICT: u64 = 256;
 pub(crate) const FUNCTION_FLAG_IS_HTMLDDA: u64 = 512;
+pub(crate) const FUNCTION_FLAG_GENERATOR: u64 = 1024;
+pub(crate) const FUNCTION_FLAG_ASYNC: u64 = 2048;
+pub(crate) const FUNCTION_FLAG_ASYNC_GENERATOR: u64 = 4096;
 pub(crate) const JS_FUNCTION_PARAM_COUNT: usize = 7;
 
 #[allow(dead_code)]
@@ -714,6 +924,48 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "data",
+        offset: HEAP_ARRAY_BUFFER_DATA_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "byte_length",
+        offset: HEAP_ARRAY_BUFFER_BYTE_LENGTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "max_byte_length",
+        offset: HEAP_ARRAY_BUFFER_MAX_BYTE_LENGTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "detach_key_tag",
+        offset: HEAP_ARRAY_BUFFER_DETACH_KEY_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "detach_key_payload",
+        offset: HEAP_ARRAY_BUFFER_DETACH_KEY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "array-buffer-object-header",
+        name: "flags",
+        offset: HEAP_ARRAY_BUFFER_FLAGS_OFFSET,
+        width: 8,
+        pointer: false,
     },
     HeapLayoutSlot {
         record: "typed-array-object-header",
@@ -810,6 +1062,497 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         record: "regexp-object-header",
         name: "named_group_table_ptr",
         offset: HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_GENERATOR_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "state",
+        offset: HEAP_GENERATOR_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "function",
+        offset: HEAP_GENERATOR_FUNCTION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "this_payload",
+        offset: HEAP_GENERATOR_THIS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "this_tag",
+        offset: HEAP_GENERATOR_THIS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "argc",
+        offset: HEAP_GENERATOR_ARGC_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "argv",
+        offset: HEAP_GENERATOR_ARGV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "resume_state",
+        offset: HEAP_GENERATOR_RESUME_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "resume_payload",
+        offset: HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "resume_tag",
+        offset: HEAP_GENERATOR_RESUME_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "environment",
+        offset: HEAP_GENERATOR_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "initialized",
+        offset: HEAP_GENERATOR_INITIALIZED_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "resume_kind",
+        offset: HEAP_GENERATOR_RESUME_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "pending_completion_head",
+        offset: HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "pending_completion_depth",
+        offset: HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "pending_completion_capacity",
+        offset: HEAP_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "assignment_target_payload",
+        offset: HEAP_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "assignment_target_tag",
+        offset: HEAP_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "assignment_key_payload",
+        offset: HEAP_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "assignment_key_tag",
+        offset: HEAP_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "delegate_record",
+        offset: HEAP_GENERATOR_DELEGATE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "iterator_payload",
+        offset: HEAP_GENERATOR_DELEGATE_ITERATOR_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "iterator_tag",
+        offset: HEAP_GENERATOR_DELEGATE_ITERATOR_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "next_payload",
+        offset: HEAP_GENERATOR_DELEGATE_NEXT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "next_tag",
+        offset: HEAP_GENERATOR_DELEGATE_NEXT_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "pending_kind",
+        offset: HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "pending_payload",
+        offset: HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "pending_tag",
+        offset: HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "async_iterator",
+        offset: HEAP_GENERATOR_DELEGATE_ASYNC_ITERATOR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "awaiting_sync_value",
+        offset: HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "result_done_payload",
+        offset: HEAP_GENERATOR_DELEGATE_RESULT_DONE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-delegate-record",
+        name: "result_done_tag",
+        offset: HEAP_GENERATOR_DELEGATE_RESULT_DONE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[HeapLayoutSlot {
+    record: "async-generator-object",
+    name: "activation",
+    offset: HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET,
+    width: 8,
+    pointer: true,
+}];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "queue_head",
+        offset: HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "queue_tail",
+        offset: HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "active_request",
+        offset: HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "execution_state",
+        offset: HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "function",
+        offset: HEAP_ASYNC_GENERATOR_FUNCTION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "function_environment",
+        offset: HEAP_ASYNC_GENERATOR_FUNCTION_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "this_payload",
+        offset: HEAP_ASYNC_GENERATOR_THIS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "this_tag",
+        offset: HEAP_ASYNC_GENERATOR_THIS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "argc",
+        offset: HEAP_ASYNC_GENERATOR_ARGC_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "argv",
+        offset: HEAP_ASYNC_GENERATOR_ARGV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "resume_state",
+        offset: HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "resume_payload",
+        offset: HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "resume_tag",
+        offset: HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "resume_kind",
+        offset: HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "lexical_environment",
+        offset: HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "pending_completion_head",
+        offset: HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "pending_completion_depth",
+        offset: HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "pending_completion_capacity",
+        offset: HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "body_status",
+        offset: HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "body_result_payload",
+        offset: HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "body_result_tag",
+        offset: HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "initialized",
+        offset: HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "delegate_record",
+        offset: HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "completion_kind",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "completion_tag",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "completion_payload",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "promise_capability",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_CAPABILITY_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "promise_payload",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "promise_record",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-request",
+        name: "next",
+        offset: HEAP_ASYNC_GENERATOR_REQUEST_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_PENDING_COMPLETION_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "pending-completion-record",
+        name: "next",
+        offset: HEAP_PENDING_COMPLETION_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "pending-completion-record",
+        name: "payload",
+        offset: HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "pending-completion-record",
+        name: "tag",
+        offset: HEAP_PENDING_COMPLETION_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "pending-completion-record",
+        name: "kind",
+        offset: HEAP_PENDING_COMPLETION_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "pending-completion-record",
+        name: "aux",
+        offset: HEAP_PENDING_COMPLETION_AUX_OFFSET,
         width: 8,
         pointer: false,
     },
@@ -1333,6 +2076,97 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         record: "realm-intrinsics",
         name: "%StringIteratorPrototype%",
         offset: HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Map.prototype%",
+        offset: HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Set.prototype%",
+        offset: HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%MapIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%SetIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%GeneratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%GeneratorFunction.prototype%",
+        offset: HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%GeneratorFunction%",
+        offset: HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncFunction.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncFunction%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_CONSTRUCTOR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncGeneratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncGeneratorFunction.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncGeneratorFunction%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -1872,6 +2706,244 @@ pub(crate) const HEAP_PROMISE_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_PROMISE_CAPABILITY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "promise_tag",
+        offset: HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "promise_payload",
+        offset: HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "resolve_tag",
+        offset: HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "resolve_payload",
+        offset: HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "reject_tag",
+        offset: HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "promise-capability-record",
+        name: "reject_payload",
+        offset: HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_MAP_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "map-record",
+        name: "entries_ptr",
+        offset: HEAP_MAP_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "map-record",
+        name: "entries_len",
+        offset: HEAP_MAP_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-record",
+        name: "entries_cap",
+        offset: HEAP_MAP_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-record",
+        name: "live_count",
+        offset: HEAP_MAP_LIVE_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_MAP_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "map-entry",
+        name: "present",
+        offset: HEAP_MAP_ENTRY_PRESENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-entry",
+        name: "key_tag",
+        offset: HEAP_MAP_ENTRY_KEY_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-entry",
+        name: "key_payload",
+        offset: HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "map-entry",
+        name: "value_tag",
+        offset: HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-entry",
+        name: "value_payload",
+        offset: HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "map-iterator-record",
+        name: "map_payload",
+        offset: HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "map-iterator-record",
+        name: "next_index",
+        offset: HEAP_MAP_ITERATOR_NEXT_INDEX_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-iterator-record",
+        name: "kind",
+        offset: HEAP_MAP_ITERATOR_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "map-iterator-record",
+        name: "done",
+        offset: HEAP_MAP_ITERATOR_DONE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_SET_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "set-record",
+        name: "entries_ptr",
+        offset: HEAP_SET_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "set-record",
+        name: "entries_len",
+        offset: HEAP_SET_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-record",
+        name: "entries_cap",
+        offset: HEAP_SET_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-record",
+        name: "live_count",
+        offset: HEAP_SET_LIVE_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_SET_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "set-entry",
+        name: "present",
+        offset: HEAP_SET_ENTRY_PRESENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-entry",
+        name: "value_tag",
+        offset: HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-entry",
+        name: "value_payload",
+        offset: HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_SET_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "set-iterator-record",
+        name: "set_payload",
+        offset: HEAP_SET_ITERATOR_SET_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "set-iterator-record",
+        name: "next_index",
+        offset: HEAP_SET_ITERATOR_NEXT_INDEX_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-iterator-record",
+        name: "kind",
+        offset: HEAP_SET_ITERATOR_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "set-iterator-record",
+        name: "done",
+        offset: HEAP_SET_ITERATOR_DONE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_REACTION_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "promise-reaction-record",
@@ -1917,15 +2989,8 @@ pub(crate) const HEAP_PROMISE_REACTION_LAYOUT: &[HeapLayoutSlot] = &[
     },
     HeapLayoutSlot {
         record: "promise-reaction-record",
-        name: "job_callback",
-        offset: HEAP_PROMISE_REACTION_JOB_CALLBACK_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "reserved",
-        offset: HEAP_PROMISE_REACTION_RESERVED_OFFSET,
+        name: "callback_kind",
+        offset: HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
         width: 8,
         pointer: false,
     },
@@ -1987,7 +3052,7 @@ pub(crate) const HEAP_PENDING_JOB_LAYOUT: &[HeapLayoutSlot] = &[
 #[allow(dead_code)]
 pub(crate) const HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT: HeapByteSpanLayout = HeapByteSpanLayout {
     record: "array-buffer-backing-store",
-    length_source: ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
+    length_source: "array-buffer-object-header.max_byte_length",
     element_width: 1,
     pointer: false,
 };
@@ -2641,6 +3706,102 @@ pub(crate) const VALUE_ENCODING_SLOTS: &[ValueEncodingSlot] = &[
 ];
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) fn emit_alloc_bigint_literal(
+        &mut self,
+        sign: i64,
+        limbs: &[u64],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if limbs.is_empty() {
+            return Err(EmitError::unsupported(
+                "heap-backed BigInt literal requires at least one magnitude limb",
+            ));
+        }
+        let limb_count = u64::try_from(limbs.len()).map_err(|_| {
+            EmitError::unsupported("heap-backed BigInt literal has too many magnitude limbs")
+        })?;
+        let limbs_size = limb_count.checked_mul(8).ok_or_else(|| {
+            EmitError::unsupported("heap-backed BigInt literal limb storage exceeds u64")
+        })?;
+        let record_local = self.reserve_temp_local();
+        let limbs_local = self.reserve_temp_local();
+
+        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(record_local));
+        self.emit_heap_alloc_const(limbs_size, function)?;
+        function.instruction(&Instruction::LocalSet(limbs_local));
+        for (index, limb) in (0_u64..).zip(limbs.iter().copied()) {
+            self.store_i64_const_at_offset(limbs_local, index * 8, limb, function);
+        }
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_BIGINT_SIGN_OFFSET,
+            sign as u64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_PTR_OFFSET,
+            limbs_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_LEN_OFFSET,
+            limb_count,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_CAP_OFFSET,
+            limb_count,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(record_local));
+
+        self.release_temp_local(limbs_local);
+        self.release_temp_local(record_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_alloc_one_limb_bigint(
+        &mut self,
+        sign: i64,
+        magnitude_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        let limbs_local = self.reserve_temp_local();
+
+        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(record_local));
+        self.emit_heap_alloc_const(8, function)?;
+        function.instruction(&Instruction::LocalSet(limbs_local));
+        function.instruction(&Instruction::LocalGet(limbs_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_BIGINT_SIGN_OFFSET,
+            sign as u64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_PTR_OFFSET,
+            limbs_local,
+            function,
+        );
+        self.store_i64_const_at_offset(record_local, HEAP_BIGINT_LIMBS_LEN_OFFSET, 1, function);
+        self.store_i64_const_at_offset(record_local, HEAP_BIGINT_LIMBS_CAP_OFFSET, 1, function);
+        function.instruction(&Instruction::LocalGet(record_local));
+
+        self.release_temp_local(limbs_local);
+        self.release_temp_local(record_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_heap_alloc_const(
         &mut self,
         size: u64,
@@ -3014,15 +4175,43 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 208);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 312);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 64);
-        assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 64);
+        assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
+        assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);
+        assert_eq!(HEAP_PENDING_COMPLETION_RECORD_SIZE, 40);
+        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
+        assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
+        assert_eq!(HEAP_MAP_RECORD_SIZE, 32);
+        assert_eq!(HEAP_MAP_ENTRY_SIZE, 40);
+        assert_eq!(HEAP_MAP_ITERATOR_RECORD_SIZE, 32);
+        assert_eq!(HEAP_SET_RECORD_SIZE, 32);
+        assert_eq!(HEAP_SET_ENTRY_SIZE, 24);
+        assert_eq!(HEAP_SET_ITERATOR_RECORD_SIZE, 32);
     }
 
     #[test]
     fn heap_layout_registry_has_no_slot_collisions() {
         assert_layout(HEAP_OBJECT_HEADER_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(HEAP_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(
+            HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT,
+            HEAP_GENERATOR_DELEGATE_RECORD_SIZE,
+        );
+        assert_layout(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(
+            HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT,
+            HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT,
+            HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_PENDING_COMPLETION_LAYOUT,
+            HEAP_PENDING_COMPLETION_RECORD_SIZE,
+        );
         assert_layout(HEAP_FUNCTION_OBJECT_LAYOUT, HEAP_FUNCTION_OBJECT_SIZE);
         assert_layout(
             HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT,
@@ -3047,6 +4236,22 @@ mod tests {
         );
         assert_layout(HEAP_PROMISE_LAYOUT, HEAP_PROMISE_RECORD_SIZE);
         assert_layout(
+            HEAP_PROMISE_CAPABILITY_LAYOUT,
+            HEAP_PROMISE_CAPABILITY_RECORD_SIZE,
+        );
+        assert_layout(HEAP_MAP_RECORD_LAYOUT, HEAP_MAP_RECORD_SIZE);
+        assert_layout(HEAP_MAP_ENTRY_LAYOUT, HEAP_MAP_ENTRY_SIZE);
+        assert_layout(
+            HEAP_MAP_ITERATOR_RECORD_LAYOUT,
+            HEAP_MAP_ITERATOR_RECORD_SIZE,
+        );
+        assert_layout(HEAP_SET_RECORD_LAYOUT, HEAP_SET_RECORD_SIZE);
+        assert_layout(HEAP_SET_ENTRY_LAYOUT, HEAP_SET_ENTRY_SIZE);
+        assert_layout(
+            HEAP_SET_ITERATOR_RECORD_LAYOUT,
+            HEAP_SET_ITERATOR_RECORD_SIZE,
+        );
+        assert_layout(
             HEAP_PROMISE_REACTION_LAYOUT,
             HEAP_PROMISE_REACTION_RECORD_SIZE,
         );
@@ -3061,6 +4266,12 @@ mod tests {
     fn heap_layout_registry_marks_gc_pointer_fields() {
         let pointer_slots = HEAP_OBJECT_HEADER_LAYOUT
             .iter()
+            .chain(HEAP_GENERATOR_OBJECT_LAYOUT.iter())
+            .chain(HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT.iter())
+            .chain(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT.iter())
+            .chain(HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT.iter())
+            .chain(HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT.iter())
+            .chain(HEAP_PENDING_COMPLETION_LAYOUT.iter())
             .chain(HEAP_FUNCTION_OBJECT_LAYOUT.iter())
             .chain(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter())
             .chain(HEAP_PRIVATE_ENV_LAYOUT.iter())
@@ -3075,6 +4286,13 @@ mod tests {
             .chain(HEAP_REALM_RECORD_LAYOUT.iter())
             .chain(HEAP_REALM_INTRINSICS_LAYOUT.iter())
             .chain(HEAP_PROMISE_LAYOUT.iter())
+            .chain(HEAP_PROMISE_CAPABILITY_LAYOUT.iter())
+            .chain(HEAP_MAP_RECORD_LAYOUT.iter())
+            .chain(HEAP_MAP_ENTRY_LAYOUT.iter())
+            .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
+            .chain(HEAP_SET_RECORD_LAYOUT.iter())
+            .chain(HEAP_SET_ENTRY_LAYOUT.iter())
+            .chain(HEAP_SET_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_PROMISE_REACTION_LAYOUT.iter())
             .chain(HEAP_PENDING_JOB_LAYOUT.iter())
             .chain(HEAP_ENVIRONMENT_LAYOUT.iter())
@@ -3133,6 +4351,16 @@ mod tests {
                 && slot.pointer
         }));
         assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Map.prototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Set.prototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
             slot.name == "%WrapForValidIteratorPrototype%"
                 && slot.offset == HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET
                 && slot.pointer
@@ -3153,6 +4381,170 @@ mod tests {
         assert!(HEAP_PENDING_JOB_LAYOUT.iter().any(|slot| {
             slot.name == "next" && slot.offset == HEAP_PENDING_JOB_NEXT_OFFSET && slot.pointer
         }));
+    }
+
+    #[test]
+    fn async_generator_records_expose_queue_activation_and_promise_edges_to_gc() {
+        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
+        assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
+        assert_ne!(
+            OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR,
+            OBJECT_INTERNAL_BRAND_GENERATOR
+        );
+        assert_eq!(
+            [
+                ASYNC_GENERATOR_STATE_SUSPENDED_START,
+                ASYNC_GENERATOR_STATE_SUSPENDED_YIELD,
+                ASYNC_GENERATOR_STATE_EXECUTING,
+                ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+                ASYNC_GENERATOR_STATE_COMPLETED,
+                ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+            ],
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(ASYNC_GENERATOR_RESUME_STATE_INITIALIZING, u64::MAX);
+        assert_eq!(
+            [
+                ASYNC_GENERATOR_BODY_STATUS_IDLE,
+                ASYNC_GENERATOR_BODY_STATUS_RUNNING,
+                ASYNC_GENERATOR_BODY_STATUS_AWAIT,
+                ASYNC_GENERATOR_BODY_STATUS_YIELD,
+                ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
+                ASYNC_GENERATOR_BODY_STATUS_THROW,
+            ],
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            [
+                ASYNC_GENERATOR_RESUME_KIND_NORMAL,
+                ASYNC_GENERATOR_RESUME_KIND_RETURN,
+                ASYNC_GENERATOR_RESUME_KIND_THROW,
+                ASYNC_GENERATOR_RESUME_KIND_FULFILL,
+                ASYNC_GENERATOR_RESUME_KIND_REJECT,
+            ],
+            [0, 1, 2, 3, 4]
+        );
+
+        assert!(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT.iter().any(|slot| {
+            slot.name == "activation"
+                && slot.offset == HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET
+                && slot.pointer
+        }));
+        for name in [
+            "queue_head",
+            "queue_tail",
+            "active_request",
+            "function",
+            "function_environment",
+            "this_payload",
+            "argv",
+            "resume_payload",
+            "lexical_environment",
+            "pending_completion_head",
+            "body_result_payload",
+            "delegate_record",
+        ] {
+            assert!(
+                HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT
+                    .iter()
+                    .any(|slot| slot.name == name && slot.pointer),
+                "async-generator activation must trace {name}"
+            );
+        }
+        for name in [
+            "execution_state",
+            "this_tag",
+            "argc",
+            "resume_state",
+            "resume_tag",
+            "resume_kind",
+            "pending_completion_depth",
+            "pending_completion_capacity",
+            "body_status",
+            "body_result_tag",
+            "initialized",
+        ] {
+            assert!(
+                HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT
+                    .iter()
+                    .any(|slot| slot.name == name && !slot.pointer),
+                "async-generator activation must not trace scalar {name}"
+            );
+        }
+
+        for name in [
+            "completion_payload",
+            "promise_capability",
+            "promise_payload",
+            "promise_record",
+            "next",
+        ] {
+            assert!(
+                HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT
+                    .iter()
+                    .any(|slot| slot.name == name && slot.pointer),
+                "async-generator request must trace {name}"
+            );
+        }
+        assert!(HEAP_PROMISE_REACTION_LAYOUT.iter().any(|slot| {
+            slot.name == "callback_kind"
+                && slot.offset == HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET
+                && !slot.pointer
+        }));
+        for name in ["completion_kind", "completion_tag"] {
+            assert!(
+                HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT
+                    .iter()
+                    .any(|slot| slot.name == name && !slot.pointer),
+                "async-generator request must not trace scalar {name}"
+            );
+        }
+
+        for name in ["promise_payload", "resolve_payload", "reject_payload"] {
+            assert!(
+                HEAP_PROMISE_CAPABILITY_LAYOUT
+                    .iter()
+                    .any(|slot| slot.name == name && slot.pointer),
+                "Promise capability must trace {name}"
+            );
+        }
+        assert!(HEAP_PENDING_COMPLETION_LAYOUT.iter().any(|slot| {
+            slot.name == "next"
+                && slot.offset == HEAP_PENDING_COMPLETION_NEXT_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_PENDING_COMPLETION_LAYOUT.iter().any(|slot| {
+            slot.name == "payload"
+                && slot.offset == HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET
+                && slot.pointer
+        }));
+    }
+
+    #[test]
+    fn array_buffer_state_uses_a_private_brand_selected_header_record() {
+        let array_buffer_slots = HEAP_OBJECT_HEADER_LAYOUT
+            .iter()
+            .filter(|slot| slot.record == "array-buffer-object-header")
+            .collect::<Vec<_>>();
+        assert_eq!(array_buffer_slots.len(), 6);
+        assert!(array_buffer_slots.iter().any(|slot| {
+            slot.name == "data" && slot.offset == HEAP_ARRAY_BUFFER_DATA_OFFSET && slot.pointer
+        }));
+        assert!(array_buffer_slots.iter().any(|slot| {
+            slot.name == "detach_key_payload"
+                && slot.offset == HEAP_ARRAY_BUFFER_DETACH_KEY_PAYLOAD_OFFSET
+                && slot.pointer
+        }));
+        assert!(array_buffer_slots.iter().any(|slot| {
+            slot.name == "flags" && slot.offset == HEAP_ARRAY_BUFFER_FLAGS_OFFSET && !slot.pointer
+        }));
+        assert_eq!(
+            ARRAY_BUFFER_FLAG_RESIZABLE
+                | ARRAY_BUFFER_FLAG_SHARED
+                | ARRAY_BUFFER_FLAG_IMMUTABLE
+                | ARRAY_BUFFER_FLAG_DETACHED,
+            15
+        );
     }
 
     #[test]
@@ -3355,7 +4747,7 @@ mod tests {
         }
         assert_eq!(
             HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT.length_source,
-            ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT
+            "array-buffer-object-header.max_byte_length"
         );
         assert_eq!(HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT.element_width, 1);
         assert_eq!(HEAP_STRING_CODE_UNITS_LAYOUT.element_width, 2);
@@ -3369,6 +4761,12 @@ mod tests {
             HEAP_FUNCTION_OBJECT_SIZE,
             HEAP_OBJECT_ENTRY_SIZE,
             HEAP_ARRAY_ENTRY_SIZE,
+            HEAP_MAP_RECORD_SIZE,
+            HEAP_MAP_ENTRY_SIZE,
+            HEAP_MAP_ITERATOR_RECORD_SIZE,
+            HEAP_SET_RECORD_SIZE,
+            HEAP_SET_ENTRY_SIZE,
+            HEAP_SET_ITERATOR_RECORD_SIZE,
             HEAP_BOUND_FUNCTION_RECORD_SIZE,
             HEAP_REALM_RECORD_SIZE,
             HEAP_REALM_INTRINSICS_RECORD_SIZE,
@@ -3376,8 +4774,12 @@ mod tests {
             HEAP_BIGINT_RECORD_SIZE,
             HEAP_SYMBOL_RECORD_SIZE,
             HEAP_PROMISE_RECORD_SIZE,
+            HEAP_PROMISE_CAPABILITY_RECORD_SIZE,
             HEAP_PROMISE_REACTION_RECORD_SIZE,
             HEAP_PENDING_JOB_RECORD_SIZE,
+            HEAP_PENDING_COMPLETION_RECORD_SIZE,
+            HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE,
+            HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE,
             ENV_SLOT_SIZE,
         ] {
             assert_eq!(FunctionBuilder::align_heap_size(size), size);

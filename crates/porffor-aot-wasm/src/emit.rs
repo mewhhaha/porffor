@@ -9,7 +9,9 @@ use crate::objects::{
     emit_object_append_accessor_property_helper_function,
     emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
 };
-use porffor_ir::{HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind};
+use porffor_ir::{
+    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind,
+};
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection,
     Function, FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction,
@@ -130,6 +132,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) scratch_local: u32,
     pub(crate) temp_local_base: u32,
     pub(crate) temp_stack_depth: u32,
+    pub(crate) max_temp_stack_depth: u32,
     pub(crate) environment_depth: u32,
     pub(crate) this_payload_local: Option<u32>,
     pub(crate) this_tag_local: Option<u32>,
@@ -139,6 +142,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) label_stack: Vec<LabelTargets>,
     pub(crate) throw_handler_stack: Vec<ControlTarget>,
     pub(crate) finally_stack: Vec<ControlTarget>,
+    pub(crate) generator_finalizer_depth: u32,
     pub(crate) stub_standard_builtin_body: bool,
     pub(crate) runtime_bootstrap_plan: RuntimeBootstrapPlan,
     pub(crate) heap_alloc_function_index: Option<u32>,
@@ -256,6 +260,24 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 }
 
 fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
+    for function in script
+        .functions
+        .iter()
+        .filter(|function| function.execution_kind == FunctionExecutionKind::AsyncGenerator)
+    {
+        if let Some(feature) = function
+            .body
+            .statements
+            .iter()
+            .find_map(async_generator_dispatcher_unsupported_feature)
+        {
+            return Err(EmitError::unsupported(format!(
+                "unsupported in porffor wasm-aot first slice: async-generator body dispatcher for `{}` does not yet support {feature}",
+                function.name
+            )));
+        }
+    }
+
     // Emission fixpoint over the builtin stub partitions (standard and host).
     // The seed partitions come from the script text
     // (`should_stub_standard_builtin`; host builtins the script references).
@@ -274,6 +296,287 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
         }
         forced.standard.extend(touched_stubbed.standard);
         forced.host.extend(touched_stubbed.host);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AsyncGeneratorSuspension {
+    Await,
+    Yield,
+}
+
+fn async_generator_contains_suspension(
+    statement: &StatementIr,
+    suspension: AsyncGeneratorSuspension,
+) -> bool {
+    match statement {
+        StatementIr::AsyncAwait { .. } => matches!(suspension, AsyncGeneratorSuspension::Await),
+        StatementIr::GeneratorYield { .. } => {
+            matches!(suspension, AsyncGeneratorSuspension::Yield)
+        }
+        StatementIr::GeneratorLoop {
+            before_yield,
+            yield_statement,
+            after_yield,
+            ..
+        } => before_yield
+            .iter()
+            .chain(std::iter::once(yield_statement.as_ref()))
+            .chain(after_yield)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => then_before_yield
+            .iter()
+            .chain(then_yield_statement.as_deref())
+            .chain(then_after_yield)
+            .chain(else_before_yield)
+            .chain(else_yield_statement.as_deref())
+            .chain(else_after_yield)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::Block(block) => block
+            .statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            async_generator_contains_suspension(then_branch, suspension)
+                || else_branch.as_ref().is_some_and(|else_branch| {
+                    async_generator_contains_suspension(else_branch, suspension)
+                })
+        }
+        StatementIr::While { body, .. }
+        | StatementIr::DoWhile { body, .. }
+        | StatementIr::For { body, .. }
+        | StatementIr::ForOfArray { body, .. }
+        | StatementIr::ForOfString { body, .. }
+        | StatementIr::ForOfIterator { body, .. }
+        | StatementIr::ForInArray { body, .. }
+        | StatementIr::ForInString { body, .. }
+        | StatementIr::ForInObject { body, .. }
+        | StatementIr::Labelled {
+            statement: body, ..
+        } => async_generator_contains_suspension(body, suspension),
+        StatementIr::Switch {
+            lexical_declarations,
+            cases,
+            ..
+        } => lexical_declarations
+            .iter()
+            .chain(cases.iter().flat_map(|case| case.body.statements.iter()))
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&catch_block.statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&finally_block.statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&catch_block.statements)
+            .chain(&finally_block.statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        _ => false,
+    }
+}
+
+fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Option<&'static str> {
+    match statement {
+        StatementIr::Empty
+        | StatementIr::Lexical { .. }
+        | StatementIr::AnnexBFunctionCopy { .. }
+        | StatementIr::Var(_)
+        | StatementIr::Expression(_)
+        | StatementIr::Debugger
+        | StatementIr::Throw(_)
+        | StatementIr::Return(_) => None,
+        StatementIr::LexicalBlock(statements)
+        | StatementIr::ParameterInitialization { statements, .. } => statements
+            .iter()
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::Block(block) => block
+            .statements
+            .iter()
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::GeneratorYield {
+            resume_mode: GeneratorResumeModeIr::AssignProperty { .. },
+            ..
+        } => Some("property-assignment yield resumption"),
+        StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. } => None,
+        StatementIr::GeneratorLoop {
+            before_yield,
+            yield_statement,
+            after_yield,
+            entry_state,
+            resume_state,
+            exit_state,
+            ..
+        } => {
+            let StatementIr::GeneratorYield {
+                delegate: false,
+                suspend_state,
+                resume_state: yield_resume_state,
+                ..
+            } = yield_statement.as_ref()
+            else {
+                return Some("resumable loops without one direct yield");
+            };
+            if suspend_state != entry_state || yield_resume_state != resume_state {
+                return Some("resumable loops with non-linear yield states");
+            }
+            if exit_state != resume_state {
+                return Some("resumable loops with an unplanned exit state");
+            }
+            if before_yield.iter().chain(after_yield).any(|statement| {
+                async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
+                    || async_generator_contains_suspension(
+                        statement,
+                        AsyncGeneratorSuspension::Yield,
+                    )
+            }) {
+                return Some("resumable loops containing multiple suspensions");
+            }
+            std::iter::once(yield_statement.as_ref())
+                .chain(before_yield)
+                .chain(after_yield)
+                .find_map(async_generator_dispatcher_unsupported_feature)
+        }
+        StatementIr::GeneratorIf { .. } => Some("resumable branches"),
+        StatementIr::ForOfIterator {
+            name,
+            body,
+            async_plan: Some(_),
+            ..
+        } if async_generator_for_await_is_transparent_yield(name, body) => None,
+        StatementIr::ForOfArray {
+            async_plan: Some(_),
+            ..
+        }
+        | StatementIr::ForOfIterator {
+            async_plan: Some(_),
+            ..
+        } => Some("for-await iteration"),
+        StatementIr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            if async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
+                || async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Yield)
+            {
+                return Some("branches containing suspension");
+            }
+            std::iter::once(then_branch.as_ref())
+                .chain(else_branch.as_deref())
+                .find_map(async_generator_dispatcher_unsupported_feature)
+        }
+        StatementIr::While { .. }
+        | StatementIr::DoWhile { .. }
+        | StatementIr::For { .. }
+        | StatementIr::ForOfArray { .. }
+        | StatementIr::ForOfString { .. }
+        | StatementIr::ForOfIterator { .. }
+        | StatementIr::ForInArray { .. }
+        | StatementIr::ForInString { .. }
+        | StatementIr::ForInObject { .. } => Some("loops"),
+        StatementIr::Switch { .. } => Some("switch statements"),
+        StatementIr::Labelled { .. } => Some("labelled statements"),
+        StatementIr::TryCatch {
+            try_block,
+            catch_block,
+            async_plan: Some(_),
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&catch_block.statements)
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::TryFinally {
+            try_block,
+            finally_block,
+            async_plan: Some(_),
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&finally_block.statements)
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::TryCatchFinally {
+            try_block,
+            catch_block,
+            finally_block,
+            async_plan: Some(_),
+            ..
+        } => try_block
+            .statements
+            .iter()
+            .chain(&catch_block.statements)
+            .chain(&finally_block.statements)
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::TryCatch { .. }
+        | StatementIr::TryFinally { .. }
+        | StatementIr::TryCatchFinally { .. } => Some("try statements without a resume plan"),
+        StatementIr::Break { .. } | StatementIr::Continue { .. } => {
+            Some("loop control completions")
+        }
+    }
+}
+
+pub(crate) fn async_generator_for_await_is_transparent_yield(
+    binding: &str,
+    body: &StatementIr,
+) -> bool {
+    match body {
+        StatementIr::GeneratorYield {
+            value:
+                TypedExpr {
+                    expr: ExprIr::Identifier(yielded_binding),
+                    ..
+                },
+            delegate: false,
+            resume_mode: GeneratorResumeModeIr::Ignore,
+            ..
+        } => yielded_binding == binding,
+        StatementIr::LexicalBlock(statements) => {
+            matches!(statements.as_slice(), [statement]
+                if async_generator_for_await_is_transparent_yield(binding, statement))
+        }
+        StatementIr::Block(block) => {
+            matches!(block.statements.as_slice(), [statement]
+                if async_generator_for_await_is_transparent_yield(binding, statement))
+        }
+        _ => false,
     }
 }
 
@@ -796,6 +1099,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_ordinary_set_helper(false)
         })
         .transpose()?;
+    let decimal_to_binary64_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_decimal_to_binary64_helper()
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -921,6 +1241,8 @@ fn emit_script_with_forced_builtins(
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // OrdinarySet helper without generic receiver write fallback.
         functions.function(JS_FUNCTION_TYPE_INDEX);
+        // Exact decimal source text to binary64 conversion helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
             functions.function(JS_FUNCTION_TYPE_INDEX);
@@ -1012,7 +1334,7 @@ fn emit_script_with_forced_builtins(
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in 0..20 {
+        for _ in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -1163,6 +1485,11 @@ fn emit_script_with_forced_builtins(
                 .as_ref()
                 .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
         );
+        code.function(
+            decimal_to_binary64_helper_function
+                .as_ref()
+                .expect("decimal converter helper must exist when heap is enabled"),
+        );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
         {
@@ -1198,7 +1525,7 @@ fn emit_script_with_forced_builtins(
         "module: js-aot".to_string(),
         "export func: main -> i64".to_string(),
         format!("static result kind: {}", script.result_kind().as_str()),
-        format!("locals: {}", main_builder.local_count()),
+        format!("locals: {}", main_builder.emitted_local_count()),
         format!("internal functions: {}", callable_function_count),
         format!(
             "runtime helper functions: {}",
@@ -1647,6 +1974,7 @@ impl<'a> FunctionBuilder<'a> {
             scratch_local,
             temp_local_base: scratch_local + 1,
             temp_stack_depth: 0,
+            max_temp_stack_depth: 0,
             environment_depth: 0,
             this_payload_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(1),
             this_tag_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(2),
@@ -1656,6 +1984,7 @@ impl<'a> FunctionBuilder<'a> {
             label_stack: Vec::new(),
             throw_handler_stack: Vec::new(),
             finally_stack: Vec::new(),
+            generator_finalizer_depth: 0,
             stub_standard_builtin_body: false,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -1809,16 +2138,25 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 26)
     }
 
+    /// Wasm function index of the exact decimal source-text to binary64 helper.
+    pub(crate) fn decimal_to_binary64_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 27)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 27)
+        self.heap_alloc_function_index.map(|base| base + 28)
     }
 
     pub(crate) fn local_count(&self) -> usize {
         self.total_binding_local_count as usize + 8 + self.temp_local_count as usize
+    }
+
+    pub(crate) fn emitted_local_count(&self) -> u32 {
+        self.total_binding_local_count + 8 + self.max_temp_stack_depth
     }
 
     pub(crate) const fn is_main(&self) -> bool {
@@ -1842,6 +2180,7 @@ impl<'a> FunctionBuilder<'a> {
         assert!(self.temp_stack_depth < self.temp_local_count);
         let local = self.temp_local_base + self.temp_stack_depth;
         self.temp_stack_depth += 1;
+        self.max_temp_stack_depth = self.max_temp_stack_depth.max(self.temp_stack_depth);
         local
     }
 
@@ -1850,6 +2189,26 @@ impl<'a> FunctionBuilder<'a> {
         self.temp_stack_depth -= 1;
         let expected = self.temp_local_base + self.temp_stack_depth;
         assert_eq!(local, expected);
+    }
+
+    pub(crate) fn finish_function(&self, function: Function) -> Function {
+        let planned_local_count = self.local_count() as u32;
+        let emitted_local_count = self.emitted_local_count();
+        if emitted_local_count == planned_local_count {
+            return function;
+        }
+
+        let local_declaration =
+            Function::new([(planned_local_count, ValType::I64)]).into_raw_body();
+        let mut body_bytes = function.into_raw_body();
+        assert!(
+            body_bytes.starts_with(&local_declaration),
+            "function local declaration does not match planned local count {planned_local_count}"
+        );
+        let instruction_bytes = body_bytes.split_off(local_declaration.len());
+        let mut function = Function::new([(emitted_local_count, ValType::I64)]);
+        function.raw(instruction_bytes);
+        function
     }
 
     fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
@@ -1892,6 +2251,42 @@ impl<'a> FunctionBuilder<'a> {
         self.init_script_global_object(&mut function)?;
         self.init_template_objects(&mut function)?;
         self.bind_captured_bindings(&mut function);
+        let suspended_initialization =
+            self.current_function_meta()
+                .and_then(|meta| match meta.execution_kind {
+                    FunctionExecutionKind::Generator => Some((
+                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                        GENERATOR_RESUME_STATE_INITIALIZING,
+                    )),
+                    FunctionExecutionKind::AsyncGenerator => Some((
+                        HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+                        ASYNC_GENERATOR_RESUME_STATE_INITIALIZING,
+                    )),
+                    FunctionExecutionKind::Ordinary | FunctionExecutionKind::Async => None,
+                });
+        let resumable_initialized_offset = self.current_function_meta().and_then(|meta| match meta
+            .execution_kind
+        {
+            FunctionExecutionKind::Generator => Some(HEAP_GENERATOR_INITIALIZED_OFFSET),
+            FunctionExecutionKind::Async => Some(HEAP_ASYNC_INITIALIZED_OFFSET),
+            FunctionExecutionKind::AsyncGenerator => Some(HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET),
+            FunctionExecutionKind::Ordinary => None,
+        });
+        if let Some(initialized_offset) = resumable_initialized_offset {
+            let activation_local = self
+                .new_target_payload_local()
+                .expect("resumable body must use the function call ABI");
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                initialized_offset,
+                self.scratch_local,
+                &mut function,
+            );
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+        }
         self.bind_self_function(&mut function)?;
         if let Some(constructor_meta) = self
             .current_function_meta()
@@ -1941,6 +2336,33 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(name, storage);
             self.initialize_binding_undefined(storage, &mut function);
         }
+        if let Some(initialized_offset) = resumable_initialized_offset {
+            self.initialize_direct_lexical_bindings(&self.body.statements, &mut function);
+            let activation_local = self
+                .new_target_payload_local()
+                .expect("resumable body must use the function call ABI");
+            self.store_i64_const_at_offset(activation_local, initialized_offset, 1, &mut function);
+            function.instruction(&Instruction::End);
+        }
+        if let Some((resume_state_offset, initializing_state)) = suspended_initialization {
+            let activation_local = self
+                .new_target_payload_local()
+                .expect("suspended function body must use the function call ABI");
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                resume_state_offset,
+                self.scratch_local,
+                &mut function,
+            );
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::I64Const(initializing_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.set_completion_kind(CompletionKind::Normal, &mut function);
+            self.emit_statement_result(&mut function, ValueKind::Undefined);
+            self.emit_return_current_completion(&mut function);
+            function.instruction(&Instruction::End);
+        }
         if self
             .current_function_meta()
             .is_some_and(|meta| meta.is_synthetic_default_derived_constructor)
@@ -1969,6 +2391,9 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.normalize_base_class_constructor_result(&mut function);
         self.normalize_derived_constructor_result(&mut function)?;
+        if self.is_main() && self.uses_heap {
+            self.emit_drain_promise_jobs(&mut function)?;
+        }
         assert!(
             self.next_binding_local <= self.current_env_local,
             "binding local planner boundary {} exceeded by next local {}",
@@ -1998,7 +2423,7 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     fn init_template_objects(&mut self, function: &mut Function) -> Result<(), EmitError> {
@@ -2215,7 +2640,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared object-read runtime helper. Rather than inlining the
@@ -2250,7 +2675,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared object-write runtime helper. The large ordinary/proxy
@@ -2285,7 +2710,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the receiver-side data-property step used by OrdinarySet.
@@ -2323,7 +2748,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the receiver-side OrdinarySet step used when an exotic
@@ -2356,7 +2781,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared Array element-write state machine. Argument-vector
@@ -2380,7 +2805,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles OrdinarySet with an explicit receiver once for callers such as
@@ -2461,7 +2886,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared object-define-data runtime helper. Bootstrap-style
@@ -2481,7 +2906,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared plain function-call dispatcher.
@@ -2514,7 +2939,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared runtime-kind dynamic property-read dispatcher.
@@ -2546,7 +2971,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared proxy-aware call-dispatch helper. The proxy call
@@ -2582,7 +3007,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared proxy-aware construct-dispatch helper.
@@ -2615,7 +3040,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared string-payload-equality helper. Builtin bodies
@@ -2643,7 +3068,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared number-to-string helper (the ECMAScript Number→
@@ -2665,7 +3090,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared string-to-number helper (the ECMAScript String→
@@ -2687,7 +3112,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared dynamic ToString helper (per-kind dispatch,
@@ -2738,7 +3163,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared dynamic ToNumber helper (per-kind dispatch,
@@ -2787,7 +3212,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared proxy-aware `[[GetPrototypeOf]]` helper. The proxy
@@ -2823,7 +3248,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared proxy-aware `[[IsExtensible]]` helper, called by the
@@ -2855,7 +3280,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     /// Compiles the shared proxy-aware `[[Get]]` helper. The proxy read wrapper
@@ -2893,7 +3318,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
-        Ok(function)
+        Ok(self.finish_function(function))
     }
 
     fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
@@ -2947,8 +3372,56 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
 
+        let resumable_activation = self.current_function_meta().and_then(|meta| {
+            let environment_offset = match meta.execution_kind {
+                FunctionExecutionKind::Generator => HEAP_GENERATOR_ENV_OFFSET,
+                FunctionExecutionKind::Async => HEAP_ASYNC_ENV_OFFSET,
+                FunctionExecutionKind::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
+                FunctionExecutionKind::Ordinary => return None,
+            };
+            self.new_target_payload_local()
+                .map(|activation_local| (activation_local, environment_offset))
+        });
         if self.owned_env_bindings.is_empty() {
+            if let Some((activation_local, environment_offset)) = resumable_activation {
+                self.load_i64_to_local_from_offset(
+                    activation_local,
+                    environment_offset,
+                    self.scratch_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::LocalSet(self.current_env_local));
+                function.instruction(&Instruction::Else);
+                self.store_i64_local_at_offset(
+                    activation_local,
+                    environment_offset,
+                    self.current_env_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
             return Ok(());
+        }
+
+        if let Some((activation_local, environment_offset)) = resumable_activation {
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                environment_offset,
+                self.scratch_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::LocalSet(self.current_env_local));
+            function.instruction(&Instruction::Else);
         }
 
         let parent_env_local = self.reserve_temp_local();
@@ -3011,22 +3484,42 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
             if let Some(slot) = self.owned_env_slot(LEXICAL_NEW_TARGET_NAME) {
-                let Some(new_target_payload_local) = self.new_target_payload_local() else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: missing `new.target` payload local",
-                    ));
-                };
-                let Some(new_target_tag_local) = self.new_target_tag_local() else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in porffor wasm-aot first slice: missing `new.target` tag local",
-                    ));
-                };
-                self.write_binding_from_locals(
-                    BindingStorage::EnvSlot { slot, hops: 0 },
-                    new_target_payload_local,
-                    new_target_tag_local,
-                    function,
-                );
+                if self.current_function_meta().is_some_and(|meta| {
+                    matches!(
+                        meta.execution_kind,
+                        FunctionExecutionKind::Generator
+                            | FunctionExecutionKind::Async
+                            | FunctionExecutionKind::AsyncGenerator
+                    )
+                }) {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(self.scratch_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                    self.write_binding_from_locals(
+                        BindingStorage::EnvSlot { slot, hops: 0 },
+                        self.scratch_local,
+                        self.result_tag_local,
+                        function,
+                    );
+                } else {
+                    let Some(new_target_payload_local) = self.new_target_payload_local() else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing `new.target` payload local",
+                        ));
+                    };
+                    let Some(new_target_tag_local) = self.new_target_tag_local() else {
+                        return Err(EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing `new.target` tag local",
+                        ));
+                    };
+                    self.write_binding_from_locals(
+                        BindingStorage::EnvSlot { slot, hops: 0 },
+                        new_target_payload_local,
+                        new_target_tag_local,
+                        function,
+                    );
+                }
             }
             if let Some(slot) = self.owned_env_slot(LEXICAL_HOME_OBJECT_NAME) {
                 self.load_i64_to_local_from_offset(
@@ -3048,6 +3541,15 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+        }
+        if let Some((activation_local, environment_offset)) = resumable_activation {
+            self.store_i64_local_at_offset(
+                activation_local,
+                environment_offset,
+                self.current_env_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
         }
         self.release_temp_local(parent_env_local);
         Ok(())

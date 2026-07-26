@@ -1,0 +1,183 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14370758001530191954,
+  "run_kind": "full",
+  "total": 15,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 9,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 9,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-not-integer.js",
+      "duration_ms": 56106
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds.js",
+      "duration_ms": 52987
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-minus-zero.js",
+      "duration_ms": 52681
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-reflect-set.js",
+      "duration_ms": 30370
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-prototype-chain-set.js",
+      "duration_ms": 27934
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-prototype-chain-set.js",
+      "duration_ms": 20031
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-reflect-set.js",
+      "duration_ms": 19758
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-not-numeric-index-set-throws.js",
+      "duration_ms": 19594
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-not-numeric-index.js",
+      "duration_ms": 18965
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/key-is-symbol.js",
+      "duration_ms": 18882
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-prototype-chain-set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1459904)",
+      "detail_hash": 10751989069631500172,
+      "duration_ms": 27934
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-reflect-set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1461832)",
+      "detail_hash": 4701224001441752309,
+      "duration_ms": 30370
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-minus-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1504384)",
+      "detail_hash": 10260100893120812251,
+      "duration_ms": 52681
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-not-integer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1505952)",
+      "detail_hash": 2707545791038130106,
+      "duration_ms": 56106
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string([[Set]] succeeeds)",
+      "detail_hash": 14265834755852429322,
+      "duration_ms": 17046
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-proto.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1400288)",
+      "detail_hash": 17887918991920805382,
+      "duration_ms": 16827
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1508424)",
+      "detail_hash": 9291774820020795466,
+      "duration_ms": 52987
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-prototype-chain-set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1455416)",
+      "detail_hash": 4253354486763726182,
+      "duration_ms": 20031
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-reflect-set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1456992)",
+      "detail_hash": 7826229462591765976,
+      "duration_ms": 19758
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-prototype-chain-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-reflect-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-in-bounds-receiver-is-not-typed-array.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-not-numeric-index-set-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-object.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-typed-array.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-proto.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-prototype-chain-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/key-is-valid-index-reflect-set.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,153 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3353953584716781290,
+  "run_kind": "full",
+  "total": 67,
+  "passed": 67,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 67
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/result-is-new-instance-with-shared-buffer.js",
+      "duration_ms": 113991
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-returns-throws.js",
+      "duration_ms": 93520
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/BigInt/result-is-new-instance-with-shared-buffer.js",
+      "duration_ms": 91350
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor.js",
+      "duration_ms": 86923
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/results-with-different-length.js",
+      "duration_ms": 85033
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor-returns-another-instance.js",
+      "duration_ms": 82751
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor-throws.js",
+      "duration_ms": 82373
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/tointeger-begin.js",
+      "duration_ms": 81987
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/tointeger-end.js",
+      "duration_ms": 81962
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/subarray/speciesctor-get-ctor-returns-throws.js",
+      "duration_ms": 80883
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/subarray/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/infinity.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/minus-zero.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/result-does-not-copy-ordinary-properties.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/result-is-new-instance-from-same-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/result-is-new-instance-with-shared-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/results-with-different-length.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/results-with-empty-length.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/results-with-same-length.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/return-abrupt-from-begin-symbol.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/return-abrupt-from-begin.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/return-abrupt-from-end-symbol.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-ctor-abrupt.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-ctor-inherited.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-ctor-returns-throws.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-abrupt.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-custom-ctor-invocation.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-custom-ctor-returns-another-instance.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-custom-ctor-throws.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-custom-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-returns-throws.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species-use-default-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/speciesctor-get-species.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/tointeger-begin.js",
+    "built-ins/TypedArray/prototype/subarray/BigInt/tointeger-end.js",
+    "built-ins/TypedArray/prototype/subarray/byteoffset-with-detached-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/coerced-begin-end-grow.js",
+    "built-ins/TypedArray/prototype/subarray/coerced-begin-end-shrink.js",
+    "built-ins/TypedArray/prototype/subarray/detached-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/infinity.js",
+    "built-ins/TypedArray/prototype/subarray/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/subarray/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/subarray/length.js",
+    "built-ins/TypedArray/prototype/subarray/minus-zero.js",
+    "built-ins/TypedArray/prototype/subarray/name.js",
+    "built-ins/TypedArray/prototype/subarray/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/subarray/prop-desc.js",
+    "built-ins/TypedArray/prototype/subarray/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/result-byteOffset-from-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/subarray/result-does-not-copy-ordinary-properties.js",
+    "built-ins/TypedArray/prototype/subarray/result-is-new-instance-from-same-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/result-is-new-instance-with-shared-buffer.js",
+    "built-ins/TypedArray/prototype/subarray/results-with-different-length.js",
+    "built-ins/TypedArray/prototype/subarray/results-with-empty-length.js",
+    "built-ins/TypedArray/prototype/subarray/results-with-same-length.js",
+    "built-ins/TypedArray/prototype/subarray/return-abrupt-from-begin-symbol.js",
+    "built-ins/TypedArray/prototype/subarray/return-abrupt-from-begin.js",
+    "built-ins/TypedArray/prototype/subarray/return-abrupt-from-end-symbol.js",
+    "built-ins/TypedArray/prototype/subarray/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-ctor-abrupt.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-ctor-inherited.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-ctor-returns-throws.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-abrupt.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor-invocation.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor-returns-another-instance.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor-throws.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-custom-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-returns-throws.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species-use-default-ctor.js",
+    "built-ins/TypedArray/prototype/subarray/speciesctor-get-species.js",
+    "built-ins/TypedArray/prototype/subarray/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/subarray/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/subarray/tointeger-begin.js",
+    "built-ins/TypedArray/prototype/subarray/tointeger-end.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

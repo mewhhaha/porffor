@@ -13,7 +13,9 @@ use crate::{
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_TRANSFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_TRANSFER_TO_FIXED_LENGTH_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_TRANSFER_TO_IMMUTABLE_FUNCTION_ID,
-    BUILTIN_ARRAY_BUFFER_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ARRAY_FROM_FUNCTION_ID,
+    BUILTIN_ARRAY_BUFFER_SPECIES_GETTER_FUNCTION_ID,
+    BUILTIN_ARRAY_FROM_ASYNC_FULFILLED_FUNCTION_ID, BUILTIN_ARRAY_FROM_ASYNC_FUNCTION_ID,
+    BUILTIN_ARRAY_FROM_ASYNC_REJECTED_FUNCTION_ID, BUILTIN_ARRAY_FROM_FUNCTION_ID,
     BUILTIN_ARRAY_FUNCTION_ID, BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID,
     BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID, BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID,
     BUILTIN_ARRAY_OF_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
@@ -36,7 +38,9 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID,
-    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ATOMICS_ADD_FUNCTION_ID,
+    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
+    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
+    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID, BUILTIN_ATOMICS_ADD_FUNCTION_ID,
     BUILTIN_ATOMICS_AND_FUNCTION_ID, BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID,
     BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID,
     BUILTIN_ATOMICS_LOAD_FUNCTION_ID, BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID,
@@ -109,12 +113,13 @@ use crate::{
     BUILTIN_FLOAT64_ARRAY_FUNCTION_ID, BUILTIN_FUNCTION_FUNCTION_ID,
     BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_BIND_FUNCTION_ID,
     BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID,
-    BUILTIN_INT16_ARRAY_FUNCTION_ID, BUILTIN_INT32_ARRAY_FUNCTION_ID,
-    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID,
-    BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID,
-    BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID,
-    BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FROM_FUNCTION_ID,
-    BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID,
+    BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
+    BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID, BUILTIN_INT16_ARRAY_FUNCTION_ID,
+    BUILTIN_INT32_ARRAY_FUNCTION_ID, BUILTIN_INT8_ARRAY_FUNCTION_ID,
+    BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID,
+    BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID,
+    BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID,
+    BUILTIN_ITERATOR_FROM_FUNCTION_ID, BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID, BUILTIN_ITERATOR_FUNCTION_ID,
     BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID,
@@ -133,32 +138,59 @@ use crate::{
     BUILTIN_ITERATOR_ZIP_FUNCTION_ID, BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID,
     BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID, BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID,
     BUILTIN_JSON_PARSE_FUNCTION_ID, BUILTIN_JSON_RAW_JSON_FUNCTION_ID,
-    BUILTIN_JSON_STRINGIFY_FUNCTION_ID, BUILTIN_NUMBER_FUNCTION_ID,
-    BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID, BUILTIN_OBJECT_CREATE_FUNCTION_ID,
-    BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID, BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID,
-    BUILTIN_OBJECT_FREEZE_FUNCTION_ID, BUILTIN_OBJECT_FUNCTION_ID,
-    BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_JSON_STRINGIFY_FUNCTION_ID, BUILTIN_MAP_FUNCTION_ID, BUILTIN_MAP_GROUP_BY_FUNCTION_ID,
+    BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_KEYS_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_VALUES_FUNCTION_ID,
+    BUILTIN_NUMBER_FUNCTION_ID, BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID,
+    BUILTIN_OBJECT_CREATE_FUNCTION_ID, BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID,
+    BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_OBJECT_FREEZE_FUNCTION_ID,
+    BUILTIN_OBJECT_FUNCTION_ID, BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_SYMBOLS_FUNCTION_ID,
-    BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID,
-    BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID, BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID,
-    BUILTIN_OBJECT_IS_FUNCTION_ID, BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID,
-    BUILTIN_OBJECT_KEYS_FUNCTION_ID, BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID,
+    BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID,
+    BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID, BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID,
+    BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID, BUILTIN_OBJECT_IS_FUNCTION_ID,
+    BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID, BUILTIN_OBJECT_KEYS_FUNCTION_ID,
+    BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID,
+    BUILTIN_OBJECT_PROTOTYPE_PROTO_GETTER_FUNCTION_ID,
+    BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_VALUES_FUNCTION_ID,
-    BUILTIN_PROMISE_FUNCTION_ID, BUILTIN_PROMISE_REJECT_FUNCTION_ID,
-    BUILTIN_PROMISE_RESOLVE_FUNCTION_ID, BUILTIN_PROXY_FUNCTION_ID,
-    BUILTIN_PROXY_REVOCABLE_FUNCTION_ID, BUILTIN_PROXY_REVOKE_FUNCTION_ID,
-    BUILTIN_RANGE_ERROR_FUNCTION_ID, BUILTIN_REFERENCE_ERROR_FUNCTION_ID,
-    BUILTIN_REFLECT_APPLY_FUNCTION_ID, BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID,
-    BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID,
-    BUILTIN_REFLECT_GET_FUNCTION_ID, BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_SETTLED_REJECT_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ALL_SETTLED_RESOLVE_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_ANY_REJECT_ELEMENT_FUNCTION_ID,
+    BUILTIN_PROMISE_CAPABILITY_EXECUTOR_FUNCTION_ID, BUILTIN_PROMISE_CATCH_FINALLY_FUNCTION_ID,
+    BUILTIN_PROMISE_FUNCTION_ID, BUILTIN_PROMISE_PROTOTYPE_CATCH_FUNCTION_ID,
+    BUILTIN_PROMISE_PROTOTYPE_FINALLY_FUNCTION_ID, BUILTIN_PROMISE_PROTOTYPE_THEN_FUNCTION_ID,
+    BUILTIN_PROMISE_REJECT_FUNCTION_ID, BUILTIN_PROMISE_RESOLVE_FUNCTION_ID,
+    BUILTIN_PROMISE_SPECIES_GETTER_FUNCTION_ID, BUILTIN_PROMISE_STATIC_ALL_FUNCTION_ID,
+    BUILTIN_PROMISE_STATIC_ALL_KEYED_FUNCTION_ID, BUILTIN_PROMISE_STATIC_ALL_SETTLED_FUNCTION_ID,
+    BUILTIN_PROMISE_STATIC_ALL_SETTLED_KEYED_FUNCTION_ID, BUILTIN_PROMISE_STATIC_ANY_FUNCTION_ID,
+    BUILTIN_PROMISE_STATIC_RACE_FUNCTION_ID, BUILTIN_PROMISE_STATIC_REJECT_FUNCTION_ID,
+    BUILTIN_PROMISE_STATIC_RESOLVE_FUNCTION_ID, BUILTIN_PROMISE_STATIC_TRY_FUNCTION_ID,
+    BUILTIN_PROMISE_STATIC_WITH_RESOLVERS_FUNCTION_ID, BUILTIN_PROMISE_THEN_FINALLY_FUNCTION_ID,
+    BUILTIN_PROMISE_THROWER_FUNCTION_ID, BUILTIN_PROMISE_VALUE_THUNK_FUNCTION_ID,
+    BUILTIN_PROXY_FUNCTION_ID, BUILTIN_PROXY_REVOCABLE_FUNCTION_ID,
+    BUILTIN_PROXY_REVOKE_FUNCTION_ID, BUILTIN_RANGE_ERROR_FUNCTION_ID,
+    BUILTIN_REFERENCE_ERROR_FUNCTION_ID, BUILTIN_REFLECT_APPLY_FUNCTION_ID,
+    BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID, BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID,
+    BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID, BUILTIN_REFLECT_GET_FUNCTION_ID,
+    BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
     BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_REFLECT_HAS_FUNCTION_ID,
     BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID, BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID,
     BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID, BUILTIN_REFLECT_SET_FUNCTION_ID,
@@ -181,7 +213,19 @@ use crate::{
     BUILTIN_REGEXP_PROTOTYPE_TO_STRING_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_UNICODE_GETTER_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_UNICODE_SETS_GETTER_FUNCTION_ID,
-    BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID, BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
+    BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID, BUILTIN_SET_FUNCTION_ID,
+    BUILTIN_SET_ITERATOR_NEXT_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_DIFFERENCE_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_ENTRIES_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_FOR_EACH_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_HAS_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_INTERSECTION_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_IS_DISJOINT_FROM_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_IS_SUBSET_OF_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_IS_SUPERSET_OF_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_SIZE_GETTER_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID,
+    BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_VALUES_FUNCTION_ID,
+    BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROWABLE_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROW_FUNCTION_ID,
@@ -223,25 +267,50 @@ use crate::{
     BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
     BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID, BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_MAP_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_SET_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_SOME_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_SORT_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_SUBARRAY_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_TYPE_ERROR_FUNCTION_ID,
-    BUILTIN_UINT16_ARRAY_FUNCTION_ID, BUILTIN_UINT32_ARRAY_FUNCTION_ID,
-    BUILTIN_UINT8_ARRAY_FUNCTION_ID, BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID,
-    BUILTIN_UNESCAPE_FUNCTION_ID, BUILTIN_URI_ERROR_FUNCTION_ID, CREATE_REALM_NAME, DATA_VIEW_NAME,
-    DATE_NAME, DETACH_ARRAY_BUFFER_NAME, ERROR_NAME, ESCAPE_NAME, EVAL_ERROR_NAME,
-    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GC_NAME, HOST_ASSERT_THROWS_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_WITH_FUNCTION_ID, BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID,
+    BUILTIN_TYPE_ERROR_FUNCTION_ID, BUILTIN_UINT16_ARRAY_FUNCTION_ID,
+    BUILTIN_UINT32_ARRAY_FUNCTION_ID, BUILTIN_UINT8_ARRAY_FUNCTION_ID,
+    BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID, BUILTIN_UNESCAPE_FUNCTION_ID,
+    BUILTIN_URI_ERROR_FUNCTION_ID, CREATE_REALM_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DETACH_ARRAY_BUFFER_NAME, ERROR_NAME, ESCAPE_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GC_NAME, HOST_ASSERT_THROWS_FUNCTION_ID,
     HOST_CREATE_REALM_FUNCTION_ID, HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID, HOST_GC_FUNCTION_ID,
     HOST_IS_CONSTRUCTOR_FUNCTION_ID, HOST_PARSE_FLOAT_FUNCTION_ID, HOST_PARSE_INT_FUNCTION_ID,
     HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    IS_CONSTRUCTOR_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME, PRINT_NAME,
-    PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
-    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
-    TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
+    IS_CONSTRUCTOR_NAME, MAP_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME,
+    PRINT_NAME, PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
+    SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
+    SYNTAX_ERROR_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
     UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
 };
 
@@ -308,6 +377,7 @@ pub enum StandardBuiltinId {
     FunctionPrototypeToString,
     EvalFunction,
     ObjectConstructor,
+    ObjectGroupBy,
     ObjectCreate,
     ObjectGetPrototypeOf,
     ObjectSetPrototypeOf,
@@ -328,6 +398,8 @@ pub enum StandardBuiltinId {
     ObjectPrototypeHasOwnProperty,
     ObjectPrototypeLookupGetter,
     ObjectPrototypeLookupSetter,
+    ObjectPrototypeProtoGetter,
+    ObjectPrototypeProtoSetter,
     ObjectPrototypePropertyIsEnumerable,
     ObjectPrototypeIsPrototypeOf,
     ObjectPrototypeToString,
@@ -351,6 +423,9 @@ pub enum StandardBuiltinId {
     ReflectOwnKeys,
     ArrayConstructor,
     ArrayFrom,
+    ArrayFromAsync,
+    ArrayFromAsyncFulfilled,
+    ArrayFromAsyncRejected,
     ArrayOf,
     ArrayIsArray,
     ArraySpeciesGetter,
@@ -394,6 +469,12 @@ pub enum StandardBuiltinId {
     ArrayIteratorNext,
     ArrayIteratorIdentity,
     StringIteratorNext,
+    GeneratorPrototypeNext,
+    GeneratorPrototypeReturn,
+    GeneratorPrototypeThrow,
+    AsyncGeneratorPrototypeNext,
+    AsyncGeneratorPrototypeReturn,
+    AsyncGeneratorPrototypeThrow,
     IteratorConstructor,
     IteratorFrom,
     IteratorZip,
@@ -452,13 +533,41 @@ pub enum StandardBuiltinId {
     DataViewPrototypeBufferGetter,
     DataViewPrototypeByteLengthGetter,
     DataViewPrototypeByteOffsetGetter,
+    TypedArraySpeciesGetter,
     TypedArrayPrototypeBufferGetter,
     TypedArrayPrototypeByteLengthGetter,
     TypedArrayPrototypeByteOffsetGetter,
     TypedArrayPrototypeLengthGetter,
+    TypedArrayPrototypeToStringTagGetter,
     TypedArrayPrototypeToString,
+    TypedArrayPrototypeAt,
+    TypedArrayPrototypeIncludes,
+    TypedArrayPrototypeIndexOf,
+    TypedArrayPrototypeLastIndexOf,
+    TypedArrayPrototypeFind,
+    TypedArrayPrototypeFindIndex,
+    TypedArrayPrototypeFindLast,
+    TypedArrayPrototypeFindLastIndex,
+    TypedArrayPrototypeEvery,
+    TypedArrayPrototypeSome,
+    TypedArrayPrototypeMap,
+    TypedArrayPrototypeFilter,
+    TypedArrayPrototypeForEach,
+    TypedArrayPrototypeReduce,
+    TypedArrayPrototypeReduceRight,
+    TypedArrayPrototypeValues,
+    TypedArrayPrototypeKeys,
+    TypedArrayPrototypeEntries,
     TypedArrayPrototypeJoin,
     TypedArrayPrototypeToLocaleString,
+    TypedArrayPrototypeSubarray,
+    TypedArrayPrototypeSlice,
+    TypedArrayPrototypeSet,
+    TypedArrayPrototypeReverse,
+    TypedArrayPrototypeSort,
+    TypedArrayPrototypeToReversed,
+    TypedArrayPrototypeToSorted,
+    TypedArrayPrototypeWith,
     TypedArrayFrom,
     TypedArrayOf,
     DataViewPrototypeGetUint8,
@@ -689,8 +798,66 @@ pub enum StandardBuiltinId {
     BooleanPrototypeToString,
     BooleanPrototypeValueOf,
     PromiseConstructor,
+    PromisePrototypeThen,
+    PromisePrototypeCatch,
+    PromisePrototypeFinally,
+    PromiseThenFinally,
+    PromiseCatchFinally,
+    PromiseValueThunk,
+    PromiseThrower,
+    PromiseSpeciesGetter,
+    PromiseResolve,
+    PromiseWithResolvers,
+    PromiseTry,
+    PromiseReject,
+    PromiseAll,
+    PromiseAllSettled,
+    PromiseAllKeyed,
+    PromiseAllSettledKeyed,
+    PromiseAny,
+    PromiseRace,
+    PromiseAllResolveElement,
+    PromiseAllSettledResolveElement,
+    PromiseAllSettledRejectElement,
+    PromiseAnyRejectElement,
+    PromiseAllKeyedResolveElement,
+    PromiseAllSettledKeyedResolveElement,
+    PromiseAllSettledKeyedRejectElement,
+    PromiseCapabilityExecutor,
     PromiseResolveFunction,
     PromiseRejectFunction,
+    MapConstructor,
+    MapGroupBy,
+    MapPrototypeClear,
+    MapPrototypeDelete,
+    MapPrototypeForEach,
+    MapPrototypeKeys,
+    MapPrototypeValues,
+    MapPrototypeEntries,
+    MapIteratorNext,
+    MapPrototypeGet,
+    MapPrototypeGetOrInsert,
+    MapPrototypeGetOrInsertComputed,
+    MapPrototypeHas,
+    MapPrototypeSet,
+    MapPrototypeSizeGetter,
+    SetConstructor,
+    SetPrototypeAdd,
+    SetPrototypeClear,
+    SetPrototypeDelete,
+    SetPrototypeDifference,
+    SetPrototypeForEach,
+    SetPrototypeIntersection,
+    SetPrototypeIsDisjointFrom,
+    SetPrototypeIsSubsetOf,
+    SetPrototypeIsSupersetOf,
+    SetPrototypeSymmetricDifference,
+    SetPrototypeUnion,
+    SetPrototypeValues,
+    SetPrototypeEntries,
+    SetIteratorNext,
+    SetPrototypeHas,
+    SetPrototypeSizeGetter,
     SymbolConstructor,
     SymbolFor,
     SymbolKeyFor,
@@ -720,10 +887,70 @@ impl StandardBuiltinId {
         match self {
             Self::FunctionConstructor => Some(FUNCTION_NAME),
             Self::PromiseConstructor => Some(PROMISE_NAME),
-            Self::PromiseResolveFunction | Self::PromiseRejectFunction => None,
+            Self::PromisePrototypeThen
+            | Self::PromisePrototypeCatch
+            | Self::PromisePrototypeFinally
+            | Self::PromiseThenFinally
+            | Self::PromiseCatchFinally
+            | Self::PromiseValueThunk
+            | Self::PromiseThrower
+            | Self::PromiseSpeciesGetter
+            | Self::PromiseResolve
+            | Self::PromiseWithResolvers
+            | Self::PromiseTry
+            | Self::PromiseReject
+            | Self::PromiseAll
+            | Self::PromiseAllSettled
+            | Self::PromiseAllKeyed
+            | Self::PromiseAllSettledKeyed
+            | Self::PromiseAny
+            | Self::PromiseRace
+            | Self::PromiseAllResolveElement
+            | Self::PromiseAllSettledResolveElement
+            | Self::PromiseAllSettledRejectElement
+            | Self::PromiseAnyRejectElement
+            | Self::PromiseAllKeyedResolveElement
+            | Self::PromiseAllSettledKeyedResolveElement
+            | Self::PromiseAllSettledKeyedRejectElement
+            | Self::PromiseCapabilityExecutor
+            | Self::PromiseResolveFunction
+            | Self::PromiseRejectFunction => None,
+            Self::MapConstructor => Some(MAP_NAME),
+            Self::MapGroupBy
+            | Self::MapPrototypeClear
+            | Self::MapPrototypeDelete
+            | Self::MapPrototypeForEach
+            | Self::MapPrototypeKeys
+            | Self::MapPrototypeValues
+            | Self::MapPrototypeEntries
+            | Self::MapIteratorNext
+            | Self::MapPrototypeGet
+            | Self::MapPrototypeGetOrInsert
+            | Self::MapPrototypeGetOrInsertComputed
+            | Self::MapPrototypeHas
+            | Self::MapPrototypeSet
+            | Self::MapPrototypeSizeGetter => None,
+            Self::SetConstructor => Some(SET_NAME),
+            Self::SetPrototypeAdd
+            | Self::SetPrototypeClear
+            | Self::SetPrototypeDelete
+            | Self::SetPrototypeDifference
+            | Self::SetPrototypeForEach
+            | Self::SetPrototypeIntersection
+            | Self::SetPrototypeIsDisjointFrom
+            | Self::SetPrototypeIsSubsetOf
+            | Self::SetPrototypeIsSupersetOf
+            | Self::SetPrototypeSymmetricDifference
+            | Self::SetPrototypeUnion
+            | Self::SetPrototypeValues
+            | Self::SetPrototypeEntries
+            | Self::SetIteratorNext
+            | Self::SetPrototypeHas
+            | Self::SetPrototypeSizeGetter => None,
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
             Self::SuppressedErrorConstructor => Some(SUPPRESSED_ERROR_NAME),
             Self::ObjectConstructor => Some(OBJECT_NAME),
+            Self::ObjectGroupBy => None,
             Self::ProxyConstructor => Some(PROXY_NAME),
             Self::IteratorConstructor => Some("Iterator"),
             Self::ArrayConstructor => Some(ARRAY_NAME),
@@ -845,6 +1072,8 @@ impl StandardBuiltinId {
             | Self::ObjectPrototypeHasOwnProperty
             | Self::ObjectPrototypeLookupGetter
             | Self::ObjectPrototypeLookupSetter
+            | Self::ObjectPrototypeProtoGetter
+            | Self::ObjectPrototypeProtoSetter
             | Self::ObjectPrototypePropertyIsEnumerable
             | Self::ObjectPrototypeIsPrototypeOf
             | Self::ObjectPrototypeToString
@@ -866,6 +1095,9 @@ impl StandardBuiltinId {
             | Self::ReflectSetPrototypeOf
             | Self::ReflectOwnKeys
             | Self::ArrayFrom
+            | Self::ArrayFromAsync
+            | Self::ArrayFromAsyncFulfilled
+            | Self::ArrayFromAsyncRejected
             | Self::ArrayOf
             | Self::ArrayIsArray
             | Self::ArraySpeciesGetter
@@ -909,6 +1141,12 @@ impl StandardBuiltinId {
             | Self::ArrayIteratorNext
             | Self::ArrayIteratorIdentity
             | Self::StringIteratorNext
+            | Self::GeneratorPrototypeNext
+            | Self::GeneratorPrototypeReturn
+            | Self::GeneratorPrototypeThrow
+            | Self::AsyncGeneratorPrototypeNext
+            | Self::AsyncGeneratorPrototypeReturn
+            | Self::AsyncGeneratorPrototypeThrow
             | Self::IteratorFrom
             | Self::IteratorZip
             | Self::IteratorZipNext
@@ -977,13 +1215,41 @@ impl StandardBuiltinId {
             | Self::DataViewPrototypeBufferGetter
             | Self::DataViewPrototypeByteLengthGetter
             | Self::DataViewPrototypeByteOffsetGetter
+            | Self::TypedArraySpeciesGetter
             | Self::TypedArrayPrototypeBufferGetter
             | Self::TypedArrayPrototypeByteLengthGetter
             | Self::TypedArrayPrototypeByteOffsetGetter
             | Self::TypedArrayPrototypeLengthGetter
+            | Self::TypedArrayPrototypeToStringTagGetter
             | Self::TypedArrayPrototypeToString
+            | Self::TypedArrayPrototypeAt
+            | Self::TypedArrayPrototypeIncludes
+            | Self::TypedArrayPrototypeIndexOf
+            | Self::TypedArrayPrototypeLastIndexOf
+            | Self::TypedArrayPrototypeFind
+            | Self::TypedArrayPrototypeFindIndex
+            | Self::TypedArrayPrototypeFindLast
+            | Self::TypedArrayPrototypeFindLastIndex
+            | Self::TypedArrayPrototypeEvery
+            | Self::TypedArrayPrototypeSome
+            | Self::TypedArrayPrototypeMap
+            | Self::TypedArrayPrototypeFilter
+            | Self::TypedArrayPrototypeForEach
+            | Self::TypedArrayPrototypeReduce
+            | Self::TypedArrayPrototypeReduceRight
+            | Self::TypedArrayPrototypeValues
+            | Self::TypedArrayPrototypeKeys
+            | Self::TypedArrayPrototypeEntries
             | Self::TypedArrayPrototypeJoin
             | Self::TypedArrayPrototypeToLocaleString
+            | Self::TypedArrayPrototypeSubarray
+            | Self::TypedArrayPrototypeSlice
+            | Self::TypedArrayPrototypeSet
+            | Self::TypedArrayPrototypeReverse
+            | Self::TypedArrayPrototypeSort
+            | Self::TypedArrayPrototypeToReversed
+            | Self::TypedArrayPrototypeToSorted
+            | Self::TypedArrayPrototypeWith
             | Self::TypedArrayFrom
             | Self::TypedArrayOf
             | Self::DataViewPrototypeGetUint8
@@ -1141,6 +1407,7 @@ impl StandardBuiltinId {
             Self::FunctionPrototypeToString => "Function.prototype.toString",
             Self::EvalFunction => "eval",
             Self::ObjectConstructor => OBJECT_NAME,
+            Self::ObjectGroupBy => "Object.groupBy",
             Self::ObjectCreate => "Object.create",
             Self::ObjectGetPrototypeOf => "Object.getPrototypeOf",
             Self::ObjectSetPrototypeOf => "Object.setPrototypeOf",
@@ -1161,6 +1428,8 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeHasOwnProperty => "Object.prototype.hasOwnProperty",
             Self::ObjectPrototypeLookupGetter => "Object.prototype.__lookupGetter__",
             Self::ObjectPrototypeLookupSetter => "Object.prototype.__lookupSetter__",
+            Self::ObjectPrototypeProtoGetter => "get Object.prototype.__proto__",
+            Self::ObjectPrototypeProtoSetter => "set Object.prototype.__proto__",
             Self::ObjectPrototypePropertyIsEnumerable => "Object.prototype.propertyIsEnumerable",
             Self::ObjectPrototypeIsPrototypeOf => "Object.prototype.isPrototypeOf",
             Self::ObjectPrototypeToString => "Object.prototype.toString",
@@ -1184,6 +1453,9 @@ impl StandardBuiltinId {
             Self::ReflectOwnKeys => "Reflect.ownKeys",
             Self::ArrayConstructor => ARRAY_NAME,
             Self::ArrayFrom => "Array.from",
+            Self::ArrayFromAsync => "Array.fromAsync",
+            Self::ArrayFromAsyncFulfilled => "Array.fromAsync Fulfilled Function",
+            Self::ArrayFromAsyncRejected => "Array.fromAsync Rejected Function",
             Self::ArrayOf => "Array.of",
             Self::ArrayIsArray => "Array.isArray",
             Self::ArraySpeciesGetter => "get Array [Symbol.species]",
@@ -1227,6 +1499,12 @@ impl StandardBuiltinId {
             Self::ArrayIteratorNext => "Array Iterator.prototype.next",
             Self::ArrayIteratorIdentity => "Array Iterator.prototype [Symbol.iterator]",
             Self::StringIteratorNext => "String Iterator.prototype.next",
+            Self::GeneratorPrototypeNext => "Generator.prototype.next",
+            Self::GeneratorPrototypeReturn => "Generator.prototype.return",
+            Self::GeneratorPrototypeThrow => "Generator.prototype.throw",
+            Self::AsyncGeneratorPrototypeNext => "AsyncGenerator.prototype.next",
+            Self::AsyncGeneratorPrototypeReturn => "AsyncGenerator.prototype.return",
+            Self::AsyncGeneratorPrototypeThrow => "AsyncGenerator.prototype.throw",
             Self::IteratorConstructor => "Iterator",
             Self::IteratorFrom => "Iterator.from",
             Self::IteratorZip => "Iterator.zip",
@@ -1301,13 +1579,43 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeBufferGetter => "get DataView.prototype.buffer",
             Self::DataViewPrototypeByteLengthGetter => "get DataView.prototype.byteLength",
             Self::DataViewPrototypeByteOffsetGetter => "get DataView.prototype.byteOffset",
+            Self::TypedArraySpeciesGetter => "get TypedArray [Symbol.species]",
             Self::TypedArrayPrototypeBufferGetter => "get TypedArray.prototype.buffer",
             Self::TypedArrayPrototypeByteLengthGetter => "get TypedArray.prototype.byteLength",
             Self::TypedArrayPrototypeByteOffsetGetter => "get TypedArray.prototype.byteOffset",
             Self::TypedArrayPrototypeLengthGetter => "get TypedArray.prototype.length",
+            Self::TypedArrayPrototypeToStringTagGetter => {
+                "get TypedArray.prototype[Symbol.toStringTag]"
+            }
             Self::TypedArrayPrototypeToString => "TypedArray.prototype.toString",
+            Self::TypedArrayPrototypeAt => "TypedArray.prototype.at",
+            Self::TypedArrayPrototypeIncludes => "TypedArray.prototype.includes",
+            Self::TypedArrayPrototypeIndexOf => "TypedArray.prototype.indexOf",
+            Self::TypedArrayPrototypeLastIndexOf => "TypedArray.prototype.lastIndexOf",
+            Self::TypedArrayPrototypeFind => "TypedArray.prototype.find",
+            Self::TypedArrayPrototypeFindIndex => "TypedArray.prototype.findIndex",
+            Self::TypedArrayPrototypeFindLast => "TypedArray.prototype.findLast",
+            Self::TypedArrayPrototypeFindLastIndex => "TypedArray.prototype.findLastIndex",
+            Self::TypedArrayPrototypeEvery => "TypedArray.prototype.every",
+            Self::TypedArrayPrototypeSome => "TypedArray.prototype.some",
+            Self::TypedArrayPrototypeMap => "TypedArray.prototype.map",
+            Self::TypedArrayPrototypeFilter => "TypedArray.prototype.filter",
+            Self::TypedArrayPrototypeForEach => "TypedArray.prototype.forEach",
+            Self::TypedArrayPrototypeReduce => "TypedArray.prototype.reduce",
+            Self::TypedArrayPrototypeReduceRight => "TypedArray.prototype.reduceRight",
+            Self::TypedArrayPrototypeValues => "TypedArray.prototype.values",
+            Self::TypedArrayPrototypeKeys => "TypedArray.prototype.keys",
+            Self::TypedArrayPrototypeEntries => "TypedArray.prototype.entries",
             Self::TypedArrayPrototypeJoin => "TypedArray.prototype.join",
             Self::TypedArrayPrototypeToLocaleString => "TypedArray.prototype.toLocaleString",
+            Self::TypedArrayPrototypeSubarray => "TypedArray.prototype.subarray",
+            Self::TypedArrayPrototypeSlice => "TypedArray.prototype.slice",
+            Self::TypedArrayPrototypeSet => "TypedArray.prototype.set",
+            Self::TypedArrayPrototypeReverse => "TypedArray.prototype.reverse",
+            Self::TypedArrayPrototypeSort => "TypedArray.prototype.sort",
+            Self::TypedArrayPrototypeToReversed => "TypedArray.prototype.toReversed",
+            Self::TypedArrayPrototypeToSorted => "TypedArray.prototype.toSorted",
+            Self::TypedArrayPrototypeWith => "TypedArray.prototype.with",
             Self::TypedArrayFrom => "TypedArray.from",
             Self::TypedArrayOf => "TypedArray.of",
             Self::DataViewPrototypeGetUint8 => "DataView.prototype.getUint8",
@@ -1536,8 +1844,70 @@ impl StandardBuiltinId {
             Self::StringPrototypeToWellFormed => "String.prototype.toWellFormed",
             Self::BooleanConstructor => BOOLEAN_NAME,
             Self::PromiseConstructor => PROMISE_NAME,
+            Self::PromisePrototypeThen => "Promise.prototype.then",
+            Self::PromisePrototypeCatch => "Promise.prototype.catch",
+            Self::PromisePrototypeFinally => "Promise.prototype.finally",
+            Self::PromiseThenFinally => "Promise Then Finally Function",
+            Self::PromiseCatchFinally => "Promise Catch Finally Function",
+            Self::PromiseValueThunk => "Promise Value Thunk Function",
+            Self::PromiseThrower => "Promise Thrower Function",
+            Self::PromiseSpeciesGetter => "get Promise [Symbol.species]",
+            Self::PromiseResolve => "Promise.resolve",
+            Self::PromiseWithResolvers => "Promise.withResolvers",
+            Self::PromiseTry => "Promise.try",
+            Self::PromiseReject => "Promise.reject",
+            Self::PromiseAll => "Promise.all",
+            Self::PromiseAllSettled => "Promise.allSettled",
+            Self::PromiseAllKeyed => "Promise.allKeyed",
+            Self::PromiseAllSettledKeyed => "Promise.allSettledKeyed",
+            Self::PromiseAny => "Promise.any",
+            Self::PromiseRace => "Promise.race",
+            Self::PromiseAllResolveElement => "Promise.all Resolve Element Function",
+            Self::PromiseAllSettledResolveElement => "Promise.allSettled Resolve Element Function",
+            Self::PromiseAllSettledRejectElement => "Promise.allSettled Reject Element Function",
+            Self::PromiseAnyRejectElement => "Promise.any Reject Element Function",
+            Self::PromiseAllKeyedResolveElement => "Promise.allKeyed Resolve Element Function",
+            Self::PromiseAllSettledKeyedResolveElement => {
+                "Promise.allSettledKeyed Resolve Element Function"
+            }
+            Self::PromiseAllSettledKeyedRejectElement => {
+                "Promise.allSettledKeyed Reject Element Function"
+            }
+            Self::PromiseCapabilityExecutor => "Promise Capability Executor",
             Self::PromiseResolveFunction => "Promise Resolve Function",
             Self::PromiseRejectFunction => "Promise Reject Function",
+            Self::MapConstructor => MAP_NAME,
+            Self::MapGroupBy => "Map.groupBy",
+            Self::MapPrototypeClear => "Map.prototype.clear",
+            Self::MapPrototypeDelete => "Map.prototype.delete",
+            Self::MapPrototypeForEach => "Map.prototype.forEach",
+            Self::MapPrototypeKeys => "Map.prototype.keys",
+            Self::MapPrototypeValues => "Map.prototype.values",
+            Self::MapPrototypeEntries => "Map.prototype.entries",
+            Self::MapIteratorNext => "Map Iterator.prototype.next",
+            Self::MapPrototypeGet => "Map.prototype.get",
+            Self::MapPrototypeGetOrInsert => "Map.prototype.getOrInsert",
+            Self::MapPrototypeGetOrInsertComputed => "Map.prototype.getOrInsertComputed",
+            Self::MapPrototypeHas => "Map.prototype.has",
+            Self::MapPrototypeSet => "Map.prototype.set",
+            Self::MapPrototypeSizeGetter => "get Map.prototype.size",
+            Self::SetConstructor => SET_NAME,
+            Self::SetPrototypeAdd => "Set.prototype.add",
+            Self::SetPrototypeClear => "Set.prototype.clear",
+            Self::SetPrototypeDelete => "Set.prototype.delete",
+            Self::SetPrototypeDifference => "Set.prototype.difference",
+            Self::SetPrototypeForEach => "Set.prototype.forEach",
+            Self::SetPrototypeIntersection => "Set.prototype.intersection",
+            Self::SetPrototypeIsDisjointFrom => "Set.prototype.isDisjointFrom",
+            Self::SetPrototypeIsSubsetOf => "Set.prototype.isSubsetOf",
+            Self::SetPrototypeIsSupersetOf => "Set.prototype.isSupersetOf",
+            Self::SetPrototypeSymmetricDifference => "Set.prototype.symmetricDifference",
+            Self::SetPrototypeUnion => "Set.prototype.union",
+            Self::SetPrototypeValues => "Set.prototype.values",
+            Self::SetPrototypeEntries => "Set.prototype.entries",
+            Self::SetIteratorNext => "Set Iterator.prototype.next",
+            Self::SetPrototypeHas => "Set.prototype.has",
+            Self::SetPrototypeSizeGetter => "get Set.prototype.size",
             Self::SymbolConstructor => SYMBOL_NAME,
             Self::SymbolFor => "Symbol.for",
             Self::SymbolKeyFor => "Symbol.keyFor",
@@ -1578,6 +1948,7 @@ impl StandardBuiltinId {
             }
             Self::EvalFunction => BUILTIN_EVAL_FUNCTION_ID.to_string(),
             Self::ObjectConstructor => BUILTIN_OBJECT_FUNCTION_ID.to_string(),
+            Self::ObjectGroupBy => BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID.to_string(),
             Self::ObjectCreate => BUILTIN_OBJECT_CREATE_FUNCTION_ID.to_string(),
             Self::ObjectGetPrototypeOf => BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
             Self::ObjectSetPrototypeOf => BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
@@ -1613,6 +1984,12 @@ impl StandardBuiltinId {
             }
             Self::ObjectPrototypeLookupSetter => {
                 BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID.to_string()
+            }
+            Self::ObjectPrototypeProtoGetter => {
+                BUILTIN_OBJECT_PROTOTYPE_PROTO_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::ObjectPrototypeProtoSetter => {
+                BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID.to_string()
             }
             Self::ObjectPrototypePropertyIsEnumerable => {
                 BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID.to_string()
@@ -1651,6 +2028,13 @@ impl StandardBuiltinId {
             Self::ReflectOwnKeys => BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID.to_string(),
             Self::ArrayConstructor => BUILTIN_ARRAY_FUNCTION_ID.to_string(),
             Self::ArrayFrom => BUILTIN_ARRAY_FROM_FUNCTION_ID.to_string(),
+            Self::ArrayFromAsync => BUILTIN_ARRAY_FROM_ASYNC_FUNCTION_ID.to_string(),
+            Self::ArrayFromAsyncFulfilled => {
+                BUILTIN_ARRAY_FROM_ASYNC_FULFILLED_FUNCTION_ID.to_string()
+            }
+            Self::ArrayFromAsyncRejected => {
+                BUILTIN_ARRAY_FROM_ASYNC_REJECTED_FUNCTION_ID.to_string()
+            }
             Self::ArrayOf => BUILTIN_ARRAY_OF_FUNCTION_ID.to_string(),
             Self::ArrayIsArray => BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID.to_string(),
             Self::ArraySpeciesGetter => BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID.to_string(),
@@ -1716,6 +2100,24 @@ impl StandardBuiltinId {
             Self::ArrayIteratorNext => BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID.to_string(),
             Self::ArrayIteratorIdentity => BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID.to_string(),
             Self::StringIteratorNext => BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID.to_string(),
+            Self::GeneratorPrototypeNext => {
+                BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID.to_string()
+            }
+            Self::GeneratorPrototypeReturn => {
+                BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID.to_string()
+            }
+            Self::GeneratorPrototypeThrow => {
+                BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID.to_string()
+            }
+            Self::AsyncGeneratorPrototypeNext => {
+                BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID.to_string()
+            }
+            Self::AsyncGeneratorPrototypeReturn => {
+                BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID.to_string()
+            }
+            Self::AsyncGeneratorPrototypeThrow => {
+                BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID.to_string()
+            }
             Self::IteratorConstructor => BUILTIN_ITERATOR_FUNCTION_ID.to_string(),
             Self::IteratorFrom => BUILTIN_ITERATOR_FROM_FUNCTION_ID.to_string(),
             Self::IteratorZip => BUILTIN_ITERATOR_ZIP_FUNCTION_ID.to_string(),
@@ -1840,6 +2242,9 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeByteOffsetGetter => {
                 BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID.to_string()
             }
+            Self::TypedArraySpeciesGetter => {
+                BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID.to_string()
+            }
             Self::TypedArrayPrototypeBufferGetter => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID.to_string()
             }
@@ -1852,14 +2257,93 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeLengthGetter => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID.to_string()
             }
+            Self::TypedArrayPrototypeToStringTagGetter => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID.to_string()
+            }
             Self::TypedArrayPrototypeToString => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeAt => BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID.to_string(),
+            Self::TypedArrayPrototypeIncludes => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeIndexOf => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeLastIndexOf => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeFind => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeFindIndex => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeFindLast => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeFindLastIndex => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeEvery => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeSome => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_SOME_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeMap => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_MAP_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeFilter => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeForEach => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeReduce => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeReduceRight => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeValues => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeKeys => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeEntries => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID.to_string()
             }
             Self::TypedArrayPrototypeJoin => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID.to_string()
             }
             Self::TypedArrayPrototypeToLocaleString => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeSubarray => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_SUBARRAY_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeSlice => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeSet => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_SET_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeReverse => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeSort => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_SORT_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeToReversed => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeToSorted => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID.to_string()
+            }
+            Self::TypedArrayPrototypeWith => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_WITH_FUNCTION_ID.to_string()
             }
             Self::TypedArrayFrom => BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID.to_string(),
             Self::TypedArrayOf => BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID.to_string(),
@@ -2291,8 +2775,108 @@ impl StandardBuiltinId {
             }
             Self::BooleanConstructor => BUILTIN_BOOLEAN_FUNCTION_ID.to_string(),
             Self::PromiseConstructor => BUILTIN_PROMISE_FUNCTION_ID.to_string(),
+            Self::PromisePrototypeThen => BUILTIN_PROMISE_PROTOTYPE_THEN_FUNCTION_ID.to_string(),
+            Self::PromisePrototypeCatch => BUILTIN_PROMISE_PROTOTYPE_CATCH_FUNCTION_ID.to_string(),
+            Self::PromisePrototypeFinally => {
+                BUILTIN_PROMISE_PROTOTYPE_FINALLY_FUNCTION_ID.to_string()
+            }
+            Self::PromiseThenFinally => BUILTIN_PROMISE_THEN_FINALLY_FUNCTION_ID.to_string(),
+            Self::PromiseCatchFinally => BUILTIN_PROMISE_CATCH_FINALLY_FUNCTION_ID.to_string(),
+            Self::PromiseValueThunk => BUILTIN_PROMISE_VALUE_THUNK_FUNCTION_ID.to_string(),
+            Self::PromiseThrower => BUILTIN_PROMISE_THROWER_FUNCTION_ID.to_string(),
+            Self::PromiseSpeciesGetter => BUILTIN_PROMISE_SPECIES_GETTER_FUNCTION_ID.to_string(),
+            Self::PromiseResolve => BUILTIN_PROMISE_STATIC_RESOLVE_FUNCTION_ID.to_string(),
+            Self::PromiseWithResolvers => {
+                BUILTIN_PROMISE_STATIC_WITH_RESOLVERS_FUNCTION_ID.to_string()
+            }
+            Self::PromiseTry => BUILTIN_PROMISE_STATIC_TRY_FUNCTION_ID.to_string(),
+            Self::PromiseReject => BUILTIN_PROMISE_STATIC_REJECT_FUNCTION_ID.to_string(),
+            Self::PromiseAll => BUILTIN_PROMISE_STATIC_ALL_FUNCTION_ID.to_string(),
+            Self::PromiseAllSettled => BUILTIN_PROMISE_STATIC_ALL_SETTLED_FUNCTION_ID.to_string(),
+            Self::PromiseAllKeyed => BUILTIN_PROMISE_STATIC_ALL_KEYED_FUNCTION_ID.to_string(),
+            Self::PromiseAllSettledKeyed => {
+                BUILTIN_PROMISE_STATIC_ALL_SETTLED_KEYED_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAny => BUILTIN_PROMISE_STATIC_ANY_FUNCTION_ID.to_string(),
+            Self::PromiseRace => BUILTIN_PROMISE_STATIC_RACE_FUNCTION_ID.to_string(),
+            Self::PromiseAllResolveElement => {
+                BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAllSettledResolveElement => {
+                BUILTIN_PROMISE_ALL_SETTLED_RESOLVE_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAllSettledRejectElement => {
+                BUILTIN_PROMISE_ALL_SETTLED_REJECT_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAnyRejectElement => {
+                BUILTIN_PROMISE_ANY_REJECT_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAllKeyedResolveElement => {
+                BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAllSettledKeyedResolveElement => {
+                BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseAllSettledKeyedRejectElement => {
+                BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID.to_string()
+            }
+            Self::PromiseCapabilityExecutor => {
+                BUILTIN_PROMISE_CAPABILITY_EXECUTOR_FUNCTION_ID.to_string()
+            }
             Self::PromiseResolveFunction => BUILTIN_PROMISE_RESOLVE_FUNCTION_ID.to_string(),
             Self::PromiseRejectFunction => BUILTIN_PROMISE_REJECT_FUNCTION_ID.to_string(),
+            Self::MapConstructor => BUILTIN_MAP_FUNCTION_ID.to_string(),
+            Self::MapGroupBy => BUILTIN_MAP_GROUP_BY_FUNCTION_ID.to_string(),
+            Self::MapPrototypeClear => BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID.to_string(),
+            Self::MapPrototypeDelete => BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID.to_string(),
+            Self::MapPrototypeForEach => BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string(),
+            Self::MapPrototypeKeys => BUILTIN_MAP_PROTOTYPE_KEYS_FUNCTION_ID.to_string(),
+            Self::MapPrototypeValues => BUILTIN_MAP_PROTOTYPE_VALUES_FUNCTION_ID.to_string(),
+            Self::MapPrototypeEntries => BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID.to_string(),
+            Self::MapIteratorNext => BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID.to_string(),
+            Self::MapPrototypeGet => BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID.to_string(),
+            Self::MapPrototypeGetOrInsert => {
+                BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID.to_string()
+            }
+            Self::MapPrototypeGetOrInsertComputed => {
+                BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID.to_string()
+            }
+            Self::MapPrototypeHas => BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID.to_string(),
+            Self::MapPrototypeSet => BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID.to_string(),
+            Self::MapPrototypeSizeGetter => {
+                BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::SetConstructor => BUILTIN_SET_FUNCTION_ID.to_string(),
+            Self::SetPrototypeAdd => BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID.to_string(),
+            Self::SetPrototypeClear => BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID.to_string(),
+            Self::SetPrototypeDelete => BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID.to_string(),
+            Self::SetPrototypeDifference => {
+                BUILTIN_SET_PROTOTYPE_DIFFERENCE_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeForEach => BUILTIN_SET_PROTOTYPE_FOR_EACH_FUNCTION_ID.to_string(),
+            Self::SetPrototypeIntersection => {
+                BUILTIN_SET_PROTOTYPE_INTERSECTION_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeIsDisjointFrom => {
+                BUILTIN_SET_PROTOTYPE_IS_DISJOINT_FROM_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeIsSubsetOf => {
+                BUILTIN_SET_PROTOTYPE_IS_SUBSET_OF_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeIsSupersetOf => {
+                BUILTIN_SET_PROTOTYPE_IS_SUPERSET_OF_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeSymmetricDifference => {
+                BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID.to_string()
+            }
+            Self::SetPrototypeUnion => BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID.to_string(),
+            Self::SetPrototypeValues => BUILTIN_SET_PROTOTYPE_VALUES_FUNCTION_ID.to_string(),
+            Self::SetPrototypeEntries => BUILTIN_SET_PROTOTYPE_ENTRIES_FUNCTION_ID.to_string(),
+            Self::SetIteratorNext => BUILTIN_SET_ITERATOR_NEXT_FUNCTION_ID.to_string(),
+            Self::SetPrototypeHas => BUILTIN_SET_PROTOTYPE_HAS_FUNCTION_ID.to_string(),
+            Self::SetPrototypeSizeGetter => {
+                BUILTIN_SET_PROTOTYPE_SIZE_GETTER_FUNCTION_ID.to_string()
+            }
             Self::SymbolConstructor => BUILTIN_SYMBOL_FUNCTION_ID.to_string(),
             Self::SymbolFor => BUILTIN_SYMBOL_FOR_FUNCTION_ID.to_string(),
             Self::SymbolKeyFor => BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID.to_string(),
@@ -2335,6 +2919,7 @@ impl StandardBuiltinId {
             }
             BUILTIN_EVAL_FUNCTION_ID => Some(Self::EvalFunction),
             BUILTIN_OBJECT_FUNCTION_ID => Some(Self::ObjectConstructor),
+            BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID => Some(Self::ObjectGroupBy),
             BUILTIN_OBJECT_CREATE_FUNCTION_ID => Some(Self::ObjectCreate),
             BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ObjectGetPrototypeOf),
             BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ObjectSetPrototypeOf),
@@ -2367,6 +2952,12 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID => {
                 Some(Self::ObjectPrototypeLookupSetter)
             }
+            BUILTIN_OBJECT_PROTOTYPE_PROTO_GETTER_FUNCTION_ID => {
+                Some(Self::ObjectPrototypeProtoGetter)
+            }
+            BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID => {
+                Some(Self::ObjectPrototypeProtoSetter)
+            }
             BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID => {
                 Some(Self::ObjectPrototypePropertyIsEnumerable)
             }
@@ -2396,6 +2987,9 @@ impl StandardBuiltinId {
             BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID => Some(Self::ReflectOwnKeys),
             BUILTIN_ARRAY_FUNCTION_ID => Some(Self::ArrayConstructor),
             BUILTIN_ARRAY_FROM_FUNCTION_ID => Some(Self::ArrayFrom),
+            BUILTIN_ARRAY_FROM_ASYNC_FUNCTION_ID => Some(Self::ArrayFromAsync),
+            BUILTIN_ARRAY_FROM_ASYNC_FULFILLED_FUNCTION_ID => Some(Self::ArrayFromAsyncFulfilled),
+            BUILTIN_ARRAY_FROM_ASYNC_REJECTED_FUNCTION_ID => Some(Self::ArrayFromAsyncRejected),
             BUILTIN_ARRAY_OF_FUNCTION_ID => Some(Self::ArrayOf),
             BUILTIN_ARRAY_IS_ARRAY_FUNCTION_ID => Some(Self::ArrayIsArray),
             BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID => Some(Self::ArraySpeciesGetter),
@@ -2447,6 +3041,18 @@ impl StandardBuiltinId {
             BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID => Some(Self::ArrayIteratorNext),
             BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID => Some(Self::ArrayIteratorIdentity),
             BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID => Some(Self::StringIteratorNext),
+            BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID => Some(Self::GeneratorPrototypeNext),
+            BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID => Some(Self::GeneratorPrototypeReturn),
+            BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID => Some(Self::GeneratorPrototypeThrow),
+            BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID => {
+                Some(Self::AsyncGeneratorPrototypeNext)
+            }
+            BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID => {
+                Some(Self::AsyncGeneratorPrototypeReturn)
+            }
+            BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID => {
+                Some(Self::AsyncGeneratorPrototypeThrow)
+            }
             BUILTIN_ITERATOR_FUNCTION_ID => Some(Self::IteratorConstructor),
             BUILTIN_ITERATOR_FROM_FUNCTION_ID => Some(Self::IteratorFrom),
             BUILTIN_ITERATOR_ZIP_FUNCTION_ID => Some(Self::IteratorZip),
@@ -2553,6 +3159,7 @@ impl StandardBuiltinId {
             BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID => {
                 Some(Self::DataViewPrototypeByteOffsetGetter)
             }
+            BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID => Some(Self::TypedArraySpeciesGetter),
             BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeBufferGetter)
             }
@@ -2565,13 +3172,74 @@ impl StandardBuiltinId {
             BUILTIN_TYPED_ARRAY_PROTOTYPE_LENGTH_GETTER_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeLengthGetter)
             }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeToStringTagGetter)
+            }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeToString)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID => Some(Self::TypedArrayPrototypeAt),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeIncludes)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeIndexOf)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_LAST_INDEX_OF_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeLastIndexOf)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_FUNCTION_ID => Some(Self::TypedArrayPrototypeFind),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeFindIndex)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeFindLast)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeFindLastIndex)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID => Some(Self::TypedArrayPrototypeEvery),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_SOME_FUNCTION_ID => Some(Self::TypedArrayPrototypeSome),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_MAP_FUNCTION_ID => Some(Self::TypedArrayPrototypeMap),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeFilter)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeForEach)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeReduce)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeReduceRight)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeValues)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_KEYS_FUNCTION_ID => Some(Self::TypedArrayPrototypeKeys),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeEntries)
             }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_JOIN_FUNCTION_ID => Some(Self::TypedArrayPrototypeJoin),
             BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeToLocaleString)
             }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_SUBARRAY_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeSubarray)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_SLICE_FUNCTION_ID => Some(Self::TypedArrayPrototypeSlice),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_SET_FUNCTION_ID => Some(Self::TypedArrayPrototypeSet),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeReverse)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_SORT_FUNCTION_ID => Some(Self::TypedArrayPrototypeSort),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeToReversed)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeToSorted)
+            }
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_WITH_FUNCTION_ID => Some(Self::TypedArrayPrototypeWith),
             BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID => Some(Self::TypedArrayFrom),
             BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID => Some(Self::TypedArrayOf),
             BUILTIN_DATA_VIEW_PROTOTYPE_GET_UINT8_FUNCTION_ID => {
@@ -2936,8 +3604,88 @@ impl StandardBuiltinId {
             }
             BUILTIN_BOOLEAN_FUNCTION_ID => Some(Self::BooleanConstructor),
             BUILTIN_PROMISE_FUNCTION_ID => Some(Self::PromiseConstructor),
+            BUILTIN_PROMISE_PROTOTYPE_THEN_FUNCTION_ID => Some(Self::PromisePrototypeThen),
+            BUILTIN_PROMISE_PROTOTYPE_CATCH_FUNCTION_ID => Some(Self::PromisePrototypeCatch),
+            BUILTIN_PROMISE_PROTOTYPE_FINALLY_FUNCTION_ID => Some(Self::PromisePrototypeFinally),
+            BUILTIN_PROMISE_THEN_FINALLY_FUNCTION_ID => Some(Self::PromiseThenFinally),
+            BUILTIN_PROMISE_CATCH_FINALLY_FUNCTION_ID => Some(Self::PromiseCatchFinally),
+            BUILTIN_PROMISE_VALUE_THUNK_FUNCTION_ID => Some(Self::PromiseValueThunk),
+            BUILTIN_PROMISE_THROWER_FUNCTION_ID => Some(Self::PromiseThrower),
+            BUILTIN_PROMISE_SPECIES_GETTER_FUNCTION_ID => Some(Self::PromiseSpeciesGetter),
+            BUILTIN_PROMISE_STATIC_RESOLVE_FUNCTION_ID => Some(Self::PromiseResolve),
+            BUILTIN_PROMISE_STATIC_WITH_RESOLVERS_FUNCTION_ID => Some(Self::PromiseWithResolvers),
+            BUILTIN_PROMISE_STATIC_TRY_FUNCTION_ID => Some(Self::PromiseTry),
+            BUILTIN_PROMISE_STATIC_REJECT_FUNCTION_ID => Some(Self::PromiseReject),
+            BUILTIN_PROMISE_STATIC_ALL_FUNCTION_ID => Some(Self::PromiseAll),
+            BUILTIN_PROMISE_STATIC_ALL_SETTLED_FUNCTION_ID => Some(Self::PromiseAllSettled),
+            BUILTIN_PROMISE_STATIC_ALL_KEYED_FUNCTION_ID => Some(Self::PromiseAllKeyed),
+            BUILTIN_PROMISE_STATIC_ALL_SETTLED_KEYED_FUNCTION_ID => {
+                Some(Self::PromiseAllSettledKeyed)
+            }
+            BUILTIN_PROMISE_STATIC_ANY_FUNCTION_ID => Some(Self::PromiseAny),
+            BUILTIN_PROMISE_STATIC_RACE_FUNCTION_ID => Some(Self::PromiseRace),
+            BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID => Some(Self::PromiseAllResolveElement),
+            BUILTIN_PROMISE_ALL_SETTLED_RESOLVE_ELEMENT_FUNCTION_ID => {
+                Some(Self::PromiseAllSettledResolveElement)
+            }
+            BUILTIN_PROMISE_ALL_SETTLED_REJECT_ELEMENT_FUNCTION_ID => {
+                Some(Self::PromiseAllSettledRejectElement)
+            }
+            BUILTIN_PROMISE_ANY_REJECT_ELEMENT_FUNCTION_ID => Some(Self::PromiseAnyRejectElement),
+            BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID => {
+                Some(Self::PromiseAllKeyedResolveElement)
+            }
+            BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID => {
+                Some(Self::PromiseAllSettledKeyedResolveElement)
+            }
+            BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID => {
+                Some(Self::PromiseAllSettledKeyedRejectElement)
+            }
+            BUILTIN_PROMISE_CAPABILITY_EXECUTOR_FUNCTION_ID => {
+                Some(Self::PromiseCapabilityExecutor)
+            }
             BUILTIN_PROMISE_RESOLVE_FUNCTION_ID => Some(Self::PromiseResolveFunction),
             BUILTIN_PROMISE_REJECT_FUNCTION_ID => Some(Self::PromiseRejectFunction),
+            BUILTIN_MAP_FUNCTION_ID => Some(Self::MapConstructor),
+            BUILTIN_MAP_GROUP_BY_FUNCTION_ID => Some(Self::MapGroupBy),
+            BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID => Some(Self::MapPrototypeClear),
+            BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::MapPrototypeDelete),
+            BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::MapPrototypeForEach),
+            BUILTIN_MAP_PROTOTYPE_KEYS_FUNCTION_ID => Some(Self::MapPrototypeKeys),
+            BUILTIN_MAP_PROTOTYPE_VALUES_FUNCTION_ID => Some(Self::MapPrototypeValues),
+            BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID => Some(Self::MapPrototypeEntries),
+            BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID => Some(Self::MapIteratorNext),
+            BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID => Some(Self::MapPrototypeGet),
+            BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID => Some(Self::MapPrototypeGetOrInsert),
+            BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID => {
+                Some(Self::MapPrototypeGetOrInsertComputed)
+            }
+            BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID => Some(Self::MapPrototypeHas),
+            BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID => Some(Self::MapPrototypeSet),
+            BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID => Some(Self::MapPrototypeSizeGetter),
+            BUILTIN_SET_FUNCTION_ID => Some(Self::SetConstructor),
+            BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID => Some(Self::SetPrototypeAdd),
+            BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID => Some(Self::SetPrototypeClear),
+            BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::SetPrototypeDelete),
+            BUILTIN_SET_PROTOTYPE_DIFFERENCE_FUNCTION_ID => Some(Self::SetPrototypeDifference),
+            BUILTIN_SET_PROTOTYPE_FOR_EACH_FUNCTION_ID => Some(Self::SetPrototypeForEach),
+            BUILTIN_SET_PROTOTYPE_INTERSECTION_FUNCTION_ID => Some(Self::SetPrototypeIntersection),
+            BUILTIN_SET_PROTOTYPE_IS_DISJOINT_FROM_FUNCTION_ID => {
+                Some(Self::SetPrototypeIsDisjointFrom)
+            }
+            BUILTIN_SET_PROTOTYPE_IS_SUBSET_OF_FUNCTION_ID => Some(Self::SetPrototypeIsSubsetOf),
+            BUILTIN_SET_PROTOTYPE_IS_SUPERSET_OF_FUNCTION_ID => {
+                Some(Self::SetPrototypeIsSupersetOf)
+            }
+            BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID => {
+                Some(Self::SetPrototypeSymmetricDifference)
+            }
+            BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID => Some(Self::SetPrototypeUnion),
+            BUILTIN_SET_PROTOTYPE_VALUES_FUNCTION_ID => Some(Self::SetPrototypeValues),
+            BUILTIN_SET_PROTOTYPE_ENTRIES_FUNCTION_ID => Some(Self::SetPrototypeEntries),
+            BUILTIN_SET_ITERATOR_NEXT_FUNCTION_ID => Some(Self::SetIteratorNext),
+            BUILTIN_SET_PROTOTYPE_HAS_FUNCTION_ID => Some(Self::SetPrototypeHas),
+            BUILTIN_SET_PROTOTYPE_SIZE_GETTER_FUNCTION_ID => Some(Self::SetPrototypeSizeGetter),
             BUILTIN_SYMBOL_FUNCTION_ID => Some(Self::SymbolConstructor),
             BUILTIN_SYMBOL_FOR_FUNCTION_ID => Some(Self::SymbolFor),
             BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID => Some(Self::SymbolKeyFor),
@@ -2999,6 +3747,8 @@ impl StandardBuiltinId {
             Self::StringConstructor,
             Self::BooleanConstructor,
             Self::PromiseConstructor,
+            Self::MapConstructor,
+            Self::SetConstructor,
             Self::SymbolConstructor,
             Self::ErrorConstructor,
             Self::EvalErrorConstructor,
@@ -3023,6 +3773,7 @@ impl StandardBuiltinId {
             Self::FunctionPrototypeToString,
             Self::EvalFunction,
             Self::ObjectConstructor,
+            Self::ObjectGroupBy,
             Self::ObjectCreate,
             Self::ObjectGetPrototypeOf,
             Self::ObjectSetPrototypeOf,
@@ -3043,6 +3794,8 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeHasOwnProperty,
             Self::ObjectPrototypeLookupGetter,
             Self::ObjectPrototypeLookupSetter,
+            Self::ObjectPrototypeProtoGetter,
+            Self::ObjectPrototypeProtoSetter,
             Self::ObjectPrototypePropertyIsEnumerable,
             Self::ObjectPrototypeIsPrototypeOf,
             Self::ObjectPrototypeToString,
@@ -3066,6 +3819,9 @@ impl StandardBuiltinId {
             Self::ReflectOwnKeys,
             Self::ArrayConstructor,
             Self::ArrayFrom,
+            Self::ArrayFromAsync,
+            Self::ArrayFromAsyncFulfilled,
+            Self::ArrayFromAsyncRejected,
             Self::ArrayOf,
             Self::ArrayIsArray,
             Self::ArraySpeciesGetter,
@@ -3109,6 +3865,12 @@ impl StandardBuiltinId {
             Self::ArrayIteratorNext,
             Self::ArrayIteratorIdentity,
             Self::StringIteratorNext,
+            Self::GeneratorPrototypeNext,
+            Self::GeneratorPrototypeReturn,
+            Self::GeneratorPrototypeThrow,
+            Self::AsyncGeneratorPrototypeNext,
+            Self::AsyncGeneratorPrototypeReturn,
+            Self::AsyncGeneratorPrototypeThrow,
             Self::IteratorConstructor,
             Self::IteratorFrom,
             Self::IteratorZip,
@@ -3167,13 +3929,41 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeBufferGetter,
             Self::DataViewPrototypeByteLengthGetter,
             Self::DataViewPrototypeByteOffsetGetter,
+            Self::TypedArraySpeciesGetter,
             Self::TypedArrayPrototypeBufferGetter,
             Self::TypedArrayPrototypeByteLengthGetter,
             Self::TypedArrayPrototypeByteOffsetGetter,
             Self::TypedArrayPrototypeLengthGetter,
+            Self::TypedArrayPrototypeToStringTagGetter,
             Self::TypedArrayPrototypeToString,
+            Self::TypedArrayPrototypeAt,
+            Self::TypedArrayPrototypeIncludes,
+            Self::TypedArrayPrototypeIndexOf,
+            Self::TypedArrayPrototypeLastIndexOf,
+            Self::TypedArrayPrototypeFind,
+            Self::TypedArrayPrototypeFindIndex,
+            Self::TypedArrayPrototypeFindLast,
+            Self::TypedArrayPrototypeFindLastIndex,
+            Self::TypedArrayPrototypeEvery,
+            Self::TypedArrayPrototypeSome,
+            Self::TypedArrayPrototypeMap,
+            Self::TypedArrayPrototypeFilter,
+            Self::TypedArrayPrototypeForEach,
+            Self::TypedArrayPrototypeReduce,
+            Self::TypedArrayPrototypeReduceRight,
+            Self::TypedArrayPrototypeValues,
+            Self::TypedArrayPrototypeKeys,
+            Self::TypedArrayPrototypeEntries,
             Self::TypedArrayPrototypeJoin,
             Self::TypedArrayPrototypeToLocaleString,
+            Self::TypedArrayPrototypeSubarray,
+            Self::TypedArrayPrototypeSlice,
+            Self::TypedArrayPrototypeSet,
+            Self::TypedArrayPrototypeReverse,
+            Self::TypedArrayPrototypeSort,
+            Self::TypedArrayPrototypeToReversed,
+            Self::TypedArrayPrototypeToSorted,
+            Self::TypedArrayPrototypeWith,
             Self::TypedArrayFrom,
             Self::TypedArrayOf,
             Self::DataViewPrototypeGetUint8,
@@ -3404,8 +4194,66 @@ impl StandardBuiltinId {
             Self::BooleanPrototypeToString,
             Self::BooleanPrototypeValueOf,
             Self::PromiseConstructor,
+            Self::PromisePrototypeThen,
+            Self::PromisePrototypeCatch,
+            Self::PromisePrototypeFinally,
+            Self::PromiseThenFinally,
+            Self::PromiseCatchFinally,
+            Self::PromiseValueThunk,
+            Self::PromiseThrower,
+            Self::PromiseSpeciesGetter,
+            Self::PromiseResolve,
+            Self::PromiseWithResolvers,
+            Self::PromiseTry,
+            Self::PromiseReject,
+            Self::PromiseAll,
+            Self::PromiseAllSettled,
+            Self::PromiseAllKeyed,
+            Self::PromiseAllSettledKeyed,
+            Self::PromiseAny,
+            Self::PromiseRace,
+            Self::PromiseAllResolveElement,
+            Self::PromiseAllSettledResolveElement,
+            Self::PromiseAllSettledRejectElement,
+            Self::PromiseAnyRejectElement,
+            Self::PromiseAllKeyedResolveElement,
+            Self::PromiseAllSettledKeyedResolveElement,
+            Self::PromiseAllSettledKeyedRejectElement,
+            Self::PromiseCapabilityExecutor,
             Self::PromiseResolveFunction,
             Self::PromiseRejectFunction,
+            Self::MapConstructor,
+            Self::MapGroupBy,
+            Self::MapPrototypeClear,
+            Self::MapPrototypeDelete,
+            Self::MapPrototypeForEach,
+            Self::MapPrototypeKeys,
+            Self::MapPrototypeValues,
+            Self::MapPrototypeEntries,
+            Self::MapIteratorNext,
+            Self::MapPrototypeGet,
+            Self::MapPrototypeGetOrInsert,
+            Self::MapPrototypeGetOrInsertComputed,
+            Self::MapPrototypeHas,
+            Self::MapPrototypeSet,
+            Self::MapPrototypeSizeGetter,
+            Self::SetConstructor,
+            Self::SetPrototypeAdd,
+            Self::SetPrototypeClear,
+            Self::SetPrototypeDelete,
+            Self::SetPrototypeDifference,
+            Self::SetPrototypeForEach,
+            Self::SetPrototypeIntersection,
+            Self::SetPrototypeIsDisjointFrom,
+            Self::SetPrototypeIsSubsetOf,
+            Self::SetPrototypeIsSupersetOf,
+            Self::SetPrototypeSymmetricDifference,
+            Self::SetPrototypeUnion,
+            Self::SetPrototypeValues,
+            Self::SetPrototypeEntries,
+            Self::SetIteratorNext,
+            Self::SetPrototypeHas,
+            Self::SetPrototypeSizeGetter,
             Self::SymbolConstructor,
             Self::SymbolFor,
             Self::SymbolKeyFor,
@@ -3437,6 +4285,8 @@ impl StandardBuiltinId {
             Self::FunctionConstructor
                 | Self::IteratorConstructor
                 | Self::PromiseConstructor
+                | Self::MapConstructor
+                | Self::SetConstructor
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
                 | Self::ProxyConstructor
@@ -3520,6 +4370,7 @@ impl StandardBuiltinId {
                 | Self::IteratorFrom
                 | Self::IteratorZip
                 | Self::ArrayFrom
+                | Self::ArrayFromAsync
                 | Self::ArrayOf
                 | Self::ArrayIsArray
                 | Self::ArrayBufferIsView
@@ -3651,6 +4502,7 @@ impl StandardBuiltinId {
             Self::FunctionPrototypeToString => Some("toString"),
             Self::EvalFunction => Some("eval"),
             Self::ObjectConstructor => Some(OBJECT_NAME),
+            Self::ObjectGroupBy => Some("groupBy"),
             Self::ObjectCreate => Some("create"),
             Self::ObjectGetPrototypeOf => Some("getPrototypeOf"),
             Self::ObjectSetPrototypeOf => Some("setPrototypeOf"),
@@ -3671,6 +4523,8 @@ impl StandardBuiltinId {
             Self::ObjectPrototypeHasOwnProperty => Some("hasOwnProperty"),
             Self::ObjectPrototypeLookupGetter => Some("__lookupGetter__"),
             Self::ObjectPrototypeLookupSetter => Some("__lookupSetter__"),
+            Self::ObjectPrototypeProtoGetter => Some("get __proto__"),
+            Self::ObjectPrototypeProtoSetter => Some("set __proto__"),
             Self::ObjectPrototypePropertyIsEnumerable => Some("propertyIsEnumerable"),
             Self::ObjectPrototypeIsPrototypeOf => Some("isPrototypeOf"),
             Self::ObjectPrototypeToString => Some("toString"),
@@ -3694,6 +4548,8 @@ impl StandardBuiltinId {
             Self::ReflectOwnKeys => Some("ownKeys"),
             Self::ArrayConstructor => Some(ARRAY_NAME),
             Self::ArrayFrom => Some("from"),
+            Self::ArrayFromAsync => Some("fromAsync"),
+            Self::ArrayFromAsyncFulfilled | Self::ArrayFromAsyncRejected => Some(""),
             Self::ArrayOf => Some("of"),
             Self::ArrayIsArray => Some("isArray"),
             Self::ArraySpeciesGetter => Some("get [Symbol.species]"),
@@ -3737,6 +4593,12 @@ impl StandardBuiltinId {
             Self::ArrayIteratorNext => Some("next"),
             Self::ArrayIteratorIdentity => Some("[Symbol.iterator]"),
             Self::StringIteratorNext => Some("next"),
+            Self::GeneratorPrototypeNext => Some("next"),
+            Self::GeneratorPrototypeReturn => Some("return"),
+            Self::GeneratorPrototypeThrow => Some("throw"),
+            Self::AsyncGeneratorPrototypeNext => Some("next"),
+            Self::AsyncGeneratorPrototypeReturn => Some("return"),
+            Self::AsyncGeneratorPrototypeThrow => Some("throw"),
             Self::IteratorConstructor => Some("Iterator"),
             Self::IteratorFrom => Some("from"),
             Self::IteratorZip => Some("zip"),
@@ -3813,13 +4675,41 @@ impl StandardBuiltinId {
             Self::AtomicsWaitAsync => Some("waitAsync"),
             Self::AtomicsXor => Some("xor"),
             Self::AtomicsIsLockFree => Some("isLockFree"),
+            Self::TypedArraySpeciesGetter => Some("get [Symbol.species]"),
             Self::TypedArrayPrototypeBufferGetter => Some("get buffer"),
             Self::TypedArrayPrototypeByteLengthGetter => Some("get byteLength"),
             Self::TypedArrayPrototypeByteOffsetGetter => Some("get byteOffset"),
             Self::TypedArrayPrototypeLengthGetter => Some("get length"),
+            Self::TypedArrayPrototypeToStringTagGetter => Some("get [Symbol.toStringTag]"),
             Self::TypedArrayPrototypeToString => Some("toString"),
+            Self::TypedArrayPrototypeAt => Some("at"),
+            Self::TypedArrayPrototypeIncludes => Some("includes"),
+            Self::TypedArrayPrototypeIndexOf => Some("indexOf"),
+            Self::TypedArrayPrototypeLastIndexOf => Some("lastIndexOf"),
+            Self::TypedArrayPrototypeFind => Some("find"),
+            Self::TypedArrayPrototypeFindIndex => Some("findIndex"),
+            Self::TypedArrayPrototypeFindLast => Some("findLast"),
+            Self::TypedArrayPrototypeFindLastIndex => Some("findLastIndex"),
+            Self::TypedArrayPrototypeEvery => Some("every"),
+            Self::TypedArrayPrototypeSome => Some("some"),
+            Self::TypedArrayPrototypeMap => Some("map"),
+            Self::TypedArrayPrototypeFilter => Some("filter"),
+            Self::TypedArrayPrototypeForEach => Some("forEach"),
+            Self::TypedArrayPrototypeReduce => Some("reduce"),
+            Self::TypedArrayPrototypeReduceRight => Some("reduceRight"),
+            Self::TypedArrayPrototypeValues => Some("values"),
+            Self::TypedArrayPrototypeKeys => Some("keys"),
+            Self::TypedArrayPrototypeEntries => Some("entries"),
             Self::TypedArrayPrototypeJoin => Some("join"),
             Self::TypedArrayPrototypeToLocaleString => Some("toLocaleString"),
+            Self::TypedArrayPrototypeSubarray => Some("subarray"),
+            Self::TypedArrayPrototypeSlice => Some("slice"),
+            Self::TypedArrayPrototypeSet => Some("set"),
+            Self::TypedArrayPrototypeReverse => Some("reverse"),
+            Self::TypedArrayPrototypeSort => Some("sort"),
+            Self::TypedArrayPrototypeToReversed => Some("toReversed"),
+            Self::TypedArrayPrototypeToSorted => Some("toSorted"),
+            Self::TypedArrayPrototypeWith => Some("with"),
             Self::TypedArrayFrom => Some("from"),
             Self::TypedArrayOf => Some("of"),
             Self::DataViewPrototypeGetUint8 => Some("getUint8"),
@@ -4030,7 +4920,65 @@ impl StandardBuiltinId {
             Self::StringPrototypeToWellFormed => Some("toWellFormed"),
             Self::BooleanConstructor => Some(BOOLEAN_NAME),
             Self::PromiseConstructor => Some(PROMISE_NAME),
+            Self::PromisePrototypeThen => Some("then"),
+            Self::PromisePrototypeCatch => Some("catch"),
+            Self::PromisePrototypeFinally => Some("finally"),
+            Self::PromiseThenFinally
+            | Self::PromiseCatchFinally
+            | Self::PromiseValueThunk
+            | Self::PromiseThrower => Some(""),
+            Self::PromiseSpeciesGetter => Some("get [Symbol.species]"),
+            Self::PromiseResolve => Some("resolve"),
+            Self::PromiseWithResolvers => Some("withResolvers"),
+            Self::PromiseTry => Some("try"),
+            Self::PromiseReject => Some("reject"),
+            Self::PromiseAll => Some("all"),
+            Self::PromiseAllSettled => Some("allSettled"),
+            Self::PromiseAllKeyed => Some("allKeyed"),
+            Self::PromiseAllSettledKeyed => Some("allSettledKeyed"),
+            Self::PromiseAny => Some("any"),
+            Self::PromiseRace => Some("race"),
+            Self::PromiseAllResolveElement
+            | Self::PromiseAllSettledResolveElement
+            | Self::PromiseAllSettledRejectElement
+            | Self::PromiseAnyRejectElement => Some(""),
+            Self::PromiseAllKeyedResolveElement
+            | Self::PromiseAllSettledKeyedResolveElement
+            | Self::PromiseAllSettledKeyedRejectElement => Some(""),
+            Self::PromiseCapabilityExecutor => Some(""),
             Self::PromiseResolveFunction | Self::PromiseRejectFunction => Some(""),
+            Self::MapConstructor => Some(MAP_NAME),
+            Self::MapGroupBy => Some("groupBy"),
+            Self::MapPrototypeClear => Some("clear"),
+            Self::MapPrototypeDelete => Some("delete"),
+            Self::MapPrototypeForEach => Some("forEach"),
+            Self::MapPrototypeKeys => Some("keys"),
+            Self::MapPrototypeValues => Some("values"),
+            Self::MapPrototypeEntries => Some("entries"),
+            Self::MapIteratorNext => Some("next"),
+            Self::MapPrototypeGet => Some("get"),
+            Self::MapPrototypeGetOrInsert => Some("getOrInsert"),
+            Self::MapPrototypeGetOrInsertComputed => Some("getOrInsertComputed"),
+            Self::MapPrototypeHas => Some("has"),
+            Self::MapPrototypeSet => Some("set"),
+            Self::MapPrototypeSizeGetter => Some("get size"),
+            Self::SetConstructor => Some(SET_NAME),
+            Self::SetPrototypeAdd => Some("add"),
+            Self::SetPrototypeClear => Some("clear"),
+            Self::SetPrototypeDelete => Some("delete"),
+            Self::SetPrototypeDifference => Some("difference"),
+            Self::SetPrototypeForEach => Some("forEach"),
+            Self::SetPrototypeIntersection => Some("intersection"),
+            Self::SetPrototypeIsDisjointFrom => Some("isDisjointFrom"),
+            Self::SetPrototypeIsSubsetOf => Some("isSubsetOf"),
+            Self::SetPrototypeIsSupersetOf => Some("isSupersetOf"),
+            Self::SetPrototypeSymmetricDifference => Some("symmetricDifference"),
+            Self::SetPrototypeUnion => Some("union"),
+            Self::SetPrototypeValues => Some("values"),
+            Self::SetPrototypeEntries => Some("entries"),
+            Self::SetIteratorNext => Some("next"),
+            Self::SetPrototypeHas => Some("has"),
+            Self::SetPrototypeSizeGetter => Some("get size"),
             Self::SymbolConstructor => Some(SYMBOL_NAME),
             Self::SymbolFor => Some("for"),
             Self::SymbolKeyFor => Some("keyFor"),
@@ -4115,6 +5063,19 @@ mod tests {
     }
 
     #[test]
+    fn typed_array_species_getter_is_registered_with_spec_function_name() {
+        let builtin = StandardBuiltinId::TypedArraySpeciesGetter;
+        let function_id = builtin.function_id();
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.debug_name(), "get TypedArray [Symbol.species]");
+        assert_eq!(builtin.native_function_name(), Some("get [Symbol.species]"));
+        assert!(!builtin.constructable());
+    }
+
+    #[test]
     fn array_shift_builtin_id_round_trips_through_its_function_id() {
         let builtin = StandardBuiltinId::ArrayPrototypeShift;
         let function_id = builtin.function_id();
@@ -4124,6 +5085,92 @@ mod tests {
         );
         assert_eq!(builtin.debug_name(), "Array.prototype.shift");
         assert_eq!(builtin.native_function_name(), Some("shift"));
+    }
+
+    #[test]
+    fn map_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::MapConstructor, "Map"),
+            (StandardBuiltinId::MapGroupBy, "groupBy"),
+            (StandardBuiltinId::MapPrototypeClear, "clear"),
+            (StandardBuiltinId::MapPrototypeDelete, "delete"),
+            (StandardBuiltinId::MapPrototypeForEach, "forEach"),
+            (StandardBuiltinId::MapPrototypeKeys, "keys"),
+            (StandardBuiltinId::MapPrototypeValues, "values"),
+            (StandardBuiltinId::MapPrototypeEntries, "entries"),
+            (StandardBuiltinId::MapIteratorNext, "next"),
+            (StandardBuiltinId::MapPrototypeGet, "get"),
+            (StandardBuiltinId::MapPrototypeGetOrInsert, "getOrInsert"),
+            (
+                StandardBuiltinId::MapPrototypeGetOrInsertComputed,
+                "getOrInsertComputed",
+            ),
+            (StandardBuiltinId::MapPrototypeHas, "has"),
+            (StandardBuiltinId::MapPrototypeSet, "set"),
+            (StandardBuiltinId::MapPrototypeSizeGetter, "get size"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+        }
+
+        assert!(StandardBuiltinId::MapConstructor.constructable());
+        assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::MapConstructor));
+    }
+
+    #[test]
+    fn object_group_by_is_registered_with_its_spec_function_name() {
+        let builtin = StandardBuiltinId::ObjectGroupBy;
+        let function_id = builtin.function_id();
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.debug_name(), "Object.groupBy");
+        assert_eq!(builtin.native_function_name(), Some("groupBy"));
+        assert!(!builtin.constructable());
+    }
+
+    #[test]
+    fn set_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::SetConstructor, "Set"),
+            (StandardBuiltinId::SetPrototypeAdd, "add"),
+            (StandardBuiltinId::SetPrototypeClear, "clear"),
+            (StandardBuiltinId::SetPrototypeDelete, "delete"),
+            (StandardBuiltinId::SetPrototypeDifference, "difference"),
+            (StandardBuiltinId::SetPrototypeForEach, "forEach"),
+            (StandardBuiltinId::SetPrototypeIntersection, "intersection"),
+            (
+                StandardBuiltinId::SetPrototypeIsDisjointFrom,
+                "isDisjointFrom",
+            ),
+            (StandardBuiltinId::SetPrototypeIsSubsetOf, "isSubsetOf"),
+            (StandardBuiltinId::SetPrototypeIsSupersetOf, "isSupersetOf"),
+            (
+                StandardBuiltinId::SetPrototypeSymmetricDifference,
+                "symmetricDifference",
+            ),
+            (StandardBuiltinId::SetPrototypeUnion, "union"),
+            (StandardBuiltinId::SetPrototypeValues, "values"),
+            (StandardBuiltinId::SetPrototypeEntries, "entries"),
+            (StandardBuiltinId::SetIteratorNext, "next"),
+            (StandardBuiltinId::SetPrototypeHas, "has"),
+            (StandardBuiltinId::SetPrototypeSizeGetter, "get size"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+        }
+
+        assert!(StandardBuiltinId::SetConstructor.constructable());
+        assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::SetConstructor));
     }
 
     #[test]

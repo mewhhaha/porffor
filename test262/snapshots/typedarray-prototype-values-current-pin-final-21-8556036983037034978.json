@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8556036983037034978,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/values/detached-buffer.js",
+      "duration_ms": 38918
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/iter-prototype.js",
+      "duration_ms": 35457
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/return-itor.js",
+      "duration_ms": 33539
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/detached-buffer.js",
+      "duration_ms": 25786
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/length.js",
+      "duration_ms": 23964
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/prop-desc.js",
+      "duration_ms": 23830
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/return-itor.js",
+      "duration_ms": 23687
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/iter-prototype.js",
+      "duration_ms": 22863
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/name.js",
+      "duration_ms": 22818
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/this-is-not-typedarray-instance.js",
+      "duration_ms": 21040
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/values/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/values/BigInt/iter-prototype.js",
+    "built-ins/TypedArray/prototype/values/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/values/BigInt/return-itor.js",
+    "built-ins/TypedArray/prototype/values/detached-buffer.js",
+    "built-ins/TypedArray/prototype/values/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/values/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/values/iter-prototype.js",
+    "built-ins/TypedArray/prototype/values/length.js",
+    "built-ins/TypedArray/prototype/values/make-in-bounds-after-exhausted.js",
+    "built-ins/TypedArray/prototype/values/make-out-of-bounds-after-exhausted.js",
+    "built-ins/TypedArray/prototype/values/name.js",
+    "built-ins/TypedArray/prototype/values/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/values/prop-desc.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/values/return-itor.js",
+    "built-ins/TypedArray/prototype/values/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/values/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

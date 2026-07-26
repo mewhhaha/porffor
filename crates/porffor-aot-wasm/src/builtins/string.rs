@@ -13073,7 +13073,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_value_to_string_payload(receiver_payload_local, receiver_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(string_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
         self.emit_unpack_string_payload(
             string_local,
@@ -13090,7 +13089,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(index_number_payload_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
 
         function.instruction(&Instruction::LocalGet(index_number_payload_local));
@@ -13311,7 +13309,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_value_to_string_payload(receiver_payload_local, receiver_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(string_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
         self.emit_unpack_string_payload(
             string_local,
@@ -13328,7 +13325,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(index_number_payload_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
 
         function.instruction(&Instruction::LocalGet(index_number_payload_local));
@@ -13579,7 +13575,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_value_to_string_payload(receiver_payload_local, receiver_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(string_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
         self.emit_unpack_string_payload(
             string_local,
@@ -13642,7 +13637,6 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.emit_value_to_number_payload(position_tag_local, position_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(position_payload_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_return_current_completion_if_throw(function);
 
         function.instruction(&Instruction::LocalGet(position_payload_local));
@@ -15721,6 +15715,8 @@ impl<'a> FunctionBuilder<'a> {
         let scratch_len_local = self.reserve_temp_local();
         let input_offset_local = self.reserve_temp_local();
         let input_len_local = self.reserve_temp_local();
+        let input_unit_len_local = self.reserve_temp_local();
+        let last_index_beyond_input_local = self.reserve_temp_local();
         let capture_array_local = self.reserve_temp_local();
         let capture_index_local = self.reserve_temp_local();
         let capture_buffer_local = self.reserve_temp_local();
@@ -15775,6 +15771,12 @@ impl<'a> FunctionBuilder<'a> {
             input_payload_local,
             input_offset_local,
             input_len_local,
+            function,
+        );
+        self.emit_utf16_code_unit_len_from_utf8_locals(
+            input_offset_local,
+            input_len_local,
+            input_unit_len_local,
             function,
         );
         function.instruction(&Instruction::LocalGet(program_ptr_local));
@@ -15880,6 +15882,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(last_index_local));
+        function.instruction(&Instruction::LocalSet(start_index_local));
+        function.instruction(&Instruction::End);
+
+        // The matcher treats an out-of-range start as corrupt input, while
+        // RegExpBuiltinExec requires a normal failed match and lastIndex reset.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(last_index_beyond_input_local));
+        function.instruction(&Instruction::LocalGet(start_index_local));
+        function.instruction(&Instruction::LocalGet(input_unit_len_local));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(last_index_beyond_input_local));
+        function.instruction(&Instruction::LocalGet(input_unit_len_local));
         function.instruction(&Instruction::LocalSet(start_index_local));
         function.instruction(&Instruction::End);
 
@@ -16165,6 +16181,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(match_end_local));
         function.instruction(&Instruction::LocalSet(match_start_local));
         function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::LocalGet(last_index_beyond_input_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(status_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::End);
         if !return_boolean {
             function.instruction(&Instruction::LocalGet(capture_count_local));
             function.instruction(&Instruction::I64Eqz);
@@ -16558,6 +16583,8 @@ impl<'a> FunctionBuilder<'a> {
             capture_buffer_local,
             capture_index_local,
             capture_array_local,
+            last_index_beyond_input_local,
+            input_unit_len_local,
             input_len_local,
             input_offset_local,
             scratch_len_local,
@@ -17923,11 +17950,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         self.emit_number_to_string_payload(payload_local, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_bigint_tag_i32(tag_local, function);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_bigint_to_string_payload(payload_local, function)?;
+        self.emit_bigint_value_to_string_payload(payload_local, tag_local, function)?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));

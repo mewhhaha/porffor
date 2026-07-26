@@ -4,17 +4,21 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let workspace = manifest
+        .join("../..")
+        .canonicalize()
+        .expect("Porffor workspace root should resolve");
     let compiler_inputs = [
-        manifest.join("../../Cargo.lock"),
-        manifest.join("Cargo.toml"),
-        manifest.join("src"),
-        manifest.join("../porffor-front/Cargo.toml"),
-        manifest.join("../porffor-front/src"),
-        manifest.join("../porffor-ir/Cargo.toml"),
-        manifest.join("../porffor-ir/src"),
-        manifest.join("../porffor-aot-wasm/Cargo.toml"),
-        manifest.join("../porffor-aot-wasm/src"),
+        workspace.join("Cargo.toml"),
+        workspace.join("Cargo.lock"),
+        workspace.join("crates/porffor-front/Cargo.toml"),
+        workspace.join("crates/porffor-front/src"),
+        workspace.join("crates/porffor-ir/Cargo.toml"),
+        workspace.join("crates/porffor-ir/src"),
+        workspace.join("crates/porffor-aot-wasm/Cargo.toml"),
+        workspace.join("crates/porffor-aot-wasm/src"),
     ];
+    println!("cargo:rerun-if-changed=build.rs");
     let mut files = Vec::new();
     for input in &compiler_inputs {
         println!("cargo:rerun-if-changed={}", input.display());
@@ -26,13 +30,24 @@ fn main() {
     }
 
     let mut digest = Sha256::new();
-    digest.update(b"porffor-program-cache-compiler-v1");
+    digest.update(b"porffor-program-cache-compiler-v2");
     for path in files {
-        digest.update(path.to_string_lossy().as_bytes());
-        match fs::read(&path) {
-            Ok(bytes) => digest.update(bytes),
-            Err(err) => panic!("failed to fingerprint {}: {err}", path.display()),
-        }
+        let relative = path.strip_prefix(&workspace).unwrap_or_else(|_| {
+            panic!(
+                "compiler input {} is outside workspace {}",
+                path.display(),
+                workspace.display()
+            )
+        });
+        let label = relative
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        let bytes = fs::read(&path)
+            .unwrap_or_else(|err| panic!("failed to fingerprint {}: {err}", path.display()));
+        digest.update((label.len() as u64).to_le_bytes());
+        digest.update(label.as_bytes());
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
     }
     println!(
         "cargo:rustc-env=PORFFOR_COMPILER_FINGERPRINT={:x}",

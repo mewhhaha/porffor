@@ -1,0 +1,108 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15089719507409975374,
+  "run_kind": "full",
+  "total": 12,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/try/length.js",
+      "duration_ms": 22899
+    },
+    {
+      "path": "built-ins/Promise/try/prop-desc.js",
+      "duration_ms": 21780
+    },
+    {
+      "path": "built-ins/Promise/try/name.js",
+      "duration_ms": 21660
+    },
+    {
+      "path": "built-ins/Promise/try/throws.js",
+      "duration_ms": 20524
+    },
+    {
+      "path": "built-ins/Promise/try/return-value.js",
+      "duration_ms": 18897
+    },
+    {
+      "path": "built-ins/Promise/try/args.js",
+      "duration_ms": 15530
+    },
+    {
+      "path": "built-ins/Promise/try/ctx-non-object.js",
+      "duration_ms": 15235
+    },
+    {
+      "path": "built-ins/Promise/try/ctx-ctor-throws.js",
+      "duration_ms": 14484
+    },
+    {
+      "path": "built-ins/Promise/try/ctx-non-ctor.js",
+      "duration_ms": 13938
+    },
+    {
+      "path": "built-ins/Promise/try/not-a-constructor.js",
+      "duration_ms": 13444
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Promise/try/args.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262:AsyncTestFailure:Test262Error: Expected arrays to have the same length",
+      "detail_hash": 2836731633897256775,
+      "duration_ms": 15530
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Promise/try/args.js",
+    "built-ins/Promise/try/ctx-ctor-throws.js",
+    "built-ins/Promise/try/ctx-ctor.js",
+    "built-ins/Promise/try/ctx-non-ctor.js",
+    "built-ins/Promise/try/ctx-non-object.js",
+    "built-ins/Promise/try/length.js",
+    "built-ins/Promise/try/name.js",
+    "built-ins/Promise/try/not-a-constructor.js",
+    "built-ins/Promise/try/promise.js",
+    "built-ins/Promise/try/prop-desc.js",
+    "built-ins/Promise/try/return-value.js",
+    "built-ins/Promise/try/throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

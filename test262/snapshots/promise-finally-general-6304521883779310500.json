@@ -1,0 +1,115 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6304521883779310500,
+  "run_kind": "full",
+  "total": 29,
+  "passed": 29,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 29
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Promise/prototype/finally/prop-desc.js",
+      "duration_ms": 21944
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/name.js",
+      "duration_ms": 21355
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/length.js",
+      "duration_ms": 21088
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/rejection-reason-override-with-throw.js",
+      "duration_ms": 18993
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/rejection-reason-no-fulfill.js",
+      "duration_ms": 18427
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/resolved-observable-then-calls.js",
+      "duration_ms": 18391
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/resolution-value-no-override.js",
+      "duration_ms": 18230
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/rejected-observable-then-calls.js",
+      "duration_ms": 17888
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/rejected-observable-then-calls-argument.js",
+      "duration_ms": 15212
+    },
+    {
+      "path": "built-ins/Promise/prototype/finally/this-value-then-not-callable.js",
+      "duration_ms": 14882
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Promise/prototype/finally/invokes-then-with-function.js",
+    "built-ins/Promise/prototype/finally/invokes-then-with-non-function.js",
+    "built-ins/Promise/prototype/finally/is-a-function.js",
+    "built-ins/Promise/prototype/finally/is-a-method.js",
+    "built-ins/Promise/prototype/finally/length.js",
+    "built-ins/Promise/prototype/finally/name.js",
+    "built-ins/Promise/prototype/finally/not-a-constructor.js",
+    "built-ins/Promise/prototype/finally/prop-desc.js",
+    "built-ins/Promise/prototype/finally/rejected-observable-then-calls-PromiseResolve.js",
+    "built-ins/Promise/prototype/finally/rejected-observable-then-calls-argument.js",
+    "built-ins/Promise/prototype/finally/rejected-observable-then-calls.js",
+    "built-ins/Promise/prototype/finally/rejection-reason-no-fulfill.js",
+    "built-ins/Promise/prototype/finally/rejection-reason-override-with-throw.js",
+    "built-ins/Promise/prototype/finally/resolution-value-no-override.js",
+    "built-ins/Promise/prototype/finally/resolved-observable-then-calls-PromiseResolve.js",
+    "built-ins/Promise/prototype/finally/resolved-observable-then-calls-argument.js",
+    "built-ins/Promise/prototype/finally/resolved-observable-then-calls.js",
+    "built-ins/Promise/prototype/finally/species-constructor-throws.js",
+    "built-ins/Promise/prototype/finally/species-constructor.js",
+    "built-ins/Promise/prototype/finally/subclass-reject-count.js",
+    "built-ins/Promise/prototype/finally/subclass-resolve-count.js",
+    "built-ins/Promise/prototype/finally/subclass-species-constructor-reject-count.js",
+    "built-ins/Promise/prototype/finally/subclass-species-constructor-resolve-count.js",
+    "built-ins/Promise/prototype/finally/this-value-non-object.js",
+    "built-ins/Promise/prototype/finally/this-value-proxy.js",
+    "built-ins/Promise/prototype/finally/this-value-then-not-callable.js",
+    "built-ins/Promise/prototype/finally/this-value-then-poisoned.js",
+    "built-ins/Promise/prototype/finally/this-value-then-throws.js",
+    "built-ins/Promise/prototype/finally/this-value-thenable.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

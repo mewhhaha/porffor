@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14485063322838869338,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/from/prop-desc.js",
+      "duration_ms": 61623
+    },
+    {
+      "path": "built-ins/TypedArray/from/length.js",
+      "duration_ms": 61158
+    },
+    {
+      "path": "built-ins/TypedArray/from/name.js",
+      "duration_ms": 58919
+    },
+    {
+      "path": "built-ins/TypedArray/from/arylk-to-length-error.js",
+      "duration_ms": 58600
+    },
+    {
+      "path": "built-ins/TypedArray/from/arylk-get-length-error.js",
+      "duration_ms": 56452
+    },
+    {
+      "path": "built-ins/TypedArray/from/iter-next-value-error.js",
+      "duration_ms": 51516
+    },
+    {
+      "path": "built-ins/TypedArray/from/iter-next-error.js",
+      "duration_ms": 51030
+    },
+    {
+      "path": "built-ins/TypedArray/from/iter-invoke-error.js",
+      "duration_ms": 50213
+    },
+    {
+      "path": "built-ins/TypedArray/from/this-is-not-constructor.js",
+      "duration_ms": 48444
+    },
+    {
+      "path": "built-ins/TypedArray/from/not-a-constructor.js",
+      "duration_ms": 48032
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/from/arylk-get-length-error.js",
+    "built-ins/TypedArray/from/arylk-to-length-error.js",
+    "built-ins/TypedArray/from/from-array-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-array-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/from-typedarray-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-typedarray-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/invoked-as-func.js",
+    "built-ins/TypedArray/from/invoked-as-method.js",
+    "built-ins/TypedArray/from/iter-access-error.js",
+    "built-ins/TypedArray/from/iter-invoke-error.js",
+    "built-ins/TypedArray/from/iter-next-error.js",
+    "built-ins/TypedArray/from/iter-next-value-error.js",
+    "built-ins/TypedArray/from/iterated-array-changed-by-tonumber.js",
+    "built-ins/TypedArray/from/length.js",
+    "built-ins/TypedArray/from/mapfn-is-not-callable.js",
+    "built-ins/TypedArray/from/name.js",
+    "built-ins/TypedArray/from/not-a-constructor.js",
+    "built-ins/TypedArray/from/prop-desc.js",
+    "built-ins/TypedArray/from/this-is-not-constructor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,118 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4378182180659179029,
+  "run_kind": "full",
+  "total": 32,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-integer.js",
+      "duration_ms": 56714
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-lower-than-zero.js",
+      "duration_ms": 54975
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/inherited-property.js",
+      "duration_ms": 54575
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-greater-than-last-index.js",
+      "duration_ms": 54356
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-minus-zero.js",
+      "duration_ms": 54338
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/indexed-value.js",
+      "duration_ms": 52047
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-integer.js",
+      "duration_ms": 44205
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-lower-than-zero.js",
+      "duration_ms": 43926
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-minus-zero.js",
+      "duration_ms": 43650
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/indexed-value.js",
+      "duration_ms": 42583
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/abrupt-from-ordinary-has-parent-hasproperty.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-key-is-not-number.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/infinity-with-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/inherited-property.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/abrupt-from-ordinary-has-parent-hasproperty.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-key-is-not-number.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/infinity-with-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/inherited-property.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-auto.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-fixed.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

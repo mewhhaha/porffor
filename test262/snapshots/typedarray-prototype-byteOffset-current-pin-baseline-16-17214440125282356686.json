@@ -1,0 +1,102 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17214440125282356686,
+  "run_kind": "full",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/detached-buffer.js",
+      "duration_ms": 77516
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/resizable-array-buffer-fixed.js",
+      "duration_ms": 77315
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/resizable-array-buffer-auto.js",
+      "duration_ms": 76781
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/prop-desc.js",
+      "duration_ms": 73553
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/return-byteoffset.js",
+      "duration_ms": 69669
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/name.js",
+      "duration_ms": 66808
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/length.js",
+      "duration_ms": 64082
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/BigInt/detached-buffer.js",
+      "duration_ms": 61004
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/BigInt/resizable-array-buffer-fixed.js",
+      "duration_ms": 56286
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/byteOffset/BigInt/resizable-array-buffer-auto.js",
+      "duration_ms": 55756
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/byteOffset/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/byteOffset/BigInt/resizable-array-buffer-auto.js",
+    "built-ins/TypedArray/prototype/byteOffset/BigInt/resizable-array-buffer-fixed.js",
+    "built-ins/TypedArray/prototype/byteOffset/BigInt/return-byteoffset.js",
+    "built-ins/TypedArray/prototype/byteOffset/detached-buffer.js",
+    "built-ins/TypedArray/prototype/byteOffset/invoked-as-accessor.js",
+    "built-ins/TypedArray/prototype/byteOffset/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/byteOffset/length.js",
+    "built-ins/TypedArray/prototype/byteOffset/name.js",
+    "built-ins/TypedArray/prototype/byteOffset/prop-desc.js",
+    "built-ins/TypedArray/prototype/byteOffset/resizable-array-buffer-auto.js",
+    "built-ins/TypedArray/prototype/byteOffset/resizable-array-buffer-fixed.js",
+    "built-ins/TypedArray/prototype/byteOffset/resized-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/byteOffset/return-byteoffset.js",
+    "built-ins/TypedArray/prototype/byteOffset/this-has-no-typedarrayname-internal.js",
+    "built-ins/TypedArray/prototype/byteOffset/this-is-not-object.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

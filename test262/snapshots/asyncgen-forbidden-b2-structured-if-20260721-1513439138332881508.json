@@ -1,0 +1,76 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1513439138332881508,
+  "run_kind": "full",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-prop-caller.js",
+      "duration_ms": 15799
+    },
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-own-prop-caller-value.js",
+      "duration_ms": 15225
+    },
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-prop-caller.js",
+      "duration_ms": 15123
+    },
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-own-prop-caller-value.js",
+      "duration_ms": 15086
+    },
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-own-prop-caller-get.js",
+      "duration_ms": 15044
+    },
+    {
+      "path": "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-own-prop-caller-get.js",
+      "duration_ms": 14983
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-own-prop-caller-get.js",
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-own-prop-caller-value.js",
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-func-expr-forbidden-ext-indirect-access-prop-caller.js",
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-own-prop-caller-get.js",
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-own-prop-caller-value.js",
+    "language/expressions/async-generator/forbidden-ext/b2/async-gen-named-func-expr-forbidden-ext-indirect-access-prop-caller.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

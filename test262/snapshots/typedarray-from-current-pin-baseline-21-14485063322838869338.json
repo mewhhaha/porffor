@@ -1,0 +1,162 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14485063322838869338,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 15,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 3,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 3,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 15
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/from/prop-desc.js",
+      "duration_ms": 68782
+    },
+    {
+      "path": "built-ins/TypedArray/from/name.js",
+      "duration_ms": 67568
+    },
+    {
+      "path": "built-ins/TypedArray/from/length.js",
+      "duration_ms": 66215
+    },
+    {
+      "path": "built-ins/TypedArray/from/iter-access-error.js",
+      "duration_ms": 59037
+    },
+    {
+      "path": "built-ins/TypedArray/from/invoked-as-method.js",
+      "duration_ms": 58133
+    },
+    {
+      "path": "built-ins/TypedArray/from/iter-invoke-error.js",
+      "duration_ms": 55476
+    },
+    {
+      "path": "built-ins/TypedArray/from/arylk-get-length-error.js",
+      "duration_ms": 55149
+    },
+    {
+      "path": "built-ins/TypedArray/from/arylk-to-length-error.js",
+      "duration_ms": 54153
+    },
+    {
+      "path": "built-ins/TypedArray/from/invoked-as-func.js",
+      "duration_ms": 53848
+    },
+    {
+      "path": "built-ins/TypedArray/from/this-is-not-constructor.js",
+      "duration_ms": 53317
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/from/from-array-mapper-makes-result-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-detaches-result.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1471704)",
+      "detail_hash": 15751663208835967892,
+      "duration_ms": 22939
+    },
+    {
+      "test_path": "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-makes-result-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/from/from-typedarray-mapper-detaches-result.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1475544)",
+      "detail_hash": 12973731141883084611,
+      "duration_ms": 23485
+    },
+    {
+      "test_path": "built-ins/TypedArray/from/from-typedarray-mapper-makes-result-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/from/iterated-array-changed-by-tonumber.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1400088)",
+      "detail_hash": 11725666624878754766,
+      "duration_ms": 8749
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/from/arylk-get-length-error.js",
+    "built-ins/TypedArray/from/arylk-to-length-error.js",
+    "built-ins/TypedArray/from/from-array-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-array-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-typedarray-into-itself-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/from-typedarray-mapper-detaches-result.js",
+    "built-ins/TypedArray/from/from-typedarray-mapper-makes-result-out-of-bounds.js",
+    "built-ins/TypedArray/from/invoked-as-func.js",
+    "built-ins/TypedArray/from/invoked-as-method.js",
+    "built-ins/TypedArray/from/iter-access-error.js",
+    "built-ins/TypedArray/from/iter-invoke-error.js",
+    "built-ins/TypedArray/from/iter-next-error.js",
+    "built-ins/TypedArray/from/iter-next-value-error.js",
+    "built-ins/TypedArray/from/iterated-array-changed-by-tonumber.js",
+    "built-ins/TypedArray/from/length.js",
+    "built-ins/TypedArray/from/mapfn-is-not-callable.js",
+    "built-ins/TypedArray/from/name.js",
+    "built-ins/TypedArray/from/not-a-constructor.js",
+    "built-ins/TypedArray/from/prop-desc.js",
+    "built-ins/TypedArray/from/this-is-not-constructor.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,89 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17763690505950075134,
+  "run_kind": "full",
+  "total": 3,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/async-generator/yield-star-async-return.js",
+      "duration_ms": 8268
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-async-throw.js",
+      "duration_ms": 3320
+    },
+    {
+      "path": "language/expressions/async-generator/yield-star-async-next.js",
+      "duration_ms": 3270
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "language/expressions/async-generator/yield-star-async-next.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: Yield(Yield { target: Some(Identifier(Identifier { ident: Sym { value: 102 }, span: Span((208, 20), (208, 23)) })), delegate: true, span: Span((208, 13), (208, 23)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6606009395617076970,
+      "duration_ms": 3270
+    },
+    {
+      "test_path": "language/expressions/async-generator/yield-star-async-return.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] Test262:AsyncTestFailure:Error: Error",
+      "detail_hash": 12230017052994221193,
+      "duration_ms": 8268
+    },
+    {
+      "test_path": "language/expressions/async-generator/yield-star-async-throw.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: unsupported expression form: Yield(Yield { target: Some(Identifier(Identifier { ident: Sym { value: 102 }, span: Span((227, 20), (227, 23)) })), delegate: true, span: Span((227, 13), (227, 23)) }). Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 14712353423253746986,
+      "duration_ms": 3320
+    }
+  ],
+  "completed_paths": [
+    "language/expressions/async-generator/yield-star-async-next.js",
+    "language/expressions/async-generator/yield-star-async-return.js",
+    "language/expressions/async-generator/yield-star-async-throw.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

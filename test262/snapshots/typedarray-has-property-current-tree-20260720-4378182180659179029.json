@@ -1,0 +1,155 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4378182180659179029,
+  "run_kind": "full",
+  "total": 32,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/inherited-property.js",
+      "duration_ms": 46158
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-greater-than-last-index.js",
+      "duration_ms": 45365
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/indexed-value.js",
+      "duration_ms": 44704
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-integer.js",
+      "duration_ms": 44447
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-minus-zero.js",
+      "duration_ms": 44436
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-lower-than-zero.js",
+      "duration_ms": 44194
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-integer.js",
+      "duration_ms": 36035
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-lower-than-zero.js",
+      "duration_ms": 35892
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-minus-zero.js",
+      "duration_ms": 35812
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-greater-than-last-index.js",
+      "duration_ms": 35577
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/abrupt-from-ordinary-has-parent-hasproperty.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1436152)",
+      "detail_hash": 7062601995432445855,
+      "duration_ms": 15104
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/infinity-with-detached-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1478400)",
+      "detail_hash": 5148883569351911746,
+      "duration_ms": 17191
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/HasProperty/abrupt-from-ordinary-has-parent-hasproperty.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1436152)",
+      "detail_hash": 7062601995432445855,
+      "duration_ms": 16355
+    },
+    {
+      "test_path": "built-ins/TypedArrayConstructors/internals/HasProperty/infinity-with-detached-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1478400)",
+      "detail_hash": 5148883569351911746,
+      "duration_ms": 18065
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/abrupt-from-ordinary-has-parent-hasproperty.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-key-is-not-number.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/infinity-with-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/inherited-property.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/abrupt-from-ordinary-has-parent-hasproperty.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-key-is-not-number.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer-realm.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/indexed-value.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/infinity-with-detached-buffer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/inherited-property.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-greater-than-last-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-lower-than-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-auto.js",
+    "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-fixed.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

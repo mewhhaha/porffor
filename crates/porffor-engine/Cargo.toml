@@ -12,13 +12,10 @@ porffor-front = { path = "../porffor-front" }
 porffor-ir = { path = "../porffor-ir" }
 porffor-runtime = { path = "../porffor-runtime" }
 porffor-spec-exec = { path = "../porffor-spec-exec", optional = true }
-wasmi = "0.31.2"
 rayon = "1.11.0"
 sha2 = "0.10.9"
-wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "gc-null", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
-
-[dev-dependencies]
 wasmparser = "0.245.1"
+wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "gc-null", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
 
 [build-dependencies]
 sha2 = "0.10.9"

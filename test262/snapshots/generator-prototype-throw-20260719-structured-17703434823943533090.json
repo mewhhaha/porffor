@@ -1,0 +1,108 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17703434823943533090,
+  "run_kind": "full",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/GeneratorPrototype/throw/length.js",
+      "duration_ms": 36747
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/property-descriptor.js",
+      "duration_ms": 33039
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/name.js",
+      "duration_ms": 32501
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/from-state-suspended-start.js",
+      "duration_ms": 26272
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-finally.js",
+      "duration_ms": 23681
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/this-val-not-object.js",
+      "duration_ms": 22722
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-outer-try-after-nested.js",
+      "duration_ms": 21771
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/this-val-not-generator.js",
+      "duration_ms": 21407
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/try-finally-within-try.js",
+      "duration_ms": 20762
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/throw/from-state-executing.js",
+      "duration_ms": 20373
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/GeneratorPrototype/throw/from-state-completed.js",
+    "built-ins/GeneratorPrototype/throw/from-state-executing.js",
+    "built-ins/GeneratorPrototype/throw/from-state-suspended-start.js",
+    "built-ins/GeneratorPrototype/throw/length.js",
+    "built-ins/GeneratorPrototype/throw/name.js",
+    "built-ins/GeneratorPrototype/throw/not-a-constructor.js",
+    "built-ins/GeneratorPrototype/throw/property-descriptor.js",
+    "built-ins/GeneratorPrototype/throw/this-val-not-generator.js",
+    "built-ins/GeneratorPrototype/throw/this-val-not-object.js",
+    "built-ins/GeneratorPrototype/throw/try-catch-before-try.js",
+    "built-ins/GeneratorPrototype/throw/try-catch-following-catch.js",
+    "built-ins/GeneratorPrototype/throw/try-catch-within-catch.js",
+    "built-ins/GeneratorPrototype/throw/try-catch-within-try.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-before-try.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-following-finally.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-catch.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-finally.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-inner-try.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-outer-try-after-nested.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-outer-try-before-nested.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-within-finally.js",
+    "built-ins/GeneratorPrototype/throw/try-finally-within-try.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

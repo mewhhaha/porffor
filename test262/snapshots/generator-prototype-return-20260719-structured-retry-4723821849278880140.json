@@ -1,0 +1,119 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4723821849278880140,
+  "run_kind": "full",
+  "total": 23,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/GeneratorPrototype/return/length.js",
+      "duration_ms": 34348
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/name.js",
+      "duration_ms": 33718
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/property-descriptor.js",
+      "duration_ms": 33579
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/this-val-not-object.js",
+      "duration_ms": 23444
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/this-val-not-generator.js",
+      "duration_ms": 21576
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/not-a-constructor.js",
+      "duration_ms": 19641
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/from-state-executing.js",
+      "duration_ms": 19435
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/from-state-completed.js",
+      "duration_ms": 10591
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/from-state-suspended-start.js",
+      "duration_ms": 9747
+    },
+    {
+      "path": "built-ins/GeneratorPrototype/return/try-finally-within-try.js",
+      "duration_ms": 8761
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/GeneratorPrototype/return/try-finally-set-property-within-try.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: function or class declaration. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8730988269038828269,
+      "duration_ms": 2591
+    }
+  ],
+  "completed_paths": [
+    "built-ins/GeneratorPrototype/return/from-state-completed.js",
+    "built-ins/GeneratorPrototype/return/from-state-executing.js",
+    "built-ins/GeneratorPrototype/return/from-state-suspended-start.js",
+    "built-ins/GeneratorPrototype/return/length.js",
+    "built-ins/GeneratorPrototype/return/name.js",
+    "built-ins/GeneratorPrototype/return/not-a-constructor.js",
+    "built-ins/GeneratorPrototype/return/property-descriptor.js",
+    "built-ins/GeneratorPrototype/return/this-val-not-generator.js",
+    "built-ins/GeneratorPrototype/return/this-val-not-object.js",
+    "built-ins/GeneratorPrototype/return/try-catch-before-try.js",
+    "built-ins/GeneratorPrototype/return/try-catch-following-catch.js",
+    "built-ins/GeneratorPrototype/return/try-catch-within-catch.js",
+    "built-ins/GeneratorPrototype/return/try-catch-within-try.js",
+    "built-ins/GeneratorPrototype/return/try-finally-before-try.js",
+    "built-ins/GeneratorPrototype/return/try-finally-following-finally.js",
+    "built-ins/GeneratorPrototype/return/try-finally-nested-try-catch-within-catch.js",
+    "built-ins/GeneratorPrototype/return/try-finally-nested-try-catch-within-finally.js",
+    "built-ins/GeneratorPrototype/return/try-finally-nested-try-catch-within-inner-try.js",
+    "built-ins/GeneratorPrototype/return/try-finally-nested-try-catch-within-outer-try-after-nested.js",
+    "built-ins/GeneratorPrototype/return/try-finally-nested-try-catch-within-outer-try-before-nested.js",
+    "built-ins/GeneratorPrototype/return/try-finally-set-property-within-try.js",
+    "built-ins/GeneratorPrototype/return/try-finally-within-finally.js",
+    "built-ins/GeneratorPrototype/return/try-finally-within-try.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

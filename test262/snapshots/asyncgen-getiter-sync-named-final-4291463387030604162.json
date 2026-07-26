@@ -1,0 +1,99 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4291463387030604162,
+  "run_kind": "full",
+  "total": 13,
+  "passed": 13,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 13
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-symbol-throw.js",
+      "duration_ms": 11475
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-string-throw.js",
+      "duration_ms": 11346
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-string-throw.js",
+      "duration_ms": 10343
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-number-throw.js",
+      "duration_ms": 9610
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-get-abrupt.js",
+      "duration_ms": 9574
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-object-throw.js",
+      "duration_ms": 9484
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-undefined-throw.js",
+      "duration_ms": 9448
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-symbol-throw.js",
+      "duration_ms": 9417
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-null-throw.js",
+      "duration_ms": 9397
+    },
+    {
+      "path": "language/expressions/async-generator/named-yield-star-getiter-sync-returns-boolean-throw.js",
+      "duration_ms": 9357
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/async-generator/named-yield-star-getiter-sync-get-abrupt.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-boolean-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-number-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-object-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-string-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-not-callable-symbol-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-abrupt.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-boolean-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-null-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-number-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-string-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-symbol-throw.js",
+    "language/expressions/async-generator/named-yield-star-getiter-sync-returns-undefined-throw.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

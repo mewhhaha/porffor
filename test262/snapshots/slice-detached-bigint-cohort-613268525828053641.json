@@ -1,0 +1,81 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 613268525828053641,
+  "run_kind": "full",
+  "total": 7,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-zero-count-custom-ctor-same-targettype.js",
+      "duration_ms": 75129
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-zero-count-custom-ctor-other-targettype.js",
+      "duration_ms": 72609
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-custom-ctor-other-targettype.js",
+      "duration_ms": 69012
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
+      "duration_ms": 68571
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-get-ctor.js",
+      "duration_ms": 67515
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer.js",
+      "duration_ms": 14904
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-custom-ctor-same-targettype.js",
+      "duration_ms": 14473
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-custom-ctor-other-targettype.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-custom-ctor-same-targettype.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-get-ctor.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-zero-count-custom-ctor-other-targettype.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer-zero-count-custom-ctor-same-targettype.js",
+    "built-ins/TypedArray/prototype/slice/BigInt/detached-buffer.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

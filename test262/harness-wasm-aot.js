@@ -1,8 +1,9 @@
 // Portions of this file are adapted from Test262 (https://github.com/tc39/test262)
 // Test262 is BSD-3-Clause licensed; see the upstream LICENSE file
 //
-// wasm-aot compiles all harness functions eagerly today. Keep host shims tiny so
-// unsupported host capabilities fail when called instead of blocking unrelated tests.
+// Materialization activates the realm boundary only for cases that can use it.
+// Keep the inactive template fail-loud so an unrecognized access cannot silently
+// run with the wrong host semantics.
 
 /// assert.js
 function __porfAssertIsSameValue(a, b) {
@@ -76,38 +77,51 @@ assert.notSameValue = function (actual, unexpected, message) {
 assert.throws = function (expectedErrorConstructor, func, message) {
   return __porfAssertThrows(expectedErrorConstructor, func, message);
 };
-function __porfAssertCompareArray(actual, expected, message) {
-    if (actual.length !== expected.length) {
-      throw message || 'Expected arrays to have the same length';
-    }
 
-    var index = 0;
-    while (index < actual.length) {
-      if (!__porfAssertIsSameValue(actual[index], expected[index])) {
-        throw message || 'Expected arrays to contain the same values at ' + index + ': ' + __porfAssertToString(actual[index]) + ' !== ' + __porfAssertToString(expected[index]);
-      }
-      index = index + 1;
+function __porfCompareArrayMismatchIndex(actual, expected) {
+  if (actual.length !== expected.length) {
+    return -2;
+  }
+
+  var index = 0;
+  while (index < actual.length) {
+    if (!__porfAssertIsSameValue(actual[index], expected[index])) {
+      return index;
     }
+    index = index + 1;
+  }
+  return -1;
+}
+
+function __porfAssertCompareArray(actual, expected, message) {
+  var mismatchIndex = __porfCompareArrayMismatchIndex(actual, expected);
+  if (mismatchIndex === -1) {
+    return;
+  }
+  if (message) {
+    throw message;
+  }
+  if (mismatchIndex === -2) {
+    throw 'Expected arrays to have the same length';
+  }
+
+  throw 'Expected arrays to contain the same values at ' + mismatchIndex + ': ' +
+    __porfAssertToString(actual[mismatchIndex]) + ' !== ' +
+    __porfAssertToString(expected[mismatchIndex]);
 }
 assert.compareArray = __porfAssertCompareArray;
-function compareArray(actual, expected) {
-    if (actual.length !== expected.length) {
-      return false;
-    }
 
-    var index = 0;
-    while (index < actual.length) {
-      if (!__porfAssertIsSameValue(actual[index], expected[index])) {
-        return false;
-      }
-      index = index + 1;
-    }
-    return true;
+function compareArray(actual, expected) {
+  return __porfCompareArrayMismatchIndex(actual, expected) === -1;
 }
 
 /// sta-preamble.js
 function Test262Error(message) {
 }
+
+Test262Error.thrower = function (message) {
+  throw new Test262Error(message);
+};
 
 function $DONOTEVALUATE() {
   throw 'Test262: This statement should not be evaluated.';
@@ -119,6 +133,10 @@ var isConstructor = __porfIsConstructor;
 /// sta.js
 function Test262Error(message) {
 }
+
+Test262Error.thrower = function (message) {
+  throw new Test262Error(message);
+};
 
 function $DONOTEVALUATE() {
   throw 'Test262: This statement should not be evaluated.';
@@ -155,7 +173,7 @@ Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
 });
 
 var $262 = {
-  global: globalThis,
+  global: undefined,
   AbstractModuleSource: AbstractModuleSource,
   IsHTMLDDA: __porfIsHTMLDDA,
   gc: function () {
@@ -166,7 +184,7 @@ var $262 = {
     __porfUnsupportedHost('evalScript');
   },
   createRealm: function () {
-    return __porfCreateRealm();
+    __porfUnsupportedHost('createRealm');
   },
   destroy: function () {},
   getGlobal: function () {
@@ -387,252 +405,3 @@ function verifyCallableProperty(obj, name, functionName, functionLength, desc) {
 }
 
 var verifyPrimordialCallableProperty = verifyCallableProperty;
-
-/// testTypedArray.js
-var floatArrayConstructors = [
-  Float64Array,
-  Float32Array
-];
-var nonClampedIntArrayConstructors = [
-  Int32Array,
-  Int16Array,
-  Int8Array,
-  Uint32Array,
-  Uint16Array,
-  Uint8Array
-];
-var intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);
-var typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);
-var bigIntArrayConstructors = [BigInt64Array, BigUint64Array];
-var allTypedArrayConstructors = typedArrayConstructors;
-var TypedArray = Object.getPrototypeOf(Int8Array);
-var nonAtomicsFriendlyTypedArrayConstructors = floatArrayConstructors.concat([Uint8ClampedArray]);
-var __porfCurrentTypedArrayConstructorIsFloat = false;
-var __porfFloatAndWordTypedArrayConstructors = "__porfFloatAndWordTypedArrayConstructors";
-
-function makePassthrough(TA, primitiveOrIterable) {
-  return primitiveOrIterable;
-}
-
-function __porfCallTypedArrayConstructorCallback(f, TA, argFactory) {
-  f(TA, argFactory);
-}
-
-function testWithTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
-  var passthrough = function (value) { return value; };
-  if (includeArgFactories !== undefined && includeArgFactories !== null) {
-    if (includeArgFactories.length !== 1 || includeArgFactories[0] !== "passthrough") {
-      throw "no arg factories match include and exclude in wasm-aot harness";
-    }
-  }
-  if (excludeArgFactories !== undefined && excludeArgFactories !== null && excludeArgFactories.length > 0) {
-    throw "no arg factories match include and exclude in wasm-aot harness";
-  }
-  if (selected === undefined || selected === null || selected === typedArrayConstructors) {
-    testWithTypedArrayConstructors(f, floatArrayConstructors, includeArgFactories, excludeArgFactories);
-    testWithTypedArrayConstructors(f, intArrayConstructors, includeArgFactories, excludeArgFactories);
-    return;
-  }
-  if (selected === floatArrayConstructors) {
-    __porfCurrentTypedArrayConstructorIsFloat = true;
-    __porfCallTypedArrayConstructorCallback(f, Float64Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Float32Array, passthrough);
-    return;
-  }
-  if (selected === nonClampedIntArrayConstructors) {
-    __porfCurrentTypedArrayConstructorIsFloat = false;
-    __porfCallTypedArrayConstructorCallback(f, Int32Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Int16Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Int8Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint32Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint16Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint8Array, passthrough);
-    return;
-  }
-  if (selected === intArrayConstructors) {
-    __porfCurrentTypedArrayConstructorIsFloat = false;
-    __porfCallTypedArrayConstructorCallback(f, Int32Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Int16Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Int8Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint32Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint16Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint8Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, Uint8ClampedArray, passthrough);
-    return;
-  }
-  throw "testWithTypedArrayConstructors selected set unsupported in wasm-aot harness";
-}
-
-function testWithAllTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
-  testWithTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories);
-}
-
-function testWithBigIntTypedArrayConstructors(f, selected, includeArgFactories, excludeArgFactories) {
-  var passthrough = function (value) { return value; };
-  if (includeArgFactories !== undefined && includeArgFactories !== null) {
-    if (includeArgFactories.length !== 1 || includeArgFactories[0] !== "passthrough") {
-      throw "no arg factories match include and exclude in wasm-aot harness";
-    }
-  }
-  if (excludeArgFactories !== undefined && excludeArgFactories !== null && excludeArgFactories.length > 0) {
-    throw "no arg factories match include and exclude in wasm-aot harness";
-  }
-  if (selected === undefined || selected === null || selected === bigIntArrayConstructors) {
-    __porfCurrentTypedArrayConstructorIsFloat = false;
-    __porfCallTypedArrayConstructorCallback(f, BigInt64Array, passthrough);
-    __porfCallTypedArrayConstructorCallback(f, BigUint64Array, passthrough);
-    return;
-  }
-  throw "testWithBigIntTypedArrayConstructors selected set unsupported in wasm-aot harness";
-}
-
-function testWithAtomicsFriendlyTypedArrayConstructors(f) {
-  testWithTypedArrayConstructors(f, nonClampedIntArrayConstructors);
-}
-
-function isFloatTypedArrayConstructor(TA) {
-  return __porfCurrentTypedArrayConstructorIsFloat;
-}
-
-function __porfTypedArrayConversionExpected(expected, TA) {
-  if (TA === Float64Array) {
-    return expected.Float64;
-  }
-  if (TA === Float32Array) {
-    return expected.Float32;
-  }
-  if (TA === Int32Array) {
-    return expected.Int32;
-  }
-  if (TA === Int16Array) {
-    return expected.Int16;
-  }
-  if (TA === Int8Array) {
-    return expected.Int8;
-  }
-  if (TA === Uint32Array) {
-    return expected.Uint32;
-  }
-  if (TA === Uint16Array) {
-    return expected.Uint16;
-  }
-  if (TA === Uint8Array) {
-    return expected.Uint8;
-  }
-  return expected.Uint8Clamped;
-}
-
-function testTypedArrayConversions(byteConversionValues, fn) {
-  var values = byteConversionValues.values;
-  var expected = byteConversionValues.expected;
-
-  var ctorIndex = 0;
-  while (ctorIndex < typedArrayConstructors.length) {
-    var TA = typedArrayConstructors[ctorIndex];
-    var expectedValues = __porfTypedArrayConversionExpected(expected, TA);
-    var index = 0;
-    while (index < values.length) {
-      var exp = expectedValues[index];
-      var initial = 0;
-      if (exp === 0) {
-        initial = 1;
-      }
-      fn(TA, values[index], exp, initial);
-      index = index + 1;
-    }
-    ctorIndex = ctorIndex + 1;
-  }
-}
-
-function testWithNonAtomicsFriendlyTypedArrayConstructors(f) {
-  throw "testWithNonAtomicsFriendlyTypedArrayConstructors unsupported in wasm-aot harness";
-}
-
-const ctors = [
-  Uint8Array,
-  Int8Array,
-  Uint16Array,
-  Int16Array,
-  Uint32Array,
-  Int32Array,
-  Float32Array,
-  Float64Array,
-  Uint8ClampedArray
-];
-const floatCtors = [
-  Float32Array,
-  Float64Array
-];
-
-function CreateResizableArrayBuffer(byteLength, maxByteLength) {
-  return new ArrayBuffer(byteLength, { maxByteLength: maxByteLength });
-}
-
-function Convert(item) {
-  return item;
-}
-
-function ToNumbers(array) {
-  var result = [];
-  var i = 0;
-  while (i < array.length) {
-    result.push(Convert(array[i]));
-    i = i + 1;
-  }
-  return result;
-}
-
-function MayNeedBigInt(ta, n) {
-  return n;
-}
-
-function CreateRabForTest(ctor) {
-  const rab = CreateResizableArrayBuffer(4 * ctor.BYTES_PER_ELEMENT, 8 * ctor.BYTES_PER_ELEMENT);
-  const taWrite = new ctor(rab);
-  for (let i = 0; i < 4; ++i) {
-    taWrite[i] = MayNeedBigInt(taWrite, 2 * i);
-  }
-  return rab;
-}
-
-function CollectValuesAndResize(n, values, rab, resizeAfter, resizeTo) {
-  if (typeof n == 'bigint') {
-    values.push(Number(n));
-  } else {
-    values.push(n);
-  }
-  if (values.length == resizeAfter) {
-    rab.resize(resizeTo);
-  }
-  return true;
-}
-
-function TestIterationAndResize(iterable, expected, rab, resizeAfter, newByteLength) {
-  var values = [];
-  var resized = false;
-  var arrayValues = false;
-
-  for (let value of iterable) {
-    if (Array.isArray(value)) {
-      arrayValues = true;
-      values.push([
-        value[0],
-        Number(value[1])
-      ]);
-    } else {
-      values.push(Number(value));
-    }
-    if (!resized && values.length == resizeAfter) {
-      rab.resize(newByteLength);
-      resized = true;
-    }
-  }
-  if (!arrayValues) {
-    assert.compareArray([].concat(values), expected, "TestIterationAndResize: list of iterated values");
-  } else {
-    for (let i = 0; i < expected.length; i++) {
-      assert.compareArray(values[i], expected[i], "TestIterationAndResize: list of iterated lists of values");
-    }
-  }
-  assert(resized, "TestIterationAndResize: resize condition should have been hit");
-}

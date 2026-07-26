@@ -427,22 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn parser_abort_becomes_parse_error() {
+    fn parser_accepts_async_arrow_heads_longer_than_thirty_two_tokens() {
         let source = r#"
 var ref = async (aFalse = falseCount +=1, aString = stringCount += 1, aNaN = nanCount += 1, a0 = zeroCount += 1, aNull = nullCount += 1, aObj = objCount +=1) => {};
 "#;
 
-        let result = std::panic::catch_unwind(|| parse(source, ParseOptions::script()));
-        let parsed = result.expect("frontend parser boundary should not unwind");
-        if let Err(err) = parsed {
-            assert!(err.message().contains("parse unsupported"));
-            assert_eq!(
-                err.diagnostic().kind,
-                ParseDiagnosticKind::UnsupportedParserFeature
-            );
-            assert_eq!(err.diagnostic().code, "P_PARSE_UNSUPPORTED");
-            assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Parse);
-        }
+        parse(source, ParseOptions::script()).expect("long async arrow head should parse");
     }
 
     #[test]

@@ -1,0 +1,216 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8556036983037034978,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 5,
+    "Unsupported": 7,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 5,
+    "Crash": 0,
+    "NotImplemented": 7,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/values/detached-buffer.js",
+      "duration_ms": 59005
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/iter-prototype.js",
+      "duration_ms": 48661
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/return-itor.js",
+      "duration_ms": 48579
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/name.js",
+      "duration_ms": 46549
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/length.js",
+      "duration_ms": 46239
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/prop-desc.js",
+      "duration_ms": 45391
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/detached-buffer.js",
+      "duration_ms": 43912
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/iter-prototype.js",
+      "duration_ms": 41031
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/BigInt/return-itor.js",
+      "duration_ms": 39221
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/values/this-is-not-object.js",
+      "duration_ms": 36778
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/BigInt/detached-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1558816)",
+      "detail_hash": 16028918622009013328,
+      "duration_ms": 43912
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/BigInt/return-abrupt-from-this-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/detached-buffer.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1561088)",
+      "detail_hash": 15487822437091566112,
+      "duration_ms": 59005
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/invoked-as-method.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1510000)",
+      "detail_hash": 6606734695578587310,
+      "duration_ms": 35383
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/make-in-bounds-after-exhausted.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/make-out-of-bounds-after-exhausted.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/resizable-buffer-grow-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/this-is-not-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1520536)",
+      "detail_hash": 12711133377033769800,
+      "duration_ms": 36778
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/values/this-is-not-typedarray-instance.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1528840)",
+      "detail_hash": 6160134110279132495,
+      "duration_ms": 35482
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/values/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/values/BigInt/iter-prototype.js",
+    "built-ins/TypedArray/prototype/values/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/values/BigInt/return-itor.js",
+    "built-ins/TypedArray/prototype/values/detached-buffer.js",
+    "built-ins/TypedArray/prototype/values/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/values/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/values/iter-prototype.js",
+    "built-ins/TypedArray/prototype/values/length.js",
+    "built-ins/TypedArray/prototype/values/make-in-bounds-after-exhausted.js",
+    "built-ins/TypedArray/prototype/values/make-out-of-bounds-after-exhausted.js",
+    "built-ins/TypedArray/prototype/values/name.js",
+    "built-ins/TypedArray/prototype/values/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/values/prop-desc.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/values/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/values/return-itor.js",
+    "built-ins/TypedArray/prototype/values/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/values/this-is-not-typedarray-instance.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

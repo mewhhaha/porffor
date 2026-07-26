@@ -1,0 +1,81 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5502695787452728003,
+  "run_kind": "full",
+  "total": 7,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-zero-count-custom-ctor-same-targettype.js",
+      "duration_ms": 73625
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-zero-count-custom-ctor-other-targettype.js",
+      "duration_ms": 71151
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-custom-ctor-other-targettype.js",
+      "duration_ms": 68233
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
+      "duration_ms": 66839
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-get-ctor.js",
+      "duration_ms": 66157
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer-custom-ctor-same-targettype.js",
+      "duration_ms": 15962
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/slice/detached-buffer.js",
+      "duration_ms": 15214
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/slice/detached-buffer-custom-ctor-other-targettype.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer-custom-ctor-same-targettype.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer-get-ctor.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer-zero-count-custom-ctor-other-targettype.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer-zero-count-custom-ctor-same-targettype.js",
+    "built-ins/TypedArray/prototype/slice/detached-buffer.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

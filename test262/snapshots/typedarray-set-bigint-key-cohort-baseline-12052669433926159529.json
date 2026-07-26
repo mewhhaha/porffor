@@ -1,0 +1,97 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12052669433926159529,
+  "run_kind": "full",
+  "total": 11,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-minus-zero.js",
+      "duration_ms": 103762
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-integer.js",
+      "duration_ms": 97846
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-out-of-bounds.js",
+      "duration_ms": 95659
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-prototype-chain-set.js",
+      "duration_ms": 62627
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-reflect-set.js",
+      "duration_ms": 62078
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-valid-index-prototype-chain-set.js",
+      "duration_ms": 50821
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-valid-index-reflect-set.js",
+      "duration_ms": 48995
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-canonical-index.js",
+      "duration_ms": 48250
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-numeric-index-set-throws.js",
+      "duration_ms": 47983
+    },
+    {
+      "path": "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-symbol.js",
+      "duration_ms": 47084
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-prototype-chain-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-reflect-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-minus-zero.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-canonical-index.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-integer.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-numeric-index-set-throws.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-not-numeric-index.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-out-of-bounds.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-symbol.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-valid-index-prototype-chain-set.js",
+    "built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-valid-index-reflect-set.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

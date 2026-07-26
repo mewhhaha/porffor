@@ -1,0 +1,91 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12517032484477954620,
+  "run_kind": "full",
+  "total": 9,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/name.js",
+      "duration_ms": 78934
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/length.js",
+      "duration_ms": 78786
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/property-descriptor.js",
+      "duration_ms": 76718
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/ignores-species.js",
+      "duration_ms": 48672
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/not-a-constructor.js",
+      "duration_ms": 47029
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/reverses.js",
+      "duration_ms": 26814
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/length-property-ignored.js",
+      "duration_ms": 25855
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/immutable.js",
+      "duration_ms": 23953
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
+      "duration_ms": 13106
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/toReversed/ignores-species.js",
+    "built-ins/TypedArray/prototype/toReversed/immutable.js",
+    "built-ins/TypedArray/prototype/toReversed/length-property-ignored.js",
+    "built-ins/TypedArray/prototype/toReversed/length.js",
+    "built-ins/TypedArray/prototype/toReversed/name.js",
+    "built-ins/TypedArray/prototype/toReversed/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/toReversed/property-descriptor.js",
+    "built-ins/TypedArray/prototype/toReversed/reverses.js",
+    "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

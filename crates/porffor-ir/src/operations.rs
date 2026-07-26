@@ -809,6 +809,7 @@ pub enum SpecOperationIr {
     HasOwnProperty,
     DeletePropertyOrThrow,
     CreateDataPropertyOrThrow,
+    CopyDataProperties,
     GetMethod,
     Call,
     Construct,
@@ -842,6 +843,7 @@ impl SpecOperationIr {
             Self::HasOwnProperty => "HasOwnProperty",
             Self::DeletePropertyOrThrow => "DeletePropertyOrThrow",
             Self::CreateDataPropertyOrThrow => "CreateDataPropertyOrThrow",
+            Self::CopyDataProperties => "CopyDataProperties",
             Self::GetMethod => "GetMethod",
             Self::Call => "Call",
             Self::Construct => "Construct",
@@ -1072,6 +1074,13 @@ pub const SPEC_OPERATION_CATALOG: &[SpecOperationCatalogEntry] = &[
         OperationLoweringStatus::SharedWasmEmitter,
     ),
     lowered_op(
+        "CopyDataProperties",
+        SpecOperationFamily::Object,
+        "Unused",
+        MAY_THROW,
+        OperationLoweringStatus::SharedWasmEmitter,
+    ),
+    lowered_op(
         "DefinePropertyOrThrow",
         SpecOperationFamily::Object,
         "Unused",
@@ -1254,6 +1263,7 @@ mod tests {
         "DeletePropertyOrThrow",
         "CreateDataProperty",
         "CreateDataPropertyOrThrow",
+        "CopyDataProperties",
         "DefinePropertyOrThrow",
         "ToPropertyDescriptor",
         "FromPropertyDescriptor",
@@ -1343,6 +1353,7 @@ mod tests {
         assert!(lowered.contains("HasOwnProperty"));
         assert!(lowered.contains("DeletePropertyOrThrow"));
         assert!(lowered.contains("CreateDataPropertyOrThrow"));
+        assert!(lowered.contains("CopyDataProperties"));
         assert!(lowered.contains("GetMethod"));
         assert!(lowered.contains("Call"));
         assert!(lowered.contains("Construct"));
